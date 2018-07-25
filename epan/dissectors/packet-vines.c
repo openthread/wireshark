@@ -8,19 +8,7 @@
  * Copyright 1998 Gerald Combs
  * Joerg Mayer (see AUTHORS file)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Information about VINES can be found in
@@ -34,15 +22,15 @@
  * Banyan Systems are no longer in business, so that document cannot be
  * ordered from them.  An online copy appears to be available at
  *
- *	http://banyan-vines.bamertal.net/Banyan-supplier-help/ProtoDef/ProtoDefMain.htm
+ *	http://banyan-vines.bamertal.com/Banyan-supplier-help/ProtoDef/ProtoDefMain.htm
  *
  * along with the VINES Architecture Definition at
  *
- *	http://banyan-vines.bamertal.net/Banyan-supplier-help/ArchDef/ArchDefMain.htm
+ *	http://banyan-vines.bamertal.com/Banyan-supplier-help/ArchDef/ArchDefMain.htm
  *
  * and other VINES documentation linked to from
  *
- *	http://banyan-vines.bamertal.net/Banyan-supplier-help/banyan.htm
+ *	http://banyan-vines.bamertal.com/Banyan-supplier-help/banyan.htm
  *
  * Some information can also be found in
  *
@@ -90,6 +78,8 @@
 #include <epan/arcnet_pids.h>
 #include <epan/llcsaps.h>
 #include <epan/to_str.h>
+#include <epan/address_types.h>
+#include <wsutil/pint.h>
 
 void proto_register_vines_frp(void);
 void proto_reg_handoff_vines_frp(void);
@@ -264,6 +254,8 @@ static int hf_vines_icp_packet_type = -1;
 
 static gint ett_vines_icp = -1;
 
+static int vines_address_type = -1;
+
 /* VINES IP structs and definitions */
 
 enum {
@@ -410,7 +402,7 @@ proto_register_vines_frp(void)
 
 	proto_vines_frp = proto_register_protocol(
 	    "Banyan Vines Fragmentation Protocol", "Vines FRP", "vines_frp");
-	proto_register_field_array(proto_vines_ip, hf, array_length(hf));
+	proto_register_field_array(proto_vines_frp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 }
 
@@ -425,7 +417,7 @@ proto_reg_handoff_vines_frp(void)
 
 	vines_frp_new_handle = create_dissector_handle(dissect_vines_frp_new,
 	    proto_vines_frp);
-	dissector_add_uint("udp.port", UDP_PORT_VINES, vines_frp_new_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_VINES, vines_frp_new_handle);
 }
 
 static dissector_table_t vines_llc_dissector_table;
@@ -485,12 +477,12 @@ proto_register_vines_llc(void)
 
 	proto_vines_llc = proto_register_protocol(
 	    "Banyan Vines LLC", "Vines LLC", "vines_llc");
-	proto_register_field_array(proto_vines_ip, hf, array_length(hf));
+	proto_register_field_array(proto_vines_llc, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
 	/* subdissector code */
 	vines_llc_dissector_table = register_dissector_table("vines_llc.ptype",
-	    "Vines LLC protocol", proto_vines_llc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "Vines LLC protocol", proto_vines_llc, FT_UINT8, BASE_HEX);
 }
 
 void
@@ -556,9 +548,9 @@ dissect_vines_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 			val_to_str_const(vip_tctl, proto_vals, "Unknown VIP protocol"),
 			vip_tctl);
 
-	set_address_tvb(&pinfo->net_src, AT_VINES, VINES_ADDR_LEN, tvb, offset+12);
+	set_address_tvb(&pinfo->net_src, vines_address_type, VINES_ADDR_LEN, tvb, offset+12);
 	copy_address_shallow(&pinfo->src, &pinfo->net_src);
-	set_address_tvb(&pinfo->net_dst, AT_VINES, VINES_ADDR_LEN, tvb, offset+6);
+	set_address_tvb(&pinfo->net_dst, vines_address_type, VINES_ADDR_LEN, tvb, offset+6);
 	copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
 	/* helpers to transport control */
@@ -574,7 +566,7 @@ dissect_vines_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 	if (tree) {
 		ti = proto_tree_add_item(tree, proto_vines_ip, tvb, offset, vip_pktlen, ENC_NA);
 		vip_tree = proto_item_add_subtree(ti, ett_vines_ip);
-		proto_tree_add_item(vip_tree, hf_vines_ip_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_checksum(vip_tree, tvb, offset, hf_vines_ip_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		offset += 2;
 
 		proto_tree_add_item(vip_tree, hf_vines_ip_length, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -615,6 +607,29 @@ dissect_vines_ip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 		call_data_dissector(next_tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);
+}
+
+static int vines_to_str(const address* addr, gchar *buf, int buf_len _U_)
+{
+	const guint8 *addr_data = (const guint8 *)addr->data;
+	gchar *bufp = buf;
+
+	bufp = dword_to_hex(bufp, pntoh32(&addr_data[0])); /* 8 bytes */
+	*bufp++ = '.'; /* 1 byte */
+	bufp = word_to_hex(bufp, pntoh16(&addr_data[4])); /* 4 bytes */
+	*bufp++ = '\0'; /* NULL terminate */
+
+	return (int)(bufp - buf);
+}
+
+static int vines_str_len(const address* addr _U_)
+{
+	return 14;
+}
+
+static int vines_len(void)
+{
+	return VINES_ADDR_LEN;
 }
 
 void
@@ -694,10 +709,12 @@ proto_register_vines_ip(void)
 
 	/* subdissector code */
 	vines_ip_dissector_table = register_dissector_table("vines_ip.protocol",
-	    "Vines protocol", proto_vines_ip, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "Vines protocol", proto_vines_ip, FT_UINT8, BASE_HEX);
 
 	vines_ip_handle = create_dissector_handle(dissect_vines_ip,
 	    proto_vines_ip);
+
+	vines_address_type = address_type_dissector_register("AT_VINES", "Banyan Vines address", vines_to_str, vines_str_len, NULL, NULL, vines_len, NULL, NULL);
 }
 
 void
@@ -1229,7 +1246,7 @@ dissect_vines_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 		if (packet_type == VARP_ASSIGNMENT_RESP) {
 			col_append_fstr(pinfo->cinfo, COL_INFO,
 					    ", Address = %s",
-					    tvb_address_to_str(wmem_packet_scope(), tvb, AT_VINES, 2));
+					    tvb_address_to_str(wmem_packet_scope(), tvb, vines_address_type, 2));
 			proto_tree_add_item(vines_arp_tree, hf_vines_arp_address, tvb, 2, VINES_ADDR_LEN, ENC_NA);
 		}
 		proto_tree_add_item(vines_arp_tree, hf_vines_arp_sequence_number, tvb, 2+VINES_ADDR_LEN, 4, ENC_BIG_ENDIAN);
@@ -1251,7 +1268,7 @@ dissect_vines_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 		if (packet_type == VARP_ASSIGNMENT_RESP) {
 			col_append_fstr(pinfo->cinfo, COL_INFO,
 					    ", Address = %s",
-					    tvb_address_to_str(wmem_packet_scope(), tvb, AT_VINES, 2));
+					    tvb_address_to_str(wmem_packet_scope(), tvb, vines_address_type, 2));
 
 			proto_tree_add_item(vines_arp_tree, hf_vines_arp_address, tvb, 2, VINES_ADDR_LEN, ENC_NA);
 		}
@@ -1295,7 +1312,7 @@ proto_register_vines_arp(void)
 
 	proto_vines_arp = proto_register_protocol(
 	    "Banyan Vines ARP", "Vines ARP", "vines_arp");
-	proto_register_field_array(proto_vines_spp, hf, array_length(hf));
+	proto_register_field_array(proto_vines_arp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 }
 
@@ -2013,17 +2030,20 @@ void
 proto_reg_handoff_vines_icp(void)
 {
 	dissector_handle_t vines_icp_handle;
+	capture_dissector_handle_t vines_echo_cap_handle;
+	capture_dissector_handle_t vines_ip_cap_handle;
 
-	vines_icp_handle = create_dissector_handle(dissect_vines_icp,
-	    proto_vines_icp);
+	vines_icp_handle = create_dissector_handle(dissect_vines_icp, proto_vines_icp);
 	dissector_add_uint("vines_ip.protocol", VIP_PROTO_ICP, vines_icp_handle);
-	register_capture_dissector("ethertype", ETHERTYPE_VINES_IP, capture_vines, proto_vines_ip);
-	register_capture_dissector("ethertype", ETHERTYPE_VINES_ECHO, capture_vines, proto_vines_echo);
-	register_capture_dissector("ppp_hdlc", PPP_VINES, capture_vines, proto_vines_echo);
-	register_capture_dissector("ip.proto", PPP_VINES, capture_vines, proto_vines_echo);
-	register_capture_dissector("ipv6.nxt", PPP_VINES, capture_vines, proto_vines_echo);
-	register_capture_dissector("llc.dsap", SAP_VINES1, capture_vines, proto_vines_echo);
-	register_capture_dissector("llc.dsap", SAP_VINES2, capture_vines, proto_vines_echo);
+
+	vines_ip_cap_handle = create_capture_dissector_handle(capture_vines, proto_vines_ip);
+	capture_dissector_add_uint("ethertype", ETHERTYPE_VINES_IP, vines_ip_cap_handle);
+	vines_echo_cap_handle = create_capture_dissector_handle(capture_vines, proto_vines_echo);
+	capture_dissector_add_uint("ethertype", ETHERTYPE_VINES_ECHO, vines_echo_cap_handle);
+	capture_dissector_add_uint("ppp_hdlc", PPP_VINES, vines_echo_cap_handle);
+	capture_dissector_add_uint("ip.proto", PPP_VINES, vines_echo_cap_handle);
+	capture_dissector_add_uint("llc.dsap", SAP_VINES1, vines_echo_cap_handle);
+	capture_dissector_add_uint("llc.dsap", SAP_VINES2, vines_echo_cap_handle);
 }
 
 /*

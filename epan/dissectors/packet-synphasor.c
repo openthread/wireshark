@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,7 +16,6 @@
 
 #include <epan/packet.h>
 #include <epan/crc16-tvb.h>
-#include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/proto_data.h>
 #include "packet-tcp.h"
@@ -48,8 +35,8 @@ void proto_reg_handoff_synphasor(void);
 static int proto_synphasor	 = -1;
 
 /* user preferences */
-static guint global_pref_tcp_port = 4712;
-static guint global_pref_udp_port = 4713;
+#define SYNPHASOR_TCP_PORT  4712 /* Not IANA registered */
+#define SYNPHASOR_UDP_PORT  4713 /* Not IANA registered */
 
 /* the ett... variables hold the state (open/close) of the treeview in the GUI */
 static gint ett_synphasor	   = -1; /* root element for this protocol */
@@ -110,6 +97,7 @@ static int hf_command		    = -1;
 /* Generated from convert_proto_tree_add_text.pl */
 static int hf_synphasor_data = -1;
 static int hf_synphasor_checksum = -1;
+static int hf_synphasor_checksum_status = -1;
 static int hf_synphasor_num_phasors = -1;
 static int hf_synphasor_num_analog_values = -1;
 static int hf_synphasor_num_digital_status_words = -1;
@@ -129,6 +117,7 @@ static int hf_synphasor_status_word_mask_normal_state = -1;
 static int hf_synphasor_status_word_mask_valid_bits = -1;
 
 static expert_field ei_synphasor_extended_frame_data = EI_INIT;
+static expert_field ei_synphasor_checksum = EI_INIT;
 
 static dissector_handle_t synphasor_udp_handle;
 
@@ -509,11 +498,7 @@ static int dissect_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 			conversation_add_proto_data(conversation, proto_synphasor, frame);
 		}
 		else if (DATA == frame_type) {
-			conversation_t *conversation = find_conversation(pinfo->num,
-									 &pinfo->src, &pinfo->dst,
-									 pinfo->ptype,
-									 pinfo->srcport, pinfo->destport,
-									 0);
+			conversation_t *conversation = find_conversation_pinfo(pinfo, 0);
 
 			if (conversation) {
 				config_frame *conf = (config_frame *)conversation_get_proto_data(conversation, proto_synphasor);
@@ -546,15 +531,15 @@ static int dissect_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 		/* check CRC, call appropriate subdissector for the rest of the frame if CRC is correct*/
 		sub_item  = proto_tree_add_item(synphasor_tree, hf_synphasor_data, tvb, offset, tvbsize - 16, ENC_NA);
 		crc_good = check_crc(tvb, &crc);
-		temp_item = proto_tree_add_uint(synphasor_tree, hf_synphasor_checksum, tvb, tvbsize - 2, 2, crc);
+		proto_tree_add_checksum(synphasor_tree, tvb, tvbsize - 2, hf_synphasor_checksum, hf_synphasor_checksum_status, &ei_synphasor_checksum,
+								pinfo, crc16_x25_ccitt_tvb(tvb, tvb_get_ntohs(tvb, 2) - 2), ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
 		if (!crc_good) {
 			proto_item_append_text(sub_item,  ", not dissected because of wrong checksum");
-			proto_item_append_text(temp_item, " [incorrect]");
 		}
 		else {
 			/* create a new tvb to pass to the subdissector
 			   '-16': length of header + 2 CRC bytes */
-			sub_tvb = tvb_new_subset(tvb, offset, tvbsize - 16, framesize - 16);
+			sub_tvb = tvb_new_subset_length_caplen(tvb, offset, tvbsize - 16, framesize - 16);
 
 			/* call subdissector */
 			switch (frame_type) {
@@ -634,7 +619,7 @@ static gint dissect_header(tvbuff_t *tvb, proto_tree *tree)
 	offset += 2;
 
 	/* SOC */
-	proto_tree_add_item(tree, hf_soc, tvb, offset, 4, ENC_TIME_TIMESPEC | ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_soc, tvb, offset, 4, ENC_TIME_SECS | ENC_BIG_ENDIAN);
 	offset += 4;
 
 	/* FRACSEC */
@@ -734,7 +719,7 @@ static int dissect_config_frame(tvbuff_t *tvb, proto_item *config_item)
 
 	/* DATA_RATE */
 	{
-		gint16 tmp = tvb_get_ntohs(tvb, offset);
+		gint16 tmp = tvb_get_ntohis(tvb, offset);
 		if (tmp > 0)
 			proto_tree_add_int_format_value(config_tree, hf_synphasor_rate_of_transmission, tvb, offset, 2, tmp,
                         "%d frame(s) per second", tmp);
@@ -896,8 +881,8 @@ static int dissect_single_phasor(tvbuff_t *tvb, int offset,
 	else {
 		if (polar == notation) {
 			/* int, polar */
-			*mag	= (guint16)tvb_get_ntohs(tvb, offset	);
-			*phase	= (gint16) tvb_get_ntohs(tvb, offset + 2);
+			*mag	= tvb_get_ntohs(tvb, offset	);
+			*phase	= tvb_get_ntohis(tvb, offset + 2);
 			*phase /= 10000.0; /* angle is in radians*10^4 */
 		}
 		else {
@@ -964,17 +949,15 @@ static gint dissect_PHASORS(tvbuff_t *tvb, proto_tree *tree, config_block *block
 static gint dissect_DFREQ(tvbuff_t *tvb, proto_tree *tree, config_block *block, gint offset)
 {
 	if (floating_point == block->format_fr) {
-		gfloat tmp;
-
-		tmp = tvb_get_ntohieee_float(tvb, offset);
-		proto_tree_add_float_format_value(tree, hf_synphasor_actual_frequency_value, tvb, offset, 4, tmp, "%fHz", tmp); offset += 4;
+		proto_tree_add_item(tree, hf_synphasor_actual_frequency_value, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
 
 		/* The standard doesn't clearly say how to interpret this value, but
 		 * http://www.pes-psrc.org/h/C37_118_H11_FAQ_Jan2008.pdf provides further information.
 		 * --> no scaling factor is applied to DFREQ
 		 */
-		tmp = tvb_get_ntohieee_float(tvb, offset);
-		proto_tree_add_float_format_value(tree, hf_synphasor_rate_change_frequency, tvb, offset, 4, tmp, "%fHz/s", tmp); offset += 4;
+		proto_tree_add_item(tree, hf_synphasor_rate_change_frequency, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
 	}
 	else {
 		gint16 tmp;
@@ -1248,7 +1231,7 @@ void proto_register_synphasor(void)
 		  TFS(&conf_formatb0names), 0x1, NULL, HFILL }},
 
 		{ &hf_conf_fnom,
-		{ "Nominal line freqency", "synphasor.conf.fnom", FT_BOOLEAN, 16,
+		{ "Nominal line frequency", "synphasor.conf.fnom", FT_BOOLEAN, 16,
 		  TFS(&conf_fnomnames), 0x0001, NULL, HFILL }},
 
 		{ &hf_conf_cfgcnt,
@@ -1297,13 +1280,14 @@ void proto_register_synphasor(void)
       /* Generated from convert_proto_tree_add_text.pl */
       { &hf_synphasor_data, { "Data", "synphasor.data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_checksum, { "Checksum", "synphasor.checksum", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_synphasor_checksum_status, { "Checksum Status", "synphasor.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
       { &hf_synphasor_num_phasors, { "Number of phasors", "synphasor.num_phasors", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_num_analog_values, { "Number of analog values", "synphasor.num_analog_values", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_num_digital_status_words, { "Number of digital status words", "synphasor.num_digital_status_words", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_rate_of_transmission, { "Rate of transmission", "synphasor.rate_of_transmission", FT_INT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_phasor, { "Phasor", "synphasor.phasor", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_synphasor_actual_frequency_value, { "Actual frequency value", "synphasor.actual_frequency_value", FT_FLOAT, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_synphasor_rate_change_frequency, { "Rate of change of frequency", "synphasor.rate_change_frequency", FT_FLOAT, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_synphasor_actual_frequency_value, { "Actual frequency value", "synphasor.actual_frequency_value", FT_FLOAT, BASE_NONE|BASE_UNIT_STRING, &units_hz, 0x0, NULL, HFILL }},
+      { &hf_synphasor_rate_change_frequency, { "Rate of change of frequency", "synphasor.rate_change_frequency", FT_FLOAT, BASE_NONE|BASE_UNIT_STRING, &units_hz_s, 0x0, NULL, HFILL }},
       { &hf_synphasor_frequency_deviation_from_nominal, { "Frequency deviation from nominal", "synphasor.frequency_deviation_from_nominal", FT_INT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_analog_value, { "Analog value", "synphasor.analog_value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_synphasor_digital_status_word, { "Digital status word", "synphasor.digital_status_word", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -1342,9 +1326,9 @@ void proto_register_synphasor(void)
 
 	static ei_register_info ei[] = {
 		{ &ei_synphasor_extended_frame_data, { "synphasor.extended_frame_data.unaligned", PI_PROTOCOL, PI_WARN, "Size not multiple of 16-bit word", EXPFILL }},
+		{ &ei_synphasor_checksum, { "synphasor.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
 	};
 
-	module_t *synphasor_module;
 	expert_module_t* expert_synphasor;
 
 	/* register protocol */
@@ -1360,45 +1344,18 @@ void proto_register_synphasor(void)
 	expert_synphasor = expert_register_protocol(proto_synphasor);
 	expert_register_field_array(expert_synphasor, ei, array_length(ei));
 
-	/* register preferences */
-	synphasor_module = prefs_register_protocol(proto_synphasor, proto_reg_handoff_synphasor);
-
-	/* the port numbers of the lower level protocols */
-	prefs_register_uint_preference(synphasor_module, "udp_port", "Synchrophasor UDP port",
-				       "Set the port number for synchrophasor frames over UDP" \
-				       "(if other than the default of 4713)",
-				       10, &global_pref_udp_port);
-	prefs_register_uint_preference(synphasor_module, "tcp_port", "Synchrophasor TCP port",
-				       "Set the port number for synchrophasor frames over TCP" \
-				       "(if other than the default of 4712)",
-				       10, &global_pref_tcp_port);
-
 } /* proto_register_synphasor() */
 
 /* called at startup and when the preferences change */
 void proto_reg_handoff_synphasor(void)
 {
-	static gboolean		  initialized = FALSE;
-	static dissector_handle_t synphasor_tcp_handle;
-	static guint		  current_udp_port;
-	static guint		  current_tcp_port;
+	dissector_handle_t synphasor_tcp_handle;
 
-	if (!initialized) {
-		synphasor_tcp_handle = create_dissector_handle(dissect_tcp, proto_synphasor);
-		dissector_add_for_decode_as("rtacser.data", synphasor_udp_handle);
-		initialized = TRUE;
-	}
-	else {
-		/* update preferences */
-		dissector_delete_uint("udp.port", current_udp_port, synphasor_udp_handle);
-		dissector_delete_uint("tcp.port", current_tcp_port, synphasor_tcp_handle);
-	}
+	synphasor_tcp_handle = create_dissector_handle(dissect_tcp, proto_synphasor);
+	dissector_add_for_decode_as("rtacser.data", synphasor_udp_handle);
+	dissector_add_uint_with_preference("udp.port", SYNPHASOR_UDP_PORT, synphasor_udp_handle);
+	dissector_add_uint_with_preference("tcp.port", SYNPHASOR_TCP_PORT, synphasor_tcp_handle);
 
-	current_udp_port = global_pref_udp_port;
-	current_tcp_port = global_pref_tcp_port;
-
-	dissector_add_uint("udp.port", current_udp_port, synphasor_udp_handle);
-	dissector_add_uint("tcp.port", current_tcp_port, synphasor_tcp_handle);
 } /* proto_reg_handoff_synphasor() */
 
 /*

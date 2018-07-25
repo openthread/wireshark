@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -24,6 +12,7 @@
 
 #ifdef DUMP_DFILTER_MACRO
 #include <stdio.h>
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
 #endif
 #include <string.h>
 
@@ -53,13 +42,6 @@ void dump_dfilter_macro_t(const dfilter_macro_t *m, const char *function, const 
 #define DUMP_MACRO(m)
 #endif
 
-static gboolean free_value(gpointer k _U_, gpointer v, gpointer u _U_) {
-	fvt_cache_entry_t* e = (fvt_cache_entry_t*)v;
-	g_free(e->repr);
-	g_free(e);
-	return TRUE;
-}
-
 static gboolean fvt_cache_cb(proto_node * node, gpointer data _U_) {
 	field_info* finfo = PNODE_FINFO(node);
 	fvt_cache_entry_t* e;
@@ -77,16 +59,23 @@ static gboolean fvt_cache_cb(proto_node * node, gpointer data _U_) {
 				break;
 		}
 		e = g_new(fvt_cache_entry_t,1);
-		e->name = finfo->hfinfo->abbrev,
-		e->repr = fvalue_to_string_repr(&(finfo->value), FTREPR_DFILTER, finfo->hfinfo->display, NULL);
+		e->name = finfo->hfinfo->abbrev;
+		e->repr = fvalue_to_string_repr(NULL, &(finfo->value), FTREPR_DFILTER, finfo->hfinfo->display);
 		e->usable = TRUE;
 		g_hash_table_insert(fvt_cache,(void*)finfo->hfinfo->abbrev,e);
 	}
 	return FALSE;
 }
 
+static void dfilter_free_fvt_entry(gpointer v)
+{
+	fvt_cache_entry_t* e = (fvt_cache_entry_t*)v;
+	wmem_free(NULL, e->repr);
+	g_free(e);
+}
+
 void dfilter_macro_build_ftv_cache(void* tree_root) {
-	g_hash_table_foreach_remove(fvt_cache,free_value,NULL);
+	g_hash_table_remove_all(fvt_cache);
 	proto_tree_traverse_post_order((proto_tree *)tree_root, fvt_cache_cb, NULL);
 }
 
@@ -183,7 +172,7 @@ static gchar* dfilter_macro_apply_recurse(const gchar* text, guint depth, gchar*
 		FGS(name); \
 		FGS(arg); \
 		if (args) { \
-			while(args->len) { void* p = g_ptr_array_remove_index_fast(args,0); if (p) g_free(p); } \
+			while(args->len) { void* p = g_ptr_array_remove_index_fast(args,0); g_free(p); } \
 			g_ptr_array_free(args,TRUE); \
 			args = NULL; \
 		} \
@@ -420,13 +409,10 @@ done:
 	g_ptr_array_add(parts,NULL);
 
 	g_free(m->parts);
-	m->parts = (gchar**)parts->pdata;
+	m->parts = (gchar **)g_ptr_array_free(parts, FALSE);
 
 	g_free(m->args_pos);
-	m->args_pos = (int*)(void *)args_pos->data;
-
-	g_ptr_array_free(parts,FALSE);
-	g_array_free(args_pos,FALSE);
+	m->args_pos = (int*)(void *)g_array_free(args_pos, FALSE);
 
 	m->argc = argc;
 
@@ -583,9 +569,10 @@ void dfilter_macro_init(void) {
 				    macro_update,
 				    macro_free,
 				    NULL, /* Note: This is set in macros_init () */
+				    NULL,
 				    uat_fields);
 
-	fvt_cache = g_hash_table_new(g_str_hash,g_str_equal);
+	fvt_cache = g_hash_table_new_full(g_str_hash,g_str_equal, NULL, dfilter_free_fvt_entry);
 }
 
 void dfilter_macro_get_uat(uat_t **dfmu_ptr_ptr) {
@@ -620,71 +607,76 @@ void dfilter_macro_get_uat(uat_t **dfmu_ptr_ptr) {
 
 void dump_dfilter_macro_t(const dfilter_macro_t *m, const char *function, const char *file, int line)
 {
-	printf("\n<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n");
+	ws_debug_printf("\n<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n");
 
 	if(m == NULL) {
-		printf("  dfilter_macro_t * == NULL! (via: %s(): %s:%d)\n", function, file, line);
-		printf("\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+		ws_debug_printf("  dfilter_macro_t * == NULL! (via: %s(): %s:%d)\n", function, file, line);
+		ws_debug_printf("\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 	}
 
-	printf("DUMP of dfilter_macro_t: %p (via: %s(): %s:%d)\n", m, function, file, line);
+	ws_debug_printf("DUMP of dfilter_macro_t: %p (via: %s(): %s:%d)\n", m, function, file, line);
 
-	printf("  &dfilter_macro->name     == %p\n", &m->name);
+	ws_debug_printf("  &dfilter_macro->name     == %p\n", &m->name);
 	if(m->name == NULL) {
-		printf("                ->name     == NULL\n");
+		ws_debug_printf("                ->name     == NULL\n");
 	} else {
-		printf("                ->name     == %p\n", m->name);
-		printf("                ->name     == <%s>\n", m->name);
+		ws_debug_printf("                ->name     == %p\n", m->name);
+		ws_debug_printf("                ->name     == <%s>\n", m->name);
 	}
 
-	printf("  &dfilter_macro->text     == %p\n", &m->text);
+	ws_debug_printf("  &dfilter_macro->text     == %p\n", &m->text);
 	if(m->text == NULL) {
-		printf("                ->text     == NULL\n");
+		ws_debug_printf("                ->text     == NULL\n");
 	} else {
-		printf("                ->text     == %p\n", m->text);
-		printf("                ->text     == <%s>\n", m->text);
+		ws_debug_printf("                ->text     == %p\n", m->text);
+		ws_debug_printf("                ->text     == <%s>\n", m->text);
 	}
 
-	printf("  &dfilter_macro->usable   == %p\n", &m->usable);
-	printf("                ->usable   == %u\n", m->usable);
+	ws_debug_printf("  &dfilter_macro->usable   == %p\n", &m->usable);
+	ws_debug_printf("                ->usable   == %u\n", m->usable);
 
-	printf("  &dfilter_macro->parts    == %p\n", &m->parts);
+	ws_debug_printf("  &dfilter_macro->parts    == %p\n", &m->parts);
 
 	if(m->parts == NULL) {
-		printf("                ->parts    == NULL\n");
+		ws_debug_printf("                ->parts    == NULL\n");
 	} else {
 		int i = 0;
 
 		while (m->parts[i]) {
-			printf("                ->parts[%d] == %p\n", i, m->parts[i]);
-			printf("                ->parts[%d] == <%s>\n", i, m->parts[i]);
+			ws_debug_printf("                ->parts[%d] == %p\n", i, m->parts[i]);
+			ws_debug_printf("                ->parts[%d] == <%s>\n", i, m->parts[i]);
 			i++;
 		}
-		printf("                ->parts[%d] == NULL\n", i);
+		ws_debug_printf("                ->parts[%d] == NULL\n", i);
 	}
 
-	printf("  &dfilter_macro->args_pos == %p\n", &m->args_pos);
+	ws_debug_printf("  &dfilter_macro->args_pos == %p\n", &m->args_pos);
 	if(m->args_pos == NULL) {
-		printf("                ->args_pos == NULL\n");
+		ws_debug_printf("                ->args_pos == NULL\n");
 	} else {
-		printf("                ->args_pos == %p\n", m->args_pos);
-		/*printf("                ->args_pos == <%?>\n", m->args_pos);*/
+		ws_debug_printf("                ->args_pos == %p\n", m->args_pos);
+		/*ws_debug_printf("                ->args_pos == <%?>\n", m->args_pos);*/
 	}
 
-	printf("  &dfilter_macro->argc     == %p\n", &m->argc);
-	printf("                ->argc     == %d\n", m->argc);
+	ws_debug_printf("  &dfilter_macro->argc     == %p\n", &m->argc);
+	ws_debug_printf("                ->argc     == %d\n", m->argc);
 
-	printf("  &dfilter_macro->priv     == %p\n", &m->priv);
+	ws_debug_printf("  &dfilter_macro->priv     == %p\n", &m->priv);
 	if(m->priv == NULL) {
-		printf("                ->priv     == NULL\n");
+		ws_debug_printf("                ->priv     == NULL\n");
 	} else {
-		printf("                ->priv     == %p\n", m->priv);
-		printf("                ->priv     == <%s>\n", (char *)m->priv);
+		ws_debug_printf("                ->priv     == %p\n", m->priv);
+		ws_debug_printf("                ->priv     == <%s>\n", (char *)m->priv);
 	}
 
-	printf("\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
+	ws_debug_printf("\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
 }
 #endif
+
+void dfilter_macro_cleanup(void)
+{
+	g_hash_table_destroy(fvt_cache);
+}
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

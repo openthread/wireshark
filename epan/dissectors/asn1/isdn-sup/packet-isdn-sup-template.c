@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  * References: ETSI 300 374
  */
 
@@ -90,7 +78,7 @@ static gint ett_isdn_sup = -1;
 
 #include "packet-isdn-sup-ett.c"
 
-static expert_field ei_isdn_sup_unsupported_arg_type = EI_INIT;
+/* static expert_field ei_isdn_sup_unsupported_arg_type = EI_INIT; */
 static expert_field ei_isdn_sup_unsupported_result_type = EI_INIT;
 static expert_field ei_isdn_sup_unsupported_error_type = EI_INIT;
 
@@ -355,7 +343,9 @@ void proto_register_isdn_sup(void) {
   };
 
   static ei_register_info ei[] = {
+#if 0
     { &ei_isdn_sup_unsupported_arg_type, { "isdn_sup.unsupported.arg_type", PI_UNDECODED, PI_WARN, "UNSUPPORTED ARGUMENT TYPE (ETSI sup)", EXPFILL }},
+#endif
     { &ei_isdn_sup_unsupported_result_type, { "isdn_sup.unsupported.result_type", PI_UNDECODED, PI_WARN, "UNSUPPORTED RESULT TYPE (ETSI sup)", EXPFILL }},
     { &ei_isdn_sup_unsupported_error_type, { "isdn_sup.unsupported.error_type", PI_UNDECODED, PI_WARN, "UNSUPPORTED ERROR TYPE (ETSI sup)", EXPFILL }},
   };

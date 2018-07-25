@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -26,7 +14,7 @@
 #include <epan/to_str.h>
 
 
-#define PATHPORT_UDP_PORT  3792
+#define PATHPORT_UDP_PORT  3792 /* Not IANA registered */
 #define PATHPORT_MIN_LENGTH 24 /* HEADER + 1 PDU */
 #define PATHPORT_PROTO_MAGIC  0xed01
 
@@ -696,7 +684,7 @@ proto_reg_handoff_pathport(void)
 
     pathport_handle = create_dissector_handle(dissect_pathport, proto_pathport);
     heur_dissector_add("udp", dissect_pathport_heur, "Pathport over UDP", "pathport_udp", proto_pathport, HEURISTIC_ENABLE);
-    dissector_add_uint("udp.port", PATHPORT_UDP_PORT, pathport_handle);
+    dissector_add_uint_with_preference("udp.port", PATHPORT_UDP_PORT, pathport_handle);
 }
 
 /*

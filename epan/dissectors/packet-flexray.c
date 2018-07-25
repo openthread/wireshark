@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <config.h>
@@ -114,16 +102,6 @@ static const true_false_string flexray_nfi = {
 	"False",
 	"True"
 };
-
-static void flexray_prompt(packet_info *pinfo _U_, gchar* result)
-{
-	g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Next level protocol as");
-}
-
-static gpointer flexray_value(packet_info *pinfo _U_)
-{
-	return 0;
-}
 
 static int
 dissect_flexray(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
@@ -249,7 +227,7 @@ dissect_flexray(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 			next_tvb = tvb_new_subset_length(tvb, 7, flexray_current_payload_length);
 
 			if (call_subdissector) {
-				if (!dissector_try_uint_new(subdissector_table, 0, next_tvb, pinfo, tree, FALSE, &flexray_id))
+				if (!dissector_try_payload_new(subdissector_table, next_tvb, pinfo, tree, FALSE, &flexray_id))
 				{
 					call_data_dissector(next_tvb, pinfo, tree);
 				}
@@ -438,12 +416,6 @@ proto_register_flexray(void)
 		}
 	};
 
-	/* Decode As handling */
-	static build_valid_func flexray_da_build_value[1] = { flexray_value };
-	static decode_as_value_t flexray_da_values = { flexray_prompt, 1, flexray_da_build_value };
-	static decode_as_t flexray_da = { "flexray", "Network", "flexray.subdissector", 1, 0, &flexray_da_values, NULL, NULL,
-		decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL };
-
 	proto_flexray = proto_register_protocol(
 		"FlexRay Protocol",
 		"FLEXRAY",
@@ -457,10 +429,8 @@ proto_register_flexray(void)
 	expert_register_field_array(expert_flexray, ei, array_length(ei));
 
 	register_dissector("flexray", dissect_flexray, proto_flexray);
-	register_decode_as(&flexray_da);
 
-	subdissector_table = register_dissector_table("flexray.subdissector",
-		"FLEXRAY next level dissector", proto_flexray, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	subdissector_table = register_decode_as_next_proto(proto_flexray, "Network", "flexray.subdissector", "FLEXRAY next level dissector", NULL);
 }
 
 void

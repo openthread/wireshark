@@ -64,48 +64,13 @@
     </widget>
    </item>
    <item>
-    <widget class="QTreeWidget" name="graphTreeWidget">
+    <widget class="TabnavTreeView" name="graphUat">
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
        <horstretch>0</horstretch>
        <verstretch>1</verstretch>
       </sizepolicy>
      </property>
-     <column>
-      <property name="text">
-       <string>Name</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Display filter</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Color</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Style</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Y Axis</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Y Field</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Smoothing</string>
-      </property>
-     </column>
     </widget>
    </item>
    <item>
@@ -119,7 +84,7 @@
         <string/>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/plus-8.png</normaloff>:/stock/plus-8.png</iconset>
        </property>
       </widget>
@@ -130,7 +95,7 @@
         <string>Remove this graph.</string>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/minus-8.png</normaloff>:/stock/minus-8.png</iconset>
        </property>
       </widget>
@@ -144,7 +109,7 @@
         <string/>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/copy-8.png</normaloff>:/stock/copy-8.png</iconset>
        </property>
       </widget>
@@ -505,17 +470,22 @@
   <customwidget>
    <class>QCustomPlot</class>
    <extends>QWidget</extends>
-   <header>qcustomplot.h</header>
+   <header>widgets/qcustomplot.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>ElidedLabel</class>
    <extends>QLabel</extends>
-   <header>elided_label.h</header>
+   <header>widgets/elided_label.h</header>
+  </customwidget>
+  <customwidget>
+   <class>TabnavTreeView</class>
+   <extends>QTreeView</extends>
+   <header>widgets/tabnav_tree_view.h</header>
   </customwidget>
  </customwidgets>
  <resources>
-  <include location="../../image/toolbar.qrc"/>
+  <include location="../../image/stock_icons.qrc"/>
  </resources>
  <connections>
   <connection>

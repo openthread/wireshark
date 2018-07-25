@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PREFRENCE_UTILS_H__
@@ -32,45 +20,9 @@ extern "C" {
  *  @ingroup prefs_group
  */
 
-/** "Stash" a preference.
- * Copy a preference to its stashed value. Can be called from prefs_pref_foreach().
- *
- * @param pref A preference.
- * @param unused unused
- */
-extern guint pref_stash(pref_t *pref, gpointer unused _U_);
-
-/** "Untash" a preference.
- * Set a preference to its stashed value. Can be called from prefs_pref_foreach().
- *
- * @param pref A preference.
- * @param changed_p A pointer to a gboolean. Set to TRUE if the preference differs
- * from its stashed value.
- *
- * @return Always returns 0.
- */
-extern guint pref_unstash(pref_t *pref, gpointer changed_p);
-
-/** Clean up a stashed preference.
- * Can be called from prefs_pref_foreach().
- *
- * @param pref A preference.
- * @param unused unused
- *
- * @return Always returns 0.
- */
-extern guint pref_clean_stash(pref_t *pref, gpointer unused _U_);
-
-/** Set a stashed preference to its default value.
- *
- *@param pref A preference.
- */
-extern void reset_stashed_pref(pref_t *pref);
-
-
 /** If autoscroll in live captures is active or not
  */
-extern gboolean auto_scroll_live; /* GTK+ only. */
+extern gboolean auto_scroll_live;
 
 /** Fill in capture options with values from the preferences
  */
@@ -89,9 +41,9 @@ extern void prefs_main_write(void);
  * @param key the key for the preference
  * @param value the new value as string for the preference
  *
- * @return true if the value has been stored successfully
+ * @return flags of types of preferences changed, non-zero if the value has been stored successfully
  */
-extern gboolean prefs_store_ext(const char * module, const char * key, const char * value);
+extern unsigned int prefs_store_ext(const char * module, const char * key, const char * value);
 
 /** Convenient function for the writing of multiple preferences, without
  * explicitly having prefs_t variables.
@@ -139,14 +91,14 @@ void column_prefs_remove_nth(gint col);
 #endif /* __PREFRENCE_UTILS_H__ */
 
 /*
- * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ * Editor modelines  -  https://www.wireshark.org/tools/modelines.html
  *
  * Local Variables:
- * c-basic-offset: 2
+ * c-basic-offset: 4
  * tab-width: 8
  * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=2 tabstop=8 expandtab:
- * :indentSize=2:tabSize=8:noTabs=true:
+ * ex: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

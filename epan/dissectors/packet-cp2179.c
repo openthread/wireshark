@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  ************************************************************************************************
 CP2179 protocol is a serial based protocol. The 2179 protocol is implemented with minor variations between vendors.
@@ -120,7 +108,6 @@ void proto_register_cp2179(void);
 #define SBO_OPERATE_REPLY_LEN              9
 #define SBO_SELECT_REPLY_LEN               10
 
-#define PORT_CP2179    0
 static gboolean cp2179_telnet_clean = TRUE;
 
 
@@ -205,8 +192,6 @@ typedef struct {
 
 
 static int proto_cp2179 = -1;
-
-static guint global_cp2179_tcp_port = PORT_CP2179; /* Port 0 (by default), adjustable by user prefs */
 
 /* Initialize the subtree pointers */
 static gint ett_cp2179 = -1;
@@ -331,8 +316,8 @@ clean_telnet_iac(packet_info *pinfo, tvbuff_t *tvb, int offset, int len)
   int           skip_byte, len_remaining;
 
   spos=tvb_get_ptr(tvb, offset, len);
-  buf=(guint8 *)g_malloc(len);
-  dpos=buf;
+  buf = (guint8 *)wmem_alloc(pinfo->pool, len);
+  dpos = buf;
   skip_byte = 0;
   len_remaining = len;
   while(len_remaining > 0){
@@ -344,17 +329,16 @@ clean_telnet_iac(packet_info *pinfo, tvbuff_t *tvb, int offset, int len)
         if((spos[0]==0xff) && (spos[1]==0xff)){
             skip_byte++;
             len_remaining -= 2;
-            *(dpos++)=0xff;
-            spos+=2;
+            *(dpos++) = 0xff;
+            spos += 2;
             continue;
         }
     }
     /* If we only have a single byte left, or there were no sequential 0xFF's, copy byte from src tvb to dest tvb */
-    *(dpos++)=*(spos++);
+    *(dpos++) = *(spos++);
     len_remaining--;
   }
   telnet_tvb = tvb_new_child_real_data(tvb, buf, len-skip_byte, len-skip_byte);
-  tvb_set_free_cb(telnet_tvb, g_free);
   add_new_data_source(pinfo, telnet_tvb, "Processed Telnet Data");
 
   return telnet_tvb;
@@ -620,7 +604,7 @@ dissect_bs_response_frame(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, i
                     /*Report the values of the requested SCAN inclusive data. To figure out which sequence ID the values in the response associated with,
                     we read the bs_request_frame information and show the corresponding sequence ID of the data in response frame.*/
                     do{
-                        analogtestvalue = (gint16)tvb_get_letohs(tvb, offset);
+                        analogtestvalue = tvb_get_letohis(tvb, offset);
                         proto_tree_add_uint_format(cp2179_data_tree, hf_cp2179_analog_16bit, tvb, offset, 2, request_data->requested_points[point_num],
                                                    "Analog (16 bit) %u : %i",  request_data->requested_points[point_num], analogtestvalue);
                         point_num += 1;
@@ -654,7 +638,7 @@ dissect_bs_response_frame(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, i
 
                         case ANALOG_16_BIT:
                             do{
-                                analogtestvalue =(gint16)tvb_get_letohs(tvb, offset);
+                                analogtestvalue = tvb_get_letohis(tvb, offset);
                                 proto_tree_add_uint_format(cp2179_data_tree, hf_cp2179_analog_16bit, tvb, offset, 2, analog16_num,
                                                            "Analog (16 bit) %u : %i", analog16_num, analogtestvalue);
                                 analog16_num += 1;
@@ -974,7 +958,7 @@ dissect_cp2179(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         cp2179_tvb = clean_telnet_iac(pinfo, tvb, 0, length);
     }
     else{
-        /* cp2179_tvb = tvb_new_subset( tvb, 0, length, length); */
+        /* cp2179_tvb = tvb_new_subset_length_caplen( tvb, 0, length, length); */
         cp2179_tvb = tvb_new_subset_length( tvb, 0, length);
     }
 
@@ -1363,17 +1347,11 @@ proto_register_cp2179(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Register required preferences for CP2179 Encapsulated-over-TCP decoding */
-    cp2179_module = prefs_register_protocol(proto_cp2179, proto_reg_handoff_cp2179);
-
-    /* Default TCP Port, allows for "user" port either than 0. */
-    prefs_register_uint_preference(cp2179_module, "tcp.port", "CP 2179 Protocol Port",
-                       "Set the TCP port for CP 2179 Protocol packets (if other"
-                       " than the default of 0)",
-                       10, &global_cp2179_tcp_port);
+    cp2179_module = prefs_register_protocol(proto_cp2179, NULL);
 
     /* Telnet protocol IAC (0xFF) processing; defaults to TRUE to allow Telnet Encapsulated Data */
     prefs_register_bool_preference(cp2179_module, "telnetclean",
-                                  "Enable Automatic pre-processing of Telnet-encapsulated data to remove extra 0xFF (IAC) bytes",
+                                  "Remove extra 0xFF (IAC) bytes from Telnet-encapsulated data",
                                   "Whether the SEL Protocol dissector should automatically pre-process Telnet data to remove IAC bytes",
                                   &cp2179_telnet_clean);
 
@@ -1384,19 +1362,7 @@ proto_register_cp2179(void)
 void
 proto_reg_handoff_cp2179(void)
 {
-   static int cp2179_prefs_initialized = FALSE;
-   static unsigned int cp2179_port;
-
-    if (!cp2179_prefs_initialized){
-        cp2179_prefs_initialized = TRUE;
-    }
-     else {
-        dissector_delete_uint("tcp.port", cp2179_port, cp2179_handle);
-    }
-
-    cp2179_port = global_cp2179_tcp_port;
-
-    dissector_add_uint("tcp.port", cp2179_port, cp2179_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", cp2179_handle);
     dissector_add_for_decode_as("rtacser.data", cp2179_handle);
 }
 

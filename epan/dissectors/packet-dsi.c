@@ -8,19 +8,7 @@
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -117,7 +105,7 @@ static gboolean dsi_desegment = TRUE;
 static dissector_handle_t afp_handle;
 static dissector_handle_t afp_server_status_handle;
 
-#define TCP_PORT_DSI      548
+#define TCP_PORT_DSI      548 /* Not IANA registered */
 
 #define DSI_BLOCKSIZ       16
 
@@ -228,7 +216,6 @@ dissect_dsi_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 	guint16		dsi_requestid;
 	gint32		dsi_code;
 	guint32		dsi_length;
-	guint32		dsi_reserved;
 	struct		aspinfo aspinfo;
 
 
@@ -240,7 +227,6 @@ dissect_dsi_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 	dsi_requestid = tvb_get_ntohs(tvb, 2);
 	dsi_code = tvb_get_ntohl(tvb, 4);
 	dsi_length = tvb_get_ntohl(tvb, 8);
-	dsi_reserved = tvb_get_ntohl(tvb, 12);
 
 	col_add_fstr(pinfo->cinfo, COL_INFO, "%s %s (%u)",
 			val_to_str(dsi_flags, flag_vals,
@@ -271,11 +257,10 @@ dissect_dsi_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 				4, 4, dsi_code);
 			break;
 		}
-		proto_tree_add_uint_format_value(dsi_tree, hf_dsi_length, tvb,
-			8, 4, dsi_length,
-			"%u bytes", dsi_length);
-		proto_tree_add_uint(dsi_tree, hf_dsi_reserved, tvb,
-			12, 4, dsi_reserved);
+		proto_tree_add_item(dsi_tree, hf_dsi_length, tvb,
+			8, 4, ENC_BIG_ENDIAN);
+		proto_tree_add_item(dsi_tree, hf_dsi_reserved, tvb,
+			12, 4, ENC_BIG_ENDIAN);
 	}
 
 	switch (dsi_command) {
@@ -389,7 +374,7 @@ proto_register_dsi(void)
 
 		{ &hf_dsi_length,
 		  { "Length",           "dsi.length",
-		    FT_UINT32, BASE_DEC, NULL, 0x0,
+		    FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,
 		    "Total length of the data that follows the DSI header.", HFILL }},
 
 		{ &hf_dsi_reserved,
@@ -478,7 +463,7 @@ proto_reg_handoff_dsi(void)
 	dissector_handle_t dsi_handle;
 
 	dsi_handle = create_dissector_handle(dissect_dsi, proto_dsi);
-	dissector_add_uint("tcp.port", TCP_PORT_DSI, dsi_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_DSI, dsi_handle);
 
 	afp_handle = find_dissector_add_dependency("afp", proto_dsi);
 	afp_server_status_handle = find_dissector_add_dependency("afp_server_status", proto_dsi);

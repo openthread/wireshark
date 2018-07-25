@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,7 +16,7 @@
 #include "packet-usb.h"
 
 /* defines */
-#define tfp_PORT 4223
+#define tfp_PORT 4223 /* Not IANA registered */
 
 #define tfp_USB_VENDOR_ID  0x16D0
 #define tfp_USB_PRODUCT_ID 0x063D
@@ -413,7 +401,7 @@ proto_reg_handoff_tfp(void) {
 
 	tfp_handle_tcp = create_dissector_handle(dissect_tfp_tcp, proto_tfp);
 
-	dissector_add_uint("tcp.port", tfp_PORT, tfp_handle_tcp);
+	dissector_add_uint_with_preference("tcp.port", tfp_PORT, tfp_handle_tcp);
 	heur_dissector_add("usb.bulk", dissect_tfp_bulk_heur, "Tinkerforge USB bulk endpoint", "tfp_usb_bulk", proto_tfp, HEURISTIC_ENABLE);
 }
 

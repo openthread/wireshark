@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -57,7 +45,7 @@ static int hf_pkixproxy_policyLanguage = -1;      /* OBJECT_IDENTIFIER */
 static int hf_pkixproxy_policy = -1;              /* OCTET_STRING */
 
 /*--- End of included file: packet-pkixproxy-hf.c ---*/
-#line 43 "./asn1/pkixproxy/packet-pkixproxy-template.c"
+#line 31 "./asn1/pkixproxy/packet-pkixproxy-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -67,7 +55,7 @@ static gint ett_pkixproxy_ProxyCertInfoExtension = -1;
 static gint ett_pkixproxy_ProxyPolicy = -1;
 
 /*--- End of included file: packet-pkixproxy-ett.c ---*/
-#line 46 "./asn1/pkixproxy/packet-pkixproxy-template.c"
+#line 34 "./asn1/pkixproxy/packet-pkixproxy-template.c"
 
 
 /*--- Included file: packet-pkixproxy-fn.c ---*/
@@ -143,7 +131,7 @@ static int dissect_ProxyCertInfoExtension_PDU(tvbuff_t *tvb _U_, packet_info *pi
 
 
 /*--- End of included file: packet-pkixproxy-fn.c ---*/
-#line 48 "./asn1/pkixproxy/packet-pkixproxy-template.c"
+#line 36 "./asn1/pkixproxy/packet-pkixproxy-template.c"
 
 
 /*--- proto_register_pkixproxy ----------------------------------------------*/
@@ -176,7 +164,7 @@ void proto_register_pkixproxy(void) {
         "OCTET_STRING", HFILL }},
 
 /*--- End of included file: packet-pkixproxy-hfarr.c ---*/
-#line 56 "./asn1/pkixproxy/packet-pkixproxy-template.c"
+#line 44 "./asn1/pkixproxy/packet-pkixproxy-template.c"
   };
 
   /* List of subtrees */
@@ -188,7 +176,7 @@ void proto_register_pkixproxy(void) {
     &ett_pkixproxy_ProxyPolicy,
 
 /*--- End of included file: packet-pkixproxy-ettarr.c ---*/
-#line 61 "./asn1/pkixproxy/packet-pkixproxy-template.c"
+#line 49 "./asn1/pkixproxy/packet-pkixproxy-template.c"
   };
 
   /* Register protocol */
@@ -210,7 +198,7 @@ void proto_reg_handoff_pkixproxy(void) {
 
 
 /*--- End of included file: packet-pkixproxy-dis-tab.c ---*/
-#line 76 "./asn1/pkixproxy/packet-pkixproxy-template.c"
+#line 64 "./asn1/pkixproxy/packet-pkixproxy-template.c"
   oid_add_from_string("id-ppl-anyLanguage","1.3.6.1.5.5.7.21.0");
   oid_add_from_string("id-ppl-inheritAll","1.3.6.1.5.5.7.21.1");
   oid_add_from_string("id-ppl-independent","1.3.6.1.5.5.7.21.2");

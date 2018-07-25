@@ -8,30 +8,17 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/to_str.h>
 
 #include "packet-tcp.h"
 
-static guint global_agentx_tcp_port = 705;
+#define AGENTX_TCP_PORT     705
 
 void proto_register_agentx(void);
 void proto_reg_handoff_agentx(void);
@@ -472,7 +459,7 @@ dissect_response_pdu(tvbuff_t *tvb, proto_tree *tree, int offset, int len, guint
 
 	NORLEL(flags, r_uptime, tvb, offset);
 	proto_tree_add_uint_format(subtree, hf_resp_uptime, tvb, offset, 4, r_uptime,
-			"sysUptime: %s", time_msecs_to_str(wmem_packet_scope(), r_uptime));
+			"sysUptime: %s", signed_time_msecs_to_str(wmem_packet_scope(), r_uptime));
 	proto_tree_add_item(subtree, hf_resp_error,  tvb, offset + 4, 2, encoding);
 	proto_tree_add_item(subtree, hf_resp_index,  tvb, offset + 6, 2, encoding);
 	offset += 8;
@@ -1111,42 +1098,21 @@ proto_register_agentx(void)
 		&ett_flags,
 	};
 
-
-	module_t *agentx_module;
-
-	proto_agentx = proto_register_protocol("AgentX",
-					       "AgentX", "agentx");
+	proto_agentx = proto_register_protocol("AgentX", "AgentX", "agentx");
 
 	proto_register_field_array(proto_agentx, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	agentx_module = prefs_register_protocol(proto_agentx, proto_reg_handoff_agentx);
-
-	prefs_register_uint_preference(agentx_module, "tcp.agentx_port",
-				       "AgentX listener TCP Port",
-				       "Set the TCP port for AgentX"
-				       "(if other than the default of 705)",
-				       10, &global_agentx_tcp_port);
 }
 
 /* The registration hand-off routine */
 void
 proto_reg_handoff_agentx(void)
 {
-	static gboolean agentx_prefs_initialized = FALSE;
-	static dissector_handle_t agentx_handle;
-	static guint agentx_tcp_port;
+	dissector_handle_t agentx_handle;
 
-	if(!agentx_prefs_initialized) {
-		agentx_handle = create_dissector_handle(dissect_agentx, proto_agentx);
-		agentx_prefs_initialized = TRUE;
-	}
-	else {
-		dissector_delete_uint("tcp.port", agentx_tcp_port, agentx_handle);
-	}
+	agentx_handle = create_dissector_handle(dissect_agentx, proto_agentx);
 
-	agentx_tcp_port = global_agentx_tcp_port;
-	dissector_add_uint("tcp.port", agentx_tcp_port, agentx_handle);
+	dissector_add_uint_with_preference("tcp.port", AGENTX_TCP_PORT, agentx_handle);
 }
 
 /*

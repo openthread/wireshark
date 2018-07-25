@@ -3777,7 +3777,6 @@ const value_string mapi_property_types_vals[] = {
 	{ PT_MV_APPTIME, "PT_MV_APPTIME" },
 	{ PT_MV_I8, "PT_MV_I8" },
 	{ PT_MV_STRING8, "PT_MV_STRING8" },
-	{ PT_MV_TSTRING, "PT_MV_TSTRING" },
 	{ PT_MV_UNICODE, "PT_MV_UNICODE" },
 	{ PT_MV_SYSTIME, "PT_MV_SYSTIME" },
 	{ PT_MV_CLSID, "PT_MV_CLSID" },
@@ -4034,7 +4033,7 @@ mapi_dissect_element_EcDoRpc_request(tvbuff_t *tvb _U_, int offset _U_, packet_i
 	return offset;
 }
 static int
-mapi_dissect_element_EcDoRpc_request_(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_)
+mapi_dissect_element_EcDoRpc_request_(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_)
 {
 	guint32		size;
 	int		start_offset = offset;
@@ -4055,12 +4054,11 @@ mapi_dissect_element_EcDoRpc_request_(tvbuff_t *tvb _U_, int offset _U_, packet_
 		size = reported_len;
 	}
 	ptr = tvb_get_ptr(tvb, offset, size);
-	decrypted_data = (guint8 *)g_malloc(size);
+	decrypted_data = (guint8 *)wmem_alloc(pinfo->pool, size);
 	for (i = 0; i < size; i++) {
 		decrypted_data[i] = ptr[i] ^ 0xA5;
 	}
 	decrypted_tvb = tvb_new_child_real_data(tvb, decrypted_data, size, reported_len);
-	tvb_set_free_cb(decrypted_tvb, g_free);
 	add_new_data_source(pinfo, decrypted_tvb, "Decrypted MAPI");
 	tr = proto_tree_add_subtree(tree, decrypted_tvb, 0, size, ett_mapi_mapi_request, NULL, "Decrypted MAPI PDU");
 	pdu_len = tvb_get_letohs(decrypted_tvb, 0);
@@ -4236,7 +4234,7 @@ mapi_dissect_element_EcDoRpc_response(tvbuff_t *tvb _U_, int offset _U_, packet_
 	return offset;
 }
 static int
-mapi_dissect_element_EcDoRpc_response_(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_)
+mapi_dissect_element_EcDoRpc_response_(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_)
 {
 	guint32		size;
 	int		start_offset = offset;
@@ -4257,12 +4255,11 @@ mapi_dissect_element_EcDoRpc_response_(tvbuff_t *tvb _U_, int offset _U_, packet
 		size = reported_len;
 	}
 	ptr = tvb_get_ptr(tvb, offset, size);
-	decrypted_data = (guint8 *)g_malloc(size);
+	decrypted_data = (guint8 *)wmem_alloc(pinfo->pool, size);
 	for (i = 0; i < size; i++) {
 		decrypted_data[i] = ptr[i] ^ 0xA5;
 	}
 	decrypted_tvb = tvb_new_child_real_data(tvb, decrypted_data, size, reported_len);
-	tvb_set_free_cb(decrypted_tvb, g_free);
 	add_new_data_source(pinfo, decrypted_tvb, "Decrypted MAPI");
 	tr = proto_tree_add_subtree(tree, decrypted_tvb, 0, size, ett_mapi_mapi_response, NULL, "Decrypted MAPI PDU");
 	pdu_len = tvb_get_letohs(decrypted_tvb, 0);
@@ -4280,7 +4277,7 @@ mapi_dissect_element_EcDoRpc_response__(tvbuff_t *tvb _U_, int offset _U_, packe
 	guint16		length;
 	tvbuff_t	*subtvb;
 	length = tvb_get_letohs(tvb, offset);
-	subtvb = tvb_new_subset(tvb, offset, length, length);
+	subtvb = tvb_new_subset_length_caplen(tvb, offset, length, length);
 	offset += 2;
 	while (offset < length) {
 		offset = mapi_dissect_struct_EcDoRpc_MAPI_REPL(subtvb, offset, pinfo, tree, di, drep, hf_mapi_mapi_response_mapi_repl, length - offset);
@@ -8245,7 +8242,6 @@ mapi_dissect_struct_LPSTR(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
 /* IDL: 	PT_MV_APPTIME=0x1007, */
 /* IDL: 	PT_MV_I8=0x1014, */
 /* IDL: 	PT_MV_STRING8=0x101e, */
-/* IDL: 	PT_MV_TSTRING=0x101e, */
 /* IDL: 	PT_MV_UNICODE=0x101f, */
 /* IDL: 	PT_MV_SYSTIME=0x1040, */
 /* IDL: 	PT_MV_CLSID=0x1048, */
@@ -9120,7 +9116,7 @@ mapi_dissect_element_OpenMessage_recipients_recipients_headers(tvbuff_t *tvb _U_
 		guint32 saved_flags = di->call_data->flags;
 		offset = dissect_ndr_uint16(tvb, offset, pinfo, tree, di, drep, hf_mapi_OpenMessage_recipients_recipients_headers_, &size);
 		di->call_data->flags &= ~DCERPC_IS_NDR64;
-		subtvb = tvb_new_subset(tvb, offset, (const gint)size, -1);
+		subtvb = tvb_new_subset_length_caplen(tvb, offset, (const gint)size, -1);
 		mapi_dissect_element_OpenMessage_recipients_recipients_headers_(subtvb, 0, pinfo, tree, di, drep);
 		offset += (int)size;
 		di->call_data->flags = saved_flags;
@@ -9209,120 +9205,35 @@ mapi_dissect_struct_OpenMessage_recipients(tvbuff_t *tvb _U_, int offset _U_, pa
 int
 mapi_dissect_bitmap_ulEventType(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * mapi_ulEventType_fields[] = {
+		&hf_mapi_ulEventType_fnevCriticalError,
+		&hf_mapi_ulEventType_fnevNewMail,
+		&hf_mapi_ulEventType_fnevObjectCreated,
+		&hf_mapi_ulEventType_fnevObjectDeleted,
+		&hf_mapi_ulEventType_fnevObjectModified,
+		&hf_mapi_ulEventType_fnevObjectMoved,
+		&hf_mapi_ulEventType_fnevObjectCopied,
+		&hf_mapi_ulEventType_fnevSearchComplete,
+		&hf_mapi_ulEventType_fnevTableModified,
+		&hf_mapi_ulEventType_fnevStatusObjectModified,
+		&hf_mapi_ulEventType_fnevReservedForMapi,
+		&hf_mapi_ulEventType_fnevExtended,
+		NULL
+	};
 	guint16 flags;
 	ALIGN_TO_2_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 2, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_mapi_ulEventType);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_mapi_ulEventType, mapi_ulEventType_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint16(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint16(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevCriticalError, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000001 )){
-		proto_item_append_text(item, "fnevCriticalError");
-		if (flags & (~( 0x00000001 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000001 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevNewMail, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000002 )){
-		proto_item_append_text(item, "fnevNewMail");
-		if (flags & (~( 0x00000002 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000002 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevObjectCreated, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000004 )){
-		proto_item_append_text(item, "fnevObjectCreated");
-		if (flags & (~( 0x00000004 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000004 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevObjectDeleted, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000008 )){
-		proto_item_append_text(item, "fnevObjectDeleted");
-		if (flags & (~( 0x00000008 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000008 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevObjectModified, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000010 )){
-		proto_item_append_text(item, "fnevObjectModified");
-		if (flags & (~( 0x00000010 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000010 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevObjectMoved, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000020 )){
-		proto_item_append_text(item, "fnevObjectMoved");
-		if (flags & (~( 0x00000020 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000020 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevObjectCopied, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000040 )){
-		proto_item_append_text(item, "fnevObjectCopied");
-		if (flags & (~( 0x00000040 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000040 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevSearchComplete, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000080 )){
-		proto_item_append_text(item, "fnevSearchComplete");
-		if (flags & (~( 0x00000080 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000080 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevTableModified, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000100 )){
-		proto_item_append_text(item, "fnevTableModified");
-		if (flags & (~( 0x00000100 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000100 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevStatusObjectModified, tvb, offset-2, 2, flags);
-	if (flags&( 0x00000200 )){
-		proto_item_append_text(item, "fnevStatusObjectModified");
-		if (flags & (~( 0x00000200 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00000200 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevReservedForMapi, tvb, offset-2, 2, flags);
-	if (flags&( 0x40000000 )){
-		proto_item_append_text(item, "fnevReservedForMapi");
-		if (flags & (~( 0x40000000 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x40000000 ));
-
-	proto_tree_add_boolean(tree, hf_mapi_ulEventType_fnevExtended, tvb, offset-2, 2, flags);
-	if (flags&( 0x80000000 )){
-		proto_item_append_text(item, "fnevExtended");
-		if (flags & (~( 0x80000000 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x80000000 ));
-
-	if (flags) {
+	if (flags & (~0xc00003ff)) {
+		flags &= (~0xc00003ff);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -10175,229 +10086,229 @@ void proto_register_dcerpc_mapi(void)
 {
 	static hf_register_info hf[] = {
 	{ &hf_mapi_DATA_BLOB_data,
-		{ "Data", "mapi.DATA_BLOB.data", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Data", "mapi.DATA_BLOB.data", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_DATA_BLOB_length,
-		{ "Length", "mapi.DATA_BLOB.length", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Length", "mapi.DATA_BLOB.length", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_alloc_space,
-		{ "Alloc Space", "mapi.EcDoConnect.alloc_space", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Alloc Space", "mapi.EcDoConnect.alloc_space", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_code_page,
-		{ "Code Page", "mapi.EcDoConnect.code_page", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Code Page", "mapi.EcDoConnect.code_page", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_emsmdb_client_version,
-		{ "Emsmdb Client Version", "mapi.EcDoConnect.emsmdb_client_version", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Emsmdb Client Version", "mapi.EcDoConnect.emsmdb_client_version", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_input_locale,
-		{ "Input Locale", "mapi.EcDoConnect.input_locale", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Input Locale", "mapi.EcDoConnect.input_locale", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_name,
-		{ "Name", "mapi.EcDoConnect.name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Name", "mapi.EcDoConnect.name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_org_group,
-		{ "Org Group", "mapi.EcDoConnect.org_group", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Org Group", "mapi.EcDoConnect.org_group", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_session_nb,
-		{ "Session Nb", "mapi.EcDoConnect.session_nb", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Session Nb", "mapi.EcDoConnect.session_nb", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_store_version,
-		{ "Store Version", "mapi.EcDoConnect.store_version", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Store Version", "mapi.EcDoConnect.store_version", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_unknown1,
-		{ "Unknown1", "mapi.EcDoConnect.unknown1", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown1", "mapi.EcDoConnect.unknown1", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_unknown2,
-		{ "Unknown2", "mapi.EcDoConnect.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown2", "mapi.EcDoConnect.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_unknown3,
-		{ "Unknown3", "mapi.EcDoConnect.unknown3", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown3", "mapi.EcDoConnect.unknown3", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_unknown4,
-		{ "Unknown4", "mapi.EcDoConnect.unknown4", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown4", "mapi.EcDoConnect.unknown4", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoConnect_user,
-		{ "User", "mapi.EcDoConnect.user", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "User", "mapi.EcDoConnect.user", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REPL_UNION_mapi_GetProps,
-		{ "Mapi Getprops", "mapi.EcDoRpc_MAPI_REPL_UNION.mapi_GetProps", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi GetProps", "mapi.EcDoRpc_MAPI_REPL_UNION.mapi_GetProps", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REPL_UNION_mapi_OpenFolder,
-		{ "Mapi Openfolder", "mapi.EcDoRpc_MAPI_REPL_UNION.mapi_OpenFolder", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi OpenFolder", "mapi.EcDoRpc_MAPI_REPL_UNION.mapi_OpenFolder", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REPL_UNION_mapi_Release,
-		{ "Mapi Release", "mapi.EcDoRpc_MAPI_REPL_UNION.mapi_Release", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi Release", "mapi.EcDoRpc_MAPI_REPL_UNION.mapi_Release", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REQ_UNION_mapi_GetProps,
-		{ "Mapi Getprops", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_GetProps", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi GetProps", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_GetProps", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REQ_UNION_mapi_OpenFolder,
-		{ "Mapi Openfolder", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_OpenFolder", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi OpenFolder", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_OpenFolder", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REQ_UNION_mapi_OpenMsgStore,
-		{ "Mapi Openmsgstore", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_OpenMsgStore", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi OpenMsgStore", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_OpenMsgStore", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_MAPI_REQ_UNION_mapi_Release,
-		{ "Mapi Release", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_Release", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi Release", "mapi.EcDoRpc_MAPI_REQ_UNION.mapi_Release", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_codepage,
-		{ "Codepage", "mapi.EcDoRpc.codepage", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Codepage", "mapi.EcDoRpc.codepage", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_folder_id,
-		{ "Folder ID", "mapi.EcDoRpc.folder_id", FT_UINT64, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Folder ID", "mapi.EcDoRpc.folder_id", FT_UINT64, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_handle_index,
-		{ "Handle index", "mapi.EcDoRpc.handle_index", FT_UINT8, BASE_DEC, NULL, 0, "NULL", HFILL }},
+	  { "Handle index", "mapi.EcDoRpc.handle_index", FT_UINT8, BASE_DEC, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_layout,
-		{ "Layout", "mapi.EcDoRpc.layout", FT_UINT8, BASE_DEC, NULL, 0, "NULL", HFILL }},
+	  { "Layout", "mapi.EcDoRpc.layout", FT_UINT8, BASE_DEC, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_length,
-		{ "Length", "mapi.EcDoRpc.length", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Length", "mapi.EcDoRpc.length", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_mailbox,
-		{ "Mailbox", "mapi.EcDoRpc.mailbox", FT_STRING, BASE_NONE, NULL, 0, "NULL", HFILL }},
+	  { "Mailbox", "mapi.EcDoRpc.mailbox", FT_STRING, BASE_NONE, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_mapi_flags,
-		{ "mapi_flags", "mapi.EcDoRpc.mapi_flags", FT_UINT8, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "mapi_flags", "mapi.EcDoRpc.mapi_flags", FT_UINT8, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_mapi_request,
-		{ "Mapi Request", "mapi.EcDoRpc.mapi_request", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi Request", "mapi.EcDoRpc.mapi_request", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_mapi_request_,
-		{ "Subcontext length", "mapi.EcDoRpc.subcontext", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Subcontext length", "mapi.EcDoRpc.subcontext", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_mapi_response,
-		{ "Mapi Response", "mapi.EcDoRpc.mapi_response", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Mapi Response", "mapi.EcDoRpc.mapi_response", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_mapi_response_,
-		{ "Subcontext length", "mapi.EcDoRpc.subcontext", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Subcontext length", "mapi.EcDoRpc.subcontext", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_mapi_tag,
-		{ "MAPI tag", "mapi.EcDoRpc.mapi_tag", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "MAPI tag", "mapi.EcDoRpc.mapi_tag", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_max_data,
-		{ "Max Data", "mapi.EcDoRpc.max_data", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Max Data", "mapi.EcDoRpc.max_data", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_offset,
-		{ "Offset", "mapi.EcDoRpc.offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Offset", "mapi.EcDoRpc.offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_padding,
-		{ "Padding", "mapi.EcDoRpc.padding", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Padding", "mapi.EcDoRpc.padding", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_prop_count,
-		{ "Prop count", "mapi.EcDoRpc.prop_count", FT_UINT16, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Prop count", "mapi.EcDoRpc.prop_count", FT_UINT16, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_row,
-		{ "Row", "mapi.EcDoRpc.row", FT_UINT8, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Row", "mapi.EcDoRpc.row", FT_UINT8, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_size,
-		{ "Size", "mapi.EcDoRpc.size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Size", "mapi.EcDoRpc.size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcDoRpc_str_length,
-		{ "Length", "mapi.EcDoRpc.str_length", FT_UINT16, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Length", "mapi.EcDoRpc.str_length", FT_UINT16, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_subcontext_size,
-		{ "Subcontext size", "mapi.EcDoRpc.subcontext_size", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Subcontext size", "mapi.EcDoRpc.subcontext_size", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_unknown1,
-		{ "Unknown1", "mapi.EcDoRpc.unknown1", FT_UINT16, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Unknown1", "mapi.EcDoRpc.unknown1", FT_UINT16, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_unknown2,
-		{ "Unknown2", "mapi.EcDoRpc.unknown2", FT_UINT8, BASE_DEC, NULL, 0, "NULL", HFILL }},
+	  { "Unknown2", "mapi.EcDoRpc.unknown2", FT_UINT8, BASE_DEC, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcDoRpc_unknown3,
-		{ "Unknown3", "mapi.EcDoRpc.unknown3", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "Unknown3", "mapi.EcDoRpc.unknown3", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_notif_len,
-		{ "Notif Len", "mapi.EcRRegisterPushNotification.notif_len", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Notif Len", "mapi.EcRRegisterPushNotification.notif_len", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_notifkey,
-		{ "Notifkey", "mapi.EcRRegisterPushNotification.notifkey", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Notifkey", "mapi.EcRRegisterPushNotification.notifkey", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_retval,
-		{ "Retval", "mapi.EcRRegisterPushNotification.retval", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Retval", "mapi.EcRRegisterPushNotification.retval", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_sockaddr,
-		{ "Sockaddr", "mapi.EcRRegisterPushNotification.sockaddr", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Sockaddr", "mapi.EcRRegisterPushNotification.sockaddr", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_sockaddr_len,
-		{ "Sockaddr Len", "mapi.EcRRegisterPushNotification.sockaddr_len", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Sockaddr Len", "mapi.EcRRegisterPushNotification.sockaddr_len", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_ulEventMask,
-		{ "Uleventmask", "mapi.EcRRegisterPushNotification.ulEventMask", FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "UlEventMask", "mapi.EcRRegisterPushNotification.ulEventMask", FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRRegisterPushNotification_unknown2,
-		{ "Unknown2", "mapi.EcRRegisterPushNotification.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown2", "mapi.EcRRegisterPushNotification.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_EcRUnregisterPushNotification_unknown,
-		{ "Unknown", "mapi.EcRUnregisterPushNotification.unknown", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown", "mapi.EcRUnregisterPushNotification.unknown", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_FILETIME_dwHighDateTime,
-		{ "Dwhighdatetime", "mapi.FILETIME.dwHighDateTime", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "DwHighDateTime", "mapi.FILETIME.dwHighDateTime", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_FILETIME_dwLowDateTime,
-		{ "Dwlowdatetime", "mapi.FILETIME.dwLowDateTime", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "DwLowDateTime", "mapi.FILETIME.dwLowDateTime", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_LPSTR_lppszA,
-		{ "Lppsza", "mapi.LPSTR.lppszA", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "LppszA", "mapi.LPSTR.lppszA", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_MAPISTATUS_status,
-		{ "MAPISTATUS", "mapi.MAPISTATUS_status", FT_UINT32, BASE_HEX, VALS(mapi_MAPISTATUS_vals), 0, NULL, HFILL }},
+	  { "MAPISTATUS", "mapi.MAPISTATUS_status", FT_UINT32, BASE_HEX, VALS(mapi_MAPISTATUS_vals), 0, NULL, HFILL }},
 	{ &hf_mapi_MAPI_OPNUM,
-		{ "Opnum", "mapi.EcDoRpc_MAPI_REPL.opnum", FT_UINT8, BASE_HEX, VALS(mapi_MAPI_OPNUM_vals), 0, "NULL", HFILL }},
+	  { "Opnum", "mapi.EcDoRpc_MAPI_REPL.opnum", FT_UINT8, BASE_HEX, VALS(mapi_MAPI_OPNUM_vals), 0, "NULL", HFILL }},
 	{ &hf_mapi_MAPI_handle,
-		{ "MAPI handle", "mapi.mapi_handle", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
+	  { "MAPI handle", "mapi.mapi_handle", FT_UINT32, BASE_HEX, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_OpenMessage_recipients_RecipClass,
-		{ "Recipclass", "mapi.OpenMessage_recipients.RecipClass", FT_UINT8, BASE_DEC, VALS(mapi_ulRecipClass_vals), 0, NULL, HFILL }},
+	  { "RecipClass", "mapi.OpenMessage_recipients.RecipClass", FT_UINT8, BASE_DEC, VALS(mapi_ulRecipClass_vals), 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_recipients_codepage,
-		{ "Codepage", "mapi.OpenMessage_recipients.codepage", FT_UINT32, BASE_DEC, VALS(mapi_CODEPAGEID_vals), 0, NULL, HFILL }},
+	  { "Codepage", "mapi.OpenMessage_recipients.codepage", FT_UINT32, BASE_DEC, VALS(mapi_CODEPAGEID_vals), 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_recipients_recipients_headers,
-		{ "Recipients Headers", "mapi.OpenMessage_recipients.recipients_headers", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Recipients Headers", "mapi.OpenMessage_recipients.recipients_headers", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_recipients_recipients_headers_,
-		{ "Subcontext length", "mapi.OpenMessage_recipients.subcontext", FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Subcontext length", "mapi.OpenMessage_recipients.subcontext", FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_req_folder_handle_idx,
-		{ "Folder Handle Idx", "mapi.OpenMessage_req.folder_handle_idx", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Folder Handle Idx", "mapi.OpenMessage_req.folder_handle_idx", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_req_folder_id,
-		{ "Folder Id", "mapi.OpenMessage_req.folder_id", FT_UINT64, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Folder Id", "mapi.OpenMessage_req.folder_id", FT_UINT64, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_req_max_data,
-		{ "Max Data", "mapi.OpenMessage_req.max_data", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Max Data", "mapi.OpenMessage_req.max_data", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_req_message_id,
-		{ "Message Id", "mapi.OpenMessage_req.message_id", FT_UINT64, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Message Id", "mapi.OpenMessage_req.message_id", FT_UINT64, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_OpenMessage_req_message_permissions,
-		{ "Message Permissions", "mapi.OpenMessage_req.message_permissions", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Message Permissions", "mapi.OpenMessage_req.message_permissions", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_RecipExchange_addr_type,
-		{ "Addr Type", "mapi.RecipExchange.addr_type", FT_UINT8, BASE_DEC, VALS(mapi_addr_type_vals), 0, NULL, HFILL }},
+	  { "Addr Type", "mapi.RecipExchange.addr_type", FT_UINT8, BASE_DEC, VALS(mapi_addr_type_vals), 0, NULL, HFILL }},
 	{ &hf_mapi_RecipExchange_organization_length,
-		{ "Organization Length", "mapi.RecipExchange.organization_length", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Organization Length", "mapi.RecipExchange.organization_length", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_b,
-		{ "B", "mapi.SPropValue_CTR.b", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "B", "mapi.SPropValue_CTR.b", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_d,
-		{ "D", "mapi.SPropValue_CTR.d", FT_INT64, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "D", "mapi.SPropValue_CTR.d", FT_INT64, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_dbl,
-		{ "Dbl", "mapi.SPropValue_CTR.dbl", FT_INT64, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Dbl", "mapi.SPropValue_CTR.dbl", FT_INT64, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_err,
-		{ "Err", "mapi.SPropValue_CTR.err", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Err", "mapi.SPropValue_CTR.err", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_ft,
-		{ "Ft", "mapi.SPropValue_CTR.ft", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ft", "mapi.SPropValue_CTR.ft", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_i,
-		{ "I", "mapi.SPropValue_CTR.i", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "I", "mapi.SPropValue_CTR.i", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_l,
-		{ "L", "mapi.SPropValue_CTR.l", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "L", "mapi.SPropValue_CTR.l", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_lpguid,
-		{ "Lpguid", "mapi.SPropValue_CTR.lpguid", FT_GUID, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Lpguid", "mapi.SPropValue_CTR.lpguid", FT_GUID, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_lpszA,
-		{ "Lpsza", "mapi.SPropValue_CTR.lpszA", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "LpszA", "mapi.SPropValue_CTR.lpszA", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_CTR_lpszW,
-		{ "Lpszw", "mapi.SPropValue_CTR.lpszW", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "LpszW", "mapi.SPropValue_CTR.lpszW", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_SPropValue_ulPropTag,
-		{ "Ulproptag", "mapi.SPropValue.ulPropTag", FT_UINT32, BASE_DEC, VALS(mapi_MAPITAGS_vals), 0, NULL, HFILL }},
+	  { "UlPropTag", "mapi.SPropValue.ulPropTag", FT_UINT32, BASE_DEC, VALS(mapi_MAPITAGS_vals), 0, NULL, HFILL }},
 	{ &hf_mapi_SRow_ulRowFlags,
-		{ "Ulrowflags", "mapi.SRow.ulRowFlags", FT_UINT8, BASE_DEC, VALS(mapi_ulRowFlags_vals), 0, NULL, HFILL }},
+	  { "UlRowFlags", "mapi.SRow.ulRowFlags", FT_UINT8, BASE_DEC, VALS(mapi_ulRowFlags_vals), 0, NULL, HFILL }},
 	{ &hf_mapi_decrypted_data,
-		{ "Decrypted data", "mapi.decrypted.data", FT_BYTES, BASE_NONE, NULL, 0, "NULL", HFILL }},
+	  { "Decrypted data", "mapi.decrypted.data", FT_BYTES, BASE_NONE, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_handle,
-		{ "Handle", "mapi.handle", FT_BYTES, BASE_NONE, NULL, 0, "NULL", HFILL }},
+	  { "Handle", "mapi.handle", FT_BYTES, BASE_NONE, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_input_locale_language,
-		{ "Language", "mapi.input_locale.language", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Language", "mapi.input_locale.language", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_input_locale_method,
-		{ "Method", "mapi.input_locale.method", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Method", "mapi.input_locale.method", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_mapi_request_mapi_req,
-		{ "Mapi Req", "mapi.mapi_request.mapi_req", FT_NONE, BASE_NONE, NULL, 0, "HFILL", HFILL }},
+	  { "Mapi Req", "mapi.mapi_request.mapi_req", FT_NONE, BASE_NONE, NULL, 0, "HFILL", HFILL }},
 	{ &hf_mapi_mapi_response_mapi_repl,
-		{ "Mapi Repl", "mapi.mapi_response.mapi_repl", FT_NONE, BASE_NONE, NULL, 0, "NULL", HFILL }},
+	  { "Mapi Repl", "mapi.mapi_response.mapi_repl", FT_NONE, BASE_NONE, NULL, 0, "NULL", HFILL }},
 	{ &hf_mapi_opnum,
-		{ "Operation", "mapi.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Operation", "mapi.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_pdu_len,
-		{ "Length", "mapi.pdu.len", FT_UINT16, BASE_HEX, NULL, 0x0, "Size of the command PDU", HFILL }},
+	  { "Length", "mapi.pdu.len", FT_UINT16, BASE_HEX, NULL, 0x0, "Size of the command PDU", HFILL }},
 	{ &hf_mapi_property_types,
-		{ "Value", "mapi.SPropValue.value", FT_UINT32, BASE_HEX, VALS(mapi_property_types_vals), 0, "NULL", HFILL }},
+	  { "Value", "mapi.SPropValue.value", FT_UINT32, BASE_HEX, VALS(mapi_property_types_vals), 0, "NULL", HFILL }},
 	{ &hf_mapi_recipient_displayname_7bit_lpszA,
-		{ "Lpsza", "mapi.recipient_displayname_7bit.lpszA", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "LpszA", "mapi.recipient_displayname_7bit.lpszA", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipient_type,
-		{ "Recipient Type", "mapi.recipients_headers.type", FT_UINT16, BASE_HEX, VALS(mapi_OM_recipient_type_vals), 0, "NULL", HFILL }},
+	  { "Recipient Type", "mapi.recipients_headers.type", FT_UINT16, BASE_HEX, VALS(mapi_OM_recipient_type_vals), 0, "NULL", HFILL }},
 	{ &hf_mapi_recipient_type_EXCHANGE,
-		{ "Exchange", "mapi.recipient_type.EXCHANGE", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "EXCHANGE", "mapi.recipient_type.EXCHANGE", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipient_type_SMTP,
-		{ "Smtp", "mapi.recipient_type.SMTP", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "SMTP", "mapi.recipient_type.SMTP", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipients_headers_bitmask,
-		{ "Bitmask", "mapi.recipients_headers.bitmask", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Bitmask", "mapi.recipients_headers.bitmask", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipients_headers_layout,
-		{ "Layout", "mapi.recipients_headers.layout", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Layout", "mapi.recipients_headers.layout", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipients_headers_prop_count,
-		{ "Prop Count", "mapi.recipients_headers.prop_count", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Prop Count", "mapi.recipients_headers.prop_count", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipients_headers_prop_values,
-		{ "Prop Values", "mapi.recipients_headers.prop_values", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Prop Values", "mapi.recipients_headers.prop_values", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_recipients_headers_username,
-		{ "Username", "mapi.recipients_headers.username", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Username", "mapi.recipients_headers.username", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevCriticalError,
-		{ "Fnevcriticalerror", "mapi.ulEventType.fnevCriticalError", FT_BOOLEAN, 16, TFS(&ulEventType_fnevCriticalError_tfs), ( 0x00000001 ), NULL, HFILL }},
+	  { "FnevCriticalError", "mapi.ulEventType.fnevCriticalError", FT_BOOLEAN, 16, TFS(&ulEventType_fnevCriticalError_tfs), ( 0x00000001 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevExtended,
-		{ "Fnevextended", "mapi.ulEventType.fnevExtended", FT_BOOLEAN, 16, TFS(&ulEventType_fnevExtended_tfs), ( 0x80000000 ), NULL, HFILL }},
+	  { "FnevExtended", "mapi.ulEventType.fnevExtended", FT_BOOLEAN, 16, TFS(&ulEventType_fnevExtended_tfs), ( 0x80000000 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevNewMail,
-		{ "Fnevnewmail", "mapi.ulEventType.fnevNewMail", FT_BOOLEAN, 16, TFS(&ulEventType_fnevNewMail_tfs), ( 0x00000002 ), NULL, HFILL }},
+	  { "FnevNewMail", "mapi.ulEventType.fnevNewMail", FT_BOOLEAN, 16, TFS(&ulEventType_fnevNewMail_tfs), ( 0x00000002 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevObjectCopied,
-		{ "Fnevobjectcopied", "mapi.ulEventType.fnevObjectCopied", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectCopied_tfs), ( 0x00000040 ), NULL, HFILL }},
+	  { "FnevObjectCopied", "mapi.ulEventType.fnevObjectCopied", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectCopied_tfs), ( 0x00000040 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevObjectCreated,
-		{ "Fnevobjectcreated", "mapi.ulEventType.fnevObjectCreated", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectCreated_tfs), ( 0x00000004 ), NULL, HFILL }},
+	  { "FnevObjectCreated", "mapi.ulEventType.fnevObjectCreated", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectCreated_tfs), ( 0x00000004 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevObjectDeleted,
-		{ "Fnevobjectdeleted", "mapi.ulEventType.fnevObjectDeleted", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectDeleted_tfs), ( 0x00000008 ), NULL, HFILL }},
+	  { "FnevObjectDeleted", "mapi.ulEventType.fnevObjectDeleted", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectDeleted_tfs), ( 0x00000008 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevObjectModified,
-		{ "Fnevobjectmodified", "mapi.ulEventType.fnevObjectModified", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectModified_tfs), ( 0x00000010 ), NULL, HFILL }},
+	  { "FnevObjectModified", "mapi.ulEventType.fnevObjectModified", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectModified_tfs), ( 0x00000010 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevObjectMoved,
-		{ "Fnevobjectmoved", "mapi.ulEventType.fnevObjectMoved", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectMoved_tfs), ( 0x00000020 ), NULL, HFILL }},
+	  { "FnevObjectMoved", "mapi.ulEventType.fnevObjectMoved", FT_BOOLEAN, 16, TFS(&ulEventType_fnevObjectMoved_tfs), ( 0x00000020 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevReservedForMapi,
-		{ "Fnevreservedformapi", "mapi.ulEventType.fnevReservedForMapi", FT_BOOLEAN, 16, TFS(&ulEventType_fnevReservedForMapi_tfs), ( 0x40000000 ), NULL, HFILL }},
+	  { "FnevReservedForMapi", "mapi.ulEventType.fnevReservedForMapi", FT_BOOLEAN, 16, TFS(&ulEventType_fnevReservedForMapi_tfs), ( 0x40000000 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevSearchComplete,
-		{ "Fnevsearchcomplete", "mapi.ulEventType.fnevSearchComplete", FT_BOOLEAN, 16, TFS(&ulEventType_fnevSearchComplete_tfs), ( 0x00000080 ), NULL, HFILL }},
+	  { "FnevSearchComplete", "mapi.ulEventType.fnevSearchComplete", FT_BOOLEAN, 16, TFS(&ulEventType_fnevSearchComplete_tfs), ( 0x00000080 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevStatusObjectModified,
-		{ "Fnevstatusobjectmodified", "mapi.ulEventType.fnevStatusObjectModified", FT_BOOLEAN, 16, TFS(&ulEventType_fnevStatusObjectModified_tfs), ( 0x00000200 ), NULL, HFILL }},
+	  { "FnevStatusObjectModified", "mapi.ulEventType.fnevStatusObjectModified", FT_BOOLEAN, 16, TFS(&ulEventType_fnevStatusObjectModified_tfs), ( 0x00000200 ), NULL, HFILL }},
 	{ &hf_mapi_ulEventType_fnevTableModified,
-		{ "Fnevtablemodified", "mapi.ulEventType.fnevTableModified", FT_BOOLEAN, 16, TFS(&ulEventType_fnevTableModified_tfs), ( 0x00000100 ), NULL, HFILL }},
+	  { "FnevTableModified", "mapi.ulEventType.fnevTableModified", FT_BOOLEAN, 16, TFS(&ulEventType_fnevTableModified_tfs), ( 0x00000100 ), NULL, HFILL }},
 	};
 
 

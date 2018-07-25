@@ -3,19 +3,7 @@
  * Wiretap Library
  * Copyright (c) 2001 by Marc Milgram <ethereal@mmilgram.NOSPAMmail.net>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -66,7 +54,7 @@ Protocol 08-00 00 00-00-00-00-00,   50 byte buffer at 10-OCT-2001 10:20:45.17
 
 /* Magic text to check for DBS-ETHERWATCH-ness of file */
 static const char dbs_etherwatch_hdr_magic[]  =
-{ 'E', 'T', 'H', 'E', 'R', 'W', 'A', 'T', 'C', 'H', ' ', ' '};
+{ 'E', 'T', 'H', 'E', 'R', 'W', 'A', 'T', 'C', 'H', ' '};
 #define DBS_ETHERWATCH_HDR_MAGIC_SIZE  \
         (sizeof dbs_etherwatch_hdr_magic  / sizeof dbs_etherwatch_hdr_magic[0])
 
@@ -77,15 +65,16 @@ static const char dbs_etherwatch_rec_magic[]  =
     (sizeof dbs_etherwatch_rec_magic  / sizeof dbs_etherwatch_rec_magic[0])
 
 /*
- * XXX - is this the biggest packet we can get?
+ * Default packet size - maximum normal Ethernet packet size, without an
+ * FCS.
  */
-#define DBS_ETHERWATCH_MAX_PACKET_LEN   16384
+#define DBS_ETHERWATCH_MAX_ETHERNET_PACKET_LEN   1514
 
 static gboolean dbs_etherwatch_read(wtap *wth, int *err, gchar **err_info,
     gint64 *data_offset);
 static gboolean dbs_etherwatch_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
-static gboolean parse_dbs_etherwatch_packet(struct wtap_pkthdr *phdr, FILE_T fh,
+    wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
+static gboolean parse_dbs_etherwatch_packet(wtap_rec *rec, FILE_T fh,
     Buffer* buf, int *err, gchar **err_info);
 static guint parse_single_hex_dump_line(char* rec, guint8 *buf,
     int byte_offset);
@@ -205,19 +194,19 @@ static gboolean dbs_etherwatch_read(wtap *wth, int *err, gchar **err_info,
     *data_offset = offset;
 
     /* Parse the packet */
-    return parse_dbs_etherwatch_packet(&wth->phdr, wth->fh,
-         wth->frame_buffer, err, err_info);
+    return parse_dbs_etherwatch_packet(&wth->rec, wth->fh,
+         wth->rec_data, err, err_info);
 }
 
 /* Used to read packets in random-access fashion */
 static gboolean
 dbs_etherwatch_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info)
+    wtap_rec *rec, Buffer *buf, int *err, gchar **err_info)
 {
     if (file_seek(wth->random_fh, seek_off - 1, SEEK_SET, err) == -1)
         return FALSE;
 
-    return parse_dbs_etherwatch_packet(phdr, wth->random_fh, buf, err,
+    return parse_dbs_etherwatch_packet(rec, wth->random_fh, buf, err,
         err_info);
 }
 
@@ -266,7 +255,7 @@ unnumbered. Unnumbered has length 1, numbered 2.
 #define CTL_UNNUMB_MASK     0x03
 #define CTL_UNNUMB_VALUE    0x03
 static gboolean
-parse_dbs_etherwatch_packet(struct wtap_pkthdr *phdr, FILE_T fh, Buffer* buf,
+parse_dbs_etherwatch_packet(wtap_rec *rec, FILE_T fh, Buffer* buf,
     int *err, gchar **err_info)
 {
     guint8 *pd;
@@ -280,8 +269,8 @@ parse_dbs_etherwatch_packet(struct wtap_pkthdr *phdr, FILE_T fh, Buffer* buf,
     static const gchar months[] = "JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC";
     int count, line_count;
 
-    /* Make sure we have enough room for the packet */
-    ws_buffer_assure_space(buf, DBS_ETHERWATCH_MAX_PACKET_LEN);
+    /* Make sure we have enough room for a regular Ethernet packet */
+    ws_buffer_assure_space(buf, DBS_ETHERWATCH_MAX_ETHERNET_PACKET_LEN);
     pd = ws_buffer_start_ptr(buf);
 
     eth_hdr_len = 0;
@@ -361,6 +350,12 @@ parse_dbs_etherwatch_packet(struct wtap_pkthdr *phdr, FILE_T fh, Buffer* buf,
         return FALSE;
     }
 
+    if (pkt_len < 0) {
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = g_strdup("dbs_etherwatch: packet header has a negative packet length");
+        return FALSE;
+    }
+
     /* Determine whether it is Ethernet II or IEEE 802 */
     if(strncmp(&line[ETH_II_CHECK_POS], ETH_II_CHECK_STR,
         strlen(ETH_II_CHECK_STR)) == 0) {
@@ -428,8 +423,8 @@ parse_dbs_etherwatch_packet(struct wtap_pkthdr *phdr, FILE_T fh, Buffer* buf,
         pd[length_pos+1] = (length) & 0xFF;
     }
 
-    phdr->rec_type = REC_TYPE_PACKET;
-    phdr->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
+    rec->rec_type = REC_TYPE_PACKET;
+    rec->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
 
     p = strstr(months, mon);
     if (p)
@@ -437,15 +432,31 @@ parse_dbs_etherwatch_packet(struct wtap_pkthdr *phdr, FILE_T fh, Buffer* buf,
     tm.tm_year -= 1900;
 
     tm.tm_isdst = -1;
-    phdr->ts.secs = mktime(&tm);
-    phdr->ts.nsecs = csec * 10000000;
-    phdr->caplen = eth_hdr_len + pkt_len;
-    phdr->len = eth_hdr_len + pkt_len;
+    rec->ts.secs = mktime(&tm);
+    rec->ts.nsecs = csec * 10000000;
+    rec->rec_header.packet_header.caplen = eth_hdr_len + pkt_len;
+    rec->rec_header.packet_header.len = eth_hdr_len + pkt_len;
+
+    if (rec->rec_header.packet_header.caplen > WTAP_MAX_PACKET_SIZE_STANDARD) {
+        /*
+         * Probably a corrupt capture file; return an error,
+         * so that our caller doesn't blow up trying to allocate
+         * space for an immensely-large packet.
+         */
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = g_strdup_printf("dbs_etherwatch: File has %u-byte packet, bigger than maximum of %u",
+                                    rec->rec_header.packet_header.caplen, WTAP_MAX_PACKET_SIZE_STANDARD);
+        return FALSE;
+    }
+
+    /* Make sure we have enough room, even for an oversized Ethernet packet */
+    ws_buffer_assure_space(buf, rec->rec_header.packet_header.caplen);
+    pd = ws_buffer_start_ptr(buf);
 
     /*
      * We don't have an FCS in this frame.
      */
-    phdr->pseudo_header.eth.fcs_len = 0;
+    rec->rec_header.packet_header.pseudo_header.eth.fcs_len = 0;
 
     /* Parse the hex dump */
     count = 0;

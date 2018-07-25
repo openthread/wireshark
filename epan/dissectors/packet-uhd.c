@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -31,11 +19,8 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 
 void proto_register_uhd(void);
-
-static gint dissector_port_pref = 0;
 
 /* ====== DO NOT MAKE UNAPPROVED MODIFICATIONS HERE ===== */
 
@@ -268,37 +253,18 @@ proto_register_uhd(void)
 		&ett_uhd
 	};
 
-	module_t *uhd_module;
-
 	proto_uhd = proto_register_protocol("UHD", "UHD", "uhd");
 	proto_register_field_array(proto_uhd, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	uhd_module = prefs_register_protocol(proto_uhd, proto_reg_handoff_uhd);
-	prefs_register_uint_preference(uhd_module,
-	"dissector_port",
-	"Dissector UDP port",
-	"The UDP port used by this dissector",
-	10, &dissector_port_pref);
 }
 
 void
 proto_reg_handoff_uhd(void)
 {
-	static gboolean uhd_prefs_initialized = FALSE;
-	static dissector_handle_t uhd_handle;
-	static gint dissector_port;
+	dissector_handle_t uhd_handle;
 
-	if (!uhd_prefs_initialized) {
-		uhd_handle = create_dissector_handle(dissect_uhd, proto_uhd);
-		uhd_prefs_initialized = TRUE;
-	} else {
-		dissector_delete_uint("udp.port", dissector_port, uhd_handle);
-	}
-
-	dissector_port = dissector_port_pref;
-
-	dissector_add_uint("udp.port", dissector_port, uhd_handle);
+	uhd_handle = create_dissector_handle(dissect_uhd, proto_uhd);
+	dissector_add_for_decode_as_with_preference("udp.port", uhd_handle);
 }
 
 /*

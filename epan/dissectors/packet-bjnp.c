@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,10 +17,7 @@
 #define PSNAME "BJNP"
 #define PFNAME "bjnp"
 
-#define BJNP_PORT1         8611
-#define BJNP_PORT2         8612
-#define BJNP_PORT3         8613
-#define BJNP_PORT4         8614
+#define BJNP_PORT_RANGE    "8611-8614"
 
 /* dev_type */
 #define PRINTER_COMMAND    0x01
@@ -180,10 +165,7 @@ void proto_register_bjnp (void)
 
 void proto_reg_handoff_bjnp (void)
 {
-  dissector_add_uint ("udp.port", BJNP_PORT1, bjnp_handle);
-  dissector_add_uint ("udp.port", BJNP_PORT2, bjnp_handle);
-  dissector_add_uint ("udp.port", BJNP_PORT3, bjnp_handle);
-  dissector_add_uint ("udp.port", BJNP_PORT4, bjnp_handle);
+  dissector_add_uint_range_with_preference("udp.port", BJNP_PORT_RANGE, bjnp_handle);
 }
 
 /*

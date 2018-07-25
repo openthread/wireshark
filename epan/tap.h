@@ -5,26 +5,18 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TAP_H__
 #define __TAP_H__
 
 #include <epan/epan.h>
+#include <epan/packet_info.h>
 #include "ws_symbol_export.h"
+#ifdef HAVE_PLUGINS
+#include "wsutil/plugins.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +25,7 @@ extern "C" {
 typedef void (*tap_reset_cb)(void *tapdata);
 typedef gboolean (*tap_packet_cb)(void *tapdata, packet_info *pinfo, epan_dissect_t *edt, const void *data);
 typedef void (*tap_draw_cb)(void *tapdata);
+typedef void (*tap_finish_cb)(void *tapdata);
 
 /**
  * Flags to indicate what a tap listener's packet routine requires.
@@ -46,14 +39,17 @@ typedef void (*tap_draw_cb)(void *tapdata);
 						                         ** but does not, itself, require dissection */
 
 #ifdef HAVE_PLUGINS
-/** Register tap plugin type with the plugin system.
-    Called by epan_register_plugin_types(); do not call it yourself. */
-extern void register_tap_plugin_type(void);
+typedef struct {
+	void (*register_tap_listener)(void);   /* routine to call to register tap listener */
+} tap_plugin;
+
+/** Register tap plugin with the plugin system. */
+WS_DLL_PUBLIC void tap_register_plugin(const tap_plugin *plug);
 #endif
 
 /*
  * For all tap plugins, call their register routines.
- * Must be called after init_plugins(), and must be called only once in
+ * Must be called after plugins_init(), and must be called only once in
  * a program.
  *
  * XXX - should probably be handled by epan_init(), as the tap mechanism
@@ -213,7 +209,8 @@ WS_DLL_PUBLIC void draw_tap_listeners(gboolean draw_all);
 
 WS_DLL_PUBLIC GString *register_tap_listener(const char *tapname, void *tapdata,
     const char *fstring, guint flags, tap_reset_cb tap_reset,
-    tap_packet_cb tap_packet, tap_draw_cb tap_draw);
+    tap_packet_cb tap_packet, tap_draw_cb tap_draw,
+    tap_finish_cb tap_finish) G_GNUC_WARN_UNUSED_RESULT;
 
 /** This function sets a new dfilter to a tap listener */
 WS_DLL_PUBLIC GString *set_tap_dfilter(void *tapdata, const char *fstring);
@@ -258,6 +255,10 @@ WS_DLL_PUBLIC guint union_of_tap_listener_flags(void);
  * the tap listener.
  */
 WS_DLL_PUBLIC const void *fetch_tapped_data(int tap_id, int idx);
+
+/** Clean internal structures
+ */
+extern void tap_cleanup(void);
 
 #ifdef __cplusplus
 }

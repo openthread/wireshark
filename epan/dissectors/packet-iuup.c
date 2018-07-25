@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -34,6 +22,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/conversation.h>
 #include <epan/crc10-tvb.h>
 #include <wsutil/crc10.h>
 #include <wsutil/crc6.h>
@@ -155,7 +144,9 @@ static expert_field ei_iuup_time_align = EI_INIT;
 static expert_field ei_iuup_procedure_indicator = EI_INIT;
 static expert_field ei_iuup_pdu_type = EI_INIT;
 
-static GHashTable* circuits = NULL;
+static wmem_map_t* circuits = NULL;
+
+static dissector_handle_t iuup_handle;
 
 static gboolean dissect_fields = FALSE;
 static gboolean two_byte_pseudoheader = FALSE;
@@ -362,7 +353,7 @@ static void dissect_iuup_payload(tvbuff_t* tvb, packet_info* pinfo, proto_tree* 
     if ( ! dissect_fields ) {
         return;
     } else if ( ! circuit_id
-                || ! ( iuup_circuit  = (iuup_circuit_t *)g_hash_table_lookup(circuits,GUINT_TO_POINTER(circuit_id)) ) ) {
+                || ! ( iuup_circuit  = (iuup_circuit_t *)wmem_map_lookup(circuits,GUINT_TO_POINTER(circuit_id)) ) ) {
         expert_add_info(pinfo, pi, &ei_iuup_payload_undecoded);
         return;
     }
@@ -480,10 +471,10 @@ static void dissect_iuup_init(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tre
     iuup_circuit_t* iuup_circuit = NULL;
 
     if (circuit_id) {
-        iuup_circuit = (iuup_circuit_t *)g_hash_table_lookup(circuits,GUINT_TO_POINTER(circuit_id));
+        iuup_circuit = (iuup_circuit_t *)wmem_map_lookup(circuits,GUINT_TO_POINTER(circuit_id));
 
         if (iuup_circuit) {
-            g_hash_table_remove(circuits,GUINT_TO_POINTER(circuit_id));
+            wmem_map_remove(circuits,GUINT_TO_POINTER(circuit_id));
         }
 
         iuup_circuit = wmem_new0(wmem_file_scope(), iuup_circuit_t);
@@ -497,7 +488,7 @@ static void dissect_iuup_init(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tre
     iuup_circuit->last_rfci = NULL;
 
     if (circuit_id) {
-        g_hash_table_insert(circuits,GUINT_TO_POINTER(iuup_circuit->id),iuup_circuit);
+        wmem_map_insert(circuits,GUINT_TO_POINTER(iuup_circuit->id),iuup_circuit);
     }
 
     if (tree) {
@@ -631,7 +622,7 @@ static int dissect_iuup(tvbuff_t* tvb_in, packet_info* pinfo, proto_tree* tree, 
 
         phdr &= 0x7fff;
 
-        pinfo->circuit_id = phdr;
+        conversation_create_endpoint_by_id(pinfo, ENDPOINT_IUUP, phdr, 0);
 
         tvb = tvb_new_subset_length(tvb_in,2,len);
     }
@@ -666,7 +657,7 @@ static int dissect_iuup(tvbuff_t* tvb_in, packet_info* pinfo, proto_tree* tree, 
             proto_tree_add_item(iuup_tree,hf_iuup_rfci,tvb,1,1,ENC_BIG_ENDIAN);
             add_hdr_crc(tvb, pinfo, iuup_tree, crccheck);
             add_payload_crc(tvb, pinfo, iuup_tree);
-            dissect_iuup_payload(tvb,pinfo,iuup_tree,second_octet & 0x3f,4,pinfo->circuit_id);
+            dissect_iuup_payload(tvb,pinfo,iuup_tree,second_octet & 0x3f,4, conversation_get_endpoint_by_id(pinfo, ENDPOINT_IUUP, USE_LAST_ENDPOINT));
             return tvb_captured_length(tvb);
         case PDUTYPE_DATA_NO_CRC:
             col_append_fstr(pinfo->cinfo, COL_INFO," RFCI %u", (guint)(second_octet & 0x3f));
@@ -680,7 +671,7 @@ static int dissect_iuup(tvbuff_t* tvb_in, packet_info* pinfo, proto_tree* tree, 
 
             proto_tree_add_item(iuup_tree,hf_iuup_rfci,tvb,1,1,ENC_BIG_ENDIAN);
             add_hdr_crc(tvb, pinfo, iuup_tree, crccheck);
-            dissect_iuup_payload(tvb,pinfo,iuup_tree,second_octet & 0x3f,3,pinfo->circuit_id);
+            dissect_iuup_payload(tvb,pinfo,iuup_tree,second_octet & 0x3f,3, conversation_get_endpoint_by_id(pinfo, ENDPOINT_IUUP, USE_LAST_ENDPOINT));
             return tvb_captured_length(tvb);
         case PDUTYPE_DATA_CONTROL_PROC:
             if (tree) {
@@ -731,7 +722,7 @@ static int dissect_iuup(tvbuff_t* tvb_in, packet_info* pinfo, proto_tree* tree, 
             switch( second_octet & PROCEDURE_MASK ) {
                 case PROC_INIT:
                     add_payload_crc(tvb, pinfo, iuup_tree);
-                    dissect_iuup_init(tvb,pinfo,iuup_tree,pinfo->circuit_id);
+                    dissect_iuup_init(tvb,pinfo,iuup_tree, conversation_get_endpoint_by_id(pinfo, ENDPOINT_IUUP, USE_LAST_ENDPOINT));
                     return tvb_captured_length(tvb);
                 case PROC_RATE:
                     add_payload_crc(tvb, pinfo, iuup_tree);
@@ -832,22 +823,12 @@ static int find_iuup(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
     return tvb_captured_length(tvb);
 }
 
-static void init_iuup(void) {
-    circuits = g_hash_table_new(g_direct_hash,g_direct_equal);
-}
-
-static void cleanup_iuup(void) {
-    g_hash_table_destroy(circuits);
-}
-
 
 void proto_reg_handoff_iuup(void) {
     static gboolean iuup_prefs_initialized = FALSE;
-    static dissector_handle_t iuup_handle;
     static guint saved_dynamic_payload_type = 0;
 
     if (!iuup_prefs_initialized) {
-        iuup_handle = find_dissector("iuup");
         dissector_add_string("rtp_dyn_payload_type","VND.3GPP.IUFP", iuup_handle);
         iuup_prefs_initialized = TRUE;
     } else {
@@ -994,11 +975,10 @@ void proto_register_iuup(void) {
     proto_register_subtree_array(ett, array_length(ett));
     expert_iuup = expert_register_protocol(proto_iuup);
     expert_register_field_array(expert_iuup, ei, array_length(ei));
-    register_dissector("iuup", dissect_iuup, proto_iuup);
+    iuup_handle = register_dissector("iuup", dissect_iuup, proto_iuup);
     register_dissector("find_iuup", find_iuup, proto_iuup);
 
-    register_init_routine(&init_iuup);
-    register_cleanup_routine(&cleanup_iuup);
+    circuits = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal);
 
     iuup_module = prefs_register_protocol(proto_iuup, proto_reg_handoff_iuup);
 

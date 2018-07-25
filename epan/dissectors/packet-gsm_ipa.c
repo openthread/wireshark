@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -71,14 +59,10 @@ void proto_reg_handoff_gsm_ipa(void);
  * REGISTERED OR NOT.                                                   *
  ************************************************************************
  */
-#define IPA_TCP_PORTS "3002,3003,3006,4249,4250,5000"
-#define IPA_UDP_PORTS "3006"
-#define IPA_UDP_PORTS_DEFAULT "0"
+#define IPA_TCP_PORTS "3002,3003,3006,4222,4249,4250,5000"
 
 static dissector_handle_t ipa_tcp_handle;
 static dissector_handle_t ipa_udp_handle;
-static range_t *global_ipa_tcp_ports = NULL;
-static range_t *global_ipa_udp_ports = NULL;
 static gboolean global_ipa_in_root = FALSE;
 static gboolean global_ipa_in_info = FALSE;
 
@@ -168,6 +152,7 @@ static const value_string ipa_osmo_proto_vals[] = {
 	{ 0x01,		"MGCP" },
 	{ 0x02,		"LAC" },
 	{ 0x03,		"SMSC" },
+	{ 0x05,		"GSUP" },
 	{ 0,		NULL }
 };
 
@@ -219,17 +204,15 @@ dissect_ipaccess(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	col_append_fstr(pinfo->cinfo, COL_INFO, "%s ",
 	                val_to_str(msg_type, ipaccess_msgtype_vals,
 	                           "unknown 0x%02x"));
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_ipaccess, tvb, 0, -1, ENC_NA);
-		ipaccess_tree = proto_item_add_subtree(ti, ett_ipaccess);
-		proto_tree_add_item(ipaccess_tree, hf_ipaccess_msgtype,
-				    tvb, 0, 1, ENC_BIG_ENDIAN);
-		switch (msg_type) {
+	ti = proto_tree_add_item(tree, proto_ipaccess, tvb, 0, -1, ENC_NA);
+	ipaccess_tree = proto_item_add_subtree(ti, ett_ipaccess);
+	proto_tree_add_item(ipaccess_tree, hf_ipaccess_msgtype,
+			tvb, 0, 1, ENC_BIG_ENDIAN);
+	switch (msg_type) {
 		case 4:
 		case 5:
 			dissect_ipa_attr(tvb, 1, ipaccess_tree);
 			break;
-		}
 	}
 
 	return 1;
@@ -237,17 +220,17 @@ dissect_ipaccess(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 /* Dissect the osmocom extension header */
 static gint
-dissect_osmo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ipatree, proto_tree *tree)
+dissect_osmo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ipatree, proto_tree *tree, proto_item *ipa_ti)
 {
 	tvbuff_t *next_tvb;
 	guint8 osmo_proto;
+	const gchar *name;
 
 	osmo_proto = tvb_get_guint8(tvb, 0);
-
-	col_append_fstr(pinfo->cinfo, COL_INFO, "%s ",
-	                val_to_str(osmo_proto, ipa_osmo_proto_vals,
-	                           "unknown 0x%02x"));
+	name = val_to_str(osmo_proto, ipa_osmo_proto_vals, "unknown 0x%02x");
+	col_append_fstr(pinfo->cinfo, COL_INFO, "%s ", name);
 	if (ipatree) {
+		proto_item_append_text(ipa_ti, " %s", name);
 		proto_tree_add_item(ipatree, hf_ipa_osmo_proto,
 				    tvb, 0, 1, ENC_BIG_ENDIAN);
 	}
@@ -264,9 +247,7 @@ dissect_osmo(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ipatree, proto_tree 
 		return 1;
 	/* Simply display the CTRL data as text */
 	} else if (osmo_proto == IPAC_PROTO_EXT_CTRL) {
-		if (tree) {
-			proto_tree_add_item(tree, hf_ipa_osmo_ctrl_data, next_tvb, 0, -1, ENC_ASCII|ENC_NA);
-		}
+		proto_tree_add_item(tree, hf_ipa_osmo_ctrl_data, next_tvb, 0, -1, ENC_ASCII|ENC_NA);
 		return 1;
 	}
 
@@ -311,18 +292,16 @@ dissect_ipa(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean is_udp
 			header_length++;
 		}
 
-		if (tree) {
-			ti = proto_tree_add_protocol_format(tree, proto_ipa,
-					tvb, offset, len+header_length,
-					"IPA protocol ip.access, type: %s",
-					val_to_str(msg_type, ipa_protocol_vals,
-						   "unknown 0x%02x"));
-			ipa_tree = proto_item_add_subtree(ti, ett_ipa);
-			proto_tree_add_item(ipa_tree, hf_ipa_data_len,
-					    tvb, offset, 2, ENC_BIG_ENDIAN);
-			proto_tree_add_item(ipa_tree, hf_ipa_protocol,
-					    tvb, offset+2, 1, ENC_BIG_ENDIAN);
-		}
+		ti = proto_tree_add_protocol_format(tree, proto_ipa,
+				tvb, offset, len+header_length,
+				"IPA protocol ip.access, type: %s",
+				val_to_str(msg_type, ipa_protocol_vals,
+					"unknown 0x%02x"));
+		ipa_tree = proto_item_add_subtree(ti, ett_ipa);
+		proto_tree_add_item(ipa_tree, hf_ipa_data_len,
+				tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item(ipa_tree, hf_ipa_protocol,
+				tvb, offset+2, 1, ENC_BIG_ENDIAN);
 
 		next_tvb = tvb_new_subset_length(tvb, offset+header_length, len);
 
@@ -345,16 +324,14 @@ dissect_ipa(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean is_udp
 			call_dissector(sub_handles[SUB_MGCP], next_tvb, pinfo, tree);
 			break;
 		case OSMO_EXT:
-			dissect_osmo(next_tvb, pinfo, ipa_tree, tree);
+			dissect_osmo(next_tvb, pinfo, ipa_tree, tree, ti);
 			break;
 		case HSL_DEBUG:
-			if (tree) {
-				proto_tree_add_item(ipa_tree, hf_ipa_hsl_debug,
-						    next_tvb, 0, len, ENC_ASCII|ENC_NA);
-				if (global_ipa_in_root == TRUE)
-					proto_tree_add_item(tree, hf_ipa_hsl_debug,
-							    next_tvb, 0, len, ENC_ASCII|ENC_NA);
-			}
+			proto_tree_add_item(ipa_tree, hf_ipa_hsl_debug,
+					next_tvb, 0, len, ENC_ASCII|ENC_NA);
+			if (global_ipa_in_root == TRUE)
+				proto_tree_add_item(tree, hf_ipa_hsl_debug,
+						next_tvb, 0, len, ENC_ASCII|ENC_NA);
 			if (global_ipa_in_info == TRUE)
 				col_append_fstr(pinfo->cinfo, COL_INFO, "%s ",
 						tvb_get_stringz_enc(wmem_packet_scope(), next_tvb, 0, NULL, ENC_ASCII));
@@ -455,24 +432,9 @@ void proto_register_ipa(void)
 	/* Register table for subdissectors */
 	osmo_dissector_table = register_dissector_table("ipa.osmo.protocol",
 					"GSM over IP ip.access Protocol", proto_ipa,
-					FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+					FT_UINT8, BASE_DEC);
 
-
-	range_convert_str(&global_ipa_tcp_ports, IPA_TCP_PORTS, MAX_TCP_PORT);
-	range_convert_str(&global_ipa_udp_ports, IPA_UDP_PORTS_DEFAULT, MAX_UDP_PORT);
-	ipa_module = prefs_register_protocol(proto_ipa,
-					     proto_reg_handoff_gsm_ipa);
-
-	prefs_register_range_preference(ipa_module, "tcp_ports",
-					"GSM IPA TCP Port(s)",
-					"Set the port(s) for ip.access IPA"
-					" (default: " IPA_TCP_PORTS ")",
-					&global_ipa_tcp_ports, MAX_TCP_PORT);
-	prefs_register_range_preference(ipa_module, "udp_ports",
-					"GSM IPA UDP Port(s)",
-					"Set the port(s) for ip.access IPA"
-					" (usually: " IPA_UDP_PORTS ")",
-					&global_ipa_udp_ports, MAX_UDP_PORT);
+	ipa_module = prefs_register_protocol(proto_ipa, NULL);
 
 	prefs_register_bool_preference(ipa_module, "hsl_debug_in_root_tree",
 					"HSL Debug messages in root protocol tree",
@@ -484,31 +446,16 @@ void proto_register_ipa(void)
 
 void proto_reg_handoff_gsm_ipa(void)
 {
-	static gboolean ipa_initialized = FALSE;
-	static range_t *ipa_tcp_ports, *ipa_udp_ports;
+	sub_handles[SUB_RSL] = find_dissector_add_dependency("gsm_abis_rsl", proto_ipa);
+	sub_handles[SUB_OML] = find_dissector_add_dependency("gsm_abis_oml", proto_ipa);
+	sub_handles[SUB_SCCP] = find_dissector_add_dependency("sccp", proto_ipa);
+	sub_handles[SUB_MGCP] = find_dissector_add_dependency("mgcp", proto_ipa);
+	sub_handles[SUB_DATA] = find_dissector("data");
 
-	if (!ipa_initialized) {
-		sub_handles[SUB_RSL] = find_dissector_add_dependency("gsm_abis_rsl", proto_ipa);
-		sub_handles[SUB_OML] = find_dissector_add_dependency("gsm_abis_oml", proto_ipa);
-		sub_handles[SUB_SCCP] = find_dissector_add_dependency("sccp", proto_ipa);
-		sub_handles[SUB_MGCP] = find_dissector_add_dependency("mgcp", proto_ipa);
-		sub_handles[SUB_DATA] = find_dissector("data");
-
-		ipa_tcp_handle = create_dissector_handle(dissect_ipa_tcp, proto_ipa);
-		ipa_udp_handle = create_dissector_handle(dissect_ipa_udp, proto_ipa);
-		ipa_initialized = TRUE;
-	} else {
-		dissector_delete_uint_range("tcp.port", ipa_tcp_ports, ipa_tcp_handle);
-		g_free(ipa_tcp_ports);
-		dissector_delete_uint_range("udp.port", ipa_udp_ports, ipa_udp_handle);
-		g_free(ipa_udp_ports);
-	}
-
-	ipa_tcp_ports = range_copy(global_ipa_tcp_ports);
-	ipa_udp_ports = range_copy(global_ipa_udp_ports);
-
-	dissector_add_uint_range("udp.port", ipa_udp_ports, ipa_udp_handle);
-	dissector_add_uint_range("tcp.port", ipa_tcp_ports, ipa_tcp_handle);
+	ipa_tcp_handle = create_dissector_handle(dissect_ipa_tcp, proto_ipa);
+	ipa_udp_handle = create_dissector_handle(dissect_ipa_udp, proto_ipa);
+	dissector_add_uint_range_with_preference("tcp.port", IPA_TCP_PORTS, ipa_tcp_handle);
+	dissector_add_uint_range_with_preference("udp.port", "", ipa_udp_handle);
 }
 
 /*

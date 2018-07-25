@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -133,10 +121,6 @@ dissect_ipxwan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 	guint8 option_number;
 	proto_tree *option_tree;
 	guint16 option_data_len;
-	guint16 wan_link_delay;
-	guint32 delay;
-	guint32 throughput;
-	guint32 delta_time;
 	guint8 compression_type;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "IPX WAN");
@@ -205,13 +189,9 @@ dissect_ipxwan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 				expert_add_info_format(pinfo, ti, &ei_ipxwan_option_data_len,
 					"Bogus length: %u, should be 54", option_data_len);
 			} else {
-				wan_link_delay = tvb_get_ntohs(tvb,
-					offset);
-				proto_tree_add_uint_format_value(option_tree,
+				proto_tree_add_item(option_tree,
 					hf_ipxwan_wan_link_delay, tvb,
-					offset, 2, wan_link_delay,
-					"%ums",
-					wan_link_delay);
+					offset, 2, ENC_BIG_ENDIAN);
 				proto_tree_add_item(option_tree,
 					hf_ipxwan_common_network_number,
 					tvb, offset+2, 4, ENC_NA);
@@ -226,17 +206,12 @@ dissect_ipxwan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 				expert_add_info_format(pinfo, ti, &ei_ipxwan_option_data_len,
 					"Bogus length: %u, should be 8", option_data_len);
 			} else {
-				delay = tvb_get_ntohl(tvb, offset);
-				proto_tree_add_uint_format_value(option_tree,
+				proto_tree_add_item(option_tree,
 					hf_ipxwan_delay, tvb,
-					offset, 4, delay,
-					"%uus", delay);
-				throughput = tvb_get_ntohl(tvb, offset);
-				proto_tree_add_uint_format_value(option_tree,
+					offset, 4, ENC_BIG_ENDIAN);
+				proto_tree_add_item(option_tree,
 					hf_ipxwan_throughput, tvb,
-					offset, 4, throughput,
-					"%uus",
-					throughput);
+					offset, 4, ENC_BIG_ENDIAN);
 			}
 			break;
 
@@ -248,12 +223,9 @@ dissect_ipxwan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 				proto_tree_add_item(option_tree,
 					hf_ipxwan_request_size, tvb,
 					offset, 4, ENC_BIG_ENDIAN);
-				delta_time = tvb_get_ntohl(tvb, offset);
-				proto_tree_add_uint_format_value(option_tree,
+				proto_tree_add_item(option_tree,
 					hf_ipxwan_delta_time, tvb,
-					offset, 4, delta_time,
-					"%uus",
-					delta_time);
+					offset, 4, ENC_BIG_ENDIAN);
 			}
 			break;
 
@@ -371,7 +343,7 @@ proto_register_ipxwan(void)
 
 	    { &hf_ipxwan_wan_link_delay,
 	      { "WAN Link Delay", "ipxwan.rip_sap_info_exchange.wan_link_delay",
-	         FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+	         FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0, NULL, HFILL }},
 
 	    { &hf_ipxwan_common_network_number,
 	      { "Common Network Number", "ipxwan.rip_sap_info_exchange.common_network_number",
@@ -383,11 +355,11 @@ proto_register_ipxwan(void)
 
 	    { &hf_ipxwan_delay,
 	      { "Delay", "ipxwan.nlsp_information.delay",
-	         FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+	         FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_microseconds, 0x0, NULL, HFILL }},
 
 	    { &hf_ipxwan_throughput,
 	      { "Throughput", "ipxwan.nlsp_information.throughput",
-	         FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+	         FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_microseconds, 0x0, NULL, HFILL }},
 
 	    { &hf_ipxwan_request_size,
 	      { "Request Size", "ipxwan.nlsp_raw_throughput_data.request_size",
@@ -395,7 +367,7 @@ proto_register_ipxwan(void)
 
 	    { &hf_ipxwan_delta_time,
 	      { "Delta Time", "ipxwan.nlsp_raw_throughput_data.delta_time",
-	         FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+	         FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_microseconds, 0x0, NULL, HFILL }},
 
 	    { &hf_ipxwan_extended_node_id,
 	      { "Extended Node ID", "ipxwan.extended_node_id",

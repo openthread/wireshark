@@ -7,25 +7,12 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 
 #include "packet-ssl-utils.h"
 #include "packet-tcp.h"
@@ -88,7 +75,7 @@ static int hf_routine = -1;
 static gint ett_pgsql = -1;
 static gint ett_values = -1;
 
-static guint pgsql_port = 5432;
+#define PGSQL_PORT 5432
 static gboolean pgsql_desegment = TRUE;
 static gboolean first_message = TRUE;
 
@@ -149,6 +136,12 @@ static const value_string auth_types[] = {
     { 4, "crypt()ed password" },
     { 5, "MD5 password" },
     { 6, "SCM credentials" },
+    { 7, "GSSAPI" },
+    { 8, "GSSAPI/SSPI continue" },
+    { 9, "SSPI" },
+    {10, "SASL" },
+    {11, "SASL continue" },
+    {12, "SASL complete" },
     { 0, NULL }
 };
 
@@ -374,6 +367,8 @@ static void dissect_pgsql_be_msg(guchar type, guint length, tvbuff_t *tvb,
             n += 4;
             siz = (i == 4 ? 2 : 4);
             proto_tree_add_item(tree, hf_salt, tvb, n, siz, ENC_NA);
+        }else if (i == 8) {
+            proto_tree_add_item(tree, hf_salt, tvb, n, length-8, ENC_NA);
         }
         break;
 
@@ -884,36 +879,19 @@ proto_register_pgsql(void)
         &ett_values
     };
 
-    module_t *mod_pgsql;
-
     proto_pgsql = proto_register_protocol("PostgreSQL", "PGSQL", "pgsql");
     proto_register_field_array(proto_pgsql, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-
-    mod_pgsql = prefs_register_protocol(proto_pgsql, proto_reg_handoff_pgsql);
-    prefs_register_uint_preference(
-        mod_pgsql, "tcp.port", "PGSQL TCP port", "Set the port for PGSQL "
-        "messages (if different from the default of 5432)", 10, &pgsql_port
-    );
 }
 
 void
 proto_reg_handoff_pgsql(void)
 {
-    static gboolean initialized = FALSE;
-    static guint saved_pgsql_port;
+    pgsql_handle = create_dissector_handle(dissect_pgsql, proto_pgsql);
 
-    if (!initialized) {
-        pgsql_handle = create_dissector_handle(dissect_pgsql, proto_pgsql);
-        initialized = TRUE;
-    } else {
-        dissector_delete_uint("tcp.port", saved_pgsql_port, pgsql_handle);
-    }
+    dissector_add_uint_with_preference("tcp.port", PGSQL_PORT, pgsql_handle);
 
-    dissector_add_uint("tcp.port", pgsql_port, pgsql_handle);
-    saved_pgsql_port = pgsql_port;
-
-    ssl_handle = find_dissector("ssl");
+    ssl_handle = find_dissector_add_dependency("ssl", proto_pgsql);
 }
 
 /*

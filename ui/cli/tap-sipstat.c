@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -69,14 +57,17 @@ typedef struct _sip_request_method_t {
 	sipstat_t   *sp;
 } sip_request_method_t;
 
-/* TODO: extra codes to be added from SIP extensions? */
+/* TODO: extra codes to be added from SIP extensions?
+* http://www.iana.org/assignments/sip-parameters/sip-parameters.xhtml#sip-parameters-6
+*/
 static const value_string vals_status_code[] = {
 	{ 100, "Trying"},
 	{ 180, "Ringing"},
 	{ 181, "Call Is Being Forwarded"},
 	{ 182, "Queued"},
 	{ 183, "Session Progress"},
-	{ 199, "Informational - Others" },
+
+	{ 199, "Early Dialog Terminated" },
 
 	{ 200, "OK"},
 	{ 202, "Accepted"},
@@ -99,26 +90,36 @@ static const value_string vals_status_code[] = {
 	{ 406, "Not Acceptable"},
 	{ 407, "Proxy Authentication Required"},
 	{ 408, "Request Timeout"},
+
 	{ 410, "Gone"},
+
 	{ 412, "Conditional Request Failed"},
 	{ 413, "Request Entity Too Large"},
 	{ 414, "Request-URI Too Long"},
 	{ 415, "Unsupported Media Type"},
 	{ 416, "Unsupported URI Scheme"},
+	{ 417, "Unknown Resource-Priority"},
+
 	{ 420, "Bad Extension"},
 	{ 421, "Extension Required"},
 	{ 422, "Session Timer Too Small"},
 	{ 423, "Interval Too Brief"},
+	{ 424, "Bad Location Information" },
+
 	{ 428, "Use Identity Header"},
 	{ 429, "Provide Referrer Identity"},
 	{ 430, "Flow Failed"},
+
 	{ 433, "Anonymity Disallowed"},
 	{ 436, "Bad Identity-Info"},
 	{ 437, "Unsupported Certificate"},
 	{ 438, "Invalid Identity Header"},
 	{ 439, "First Hop Lacks Outbound Support"},
 	{ 440, "Max-Breadth Exceeded"},
+
+	{ 469, "Bad Info Package"},
 	{ 470, "Consent Needed"},
+
 	{ 480, "Temporarily Unavailable"},
 	{ 481, "Call/Transaction Does Not Exist"},
 	{ 482, "Loop Detected"},
@@ -129,6 +130,7 @@ static const value_string vals_status_code[] = {
 	{ 487, "Request Terminated"},
 	{ 488, "Not Acceptable Here"},
 	{ 489, "Bad Event"},
+
 	{ 491, "Request Pending"},
 	{ 493, "Undecipherable"},
 	{ 494, "Security Agreement Required"},
@@ -141,12 +143,17 @@ static const value_string vals_status_code[] = {
 	{ 504, "Server Time-out"},
 	{ 505, "Version Not Supported"},
 	{ 513, "Message Too Large"},
+
+	{ 580, "Precondition Failure"},
+
 	{ 599, "Server Error - Others"},
 
 	{ 600, "Busy Everywhere"},
 	{ 603, "Decline"},
 	{ 604, "Does Not Exist Anywhere"},
 	{ 606, "Not Acceptable"},
+	{ 607, "Unwanted"},
+
 	{ 699, "Global Failure - Others"},
 
 	{ 0,	NULL}
@@ -281,12 +288,12 @@ sipstat_packet(void *psp, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const
 	if (value->response_code != 0)
 	{
 		/* Responses */
-		guint *key = g_new(guint, 1);
+		guint key;
 		sip_response_code_t *sc;
 
 		/* Look up response code in hash table */
-		*key = value->response_code;
-		sc = (sip_response_code_t *)g_hash_table_lookup(sp->hash_responses, key);
+		key = value->response_code;
+		sc = (sip_response_code_t *)g_hash_table_lookup(sp->hash_responses, &key);
 		if (sc == NULL)
 		{
 			/* Non-standard status code ; we classify it as others
@@ -301,31 +308,31 @@ sipstat_packet(void *psp, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const
 			}
 			else if (i < 200)
 			{
-				*key = 199;	/* Hopefully, this status code will never be used */
+				key = 199;	/* Hopefully, this status code will never be used */
 			}
 			else if (i < 300)
 			{
-				*key = 299;
+				key = 299;
 			}
 			else if (i < 400)
 			{
-				*key = 399;
+				key = 399;
 			}
 			else if (i < 500)
 			{
-				*key = 499;
+				key = 499;
 			}
 			else if (i < 600)
 			{
-				*key = 599;
+				key = 599;
 			}
 			else
 			{
-				*key = 699;
+				key = 699;
 			}
 
 			/* Now look up this fallback code to get its text description */
-			sc = (sip_response_code_t *)g_hash_table_lookup(sp->hash_responses, key);
+			sc = (sip_response_code_t *)g_hash_table_lookup(sp->hash_responses, &key);
 			if (sc == NULL)
 			{
 				return 0;
@@ -403,11 +410,7 @@ sipstat_init(const char *opt_arg, void *userdata _U_)
 	}
 
 	sp = g_new0(sipstat_t, 1);
-	if (filter) {
-		sp->filter = g_strdup(filter);
-	} else {
-		sp->filter = NULL;
-	}
+	sp->filter = g_strdup(filter);
 	/*g_hash_table_foreach( sip_status, (GHFunc)sip_reset_hash_responses, NULL);*/
 
 
@@ -418,7 +421,8 @@ sipstat_init(const char *opt_arg, void *userdata _U_)
 			0,
 			sipstat_reset,
 			sipstat_packet,
-			sipstat_draw);
+			sipstat_draw,
+			NULL);
 	if (error_string) {
 		/* error, we failed to attach to the tap. clean up */
 		g_free(sp->filter);

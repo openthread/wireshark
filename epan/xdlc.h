@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __XDLC_H__
@@ -133,14 +121,6 @@ extern const value_string modifier_vals_cmd[];
 extern const value_string modifier_vals_resp[];
 
 extern int get_xdlc_control(const guchar *pd, int offset, gboolean is_extended);
-
-/**
- * Check whether the control field of the packet looks valid.
- */
-WS_DLL_PUBLIC gboolean check_xdlc_control(tvbuff_t *tvb, int offset,
-  const value_string *u_modifier_short_vals_cmd,
-  const value_string *u_modifier_short_vals_resp, gboolean is_response,
-  gboolean is_extended _U_);
 
 WS_DLL_PUBLIC int dissect_xdlc_control(tvbuff_t *tvb, int offset, packet_info *pinfo,
   proto_tree *xdlc_tree, int hf_xdlc_control, gint ett_xdlc_control,

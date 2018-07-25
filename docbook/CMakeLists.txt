@@ -4,30 +4,32 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
-find_package( LYNX )
+# To do:
+# - Rename *.asciidoc to *.adoc
+# - Make the build targets top-level on Windows, similar to the NSIS,
+#   WiX, and PortableApps targets?
+
+find_package( Asciidoctor 1.5 )
 find_package( XSLTPROC )
-if(ENABLE_CHM_GUIDES)
-	find_package( HTMLHelp )
-endif()
 
-find_package( ASCIIDOC )
+function(set_docbook_target_properties _target)
+	set_target_properties(${_target} PROPERTIES
+		FOLDER "Docbook"
+		EXCLUDE_FROM_DEFAULT_BUILD True
+		)
+endfunction(set_docbook_target_properties)
 
 if(WIN32)
+	find_package( HTMLHelp )
+	if(HTML_HELP_COMPILER)
+		# We do not need the HTML Help headers and library, just the
+		# compiler. To avoid confusion, report the package as found.
+		# https://gitlab.kitware.com/cmake/cmake/issues/15886
+		set(HTMLHelp_FOUND 1)
+	endif()
 	macro( HHP2CHM _hhpsource )
 		get_filename_component( _source_base_name ${_hhpsource} NAME_WE )
 
@@ -49,11 +51,86 @@ else()
 	endmacro()
 endif()
 
+set(COMMON_FILES
+	common_src/GPL_appendix.asciidoc
+)
+
 set(COMMON_GRAPHICS
 	common_graphics/note.svg
 	common_graphics/tip.svg
 	common_graphics/warning.svg
 )
+
+set(WSUG_TOOLS_HELP_COMMANDS
+	capinfos
+	editcap
+	mergecap
+	reordercap
+	text2pcap
+	tshark
+)
+
+if (PCAP_FOUND)
+	list(APPEND WSUG_TOOLS_HELP_COMMANDS
+		dumpcap
+		rawshark
+	)
+endif(PCAP_FOUND)
+
+# We want the wsug_* targets to depend on the tools help files.
+# We want update_tools_help to be an independent target.
+# We don't necessarily want to depend on building our executables before
+# being able to build our documentation.
+set(WSUG_TOOLS_HELP_FILES)
+set(GUIDE_INSTALL_DIRS)
+
+# General help output
+
+foreach(th_command ${WSUG_TOOLS_HELP_COMMANDS})
+	if(NOT DEFINED BUILD_${th_command})
+		# Catch typos, these commands must exist in CMakeOptions.txt
+		message(WARNING "BUILD_${th_command} is an unknown option")
+	endif()
+	if(NOT BUILD_${th_command})
+		message(STATUS "WSUG: will not update ${th_command} output")
+		continue()
+	endif()
+
+	set(th_file ${CMAKE_CURRENT_SOURCE_DIR}/wsug_src/${th_command}-h.txt)
+	list(APPEND WSUG_TOOLS_HELP_FILES ${th_file})
+	add_custom_command(
+		OUTPUT ${th_file}
+		COMMAND $<TARGET_FILE:${th_command}> -h > ${th_file}
+		DEPENDS $<TARGET_FILE:${th_command}>
+	)
+endforeach()
+
+# Extra command output
+# Note that these won't work on Windows unless we make -F and -T write
+# to stdout and return 0 or wrap the commands similar to hhc.exe.
+if(BUILD_editcap)
+	set(th_file ${CMAKE_CURRENT_SOURCE_DIR}/wsug_src/editcap-F.txt)
+	list(APPEND WSUG_TOOLS_HELP_FILES ${th_file})
+	add_custom_command(
+		OUTPUT ${th_file}
+		COMMAND $<TARGET_FILE:editcap> -F > ${th_file}
+		DEPENDS $<TARGET_FILE:editcap>
+	)
+	set(th_file ${CMAKE_CURRENT_SOURCE_DIR}/wsug_src/editcap-T.txt)
+	list(APPEND WSUG_TOOLS_HELP_FILES ${th_file})
+	add_custom_command(
+		OUTPUT ${th_file}
+		COMMAND $<TARGET_FILE:editcap> -T > ${th_file}
+		DEPENDS $<TARGET_FILE:editcap>
+	)
+else()
+	message(STATUS "WSUG: will not update editcap output")
+endif()
+
+add_custom_target(update_tools_help
+	DEPENDS ${WSUG_TOOLS_HELP_FILES}
+)
+set_docbook_target_properties(update_tools_help)
 
 set(WSUG_FILES
 	wsug_src/WSUG_app_files.asciidoc
@@ -67,12 +144,14 @@ set(WSUG_FILES
 	wsug_src/WSUG_chapter_customize.asciidoc
 	wsug_src/WSUG_chapter_introduction.asciidoc
 	wsug_src/WSUG_chapter_io.asciidoc
+	wsug_src/WSUG_chapter_mate.asciidoc
 	wsug_src/WSUG_chapter_statistics.asciidoc
 	wsug_src/WSUG_chapter_telephony.asciidoc
 	wsug_src/WSUG_chapter_troubleshoot.asciidoc
 	wsug_src/WSUG_chapter_use.asciidoc
 	wsug_src/WSUG_chapter_work.asciidoc
 	wsug_src/WSUG_preface.asciidoc
+	${COMMON_FILES}
 )
 
 set(WSUG_GRAPHICS
@@ -89,13 +168,22 @@ set(WSUG_GRAPHICS
 	wsug_graphics/ws-bytes-pane-tabs.png
 	wsug_graphics/ws-bytes-pane.png
 	wsug_graphics/ws-capture-info.png
+	wsug_graphics/ws-capture-interface-details.png
 	wsug_graphics/ws-capture-interfaces.png
 	wsug_graphics/ws-capture-interfaces-win32.png
 	wsug_graphics/ws-capture-menu.png
 	wsug_graphics/ws-capture-options.png
+	wsug_graphics/ws-capture-options-compile-selected-bpfs.png
+	wsug_graphics/ws-capture-options-manage-interfaces-local.png
+	wsug_graphics/ws-capture-options-manage-interfaces-pipes.png
+	wsug_graphics/ws-capture-options-manage-interfaces-remote-plus.png
+	wsug_graphics/ws-capture-options-manage-interfaces-remote.png
+	wsug_graphics/ws-capture-options-manage-interfaces.png
+	wsug_graphics/ws-capture-options-output.png
 	wsug_graphics/ws-capture-options-remote-capture.png
 	wsug_graphics/ws-capture-options-remote-interface.png
 	wsug_graphics/ws-capture-options-remote-settings.png
+	wsug_graphics/ws-capture-options-settings.png
 	wsug_graphics/ws-capture-preferences.png
 	wsug_graphics/ws-choose-color-rule.png
 	wsug_graphics/ws-coloring-fields.png
@@ -103,7 +191,6 @@ set(WSUG_GRAPHICS
 	wsug_graphics/ws-column-header-popup-menu.png
 	wsug_graphics/ws-decode-as-show.png
 	wsug_graphics/ws-decode-as.png
-	wsug_graphics/ws-column-header-popup-menu.png
 	wsug_graphics/ws-details-pane-popup-menu.png
 	wsug_graphics/ws-details-pane.png
 	wsug_graphics/ws-display-filter-tcp.png
@@ -132,6 +219,7 @@ set(WSUG_GRAPHICS
 	wsug_graphics/ws-gui-columns-preferences.png
 	wsug_graphics/ws-gui-config-profiles.png
 	wsug_graphics/ws-gui-font-preferences.png
+	wsug_graphics/ws-gui-interface-options.png
 	wsug_graphics/ws-gui-layout-preferences.png
 	wsug_graphics/ws-gui-preferences.png
 	wsug_graphics/ws-help-menu.png
@@ -140,6 +228,16 @@ set(WSUG_GRAPHICS
 	wsug_graphics/ws-logo.png
 	wsug_graphics/ws-main-toolbar.png
 	wsug_graphics/ws-main.png
+	wsug_graphics/ws-mate-analysis.png
+	wsug_graphics/ws-mate-dns_pane.png
+	wsug_graphics/ws-mate-dns_pdu.png
+	wsug_graphics/ws-mate-ftp_over_gre.png
+	wsug_graphics/ws-mate-gop_analysis.png
+	wsug_graphics/ws-mate-isup_over_mtp3_over_ip.png
+	wsug_graphics/ws-mate-mmse_over_http.png
+	wsug_graphics/ws-mate-pdu_analysis.png
+	wsug_graphics/ws-mate-tcp-output.png
+	wsug_graphics/ws-mate-transform.png
 	wsug_graphics/ws-menu.png
 	wsug_graphics/ws-merge-gtk24.png
 	wsug_graphics/ws-merge-win32.png
@@ -156,6 +254,7 @@ set(WSUG_GRAPHICS
 	wsug_graphics/ws-save-as-gtk24.png
 	wsug_graphics/ws-save-as-win32.png
 	wsug_graphics/ws-statistics-menu.png
+	wsug_graphics/ws-stats-compare.png
 	wsug_graphics/ws-stats-conversations.png
 	wsug_graphics/ws-stats-endpoints.png
 	wsug_graphics/ws-stats-hierarchy.png
@@ -167,8 +266,12 @@ set(WSUG_GRAPHICS
 	wsug_graphics/ws-stats-lte-rlc-traffic.png
 	wsug_graphics/ws-stats-wlan-traffic.png
 	wsug_graphics/ws-statusbar-empty.png
+	wsug_graphics/ws-statusbar-filter.png
 	wsug_graphics/ws-statusbar-loaded.png
+	wsug_graphics/ws-statusbar-profile.png
 	wsug_graphics/ws-statusbar-selected.png
+	wsug_graphics/ws-tcp-analysis.png
+	wsug_graphics/ws-tel-rtpstream-analysis.png
 	wsug_graphics/ws-telephony-menu.png
 	wsug_graphics/ws-time-reference.png
 	wsug_graphics/ws-tools-menu.png
@@ -222,6 +325,7 @@ set(WSDG_FILES
 	wsdg_src/WSDG_chapter_works.asciidoc
 	wsdg_src/WSDG_preface.asciidoc
 	wsluarm.asciidoc
+	${COMMON_FILES}
 )
 
 set(WSDG_GRAPHICS
@@ -251,7 +355,7 @@ if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 	)
 endif()
 
-set( WSUG_BUILT_DEPS ws.css )
+set( WSUG_BUILT_DEPS ws.css ${WSUG_TOOLS_HELP_FILES})
 
 set(WSDG_SOURCE
 	${WSDG_FILES}
@@ -305,33 +409,36 @@ ADD_CUSTOM_COMMAND(
 
 set( WSDG_BUILT_DEPS ws.css wsluarm )
 
-if(ENABLE_HTML_GUIDES OR ENABLE_PDF_GUIDES OR ENABLE_CHM_GUIDES)
+set( ASCIIDOC_CONF_FILES
+	attributes.asciidoc
+	# XXX Add macros
+)
+
+if(ASCIIDOCTOR_FOUND)
 	# Generate the DocBook sources of user and developer guides
 
-	set( ASCIIDOC_CONF_FILES asciidoc.conf asciidoctor-asciidoc.conf )
-
-	ASCIIDOC2DOCBOOK(user-guide.asciidoc ASCIIDOC_CONF_FILES WSUG_SOURCE WSUG_BUILT_DEPS)
+	ASCIIDOCTOR2DOCBOOK(user-guide.asciidoc ${ASCIIDOC_CONF_FILES} ${WSUG_SOURCE} ${WSUG_BUILT_DEPS})
 	add_custom_target(user_guide_docbook DEPENDS generate_user-guide.xml)
-	set_target_properties(user_guide_docbook PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(user_guide_docbook)
 
-	ASCIIDOC2DOCBOOK(developer-guide.asciidoc ASCIIDOC_WSLUARM_CONF_FILES WSDG_SOURCE WSDG_BUILT_DEPS)
+	ASCIIDOCTOR2DOCBOOK(developer-guide.asciidoc ${ASCIIDOC_CONF_FILES} ${WSDG_SOURCE} ${WSDG_BUILT_DEPS})
 	add_custom_target(developer_guide_docbook DEPENDS generate_developer-guide.xml)
-	set_target_properties(developer_guide_docbook PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(developer_guide_docbook)
 
 	# Top-level guide targets.
 
 	add_custom_target(user_guides DEPENDS user_guide_docbook)
-	set_target_properties(user_guides PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(user_guides)
 
 	add_custom_target(developer_guides DEPENDS developer_guide_docbook)
-	set_target_properties(developer_guides PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(developer_guides)
 
-	add_custom_target(all_guides ALL DEPENDS user_guides developer_guides )
-	set_target_properties(all_guides PROPERTIES FOLDER "Docbook")
+	add_custom_target(all_guides DEPENDS user_guides developer_guides )
+	set_docbook_target_properties(all_guides)
 endif()
 
 # User's Guide chain.
-if(ENABLE_HTML_GUIDES)
+if(ASCIIDOCTOR_FOUND AND XSLTPROC_EXECUTABLE)
 	XML2HTML(
 		user_guide
 		wsug
@@ -353,48 +460,24 @@ if(ENABLE_HTML_GUIDES)
 			wsug_html/index.html
 			wsug_html_chunked/index.html
 	)
-	set_target_properties(user_guide_html PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(user_guide_html)
 	add_dependencies(user_guides user_guide_html)
+	list(APPEND GUIDE_INSTALL_DIRS ${CMAKE_CURRENT_BINARY_DIR}/wsug_html_chunked)
 endif()
 
-if(ENABLE_PDF_GUIDES)
-	# To do:
-	# - Merge A4 and letter into the smallest dimension of each format.
-	#   Use   --stringparam  page.height <letter-height>mm --stringparam  page.width <at-width>mm
-	#   Test the effect of this on letter and a4 printers first (ps and non-ps).
-	# - Generate PDFs using AsciiDoc.
+if(ASCIIDOCTOR_FOUND AND ASCIIDOCTOR_PDF_EXECUTABLE)
+	ASCIIDOCTOR2PDF(user-guide.asciidoc ${WSUG_SOURCE} ${WSUG_BUILT_DEPS})
 
-	XML2PDF(
-		user_guide
-		user-guide-a4.pdf
-		user-guide.xml
-		custom_layer_pdf.xsl
-		A4
-	)
-
-	XML2PDF(
-		user_guide
-		user-guide-us.pdf
-		user-guide.xml
-		custom_layer_pdf.xsl
-		letter
-	)
 	add_custom_target(
-		user_guide_pdf_a4
+		user_guide_pdf
 		DEPENDS
-			user-guide-a4.pdf
+			user-guide.pdf
 	)
-	set_target_properties(user_guide_pdf_a4 PROPERTIES FOLDER "Docbook")
-	add_custom_target(
-		user_guide_pdf_us
-		DEPENDS
-			user-guide-us.pdf
-	)
-	set_target_properties(user_guide_pdf_us PROPERTIES FOLDER "Docbook")
-	add_dependencies(user_guides user_guide_pdf_a4 user_guide_pdf_us)
+	set_docbook_target_properties(user_guide_pdf)
+	add_dependencies(user_guides user_guide_pdf)
 endif()
 
-if(ENABLE_CHM_GUIDES)
+if(WIN32 AND ASCIIDOCTOR_FOUND)
 	XML2HHP(user_guide wsug user-guide.xml)
 	HHP2CHM(user-guide.hhp)
 	add_custom_target(
@@ -402,12 +485,12 @@ if(ENABLE_CHM_GUIDES)
 		DEPENDS
 			user-guide.chm
 	)
-	set_target_properties(user_guide_chm PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(user_guide_chm)
 	add_dependencies(user_guides user_guide_chm)
 endif()
 
 # Developer's Guide chain.
-if(ENABLE_HTML_GUIDES)
+if(ASCIIDOCTOR_FOUND AND XSLTPROC_EXECUTABLE)
 	XML2HTML(
 		developer_guide
 		wsdg
@@ -429,42 +512,24 @@ if(ENABLE_HTML_GUIDES)
 			wsdg_html/index.html
 			wsdg_html_chunked/index.html
 	)
-	set_target_properties(developer_guide_html PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(developer_guide_html)
 	add_dependencies(developer_guides developer_guide_html)
+	list(APPEND GUIDE_INSTALL_DIRS ${CMAKE_CURRENT_BINARY_DIR}/wsdg_html_chunked)
 endif()
 
-if(ENABLE_PDF_GUIDES)
-	XML2PDF(
-		developer_guide
-		developer-guide-a4.pdf
-		developer-guide.xml
-		custom_layer_pdf.xsl
-		A4
-	)
+if(ASCIIDOCTOR_FOUND AND ASCIIDOCTOR_PDF_EXECUTABLE)
+	ASCIIDOCTOR2PDF(developer-guide.asciidoc ${WSDG_SOURCE} ${WSDG_BUILT_DEPS})
 
-	XML2PDF(
-		developer_guide
-		developer-guide-us.pdf
-		developer-guide.xml
-		custom_layer_pdf.xsl
-		letter
-	)
 	add_custom_target(
-		developer_guide_pdf_a4
+		developer_guide_pdf
 		DEPENDS
-			developer-guide-a4.pdf
+			developer-guide.pdf
 	)
-	set_target_properties(developer_guide_pdf_a4 PROPERTIES FOLDER "Docbook")
-	add_custom_target(
-		developer_guide_pdf_us
-		DEPENDS
-			developer-guide-us.pdf
-	)
-	set_target_properties(developer_guide_pdf_us PROPERTIES FOLDER "Docbook")
-	add_dependencies(developer_guides developer_guide_pdf_a4 developer_guide_pdf_us)
+	set_docbook_target_properties(developer_guide_pdf)
+	add_dependencies(developer_guides developer_guide_pdf)
 endif()
 
-if(ENABLE_CHM_GUIDES)
+if(WIN32 AND ASCIIDOCTOR_FOUND)
 	XML2HHP(developer_guide	wsdg developer-guide.xml)
 	HHP2CHM(developer-guide.hhp)
 	add_custom_target(
@@ -472,22 +537,37 @@ if(ENABLE_CHM_GUIDES)
 		DEPENDS
 			developer-guide.chm
 	)
-	set_target_properties(developer_guide_chm PROPERTIES FOLDER "Docbook")
+	set_docbook_target_properties(developer_guide_chm)
 	add_dependencies(developer_guides developer_guide_chm)
 endif()
 
-# release_notes: release-notes.html release-notes.txt release-notes-a4.pdf release-notes-us.pdf
+if (GUIDE_INSTALL_DIRS)
+	# The installation location and DOC_DIR in ui/help_url.c must
+	# match.
+	add_custom_target(install_guides
+		COMMAND ${CMAKE_COMMAND} -P
+			${CMAKE_SOURCE_DIR}/cmake/modules/FileInstall.cmake
+			${GUIDE_INSTALL_DIRS}
+			${CMAKE_INSTALL_FULL_DOCDIR}
+		DEPENDS
+			user_guide_html developer_guide_html
+	)
+	set_docbook_target_properties(install_guides)
+endif()
 
-add_custom_target( release_notes_html DEPENDS ws.css release-notes.html )
-set_target_properties(release_notes_html PROPERTIES FOLDER "Docbook")
+# release_notes: release-notes.html release-notes.txt
+
+add_custom_target( release_notes_html DEPENDS release-notes.html )
+set_docbook_target_properties(release_notes_html)
 add_custom_target( release_notes_txt DEPENDS release-notes.txt )
-set_target_properties(release_notes_txt PROPERTIES FOLDER "Docbook")
+set_docbook_target_properties(release_notes_txt)
 
-# Force serial execution so that separate a2x instances don't trip on each other
-add_dependencies ( release_notes_txt release_notes_html )
+# Force serial execution so that separate asciidoctor instances don't
+# trip on each other
+# add_dependencies ( release_notes_txt release_notes_html )
 
 add_custom_target( release_notes )
-set_target_properties(release_notes PROPERTIES FOLDER "Docbook")
+set_docbook_target_properties(release_notes)
 add_dependencies ( release_notes release_notes_txt release_notes_html )
 
 add_custom_target(
@@ -498,30 +578,22 @@ add_custom_target(
 	DEPENDS
 		${CMAKE_CURRENT_BINARY_DIR}/release-notes.txt
 )
-set_target_properties(news PROPERTIES FOLDER "Docbook")
+set_docbook_target_properties(news)
 
-ASCIIDOC2HTML(
-	release-notes.html
-	release-notes.asciidoc
-	"${ASCIIDOC_CONF_FILES}"
-)
+if( ASCIIDOCTOR_FOUND )
+	ASCIIDOCTOR2HTML( release-notes.asciidoc ws.css )
+	ASCIIDOCTOR2TXT( release-notes.asciidoc )
+endif()
 
-ASCIIDOC2TXT(
-	release-notes.txt
-	release-notes.asciidoc
-	"${ASCIIDOC_CONF_FILES}"
-)
-
-#ASCIIDOC2PDF(
-#	release-notes-a4.pdf
-#	release-notes.asciidoc
-#	"${ASCIIDOC_CONF_FILES}"
-#	A4
-#)
-
-#ASCIIDOC2PDF(
-#	release-notes-us.pdf
-#	release-notes.asciidoc
-#	"${ASCIIDOC_CONF_FILES}"
-#	letter
-#)
+#
+# Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+#
+# Local variables:
+# c-basic-offset: 8
+# tab-width: 8
+# indent-tabs-mode: t
+# End:
+#
+# vi: set shiftwidth=8 tabstop=8 noexpandtab:
+# :indentSize=8:tabSize=8:noTabs=false:
+#

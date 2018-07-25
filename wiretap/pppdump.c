@@ -2,19 +2,7 @@
  *
  * Copyright (c) 2000 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -84,6 +72,9 @@ Daniel Thompson (STMicroelectronics) <daniel.thompson@st.com>
 /* this buffer must be at least (2*PPPD_MTU) + sizeof(ppp_header) +
  * sizeof(lcp_header) + sizeof(ipcp_header).  PPPD_MTU is *very* rarely
  * larger than 1500 so this value is fine.
+ *
+ * It's less than WTAP_MAX_PACKET_SIZE_STANDARD, so we don't have to worry about
+ * too-large packets.
  */
 #define PPPD_BUF_SIZE		8192
 
@@ -95,7 +86,7 @@ typedef enum {
 static gboolean pppdump_read(wtap *wth, int *err, gchar **err_info,
 	gint64 *data_offset);
 static gboolean pppdump_seek_read(wtap *wth, gint64 seek_off,
-	struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
+	wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
 
 /*
  * Information saved about a packet, during the initial sequential pass
@@ -311,15 +302,15 @@ pppdump_open(wtap *wth, int *err, gchar **err_info)
 
 /* Set part of the struct wtap_pkthdr. */
 static void
-pppdump_set_phdr(struct wtap_pkthdr *phdr, int num_bytes,
+pppdump_set_phdr(wtap_rec *rec, int num_bytes,
     direction_enum direction)
 {
-	phdr->rec_type = REC_TYPE_PACKET;
-	phdr->len = num_bytes;
-	phdr->caplen = num_bytes;
-	phdr->pkt_encap	= WTAP_ENCAP_PPP_WITH_PHDR;
+	rec->rec_type = REC_TYPE_PACKET;
+	rec->rec_header.packet_header.len = num_bytes;
+	rec->rec_header.packet_header.caplen = num_bytes;
+	rec->rec_header.packet_header.pkt_encap	= WTAP_ENCAP_PPP_WITH_PHDR;
 
-	phdr->pseudo_header.p2p.sent = (direction == DIRECTION_SENT ? TRUE : FALSE);
+	rec->rec_header.packet_header.pseudo_header.p2p.sent = (direction == DIRECTION_SENT ? TRUE : FALSE);
 }
 
 /* Find the next packet and parse it; called from wtap_read(). */
@@ -346,13 +337,12 @@ pppdump_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 	} else
 		pid = NULL;	/* sequential only */
 
-	ws_buffer_assure_space(wth->frame_buffer, PPPD_BUF_SIZE);
-	buf = ws_buffer_start_ptr(wth->frame_buffer);
+	ws_buffer_assure_space(wth->rec_data, PPPD_BUF_SIZE);
+	buf = ws_buffer_start_ptr(wth->rec_data);
 
 	if (!collate(state, wth->fh, err, err_info, buf, &num_bytes, &direction,
 	    pid, 0)) {
-		if (pid != NULL)
-			g_free(pid);
+		g_free(pid);
 		return FALSE;
 	}
 
@@ -365,10 +355,10 @@ pppdump_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 	*data_offset = state->pkt_cnt;
 	state->pkt_cnt++;
 
-	pppdump_set_phdr(&wth->phdr, num_bytes, direction);
-	wth->phdr.presence_flags = WTAP_HAS_TS;
-	wth->phdr.ts.secs	= state->timestamp;
-	wth->phdr.ts.nsecs	= state->tenths * 100000000;
+	pppdump_set_phdr(&wth->rec, num_bytes, direction);
+	wth->rec.presence_flags = WTAP_HAS_TS;
+	wth->rec.ts.secs	= state->timestamp;
+	wth->rec.ts.nsecs	= state->tenths * 100000000;
 
 	return TRUE;
 }
@@ -429,7 +419,9 @@ process_data(pppdump_t *state, FILE_T fh, pkt_t *pkt, int n, guint8 *pd,
 					}
 
 					if (num_written > PPPD_BUF_SIZE) {
-						*err = WTAP_ERR_UNC_OVERFLOW;
+						*err = WTAP_ERR_BAD_FILE;
+						*err_info = g_strdup_printf("pppdump: File has %u-byte packet, bigger than maximum of %u",
+						    num_written, PPPD_BUF_SIZE);
 						return -1;
 					}
 
@@ -506,6 +498,7 @@ process_data(pppdump_t *state, FILE_T fh, pkt_t *pkt, int n, guint8 *pd,
 				 * by falling through.
 				 */
 
+			/* FALL THROUGH */
 			default:
 				if (pkt->esc) {
 					/*
@@ -521,7 +514,9 @@ process_data(pppdump_t *state, FILE_T fh, pkt_t *pkt, int n, guint8 *pd,
 				}
 
 				if (pkt->cnt >= PPPD_BUF_SIZE) {
-					*err = WTAP_ERR_UNC_OVERFLOW;
+					*err = WTAP_ERR_BAD_FILE;
+					*err_info = g_strdup_printf("pppdump: File has %u-byte packet, bigger than maximum of %u",
+					    pkt->cnt - 1, PPPD_BUF_SIZE);
 					return -1;
 				}
 				pkt->buf[pkt->cnt++] = c;
@@ -717,7 +712,7 @@ done:
 static gboolean
 pppdump_seek_read(wtap *wth,
 		 gint64 seek_off,
-		 struct wtap_pkthdr *phdr,
+		 wtap_rec *rec,
 		 Buffer *buf,
 		 int *err,
 		 gchar **err_info)
@@ -766,7 +761,7 @@ pppdump_seek_read(wtap *wth,
 		num_bytes_to_skip = 0;
 	} while (direction != pid->dir);
 
-	pppdump_set_phdr(phdr, num_bytes, pid->dir);
+	pppdump_set_phdr(rec, num_bytes, pid->dir);
 
 	return TRUE;
 }

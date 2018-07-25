@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TAP_TCP_STREAM_H__
@@ -34,7 +22,8 @@ typedef enum tcp_graph_type_ {
     GRAPH_TSEQ_TCPTRACE,
     GRAPH_THROUGHPUT,
     GRAPH_RTT,
-    GRAPH_WSCALE
+    GRAPH_WSCALE,
+    GRAPH_UNDEFINED
 } tcp_graph_type;
 
 struct segment {
@@ -102,17 +91,37 @@ int get_num_acks(struct tcp_graph *, int * );
 struct tcpheader *select_tcpip_session(capture_file *, struct segment * );
 
 /* This is used by rtt module only */
-struct unack {
-    struct unack *next;
+struct rtt_unack {
+    struct rtt_unack *next;
     double        time;
     unsigned int  seqno;
+    unsigned int  end_seqno;
 };
 
-int rtt_is_retrans(struct unack * , unsigned int );
-struct unack *rtt_get_new_unack(double , unsigned int );
-void rtt_put_unack_on_list(struct unack ** , struct unack * );
-void rtt_delete_unack_from_list(struct unack ** , struct unack * );
+int rtt_is_retrans(struct rtt_unack * , unsigned int );
+struct rtt_unack *rtt_get_new_unack(double , unsigned int , unsigned int );
+void rtt_put_unack_on_list(struct rtt_unack ** , struct rtt_unack * );
+void rtt_delete_unack_from_list(struct rtt_unack ** , struct rtt_unack * );
+void rtt_destroy_unack_list(struct rtt_unack ** );
 
+static inline int
+tcp_seq_before(guint32 s1, guint32 s2) {
+    return (gint32)(s1 - s2) < 0;
+}
+
+static inline int
+tcp_seq_eq_or_after(guint32 s1, guint32 s2) {
+    return !tcp_seq_before(s1, s2);
+}
+
+static inline int
+tcp_seq_after(guint32 s1, guint32 s2) {
+    return (gint32)(s1 - s2) > 0;
+}
+
+static inline int tcp_seq_before_or_eq(guint32 s1, guint32 s2) {
+    return !tcp_seq_after(s1, s2);
+}
 
 #ifdef __cplusplus
 }

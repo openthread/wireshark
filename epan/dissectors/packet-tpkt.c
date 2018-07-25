@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -53,10 +41,14 @@ static gint ett_tpkt           = -1;
 /* desegmentation of OSI over TPKT over TCP */
 static gboolean tpkt_desegment = TRUE;
 
-#define TCP_PORT_TPKT       102
+#define TCP_PORT_TPKT_RANGE       "102"
 
 /* find the dissector for OSI TP (aka COTP) */
 static dissector_handle_t osi_tp_handle;
+static dissector_handle_t tpkt_handle;
+
+#define DEFAULT_TPKT_PORT_RANGE "102"
+static range_t *tpkt_tcp_port_range;
 
 /*
  * Check whether this could be a TPKT-encapsulated PDU.
@@ -323,7 +315,7 @@ dissect_asciitpkt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         if (length > data_len)
             length = data_len;
 
-        next_tvb = tvb_new_subset(tvb, offset,length, data_len);
+        next_tvb = tvb_new_subset_length_caplen(tvb, offset,length, data_len);
 
         /*
          * Call the subdissector.
@@ -527,7 +519,7 @@ dissect_tpkt_encap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         length = length_remaining - 4;
         if (length > data_len)
             length = data_len;
-        next_tvb = tvb_new_subset(tvb, offset, length, data_len);
+        next_tvb = tvb_new_subset_length_caplen(tvb, offset, length, data_len);
 
         /*
          * Call the subdissector.
@@ -646,24 +638,36 @@ proto_register_tpkt(void)
     proto_tpkt_ptr = find_protocol_by_id(proto_tpkt);
     proto_register_field_array(proto_tpkt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    register_dissector("tpkt", dissect_tpkt, proto_tpkt);
+    tpkt_handle = register_dissector("tpkt", dissect_tpkt, proto_tpkt);
 
-    tpkt_module = prefs_register_protocol(proto_tpkt, NULL);
+    tpkt_module = prefs_register_protocol(proto_tpkt, proto_reg_handoff_tpkt);
     prefs_register_bool_preference(tpkt_module, "desegment",
         "Reassemble TPKT messages spanning multiple TCP segments",
         "Whether the TPKT dissector should reassemble messages spanning multiple TCP segments. "
         "To use this option, you must also enable \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
         &tpkt_desegment);
+
+    range_convert_str(wmem_epan_scope(), &tpkt_tcp_port_range, DEFAULT_TPKT_PORT_RANGE, MAX_TCP_PORT);
+
+    prefs_register_range_preference(tpkt_module, "tcp.ports", "TPKT TCP ports",
+                                  "TCP ports to be decoded as TPKT (default: "
+                                  DEFAULT_TPKT_PORT_RANGE ")",
+                                  &tpkt_tcp_port_range, MAX_TCP_PORT);
 }
 
 void
 proto_reg_handoff_tpkt(void)
 {
-    dissector_handle_t tpkt_handle;
+    static range_t *port_range = NULL;
 
     osi_tp_handle = find_dissector("ositp");
-    tpkt_handle = find_dissector("tpkt");
-    dissector_add_uint("tcp.port", TCP_PORT_TPKT, tpkt_handle);
+    dissector_add_uint_range_with_preference("tcp.port", TCP_PORT_TPKT_RANGE, tpkt_handle);
+
+    dissector_delete_uint_range("tcp.port", port_range, tpkt_handle);
+    wmem_free(wmem_epan_scope(), port_range);
+
+    port_range = range_copy(wmem_epan_scope(), tpkt_tcp_port_range);
+    dissector_add_uint_range("tcp.port", port_range, tpkt_handle);
 
     /*
     tpkt_ascii_handle = create_dissector_handle(dissect_ascii_tpkt, proto_tpkt);

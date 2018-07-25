@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -84,8 +72,6 @@ static void append_oid(proto_tree *tree, const char *oid)
 	name = oid_resolved_from_string(wmem_packet_scope(), oid);
 	proto_item_append_text(tree, " (%s)", name ? name : oid);
 }
-
-#ifdef HAVE_LIBGCRYPT
 
 static int
 generate_key_or_iv(unsigned int id, tvbuff_t *salt_tvb, unsigned int iter,
@@ -209,17 +195,14 @@ generate_key_or_iv(unsigned int id, tvbuff_t *salt_tvb, unsigned int iter,
   }
 }
 
-#endif
-
 void PBE_reset_parameters(void)
 {
 	iteration_count = 0;
 	salt = NULL;
 }
 
-int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encrypted_tvb _U_, asn1_ctx_t *actx _U_, proto_item *item _U_)
+int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encrypted_tvb _U_, packet_info *pinfo _U_, asn1_ctx_t *actx _U_, proto_item *item _U_)
 {
-#ifdef HAVE_LIBGCRYPT
 	const char	*encryption_algorithm;
 	gcry_cipher_hd_t cipher;
 	gcry_error_t	err;
@@ -307,7 +290,7 @@ int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encry
 	}
 
 	datalen = tvb_captured_length(encrypted_tvb);
-	clear_data = (char *)g_malloc(datalen);
+	clear_data = (char *)wmem_alloc(pinfo->pool, datalen);
 
 	err = gcry_cipher_decrypt (cipher, clear_data, datalen, (char *)tvb_memdup(wmem_packet_scope(), encrypted_tvb, 0, datalen), datalen);
 	if (gcry_err_code (err)) {
@@ -315,7 +298,6 @@ int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encry
 		proto_item_append_text(item, " [Failed to decrypt with password preference]");
 
 		gcry_cipher_close (cipher);
-		g_free(clear_data);
 		return FALSE;
 	}
 
@@ -348,7 +330,6 @@ int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encry
 	}
 
 	if(!decrypt_ok) {
-		g_free(clear_data);
 		proto_item_append_text(item, " [Failed to decrypt with supplied password]");
 
 		return FALSE;
@@ -361,7 +342,6 @@ int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encry
 	/* OK - so now clear_data contains the decrypted data */
 
 	clear_tvb = tvb_new_child_real_data(encrypted_tvb,(const guint8 *)clear_data, datalen, datalen);
-	tvb_set_free_cb(clear_tvb, g_free);
 
 	name = g_string_new("");
 	oidname = oid_resolved_from_string(wmem_packet_scope(), object_identifier_id_param);
@@ -376,11 +356,6 @@ int PBE_decrypt_data(const char *object_identifier_id_param _U_, tvbuff_t *encry
 	call_ber_oid_callback(object_identifier_id_param, clear_tvb, 0, actx->pinfo, tree, NULL);
 
 	return TRUE;
-#else
-	/* we cannot decrypt */
-	return FALSE;
-
-#endif
 }
 
 #include "packet-pkcs12-fn.c"

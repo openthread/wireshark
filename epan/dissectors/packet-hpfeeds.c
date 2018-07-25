@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -65,7 +53,6 @@ void proto_reg_handoff_hpfeeds(void);
 static heur_dissector_list_t heur_subdissector_list;
 
 /* Preferences */
-static guint hpfeeds_port_pref = 0;
 static gboolean hpfeeds_desegment = TRUE;
 static gboolean try_heuristic = TRUE;
 
@@ -179,8 +166,9 @@ dissect_hpfeeds_publish_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 {
     guint8 len = 0;
     heur_dtbl_entry_t *hdtbl_entry;
-    guint8 *strptr = NULL;
     tvbuff_t *next_tvb;
+    const guint8 *channelname = NULL;
+    const char* save_match_string = NULL;
 
     len = tvb_get_guint8(tvb, offset);
     proto_tree_add_item(tree, hf_hpfeeds_ident_len, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -192,17 +180,24 @@ dissect_hpfeeds_publish_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     offset += 1;
 
     /* get the channel name as ephemeral string to pass it to the heuristic decoders */
-    strptr = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, len, ENC_ASCII);
-    proto_tree_add_item(tree, hf_hpfeeds_channel, tvb, offset, len, ENC_ASCII|ENC_NA);
+    proto_tree_add_item_ret_string(tree, hf_hpfeeds_channel, tvb, offset, len, ENC_ASCII|ENC_NA,
+        wmem_packet_scope(), &channelname);
     offset += len;
-
-    next_tvb = tvb_new_subset_remaining(tvb, offset);
 
     /* try the heuristic dissectors */
     if (try_heuristic) {
-        if (dissector_try_heuristic(heur_subdissector_list, next_tvb, pinfo, tree, &hdtbl_entry, strptr)) {
+        /* save the current match_string before calling the subdissectors */
+        if (pinfo->match_string)
+            save_match_string = pinfo->match_string;
+        pinfo->match_string = channelname;
+
+        next_tvb = tvb_new_subset_remaining(tvb, offset);
+
+        if (dissector_try_heuristic(heur_subdissector_list, next_tvb, pinfo, tree, &hdtbl_entry, NULL)) {
             return;
         }
+
+        pinfo->match_string = save_match_string;
     }
 
     /* heuristic failed. Print remaining bytes as flat payload */
@@ -354,10 +349,6 @@ dissect_hpfeeds_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 static int
 dissect_hpfeeds(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
-    /* At lease header is needed */
-    if (tvb_reported_length(tvb) < HPFEEDS_HDR_LEN)
-        return 0;
-
     tcp_dissect_pdus(tvb, pinfo, tree, hpfeeds_desegment, HPFEEDS_HDR_LEN,
         get_hpfeeds_pdu_len, dissect_hpfeeds_pdu, data);
     return tvb_captured_length(tvb);
@@ -468,7 +459,7 @@ proto_register_hpfeeds(void)
     expert_hpfeeds = expert_register_protocol(proto_hpfeeds);
     expert_register_field_array(expert_hpfeeds, ei, array_length(ei));
 
-    hpfeeds_module = prefs_register_protocol(proto_hpfeeds, proto_reg_handoff_hpfeeds);
+    hpfeeds_module = prefs_register_protocol(proto_hpfeeds, NULL);
     prefs_register_bool_preference(hpfeeds_module, "desegment_hpfeeds_messages",
         "Reassemble HPFEEDS messages spanning multiple TCP segments",
         "Whether the HPFEEDS dissector should reassemble messages spanning "
@@ -476,12 +467,6 @@ proto_register_hpfeeds(void)
         "To use this option, you must also enable \"Allow subdissectors to "
         "reassemble TCP streams\" in the TCP protocol settings.",
         &hpfeeds_desegment);
-
-    prefs_register_uint_preference(hpfeeds_module,
-        "dissector_port",
-        "Dissector TCP port",
-        "Set the TCP port for HPFEEDS messages",
-        10, &hpfeeds_port_pref);
 
     prefs_register_bool_preference(hpfeeds_module, "try_heuristic",
         "Try heuristic sub-dissectors",
@@ -494,22 +479,12 @@ proto_register_hpfeeds(void)
 void
 proto_reg_handoff_hpfeeds(void)
 {
-    static dissector_handle_t hpfeeds_handle;
-    static gboolean hpfeeds_prefs_initialized = FALSE;
-    static gint16 hpfeeds_dissector_port;
+    dissector_handle_t hpfeeds_handle;
 
-    if (!hpfeeds_prefs_initialized) {
-        hpfeeds_handle = create_dissector_handle(dissect_hpfeeds, proto_hpfeeds);
-        stats_tree_register("hpfeeds", "hpfeeds", "HPFEEDS", 0, hpfeeds_stats_tree_packet, hpfeeds_stats_tree_init, NULL);
-        hpfeeds_prefs_initialized = TRUE;
-    }
-    else {
-        dissector_delete_uint("tcp.port",hpfeeds_dissector_port , hpfeeds_handle);
-    }
+    hpfeeds_handle = create_dissector_handle(dissect_hpfeeds, proto_hpfeeds);
+    stats_tree_register("hpfeeds", "hpfeeds", "HPFEEDS", 0, hpfeeds_stats_tree_packet, hpfeeds_stats_tree_init, NULL);
 
-    hpfeeds_dissector_port = hpfeeds_port_pref;
-
-    dissector_add_uint("tcp.port", hpfeeds_dissector_port,  hpfeeds_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", hpfeeds_handle);
 }
 
 /*

@@ -4,19 +4,7 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
 include_directories(
@@ -65,13 +53,11 @@ set(WSLUA_FILES
 )
 source_group(wslua FILES ${WSLUA_FILES})
 
-if(WERROR_COMMON_FLAGS)
-	set_source_files_properties(
-		${WSLUA_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
-	)
-endif()
+set_source_files_properties(
+	${WSLUA_FILES}
+	PROPERTIES
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
+)
 
 # make-taps.pl depends on the current working directory
 # to find the dissector files (contents of taps file
@@ -97,8 +83,6 @@ add_custom_command(
 		${CMAKE_SOURCE_DIR}/epan/wslua/taps
 		${CMAKE_BINARY_DIR}/epan/wslua/taps_wslua.c
 		${CMAKE_BINARY_DIR}/epan/wslua/taps.txt
-		${CMAKE_SOURCE_DIR}/epan/wslua
-	WORKING_DIRECTORY
 		${CMAKE_SOURCE_DIR}/epan/wslua
 	DEPENDS
 		${CMAKE_SOURCE_DIR}/epan/wslua/taps
@@ -164,6 +148,15 @@ add_library(wslua OBJECT
 set_target_properties(wslua PROPERTIES
 	FOLDER "Libs/epan/wslua"
 	COMPILE_DEFINITIONS "WS_BUILD_DLL"
+)
+
+CHECKAPI(
+	NAME
+	  wslua
+	SWITCHES
+	  -g termoutput -build
+	SOURCES
+	  ${WSLUA_FILES}
 )
 
 #

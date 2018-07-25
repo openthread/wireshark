@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __WMEM_CORE_H__
@@ -27,6 +15,7 @@
 #include <string.h>
 #include <glib.h>
 #include <ws_symbol_export.h>
+#include "ws_attributes.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +28,10 @@ extern "C" {
  * core module provides basic functions like malloc, realloc and free, but
  * many other functions are available (see the "Modules" list at the top of
  * the generated doxygen HTML).
+ *
+ * Any wmem functions which allocate memory are guaranteed to either succeed or
+ * abort the program. However, they *can* still legally return NULL when the
+ * amount of requested memory is zero.
  *
  * @{
  */

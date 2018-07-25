@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -564,7 +552,7 @@ gadu_gadu_get_conversation_data(packet_info *pinfo)
 {
 	conversation_t *conv;
 
-	conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+	conv = find_conversation_pinfo(pinfo, 0);
 	if (conv)
 		return (struct gadu_gadu_conv_data *)conversation_get_proto_data(conv, hfi_gadu_gadu->id);
 	return NULL;
@@ -694,7 +682,7 @@ dissect_gadu_gadu_login(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
 
 	/* hash is 32-bit number written in LE */
 	_tvb_memcpy_reverse(tvb, hash, offset, 4);
-	proto_tree_add_bytes_format_value(tree, hfi_gadu_gadu_login_hash.id, tvb, offset, 4, hash, "0x%.8x", tvb_get_letohl(tvb, offset));
+	proto_tree_add_bytes_format_value(tree, &hfi_gadu_gadu_login_hash, tvb, offset, 4, hash, "0x%.8x", tvb_get_letohl(tvb, offset));
 	offset += 4;
 
 	proto_tree_add_item(tree, &hfi_gadu_gadu_login_status, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -727,7 +715,7 @@ dissect_gadu_gadu_login_hash(tvbuff_t *tvb, proto_tree *tree, int offset)
 		case GG_LOGIN_HASH_GG32:
 			/* hash is 32-bit number written in LE */
 			_tvb_memcpy_reverse(tvb, hash, offset, 4);
-			proto_tree_add_bytes_format_value(tree, hfi_gadu_gadu_login_hash.id, tvb, offset, 4, hash, "0x%.8x", tvb_get_letohl(tvb, offset));
+			proto_tree_add_bytes_format_value(tree, &hfi_gadu_gadu_login_hash, tvb, offset, 4, hash, "0x%.8x", tvb_get_letohl(tvb, offset));
 			for (i = 4; i < 64; i++) {
 				if (tvb_get_guint8(tvb, offset+i)) {
 					proto_tree_add_item(tree, &hfi_gadu_gadu_data, tvb, offset + 4, 64-4, ENC_NA);
@@ -836,7 +824,7 @@ dissect_gadu_gadu_login_failed(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree
 }
 
 static int
-dissect_gadu_gadu_login_ok80(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree *tree _U_, int offset)
+dissect_gadu_gadu_login_ok80(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
 	col_set_str(pinfo->cinfo, COL_INFO, "Login success (8.0)");
 
@@ -1440,14 +1428,14 @@ dissect_gadu_gadu_userlist_xml_compressed(tvbuff_t *tvb, packet_info *pinfo, pro
 		return offset;
 
 	if ((uncomp_tvb = tvb_child_uncompress(tvb, tvb, offset, remain))) {
-		proto_tree_add_bytes_format_value(tree, hfi_gadu_gadu_userlist.id, tvb, offset, remain, NULL, "[Decompression succeeded]");
+		proto_tree_add_bytes_format_value(tree, &hfi_gadu_gadu_userlist, tvb, offset, remain, NULL, "[Decompression succeeded]");
 
 		add_new_data_source(pinfo, uncomp_tvb, "Uncompressed userlist");
 
 		/* XXX add DTD (pinfo->match_string) */
 		call_dissector_only(xml_handle, uncomp_tvb, pinfo, tree, NULL);
 	} else
-		proto_tree_add_bytes_format_value(tree, hfi_gadu_gadu_userlist.id, tvb, offset, remain, NULL, "[Error: Decompression failed] (or no libz)");
+		proto_tree_add_bytes_format_value(tree, &hfi_gadu_gadu_userlist, tvb, offset, remain, NULL, "[Error: Decompression failed] (or no zlib)");
 
 	offset += remain;
 
@@ -2112,7 +2100,7 @@ proto_register_gadu_gadu(void)
 void
 proto_reg_handoff_gadu_gadu(void)
 {
-	dissector_add_uint("tcp.port", TCP_PORT_GADU_GADU, gadu_gadu_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_GADU_GADU, gadu_gadu_handle);
 
 	xml_handle = find_dissector_add_dependency("xml", hfi_gadu_gadu->id);
 }

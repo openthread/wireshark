@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_SNMP_H
@@ -39,20 +27,21 @@ typedef struct _snmp_usm_key {
 typedef struct _snmp_ue_assoc_t snmp_ue_assoc_t;
 typedef struct _snmp_usm_params_t snmp_usm_params_t;
 
-typedef gboolean (*snmp_usm_authenticator_t)(snmp_usm_params_t*, guint8** calc_auth, guint* calc_auth_len, gchar const** error);
-typedef tvbuff_t* (*snmp_usm_decoder_t)(snmp_usm_params_t*, tvbuff_t* encryptedData, gchar const** error);
-typedef void (*snmp_usm_password_to_key_t)(const guint8 *password, guint passwordlen, const guint8 *engineID, guint engineLength, guint8 *key);
+typedef tvbuff_t* (*snmp_usm_decoder_t)(snmp_usm_params_t*, tvbuff_t* encryptedData, packet_info *pinfo, gchar const** error);
 
-typedef struct _snmp_usm_auth_model_t {
-	snmp_usm_password_to_key_t pass2key;
-	snmp_usm_authenticator_t authenticate;
-	guint key_size;
+typedef enum _snmp_usm_auth_model_t {
+	SNMP_USM_AUTH_MD5 = 0,
+	SNMP_USM_AUTH_SHA1,
+	SNMP_USM_AUTH_SHA2_224,
+	SNMP_USM_AUTH_SHA2_256,
+	SNMP_USM_AUTH_SHA2_384,
+	SNMP_USM_AUTH_SHA2_512
 } snmp_usm_auth_model_t;
 
 typedef struct _snmp_user_t {
 	snmp_usm_key_t userName;
 
-	snmp_usm_auth_model_t* authModel;
+	snmp_usm_auth_model_t authModel;
 	snmp_usm_key_t authPassword;
 	snmp_usm_key_t authKey;
 

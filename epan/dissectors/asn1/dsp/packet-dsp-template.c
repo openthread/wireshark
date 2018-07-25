@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -48,11 +36,6 @@
 void proto_register_dsp(void);
 void proto_reg_handoff_dsp(void);
 
-static guint global_dsp_tcp_port = 102;
-static dissector_handle_t tpkt_handle;
-static void prefs_register_dsp(void); /* forward declaration for use in preferences registration */
-
-
 /* Initialize the protocol and registered fields */
 static int proto_dsp = -1;
 
@@ -68,6 +51,8 @@ static expert_field ei_dsp_unsupported_pdu = EI_INIT;
 static expert_field ei_dsp_zero_pdu = EI_INIT;
 
 #include "packet-dsp-fn.c"
+
+static dissector_handle_t dsp_handle;
 
 /*
 * Dissect X518 PDUs inside a ROS PDUs
@@ -291,7 +276,7 @@ void proto_register_dsp(void) {
   /* Register protocol */
   proto_dsp = proto_register_protocol(PNAME, PSNAME, PFNAME);
 
-  register_dissector("dsp", dissect_dsp, proto_dsp);
+  dsp_handle = register_dissector("dsp", dissect_dsp, proto_dsp);
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_dsp, hf, array_length(hf));
@@ -301,21 +286,19 @@ void proto_register_dsp(void) {
 
   /* Register our configuration options for DSP, particularly our port */
 
-  dsp_module = prefs_register_protocol_subtree("OSI/X.500", proto_dsp, prefs_register_dsp);
+  dsp_module = prefs_register_protocol_subtree("OSI/X.500", proto_dsp, NULL);
 
-  prefs_register_uint_preference(dsp_module, "tcp.port", "DSP TCP Port",
-				 "Set the port for DSP operations (if other"
-				 " than the default of 102)",
-				 10, &global_dsp_tcp_port);
+  prefs_register_obsolete_preference(dsp_module, "tcp.port");
 
+  prefs_register_static_text_preference(dsp_module, "tcp_port_info",
+            "The TCP ports used by the DSP protocol should be added to the TPKT preference \"TPKT TCP ports\", or by selecting \"TPKT\" as the \"Transport\" protocol in the \"Decode As\" dialog.",
+            "DSP TCP Port preference moved information");
 
 }
 
 
 /*--- proto_reg_handoff_dsp --- */
 void proto_reg_handoff_dsp(void) {
-  dissector_handle_t dsp_handle;
-
 #include "packet-dsp-dis-tab.c"
 
   /* APPLICATION CONTEXT */
@@ -324,29 +307,7 @@ void proto_reg_handoff_dsp(void) {
 
   /* ABSTRACT SYNTAXES */
 
-  /* remember the tpkt handler for change in preferences */
-  tpkt_handle = find_dissector("tpkt");
-
   /* Register DSP with ROS (with no use of RTSE) */
-  dsp_handle = find_dissector("dsp");
   register_ros_oid_dissector_handle("2.5.9.2", dsp_handle, 0, "id-as-directory-system", FALSE);
-
-}
-
-static void
-prefs_register_dsp(void)
-{
-  static guint tcp_port = 0;
-
-  /* de-register the old port */
-  /* port 102 is registered by TPKT - don't undo this! */
-  if((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
-    dissector_delete_uint("tcp.port", tcp_port, tpkt_handle);
-
-  /* Set our port number for future use */
-  tcp_port = global_dsp_tcp_port;
-
-  if((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
-    dissector_add_uint("tcp.port", global_dsp_tcp_port, tpkt_handle);
 
 }

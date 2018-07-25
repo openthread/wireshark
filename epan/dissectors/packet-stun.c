@@ -10,28 +10,17 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Please refer to the following specs for protocol detail:
  * - RFC 5389, formerly draft-ietf-behave-rfc3489bis-18
  * - RFC 5245, formerly draft-ietf-mmusic-ice-19
  * - RFC 5780, formerly draft-ietf-behave-nat-behavior-discovery-08
  * - RFC 5766, formerly draft-ietf-behave-turn-16
- * - draft-ietf-behave-turn-ipv6-11
- * - RFC 3489, http://www.faqs.org/rfcs/rfc3489.html  (Addition of deprecated attributes for diagnostics purpose)
+ * - RFC 6156, formerly draft-ietf-behave-turn-ipv6-11
+ * - RFC 3489 (Addition of deprecated attributes for diagnostics purpose)
  * - RFC 6062
+ * - RFC 6544
  *
  * From MS (Lync)
  * MS-TURN: Traversal Using Relay NAT (TURN) Extensions http://msdn.microsoft.com/en-us/library/cc431507.aspx
@@ -472,8 +461,12 @@ get_stun_message_len(packet_info *pinfo _U_, tvbuff_t *tvb,
 
     if ((captured_length >= TCP_FRAME_COOKIE_LEN) &&
         (tvb_get_ntohl(tvb, 6) == 0x2112a442)) {
-        /* The magic cookie is off by two, this appears
-           to be RFC4751 framing */
+        /*
+         * The magic cookie is off by two, so this appears to be
+         * RFC 4571 framing, as per RFC 6544; use the length
+         * field from that framing, rather than the STUN/TURN
+         * ChannelData length field.
+         */
         return (tvb_get_ntohs(tvb, 0) + 2);
     }
 
@@ -547,7 +540,8 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
     const char *msg_class_str;
     const char *msg_method_str;
     guint16     att_type;
-    guint16     att_length;
+    guint16     att_length, clear_port;
+    guint32     clear_ip;
     guint       i;
     guint       offset;
     guint       magic_cookie_first_word;
@@ -574,7 +568,12 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
     tcp_framing_offset = 0;
     if ((!is_udp) && (captured_length >= TCP_FRAME_COOKIE_LEN) &&
        (tvb_get_ntohl(tvb, 6) == 0x2112a442)) {
-        /* we found ICE TCP framing according to RFC 4571 */
+        /*
+         * The magic cookie is off by two, so this appears to be
+         * RFC 4571 framing, as per RFC 6544; the STUN/TURN
+         * ChannelData header begins after the 2-octet
+         * RFC 4571 length field.
+         */
         tcp_framing_offset = 2;
     }
 
@@ -874,11 +873,14 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
 
                 /* Deprecated STUN RFC3489 attributes */
             case PASSWORD:
-                proto_tree_add_item(att_tree, hf_stun_att_password, tvb, offset, att_length, ENC_UTF_8|ENC_NA);
-                proto_item_append_text(att_tree, " (Deprecated): %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, att_length, ENC_UTF_8|ENC_NA));
+                {
+                const guint8* dep_password;
+                proto_tree_add_item_ret_string(att_tree, hf_stun_att_password, tvb, offset, att_length, ENC_UTF_8|ENC_NA, wmem_packet_scope(), &dep_password);
+                proto_item_append_text(att_tree, " (Deprecated): %s", dep_password);
                 if (att_length % 4 != 0)
                     proto_tree_add_uint(att_tree, hf_stun_att_padding,
                                         tvb, offset+att_length, 4-(att_length % 4), 4-(att_length % 4));
+                }
                 break;
 
             case MAPPED_ADDRESS:
@@ -934,10 +936,9 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
 
             case USERNAME:
             {
-                const gchar       *user_name_str;
+                const guint8 *user_name_str;
 
-                proto_tree_add_item(att_tree, hf_stun_att_username, tvb, offset, att_length, ENC_UTF_8|ENC_NA);
-                user_name_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, att_length, ENC_UTF_8 | ENC_NA);
+                proto_tree_add_item_ret_string(att_tree, hf_stun_att_username, tvb, offset, att_length, ENC_UTF_8|ENC_NA, wmem_packet_scope(), &user_name_str);
                 proto_item_append_text(att_tree, ": %s", user_name_str);
                 col_append_fstr(
                     pinfo->cinfo, COL_INFO,
@@ -983,16 +984,12 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                 }
                 if (att_length < 5)
                     break;
-                proto_tree_add_item(att_tree, hf_stun_att_error_reason, tvb, offset + 4, att_length - 4, ENC_UTF_8 | ENC_NA);
                 {
-                    const gchar  *error_reas_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 4, att_length - 4, ENC_UTF_8 | ENC_NA);
+                const guint8 *error_reas_str;
+                proto_tree_add_item_ret_string(att_tree, hf_stun_att_error_reason, tvb, offset + 4, att_length - 4, ENC_UTF_8 | ENC_NA, wmem_packet_scope(), &error_reas_str);
 
-                    proto_item_append_text(att_tree, ": %s", error_reas_str);
-                    col_append_fstr(
-                        pinfo->cinfo, COL_INFO,
-                        " %s",
-                        error_reas_str
-                        );
+                proto_item_append_text(att_tree, ": %s", error_reas_str);
+                col_append_fstr(pinfo->cinfo, COL_INFO, " %s", error_reas_str);
                 }
 
                 if (att_length % 4 != 0)
@@ -1008,28 +1005,24 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
 
             case REALM:
             {
-                const gchar  *realm_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, att_length, ENC_UTF_8 | ENC_NA);
-                proto_tree_add_item(att_tree, hf_stun_att_realm, tvb, offset, att_length, ENC_UTF_8|ENC_NA);
+                const guint8 *realm_str;
+                proto_tree_add_item_ret_string(att_tree, hf_stun_att_realm, tvb, offset, att_length, ENC_UTF_8|ENC_NA, wmem_packet_scope(), &realm_str);
                 proto_item_append_text(att_tree, ": %s", realm_str);
-                col_append_fstr(
-                    pinfo->cinfo, COL_INFO,
-                    " realm: %s",
-                    realm_str
-                    );
+                col_append_fstr(pinfo->cinfo, COL_INFO, " realm: %s", realm_str);
                 if (att_length % 4 != 0)
                     proto_tree_add_uint(att_tree, hf_stun_att_padding, tvb, offset+att_length, 4-(att_length % 4), 4-(att_length % 4));
                 break;
             }
             case NONCE:
-                proto_tree_add_item(att_tree, hf_stun_att_nonce, tvb, offset, att_length, ENC_UTF_8|ENC_NA);
-                proto_item_append_text(att_tree, ": %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, att_length, ENC_UTF_8|ENC_NA));
-                col_append_str(
-                    pinfo->cinfo, COL_INFO,
-                    " with nonce"
-                    );
+            {
+                const guint8 *nonce_str;
+                proto_tree_add_item_ret_string(att_tree, hf_stun_att_nonce, tvb, offset, att_length, ENC_UTF_8|ENC_NA, wmem_packet_scope(), &nonce_str);
+                proto_item_append_text(att_tree, ": %s", nonce_str);
+                col_append_str(pinfo->cinfo, COL_INFO, " with nonce");
                 if (att_length % 4 != 0)
                     proto_tree_add_uint(att_tree, hf_stun_att_padding, tvb, offset+att_length, 4-(att_length % 4), 4-(att_length % 4));
                 break;
+            }
 
             case XOR_MAPPED_ADDRESS:
             case XOR_PEER_ADDRESS:
@@ -1054,8 +1047,8 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                 /* Show the port 'in the clear'
                    XOR (host order) transid with (host order) xor-port.
                    Add host-order port into tree. */
-                ti = proto_tree_add_uint(att_tree, hf_stun_att_port, tvb, offset+2, 2,
-                                         tvb_get_ntohs(tvb, offset+2) ^ (magic_cookie_first_word >> 16));
+                clear_port = tvb_get_ntohs(tvb, offset+2) ^ (magic_cookie_first_word >> 16);
+                ti = proto_tree_add_uint(att_tree, hf_stun_att_port, tvb, offset+2, 2, clear_port);
                 PROTO_ITEM_SET_GENERATED(ti);
 
                 if (att_length < 8)
@@ -1067,8 +1060,8 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                     /* Show the address 'in the clear'.
                        XOR (host order) transid with (host order) xor-address.
                        Add in network order tree. */
-                    ti = proto_tree_add_ipv4(att_tree, hf_stun_att_ipv4, tvb, offset+4, 4,
-                                             tvb_get_ipv4(tvb, offset+4) ^ g_htonl(magic_cookie_first_word));
+                    clear_ip = tvb_get_ipv4(tvb, offset+4) ^ g_htonl(magic_cookie_first_word);
+                    ti = proto_tree_add_ipv4(att_tree, hf_stun_att_ipv4, tvb, offset+4, 4, clear_ip);
                     PROTO_ITEM_SET_GENERATED(ti);
 
                     {
@@ -1097,13 +1090,13 @@ dissect_stun_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboole
                     proto_tree_add_item(att_tree, hf_stun_att_xor_ipv6, tvb, offset+4, 16, ENC_NA);
                     {
                         guint32 IPv6[4];
-                        tvb_get_ipv6(tvb, offset+4, (struct e_in6_addr *)IPv6);
+                        tvb_get_ipv6(tvb, offset+4, (ws_in6_addr *)IPv6);
                         IPv6[0] = IPv6[0] ^ g_htonl(magic_cookie_first_word);
                         IPv6[1] = IPv6[1] ^ g_htonl(transaction_id[0]);
                         IPv6[2] = IPv6[2] ^ g_htonl(transaction_id[1]);
                         IPv6[3] = IPv6[3] ^ g_htonl(transaction_id[2]);
                         ti = proto_tree_add_ipv6(att_tree, hf_stun_att_ipv6, tvb, offset+4, 16,
-                                                 (const struct e_in6_addr *)IPv6);
+                                                 (const ws_in6_addr *)IPv6);
                         PROTO_ITEM_SET_GENERATED(ti);
                     }
 
@@ -1676,11 +1669,11 @@ proto_register_stun(void)
             BASE_HEX, NULL, 0x7FFFFFFF, NULL, HFILL}
          },
         { &hf_stun_att_address_rp_masb,
-          { "Maximum Send Bandwidth", "stun.att.adress_rp.masb", FT_UINT32,
+          { "Maximum Send Bandwidth", "stun.att.address_rp.masb", FT_UINT32,
             BASE_DEC, NULL, 0x0, "In kilobits per second", HFILL}
          },
         { &hf_stun_att_address_rp_marb,
-          { "Maximum Receive Bandwidth", "stun.att.adress_rp.marb", FT_UINT32,
+          { "Maximum Receive Bandwidth", "stun.att.address_rp.marb", FT_UINT32,
             BASE_DEC, NULL, 0x0, "In kilobits per second", HFILL}
          },
         { &hf_stun_att_sip_dialog_id,
@@ -1724,6 +1717,7 @@ proto_register_stun(void)
     /* heuristic subdissectors (used for the DATA field) */
     heur_subdissector_list = register_heur_dissector_list("stun", proto_stun);
 
+    register_dissector("stun-tcp", dissect_stun_tcp, proto_stun);
     register_dissector("stun-udp", dissect_stun_udp, proto_stun);
     register_dissector("stun-heur", dissect_stun_heur, proto_stun);
 }
@@ -1731,15 +1725,18 @@ proto_register_stun(void)
 void
 proto_reg_handoff_stun(void)
 {
-    stun_tcp_handle = create_dissector_handle(dissect_stun_tcp, proto_stun);
-    stun_udp_handle = create_dissector_handle(dissect_stun_udp, proto_stun);
+    stun_tcp_handle = find_dissector("stun-tcp");
+    stun_udp_handle = find_dissector("stun-udp");
 
-    dissector_add_uint("tcp.port", TCP_PORT_STUN, stun_tcp_handle);
-    dissector_add_uint("udp.port", UDP_PORT_STUN, stun_udp_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_STUN, stun_tcp_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_STUN, stun_udp_handle);
 
-    /* Used for "Decode As" in case STUN negotiation isn't captured */
-    dissector_add_for_decode_as("tcp.port", stun_tcp_handle);
-    dissector_add_for_decode_as("udp.port", stun_udp_handle);
+    /*
+     * SSL/TLS and DTLS Application-Layer Protocol Negotiation (ALPN)
+     * protocol ID.
+     */
+    dissector_add_string("ssl.handshake.extensions_alpn_str", "stun.nat-discovery", stun_tcp_handle);
+    dissector_add_string("dtls.handshake.extensions_alpn_str", "stun.nat-discovery", stun_udp_handle);
 
     heur_dissector_add("udp", dissect_stun_heur, "STUN over UDP", "stun_udp", proto_stun, HEURISTIC_ENABLE);
 

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,7 +21,7 @@ void proto_register_opsi(void);
 void proto_reg_handoff_opsi(void);
 
 /* TCP destination port dedicated to the OPSI protocol */
-#define TCP_PORT_OPSI		4002
+#define TCP_PORT_OPSI		4002 /* Not IANA registered */
 
 /* Information position in OPSI header */
 #define MAJOR_VERSION_OFFSET	0
@@ -428,27 +416,23 @@ static gboolean opsi_desegment = TRUE;
 static void
 decode_string_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_item *item, int* hfValue, int offset, int length)
 {
-	guint8* pbuffer;
 	if (length < 4) {
 		expert_add_info(pinfo, item, &ei_opsi_short_attribute);
 		return;
 	}
 
-	pbuffer=tvb_get_string_enc(wmem_packet_scope(), tvb, offset+4, length-4, ENC_ASCII);
-	proto_tree_add_string(tree, *hfValue, tvb, offset+4, length-4, pbuffer);
+	proto_tree_add_item(tree, *hfValue, tvb, offset+4, length-4, ENC_ASCII|ENC_NA);
 }
 
 
 static void
 decode_ipv4_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_item *item, int* hfValue, int offset, int length)
 {
-	guint32 ip_address;
 	if (length < 8) {
 		expert_add_info(pinfo, item, &ei_opsi_short_attribute);
 		return;
 	}
-	ip_address = tvb_get_ipv4(tvb, offset+4);
-	proto_tree_add_ipv4(tree, *hfValue, tvb, offset+4, 4, ip_address);
+	proto_tree_add_item(tree, *hfValue, tvb, offset+4, 4, ENC_BIG_ENDIAN);
 }
 
 static void
@@ -458,7 +442,7 @@ decode_longint_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, pr
 		expert_add_info(pinfo, item, &ei_opsi_short_attribute);
 		return;
 	}
-	proto_tree_add_uint(tree, *hfValue, tvb, offset+4, 4, tvb_get_ntohl(tvb, offset+4));
+	proto_tree_add_item(tree, *hfValue, tvb, offset+4, 4, ENC_BIG_ENDIAN);
 }
 
 static void
@@ -474,15 +458,11 @@ decode_value_string_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 static void
 decode_time_attribute(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, proto_item *item, int* hfValue, int offset, int length)
 {
-	nstime_t ns;
-
 	if (length < 8) {
 		expert_add_info(pinfo, item, &ei_opsi_short_attribute);
 		return;
 	}
-	ns.secs  = tvb_get_ntohl(tvb, offset+4);
-	ns.nsecs = 0;
-	proto_tree_add_time(tree, *hfValue, tvb, offset+4, 4, &ns);
+	proto_tree_add_item(tree, *hfValue, tvb, offset+4, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 }
 
 /****************************************************************************/
@@ -562,7 +542,7 @@ dissect_opsi_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "OPSI");
 	col_clear(pinfo->cinfo, COL_INFO);
 
-	col_append_sep_fstr(pinfo->cinfo, COL_INFO, ", ", "%s",
+	col_append_sep_str(pinfo->cinfo, COL_INFO, ", ",
 		val_to_str(tvb_get_guint8(tvb, CODE_OFFSET), opsi_opcode,
 			"<Unknown opcode %d>"));
 	col_set_fence(pinfo->cinfo, COL_INFO);
@@ -886,7 +866,7 @@ proto_reg_handoff_opsi(void)
 {
 	dissector_handle_t opsi_handle;
 	opsi_handle = create_dissector_handle(dissect_opsi, proto_opsi);
-	dissector_add_uint("tcp.port", TCP_PORT_OPSI, opsi_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_OPSI, opsi_handle);
 }
 
 /*

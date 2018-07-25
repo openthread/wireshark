@@ -6,19 +6,7 @@
  * Enhancements by Mark C. Brown <mbrown@hp.com>
  * Copyright (C) 2003, 2005 Hewlett-Packard Development Company, L.P.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -177,11 +165,11 @@ typedef struct {
 static gboolean nettl_read(wtap *wth, int *err, gchar **err_info,
                 gint64 *data_offset);
 static gboolean nettl_seek_read(wtap *wth, gint64 seek_off,
-                struct wtap_pkthdr *phdr, Buffer *buf,
+                wtap_rec *rec, Buffer *buf,
                 int *err, gchar **err_info);
-static gboolean nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
+static gboolean nettl_read_rec(wtap *wth, FILE_T fh, wtap_rec *rec,
                 Buffer *buf, int *err, gchar **err_info);
-static gboolean nettl_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
+static gboolean nettl_dump(wtap_dumper *wdh, const wtap_rec *rec,
     const guint8 *pd, int *err, gchar **err_info);
 
 wtap_open_return_val nettl_open(wtap *wth, int *err, gchar **err_info)
@@ -278,7 +266,7 @@ static gboolean nettl_read(wtap *wth, int *err, gchar **err_info,
 {
     /* Read record. */
     *data_offset = file_tell(wth->fh);
-    if (!nettl_read_rec(wth, wth->fh, &wth->phdr, wth->frame_buffer,
+    if (!nettl_read_rec(wth, wth->fh, &wth->rec, wth->rec_data,
         err, err_info)) {
         /* Read error or EOF */
         return FALSE;
@@ -293,9 +281,9 @@ static gboolean nettl_read(wtap *wth, int *err, gchar **err_info,
      * have a single encapsulation for all packets in the file.
      */
     if (wth->file_encap == WTAP_ENCAP_UNKNOWN)
-        wth->file_encap = wth->phdr.pkt_encap;
+        wth->file_encap = wth->rec.rec_header.packet_header.pkt_encap;
     else {
-        if (wth->file_encap != wth->phdr.pkt_encap)
+        if (wth->file_encap != wth->rec.rec_header.packet_header.pkt_encap)
             wth->file_encap = WTAP_ENCAP_PER_PACKET;
     }
 
@@ -303,14 +291,14 @@ static gboolean nettl_read(wtap *wth, int *err, gchar **err_info,
 }
 
 static gboolean
-nettl_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
+nettl_seek_read(wtap *wth, gint64 seek_off, wtap_rec *rec,
                 Buffer *buf, int *err, gchar **err_info)
 {
     if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
         return FALSE;
 
     /* Read record. */
-    if (!nettl_read_rec(wth, wth->random_fh, phdr, buf, err, err_info)) {
+    if (!nettl_read_rec(wth, wth->random_fh, rec, buf, err, err_info)) {
         /* Read error or EOF */
         if (*err == 0) {
             /* EOF means "short read" in random-access mode */
@@ -322,10 +310,10 @@ nettl_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
 }
 
 static gboolean
-nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
+nettl_read_rec(wtap *wth, FILE_T fh, wtap_rec *rec, Buffer *buf,
                 int *err, gchar **err_info)
 {
-    union wtap_pseudo_header *pseudo_header = &phdr->pseudo_header;
+    union wtap_pseudo_header *pseudo_header = &rec->rec_header.packet_header.pseudo_header;
     nettl_t *nettl = (nettl_t *)wth->priv;
     gboolean fddihack = FALSE;
     struct nettlrec_hdr rec_hdr;
@@ -354,12 +342,13 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
         return FALSE;
     subsys = g_ntohs(rec_hdr.subsys);
     hdr_len -= NETTL_REC_HDR_LEN;
-    if (file_seek(fh, hdr_len, SEEK_CUR, err) == -1)
+    /* Skip the rest of the header. */
+    if (!wtap_read_bytes(fh, NULL, hdr_len, err, err_info))
         return FALSE;
 
     if ( (pntoh32(&rec_hdr.kind) & NETTL_HDR_PDU_MASK) == 0 ) {
         /* not actually a data packet (PDU) trace record */
-        phdr->pkt_encap = WTAP_ENCAP_NETTL_RAW_IP;
+        rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_RAW_IP;
         length = pntoh32(&rec_hdr.length);
         caplen = pntoh32(&rec_hdr.caplen);
         padlen = 0;
@@ -406,23 +395,23 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
              || (subsys == NETTL_SUBSYS_NS_LS_TCP)
              || (subsys == NETTL_SUBSYS_NS_LS_SCTP)
              || (subsys == NETTL_SUBSYS_NS_LS_IPV6)) {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_RAW_IP;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_RAW_IP;
             } else if (subsys == NETTL_SUBSYS_NS_LS_ICMP) {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_RAW_ICMP;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_RAW_ICMP;
             } else if (subsys == NETTL_SUBSYS_NS_LS_ICMPV6) {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_RAW_ICMPV6;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_RAW_ICMPV6;
             } else if (subsys == NETTL_SUBSYS_NS_LS_TELNET) {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_RAW_TELNET;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_RAW_TELNET;
             } else if( (subsys == NETTL_SUBSYS_HPPB_FDDI)
                     || (subsys == NETTL_SUBSYS_EISA_FDDI)
                     || (subsys == NETTL_SUBSYS_PCI_FDDI)
                     || (subsys == NETTL_SUBSYS_HSC_FDDI) ) {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_FDDI;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_FDDI;
             } else if( (subsys == NETTL_SUBSYS_PCI_TR)
                     || (subsys == NETTL_SUBSYS_TOKEN) ) {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_TOKEN_RING;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_TOKEN_RING;
             } else {
-                phdr->pkt_encap = WTAP_ENCAP_NETTL_ETHERNET;
+                rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_ETHERNET;
             }
 
             length = pntoh32(&rec_hdr.length);
@@ -443,7 +432,7 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
                         return FALSE;
                     /* padding is usually either a total 11 or 16 bytes??? */
                     padlen = (int)dummyc[8];
-                    if (file_seek(fh, padlen, SEEK_CUR, err) == -1)
+                    if (!wtap_read_bytes(fh, NULL, padlen, err, err_info))
                         return FALSE;
                     padlen += 9;
                 }
@@ -451,12 +440,12 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
                      || (subsys == NETTL_SUBSYS_EISA_FDDI)
                      || (subsys == NETTL_SUBSYS_HSC_FDDI) ) {
                 /* other flavor FDDI cards have an extra 3 bytes of padding */
-                if (file_seek(fh, 3, SEEK_CUR, err) == -1)
+                if (!wtap_read_bytes(fh, NULL, 3, err, err_info))
                     return FALSE;
                 padlen = 3;
             } else if (subsys == NETTL_SUBSYS_NS_LS_LOOPBACK) {
                 /* LOOPBACK has an extra 26 bytes of padding */
-                if (file_seek(fh, 26, SEEK_CUR, err) == -1)
+                if (!wtap_read_bytes(fh, NULL, 26, err, err_info))
                     return FALSE;
                 padlen = 26;
             } else if (subsys == NETTL_SUBSYS_NS_LS_SCTP) {
@@ -470,7 +459,7 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
                  *   1 = Inbound
                  *   2 = Outbound
                  */
-                if (file_seek(fh, 8, SEEK_CUR, err) == -1)
+                if (!wtap_read_bytes(fh, NULL, 8, err, err_info))
                     return FALSE;
                 padlen = 8;
             } else {
@@ -482,7 +471,7 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
             /* XXX we don't know how to identify this as ethernet frames, so
                we assume everything is. We will crash and burn for anything else */
             /* for encapsulated 100baseT we do this */
-            phdr->pkt_encap = WTAP_ENCAP_NETTL_ETHERNET;
+            rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_ETHERNET;
             if (!wtap_read_bytes(fh, &drv_eth_hdr, NS_LS_DRV_ETH_HDR_LEN,
                                       err, err_info))
                 return FALSE;
@@ -497,7 +486,8 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
              * And what are the extra two bytes?
              */
             if (nettl->is_hpux_11) {
-                if (file_seek(fh, 2, SEEK_CUR, err) == -1) return FALSE;
+                if (!wtap_read_bytes(fh, NULL, 2, err, err_info))
+                    return FALSE;
             }
             padlen = 0;
             break;
@@ -522,11 +512,11 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
              *
              * And is "from_dce" at xxa[0] in the nettlrec_hdr structure?
              */
-            phdr->pkt_encap = WTAP_ENCAP_NETTL_X25;
+            rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_X25;
             length = pntoh32(&rec_hdr.length);
             caplen = pntoh32(&rec_hdr.caplen);
             padlen = 24;        /* sizeof (struct nettlrec_sx25l2_hdr) - NETTL_REC_HDR_LEN + 4 */
-            if (file_seek(fh, padlen, SEEK_CUR, err) == -1)
+            if (!wtap_read_bytes(fh, NULL, padlen, err, err_info))
                 return FALSE;
             break;
 
@@ -534,7 +524,7 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
             /* We're going to assume it's ethernet if we don't recognize the
                subsystem -- We'll probably spew junks and core if it isn't... */
             wth->file_encap = WTAP_ENCAP_PER_PACKET;
-            phdr->pkt_encap = WTAP_ENCAP_NETTL_ETHERNET;
+            rec->rec_header.packet_header.pkt_encap = WTAP_ENCAP_NETTL_ETHERNET;
             length = pntoh32(&rec_hdr.length);
             caplen = pntoh32(&rec_hdr.caplen);
             padlen = 0;
@@ -547,9 +537,9 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
             length, padlen);
         return FALSE;
     }
-    phdr->rec_type = REC_TYPE_PACKET;
-    phdr->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
-    phdr->len = length - padlen;
+    rec->rec_type = REC_TYPE_PACKET;
+    rec->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
+    rec->rec_header.packet_header.len = length - padlen;
     if (caplen < padlen) {
         *err = WTAP_ERR_BAD_FILE;
         *err_info = g_strdup_printf("nettl: captured length %u in record header too short, less than %u",
@@ -557,9 +547,9 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
         return FALSE;
     }
     datalen = caplen - padlen;
-    phdr->caplen = datalen;
-    phdr->ts.secs = pntoh32(&rec_hdr.sec);
-    phdr->ts.nsecs = pntoh32(&rec_hdr.usec) * 1000;
+    rec->rec_header.packet_header.caplen = datalen;
+    rec->ts.secs = pntoh32(&rec_hdr.sec);
+    rec->ts.nsecs = pntoh32(&rec_hdr.usec) * 1000;
 
     pseudo_header->nettl.subsys   = subsys;
     pseudo_header->nettl.devid    = pntoh32(&rec_hdr.devid);
@@ -567,14 +557,14 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
     pseudo_header->nettl.pid      = pntoh32(&rec_hdr.pid);
     pseudo_header->nettl.uid      = pntoh16(&rec_hdr.uid);
 
-    if (phdr->caplen > WTAP_MAX_PACKET_SIZE) {
+    if (rec->rec_header.packet_header.caplen > WTAP_MAX_PACKET_SIZE_STANDARD) {
         /*
          * Probably a corrupt capture file; don't blow up trying
          * to allocate space for an immensely-large packet.
          */
         *err = WTAP_ERR_BAD_FILE;
         *err_info = g_strdup_printf("nettl: File has %u-byte packet, bigger than maximum of %u",
-            phdr->caplen, WTAP_MAX_PACKET_SIZE);
+            rec->rec_header.packet_header.caplen, WTAP_MAX_PACKET_SIZE_STANDARD);
         return FALSE;
     }
 
@@ -600,7 +590,7 @@ nettl_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
             bytes_to_read = 3;
             if (bytes_to_read > datalen)
                 bytes_to_read = datalen;
-            if (!file_skip(fh, bytes_to_read, err))
+            if (!wtap_read_bytes(fh, NULL, bytes_to_read, err, err_info))
                 return FALSE;
             datalen -= bytes_to_read;
             if (datalen == 0) {
@@ -679,21 +669,21 @@ gboolean nettl_dump_open(wtap_dumper *wdh, int *err)
 /* Write a record for a packet to a dump file.
    Returns TRUE on success, FALSE on failure. */
 static gboolean nettl_dump(wtap_dumper *wdh,
-                           const struct wtap_pkthdr *phdr,
+                           const wtap_rec *rec,
                            const guint8 *pd, int *err, gchar **err_info _U_)
 {
-    const union wtap_pseudo_header *pseudo_header = &phdr->pseudo_header;
+    const union wtap_pseudo_header *pseudo_header = &rec->rec_header.packet_header.pseudo_header;
     struct nettlrec_hdr rec_hdr;
     guint8 dummyc[24];
 
     /* We can only write packet records. */
-    if (phdr->rec_type != REC_TYPE_PACKET) {
+    if (rec->rec_type != REC_TYPE_PACKET) {
         *err = WTAP_ERR_UNWRITABLE_REC_TYPE;
         return FALSE;
     }
 
     /* Don't write anything we're not willing to read. */
-    if (phdr->caplen > WTAP_MAX_PACKET_SIZE) {
+    if (rec->rec_header.packet_header.caplen > WTAP_MAX_PACKET_SIZE_STANDARD) {
         *err = WTAP_ERR_PACKET_TOO_LARGE;
         return FALSE;
     }
@@ -702,21 +692,22 @@ static gboolean nettl_dump(wtap_dumper *wdh,
     /* HP-UX 11.X header should be 68 bytes */
     rec_hdr.hdr_len = g_htons(sizeof(rec_hdr) + 4);
     rec_hdr.kind = g_htonl(NETTL_HDR_PDUIN);
-    rec_hdr.sec = g_htonl(phdr->ts.secs);
-    rec_hdr.usec = g_htonl(phdr->ts.nsecs/1000);
-    rec_hdr.caplen = g_htonl(phdr->caplen);
-    rec_hdr.length = g_htonl(phdr->len);
+    rec_hdr.sec = g_htonl(rec->ts.secs);
+    rec_hdr.usec = g_htonl(rec->ts.nsecs/1000);
+    rec_hdr.caplen = g_htonl(rec->rec_header.packet_header.caplen);
+    rec_hdr.length = g_htonl(rec->rec_header.packet_header.len);
     rec_hdr.devid = -1;
     rec_hdr.pid = -1;
     rec_hdr.uid = -1;
 
-    switch (phdr->pkt_encap) {
+    switch (rec->rec_header.packet_header.pkt_encap) {
 
         case WTAP_ENCAP_NETTL_FDDI:
             /* account for pad bytes */
-            rec_hdr.caplen = g_htonl(phdr->caplen + 3);
-            rec_hdr.length = g_htonl(phdr->len + 3);
+            rec_hdr.caplen = g_htonl(rec->rec_header.packet_header.caplen + 3);
+            rec_hdr.length = g_htonl(rec->rec_header.packet_header.len + 3);
             /* fall through and fill the rest of the fields */
+        /* FALL THROUGH */
         case WTAP_ENCAP_NETTL_ETHERNET:
         case WTAP_ENCAP_NETTL_TOKEN_RING:
         case WTAP_ENCAP_NETTL_RAW_IP:
@@ -742,8 +733,8 @@ static gboolean nettl_dump(wtap_dumper *wdh,
         case WTAP_ENCAP_FDDI_BITSWAPPED:
             rec_hdr.subsys = g_htons(NETTL_SUBSYS_PCI_FDDI);
             /* account for pad bytes */
-            rec_hdr.caplen = g_htonl(phdr->caplen + 3);
-            rec_hdr.length = g_htonl(phdr->len + 3);
+            rec_hdr.caplen = g_htonl(rec->rec_header.packet_header.caplen + 3);
+            rec_hdr.length = g_htonl(rec->rec_header.packet_header.len + 3);
             break;
 
         case WTAP_ENCAP_TOKEN_RING:
@@ -751,8 +742,8 @@ static gboolean nettl_dump(wtap_dumper *wdh,
             break;
 #if 0
         case WTAP_ENCAP_NETTL_X25:
-            rec_hdr.caplen = g_htonl(phdr->caplen + 24);
-            rec_hdr.length = g_htonl(phdr->len + 24);
+            rec_hdr.caplen = g_htonl(rec->rec_header.packet_header.caplen + 24);
+            rec_hdr.length = g_htonl(rec->rec_header.packet_header.len + 24);
             rec_hdr.subsys = g_htons(pseudo_header->nettl.subsys);
             rec_hdr.devid = g_htonl(pseudo_header->nettl.devid);
             rec_hdr.kind = g_htonl(pseudo_header->nettl.kind);
@@ -778,15 +769,15 @@ static gboolean nettl_dump(wtap_dumper *wdh,
         return FALSE;
     wdh->bytes_dumped += 4;
 
-    if ((phdr->pkt_encap == WTAP_ENCAP_FDDI_BITSWAPPED) ||
-        (phdr->pkt_encap == WTAP_ENCAP_NETTL_FDDI)) {
+    if ((rec->rec_header.packet_header.pkt_encap == WTAP_ENCAP_FDDI_BITSWAPPED) ||
+        (rec->rec_header.packet_header.pkt_encap == WTAP_ENCAP_NETTL_FDDI)) {
         /* add those weird 3 bytes of padding */
         if (!wtap_dump_file_write(wdh, dummyc, 3, err))
             return FALSE;
         wdh->bytes_dumped += 3;
     }
 /*
-  } else if (phdr->pkt_encap == WTAP_ENCAP_NETTL_X25) {
+  } else if (rec->rec_header.packet_header.pkt_encap == WTAP_ENCAP_NETTL_X25) {
   if (!wtap_dump_file_write(wdh, dummyc, 24, err))
   return FALSE;
   wdh->bytes_dumped += 24;
@@ -795,9 +786,9 @@ static gboolean nettl_dump(wtap_dumper *wdh,
 
     /* write actual PDU data */
 
-    if (!wtap_dump_file_write(wdh, pd, phdr->caplen, err))
+    if (!wtap_dump_file_write(wdh, pd, rec->rec_header.packet_header.caplen, err))
         return FALSE;
-    wdh->bytes_dumped += phdr->caplen;
+    wdh->bytes_dumped += rec->rec_header.packet_header.caplen;
 
     return TRUE;
 }

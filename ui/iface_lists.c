@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -54,32 +42,39 @@ if_list_comparator_alph(const void *first_arg, const void *second_arg)
     }
 }
 
-static void
+/*
+ * Try to populate the given device with options (like capture filter) from
+ * the capture options that are in use for an existing capture interface.
+ * Returns TRUE if the interface is selected for capture and FALSE otherwise.
+ */
+static gboolean
 fill_from_ifaces (interface_t *device)
 {
-    interface_options interface_opts;
+    interface_options *interface_opts;
     guint i;
 
     for (i = 0; i < global_capture_opts.ifaces->len; i++) {
-        interface_opts = g_array_index(global_capture_opts.ifaces, interface_options, i);
-        if (strcmp(interface_opts.name, device->name) != 0) {
+        interface_opts = &g_array_index(global_capture_opts.ifaces, interface_options, i);
+        if (strcmp(interface_opts->name, device->name) != 0) {
             continue;
         }
 
 #if defined(HAVE_PCAP_CREATE)
-        device->buffer = interface_opts.buffer_size;
-        device->monitor_mode_enabled = interface_opts.monitor_mode;
+        device->buffer = interface_opts->buffer_size;
+        device->monitor_mode_enabled = interface_opts->monitor_mode;
 #endif
-        device->pmode = interface_opts.promisc_mode;
-        device->has_snaplen = interface_opts.has_snaplen;
-        device->snaplen = interface_opts.snaplen;
+        device->pmode = interface_opts->promisc_mode;
+        device->has_snaplen = interface_opts->has_snaplen;
+        device->snaplen = interface_opts->snaplen;
         g_free(device->cfilter);
-        device->cfilter = g_strdup(interface_opts.cfilter);
-        if (interface_opts.linktype != -1) {
-            device->active_dlt = interface_opts.linktype;
+        device->cfilter = g_strdup(interface_opts->cfilter);
+        device->timestamp_type = g_strdup(interface_opts->timestamp_type);
+        if (interface_opts->linktype != -1) {
+            device->active_dlt = interface_opts->linktype;
         }
-        return;
+        return TRUE;
     }
+    return FALSE;
 }
 
 /*
@@ -104,44 +99,62 @@ scan_local_interfaces(void (*update_cb)(void))
     data_link_info_t  *data_link_info;
     interface_t       device;
     GString           *ip_str;
-    interface_options interface_opts;
+    interface_options *interface_opts;
     gboolean          found = FALSE;
+    static gboolean   running = FALSE;
+    GHashTable        *selected_devices;
 
+    if (running) {
+        /* scan_local_interfaces internally calls update_cb to process UI events
+           to avoid stuck UI while running possibly slow operations. A side effect
+           of this is that new interface changes can be detected before completing
+           the last one.
+           This return avoids recursive scan_local_interfaces operation. */
+        return;
+    }
+    running = TRUE;
 
+    /*
+     * Clear list of known interfaces (all_ifaces) that will be re-discovered on
+     * scanning, but remember their selection state.
+     *
+     * XXX shouldn't this copy settings (like capture filter) from the "old"
+     * device to the "new" device? Refreshing the interfaces list should
+     * probably just remove disappeared devices and add discovered devices.
+     */
+    selected_devices = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
     if (global_capture_opts.all_ifaces->len > 0) {
         for (i = (int)global_capture_opts.all_ifaces->len-1; i >= 0; i--) {
             device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
             if (device.local && device.type != IF_PIPE && device.type != IF_STDIN) {
                 global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, i);
-
+                /*
+                 * Device is about to be destroyed, unmark as selected. It will
+                 * be reselected on rediscovery.
+                 */
                 if (device.selected) {
+                    gchar *device_name = g_strdup(device.name);
+                    /* g_hash_table_add() only exists since 2.32. */
+                    g_hash_table_replace(selected_devices, device_name, device_name);
                     global_capture_opts.num_selected--;
-                    /* if device was to be used after this statement,
-                       we should set device.selected=FALSE here */
                 }
 
-                /* if we remove an interface from all_interfaces,
-                   it must also be removed from ifaces if it is present there
-                   otherwise, it would be re-added to all_interfaces below
-                   (interfaces set with -i on the command line are initially present in ifaces but not
-                   in all_interfaces, but these interfaces are not removed here) */
-                for (j = 0; j < global_capture_opts.ifaces->len; j++) {
-                    interface_opts = g_array_index(global_capture_opts.ifaces, interface_options, j);
-                    if (strcmp(device.name, interface_opts.name) == 0) {
-                        /* 2nd param must be the index of ifaces (not all_ifaces) */
-                        capture_opts_del_iface(&global_capture_opts, j);
-                    }
-                }
                 capture_opts_free_interface_t(&device);
             }
         }
     }
-    /* Scan through the list and build a list of strings to display. */
+
+    /* Retrieve list of interface information (if_info_t) into if_list. */
     g_free(global_capture_opts.ifaces_err_info);
     if_list = capture_interface_list(&global_capture_opts.ifaces_err,
                                      &global_capture_opts.ifaces_err_info,
                                      update_cb);
     count = 0;
+
+    /*
+     * For each discovered interface name, create a new device and add extra
+     * information (like supported DLTs, assigned IP addresses).
+     */
     for (if_entry = if_list; if_entry != NULL; if_entry = g_list_next(if_entry)) {
         memset(&device, 0, sizeof(device));
         if_info = (if_info_t *)if_entry->data;
@@ -151,22 +164,16 @@ scan_local_interfaces(void (*update_cb)(void))
             continue;
         }
         device.name = g_strdup(if_info->name);
-        if (if_info->friendly_name != NULL) {
-            device.friendly_name = g_strdup(if_info->friendly_name);
-        } else {
-            device.friendly_name = NULL;
-        }
+        device.friendly_name = g_strdup(if_info->friendly_name);
         device.hidden = FALSE;
-        device.locked = FALSE;
         memset(&temp, 0, sizeof(temp));
         temp.name = g_strdup(if_info->name);
         temp.friendly_name = g_strdup(if_info->friendly_name);
         temp.vendor_description = g_strdup(if_info->vendor_description);
         temp.loopback = if_info->loopback;
         temp.type = if_info->type;
-#ifdef HAVE_EXTCAP
         temp.extcap = g_strdup(if_info->extcap);
-#endif
+
         /* Is this interface hidden and, if so, should we include it anyway? */
 
         descr = capture_dev_user_descr_find(if_info->name);
@@ -246,7 +253,7 @@ scan_local_interfaces(void (*update_cb)(void))
                 link = (link_row *)g_malloc(sizeof(link_row));
                 if (data_link_info->description != NULL) {
                     link->dlt = data_link_info->dlt;
-                    link->name = g_strdup_printf("%s", data_link_info->description);
+                    link->name = g_strdup(data_link_info->description);
                 } else {
                     link->dlt = -1;
                     link->name = g_strdup_printf("%s (not supported)", data_link_info->name);
@@ -280,18 +287,24 @@ scan_local_interfaces(void (*update_cb)(void))
             device.snaplen = global_capture_opts.default_options.snaplen;
         }
         device.cfilter      = g_strdup(global_capture_opts.default_options.cfilter);
+        device.timestamp_type = g_strdup(global_capture_opts.default_options.timestamp_type);
 #ifdef CAN_SET_CAPTURE_BUFFER_SIZE
         if ((device.buffer = capture_dev_user_buffersize_find(if_info->name)) == -1) {
             device.buffer = global_capture_opts.default_options.buffer_size;
         }
 #endif
 
-        fill_from_ifaces(&device);
+        /* Copy interface options for active capture devices. */
+        gboolean selected = fill_from_ifaces(&device);
+        /* Restore device selection (for next capture). */
+        if (!device.selected && (selected || g_hash_table_lookup(selected_devices, device.name))) {
+            device.selected = TRUE;
+            global_capture_opts.num_selected++;
+        }
 
-#ifdef HAVE_EXTCAP
         /* Extcap devices start with no cached args */
         device.external_cap_args_settings = NULL;
-#endif
+
         if (global_capture_opts.all_ifaces->len <= count) {
             g_array_append_val(global_capture_opts.all_ifaces, device);
             count = global_capture_opts.all_ifaces->len;
@@ -306,57 +319,63 @@ scan_local_interfaces(void (*update_cb)(void))
         count++;
     }
     free_interface_list(if_list);
-    /* see whether there are additional interfaces in ifaces */
+
+    /*
+     * Pipes and stdin are not really discoverable interfaces, so re-add them to
+     * the list of all interfaces (all_ifaces).
+     */
     for (j = 0; j < global_capture_opts.ifaces->len; j++) {
-        interface_opts = g_array_index(global_capture_opts.ifaces, interface_options, j);
+        interface_opts = &g_array_index(global_capture_opts.ifaces, interface_options, j);
+
         found = FALSE;
         for (i = 0; i < (int)global_capture_opts.all_ifaces->len; i++) {
             device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-            if (strcmp(device.name, interface_opts.name) == 0) {
+            if (strcmp(device.name, interface_opts->name) == 0) {
                 found = TRUE;
                 break;
             }
         }
         if (!found) {  /* new interface, maybe a pipe */
             memset(&device, 0, sizeof(device));
-            device.name         = g_strdup(interface_opts.name);
-            device.display_name = interface_opts.descr ?
-                g_strdup_printf("%s: %s", device.name, interface_opts.descr) :
-                g_strdup_printf("%s", device.name);
+            device.name         = g_strdup(interface_opts->name);
+            device.display_name = interface_opts->descr ?
+                g_strdup_printf("%s: %s", device.name, interface_opts->descr) :
+                g_strdup(device.name);
             device.hidden       = FALSE;
             device.selected     = TRUE;
-            device.type         = IF_PIPE;
+            device.type         = interface_opts->if_type;
 #ifdef CAN_SET_CAPTURE_BUFFER_SIZE
-            device.buffer = interface_opts.buffer_size;
+            device.buffer = interface_opts->buffer_size;
 #endif
 #if defined(HAVE_PCAP_CREATE)
-            device.monitor_mode_enabled = interface_opts.monitor_mode;
+            device.monitor_mode_enabled = interface_opts->monitor_mode;
             device.monitor_mode_supported = FALSE;
 #endif
-            device.pmode = interface_opts.promisc_mode;
-            device.has_snaplen = interface_opts.has_snaplen;
-            device.snaplen = interface_opts.snaplen;
-            device.cfilter = g_strdup(interface_opts.cfilter);
-            device.active_dlt = interface_opts.linktype;
+            device.pmode = interface_opts->promisc_mode;
+            device.has_snaplen = interface_opts->has_snaplen;
+            device.snaplen = interface_opts->snaplen;
+            device.cfilter = g_strdup(interface_opts->cfilter);
+            device.timestamp_type = g_strdup(interface_opts->timestamp_type);
+            device.active_dlt = interface_opts->linktype;
             device.addresses    = NULL;
             device.no_addresses = 0;
             device.last_packets = 0;
             device.links        = NULL;
             device.local        = TRUE;
-            device.locked       = FALSE;
-            device.if_info.name = g_strdup(interface_opts.name);
+            device.if_info.name = g_strdup(interface_opts->name);
             device.if_info.friendly_name = NULL;
-            device.if_info.vendor_description = g_strdup(interface_opts.descr);
+            device.if_info.vendor_description = g_strdup(interface_opts->descr);
             device.if_info.addrs = NULL;
             device.if_info.loopback = FALSE;
-#ifdef HAVE_EXTCAP
-            device.if_info.extcap = g_strdup(interface_opts.extcap);
-#endif
+            device.if_info.extcap = g_strdup(interface_opts->extcap);
 
             g_array_append_val(global_capture_opts.all_ifaces, device);
             global_capture_opts.num_selected++;
         }
     }
+
+    g_hash_table_destroy(selected_devices);
+    running = FALSE;
 }
 
 /*
@@ -394,7 +413,7 @@ hide_interface(gchar* new_hide)
 {
     gchar       *tok;
     guint       i;
-    interface_t device;
+    interface_t *device;
     gboolean    found = FALSE;
     GList       *hidden_devices = NULL, *entry;
     if (new_hide != NULL) {
@@ -403,13 +422,13 @@ hide_interface(gchar* new_hide)
         }
     }
     for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-        device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
+        device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
         found = FALSE;
         for (entry = hidden_devices; entry != NULL; entry = g_list_next(entry)) {
-            if (strcmp((char *)entry->data, device.name)==0) {
-                device.hidden = TRUE;
-                if (device.selected) {
-                    device.selected = FALSE;
+            if (strcmp((char *)entry->data, device->name)==0) {
+                device->hidden = TRUE;
+                if (device->selected) {
+                    device->selected = FALSE;
                     global_capture_opts.num_selected--;
                 }
                 found = TRUE;
@@ -417,10 +436,8 @@ hide_interface(gchar* new_hide)
             }
         }
         if (!found) {
-            device.hidden = FALSE;
+            device->hidden = FALSE;
         }
-        global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, i);
-        g_array_insert_val(global_capture_opts.all_ifaces, i, device);
     }
     g_list_free(hidden_devices);
     g_free(new_hide);
@@ -429,22 +446,19 @@ hide_interface(gchar* new_hide)
 void
 update_local_interfaces(void)
 {
-    interface_t device;
+    interface_t *device;
     gchar *descr;
     guint i;
 
     for (i = 0; i < global_capture_opts.all_ifaces->len; i++) {
-        device = g_array_index(global_capture_opts.all_ifaces, interface_t, i);
-        device.type = capture_dev_user_linktype_find(device.name);
-        g_free (device.display_name);
-        descr = capture_dev_user_descr_find(device.name);
-        device.display_name = get_iface_display_name(descr, &device.if_info);
+        device = &g_array_index(global_capture_opts.all_ifaces, interface_t, i);
+        device->type = capture_dev_user_linktype_find(device->name);
+        g_free(device->display_name);
+        descr = capture_dev_user_descr_find(device->name);
+        device->display_name = get_iface_display_name(descr, &device->if_info);
         g_free (descr);
-        device.hidden = prefs_is_capture_device_hidden(device.name);
-        fill_from_ifaces(&device);
-
-        global_capture_opts.all_ifaces = g_array_remove_index(global_capture_opts.all_ifaces, i);
-        g_array_insert_val(global_capture_opts.all_ifaces, i, device);
+        device->hidden = prefs_is_capture_device_hidden(device->name);
+        fill_from_ifaces(device);
     }
 }
 #endif /* HAVE_LIBPCAP */

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __ADDR_AND_MASK_H__
@@ -42,7 +30,7 @@ extern int tvb_get_ipv4_addr_with_prefix_len(tvbuff_t *tvb, int offset,
     guint8 *addr, guint32 prefix_len);
 
 extern int tvb_get_ipv6_addr_with_prefix_len(tvbuff_t *tvb, int offset,
-    struct e_in6_addr *addr, guint32 prefix_len);
+    ws_in6_addr *addr, guint32 prefix_len);
 
 guint32 ip_get_subnet_mask(const guint32 mask_length);
 

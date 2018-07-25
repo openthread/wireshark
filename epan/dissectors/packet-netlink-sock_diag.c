@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -39,6 +27,8 @@ typedef struct {
 	int encoding; /* copy of data->encoding */
 } netlink_sock_diag_info_t;
 
+static int proto_netlink_sock_diag;
+
 static dissector_handle_t netlink_sock_diag_handle;
 
 static header_field_info *hfi_netlink_sock_diag = NULL;
@@ -53,7 +43,8 @@ enum {
 	WS_DCCPDIAG_GETSOCK    = 19,
 
 /* <linux/sock_diag.h> */
-	WS_SOCK_DIAG_BY_FAMILY = 20
+	WS_SOCK_DIAG_BY_FAMILY = 20,
+	WS_SOCK_DESTROY        = 21
 };
 
 enum {
@@ -101,7 +92,15 @@ enum ws_inet_diag_attr_type {
 	WS_INET_DIAG_TOS       = 5,
 	WS_INET_DIAG_TCLASS    = 6,
 	WS_INET_DIAG_SKMEMINFO = 7,
-	WS_INET_DIAG_SHUTDOWN  = 8
+	WS_INET_DIAG_SHUTDOWN  = 8,
+	WS_INET_DIAG_DCTCPINFO = 9,
+	WS_INET_DIAG_PROTOCOL  = 10,
+	WS_INET_DIAG_SKV6ONLY  = 11,
+	WS_INET_DIAG_LOCALS    = 12,
+	WS_INET_DIAG_PEERS     = 13,
+	WS_INET_DIAG_PAD       = 14,
+	WS_INET_DIAG_MARK      = 15,
+	WS_INET_DIAG_BBRINFO   = 16,
 };
 
 enum ws_netlink_diag_show_type {
@@ -153,7 +152,8 @@ enum {
 	WS_CLOSE_WAIT  = 8,
 	WS_LAST_ACK    = 9,
 	WS_LISTEN      = 10,
-	WS_CLOSING     = 11
+	WS_CLOSING     = 11,
+	WS_NEW_SYNC_RECV = 12
 };
 
 static int ett_netlink_sock_diag = -1;
@@ -193,6 +193,7 @@ static const value_string socket_state_vals[] = {
 	{ WS_LAST_ACK,    "LAST_ACK" },
 	{ WS_LISTEN,      "LISTEN" },
 	{ WS_CLOSING,     "CLOSING" },
+	{ WS_NEW_SYNC_RECV, "NEW_SYNC_RECV" },
 	{ 0, NULL }
 };
 
@@ -310,7 +311,7 @@ sock_diag_proto_tree_add_cookie(proto_tree *tree, netlink_sock_diag_info_t *info
 
 	/* XXX support for INET_DIAG_NOCOOKIE (~0) */
 
-	proto_tree_add_uint64(tree, hfi_netlink_sock_diag_cookie.id, tvb, offset, 8, cookie);
+	proto_tree_add_uint64(tree, &hfi_netlink_sock_diag_cookie, tvb, offset, 8, cookie);
 }
 
 static const value_string netlink_sock_diag_shutdown_flags_vals[] = {
@@ -350,7 +351,7 @@ static const value_string netlink_sock_diag_unix_attr_vals[] = {
 
 static header_field_info hfi_netlink_sock_diag_unix_attr NETLINK_SOCK_DIAG_HFI_INIT =
 	{ "Type", "netlink-sock_diag.unix_attr", FT_UINT16, BASE_DEC,
-	  VALS(netlink_sock_diag_unix_attr_vals), 0x00, NULL, HFILL };
+	  VALS(netlink_sock_diag_unix_attr_vals), NLA_TYPE_MASK, NULL, HFILL };
 
 static header_field_info hfi_netlink_sock_diag_unix_name NETLINK_SOCK_DIAG_HFI_INIT =
 	{ "Name", "netlink-sock_diag.unix_name", FT_STRINGZ, STR_ASCII,
@@ -442,7 +443,7 @@ dissect_sock_diag_unix_reply(tvbuff_t *tvb, netlink_sock_diag_info_t *info, prot
 	sock_diag_proto_tree_add_cookie(tree, info, tvb, offset);
 	offset += 8;
 
-	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_unix_attr, ett_netlink_sock_diag_attr, info, tree, offset, dissect_netlink_unix_sock_diag_reply_attrs);
+	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_unix_attr, ett_netlink_sock_diag_attr, info, info->data, tree, offset, -1, dissect_netlink_unix_sock_diag_reply_attrs);
 }
 
 /* AF_UNIX request */
@@ -534,12 +535,20 @@ static const value_string netlink_sock_diag_inet_attr_vals[] = {
 	{ WS_INET_DIAG_TCLASS,     "tclass" },
 	{ WS_INET_DIAG_SKMEMINFO,  "skmeminfo" },
 	{ WS_INET_DIAG_SHUTDOWN,   "shutdown" },
+	{ WS_INET_DIAG_DCTCPINFO,  "dctcpinfo" },
+	{ WS_INET_DIAG_PROTOCOL,   "protocol" },
+	{ WS_INET_DIAG_SKV6ONLY,   "skv6only" },
+	{ WS_INET_DIAG_LOCALS,     "locals" },
+	{ WS_INET_DIAG_PEERS,      "peers" },
+	{ WS_INET_DIAG_PAD,        "pad" },
+	{ WS_INET_DIAG_MARK,       "mark" },
+	{ WS_INET_DIAG_BBRINFO,    "bbrinfo" },
 	{ 0, NULL }
 };
 
 static header_field_info hfi_netlink_sock_diag_inet_attr NETLINK_SOCK_DIAG_HFI_INIT =
 	{ "Type", "netlink-sock_diag.inet_attr", FT_UINT16, BASE_DEC,
-	  VALS(netlink_sock_diag_inet_attr_vals), 0x00, NULL, HFILL };
+	  VALS(netlink_sock_diag_inet_attr_vals), NLA_TYPE_MASK, NULL, HFILL };
 
 static int
 dissect_sock_diag_inet_attributes(tvbuff_t *tvb, void *data, proto_tree *tree, int nla_type, int offset, int len)
@@ -579,6 +588,14 @@ dissect_sock_diag_inet_attributes(tvbuff_t *tvb, void *data, proto_tree *tree, i
 		case WS_INET_DIAG_CONG:
 		case WS_INET_DIAG_TOS:
 		case WS_INET_DIAG_TCLASS:
+		case WS_INET_DIAG_DCTCPINFO:
+		case WS_INET_DIAG_PROTOCOL:
+		case WS_INET_DIAG_SKV6ONLY:
+		case WS_INET_DIAG_LOCALS:
+		case WS_INET_DIAG_PEERS:
+		case WS_INET_DIAG_PAD:
+		case WS_INET_DIAG_MARK:
+		case WS_INET_DIAG_BBRINFO:
 		default:
 			return 0;
 	}
@@ -699,7 +716,7 @@ dissect_sock_diag_inet_reply(tvbuff_t *tvb, netlink_sock_diag_info_t *info, prot
 	proto_tree_add_item(tree, &hfi_netlink_sock_diag_inode, tvb, offset, 4, info->encoding);
 	offset += 4;
 
-	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_inet_attr, ett_netlink_sock_diag_attr, info, tree, offset, dissect_sock_diag_inet_attributes);
+	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_inet_attr, ett_netlink_sock_diag_attr, info, info->data, tree, offset, -1, dissect_sock_diag_inet_attributes);
 }
 
 /* AF_INET request */
@@ -742,7 +759,7 @@ static const value_string netlink_sock_diag_netlink_vals[] = {
 
 static header_field_info hfi_netlink_sock_diag_netlink_attr NETLINK_SOCK_DIAG_HFI_INIT =
 	{ "Type", "netlink-sock_diag.netlink_attr", FT_UINT16, BASE_DEC,
-	  VALS(netlink_sock_diag_netlink_vals), 0x00, NULL, HFILL };
+	  VALS(netlink_sock_diag_netlink_vals), NLA_TYPE_MASK, NULL, HFILL };
 
 static int
 dissect_sock_diag_netlink_attributes(tvbuff_t *tvb, void *data, proto_tree *tree, int nla_type, int offset, int len)
@@ -815,7 +832,7 @@ dissect_sock_diag_netlink_reply(tvbuff_t *tvb, netlink_sock_diag_info_t *info, p
 	sock_diag_proto_tree_add_cookie(tree, info, tvb, offset);
 	offset += 8;
 
-	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_netlink_attr, ett_netlink_sock_diag_attr, info, tree, offset, dissect_sock_diag_netlink_attributes);
+	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_netlink_attr, ett_netlink_sock_diag_attr, info, info->data, tree, offset, -1, dissect_sock_diag_netlink_attributes);
 }
 
 /* AF_NETLINK request */
@@ -917,7 +934,7 @@ static const value_string netlink_sock_diag_packet_vals[] = {
 
 static header_field_info hfi_netlink_sock_diag_packet_attr NETLINK_SOCK_DIAG_HFI_INIT =
 	{ "Type", "netlink-sock_diag.netlink_attr", FT_UINT16, BASE_DEC,
-	  VALS(netlink_sock_diag_packet_vals), 0x00, NULL, HFILL };
+	  VALS(netlink_sock_diag_packet_vals), NLA_TYPE_MASK, NULL, HFILL };
 
 /* AF_PACKET */
 
@@ -943,7 +960,7 @@ dissect_sock_diag_packet_reply(tvbuff_t *tvb, netlink_sock_diag_info_t *info, pr
 	sock_diag_proto_tree_add_cookie(tree, info, tvb, offset);
 	offset += 8;
 
-	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_packet_attr, ett_netlink_sock_diag_attr, info, tree, offset, dissect_netlink_packet_sock_diag_reply_attrs);
+	return dissect_netlink_attributes(tvb, &hfi_netlink_sock_diag_packet_attr, ett_netlink_sock_diag_attr, info, info->data, tree, offset, -1, dissect_netlink_packet_sock_diag_reply_attrs);
 }
 
 /* AF_PACKET request */
@@ -1065,6 +1082,7 @@ static const value_string netlink_sock_diag_type_vals[] = {
 	{ WS_TCPDIAG_GETSOCK,     "TCPDIAG_GETSOCK" },
 	{ WS_DCCPDIAG_GETSOCK,    "DCCPDIAG_GETSOCK" },
 	{ WS_SOCK_DIAG_BY_FAMILY, "SOCK_DIAG_BY_FAMILY" },
+	{ WS_SOCK_DESTROY,        "SOCK_DESTROY" },
 	{ 0, NULL }
 };
 
@@ -1075,32 +1093,26 @@ static header_field_info hfi_netlink_sock_diag_nltype NETLINK_SOCK_DIAG_HFI_INIT
 static int
 dissect_netlink_sock_diag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *_data)
 {
-	struct packet_netlink_data *data = NULL;
+	struct packet_netlink_data *data = (struct packet_netlink_data *)_data;
 	netlink_sock_diag_info_t info;
-	int offset;
+	proto_tree *nlmsg_tree;
+	proto_item *pi;
+	int offset = 0;
 
-	if (_data) {
-		if (((struct packet_netlink_data *) _data)->magic == PACKET_NETLINK_MAGIC)
-			data = (struct packet_netlink_data *) _data;
-	}
-
-	DISSECTOR_ASSERT(data);
+	DISSECTOR_ASSERT(data && data->magic == PACKET_NETLINK_MAGIC);
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "Netlink sock diag");
 	col_clear(pinfo->cinfo, COL_INFO);
 
-	if (tree) {
-		proto_item_set_text(tree, "Linux netlink sock diag message");
+	pi = proto_tree_add_item(tree, proto_registrar_get_nth(proto_netlink_sock_diag), tvb, 0, -1, ENC_NA);
+	nlmsg_tree = proto_item_add_subtree(pi, ett_netlink_sock_diag);
 
-		/* XXX, from header tvb */
-		proto_tree_add_uint(tree, &hfi_netlink_sock_diag_nltype, NULL, 0, 0, data->type);
-	}
+	/* Netlink message header (nlmsghdr) */
+	offset = dissect_netlink_header(tvb, nlmsg_tree, offset, data->encoding, &hfi_netlink_sock_diag_nltype, NULL);
 
 	info.encoding = data->encoding;
 	info.pinfo = pinfo;
 	info.data = data;
-
-	offset = 0;
 
 	switch (data->type) {
 		case WS_TCPDIAG_GETSOCK:
@@ -1109,7 +1121,7 @@ dissect_netlink_sock_diag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 			break;
 
 		case WS_SOCK_DIAG_BY_FAMILY:
-			offset = dissect_sock_diag_by_family(tvb, &info, tree, offset);
+			offset = dissect_sock_diag_by_family(tvb, &info, nlmsg_tree, offset);
 			break;
 	}
 
@@ -1192,8 +1204,6 @@ proto_register_netlink_sock_diag(void)
 		&ett_netlink_sock_diag_show,
 		&ett_netlink_sock_diag_attr
 	};
-
-	int proto_netlink_sock_diag;
 
 	proto_netlink_sock_diag = proto_register_protocol("Linux netlink sock diag protocol", "sock_diag", "netlink-sock_diag" );
 	hfi_netlink_sock_diag = proto_registrar_get_nth(proto_netlink_sock_diag);

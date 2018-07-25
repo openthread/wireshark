@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,7 +20,7 @@ void proto_register_knet(void);
 void proto_reg_handoff_knet(void);
 
 #define PROTO_TAG_KNET      "KNET"    /*!< Definition of kNet Protocol */
-#define PORT                2345
+#define PORT                2345 /* Not IANA registered */
 
 #define KNET_SCTP_PACKET    1000
 #define KNET_TCP_PACKET     1001
@@ -119,8 +107,6 @@ static dissector_handle_t knet_handle_udp;
 
 /* Ports used by the dissectors */
 static guint32 knet_sctp_port =   PORT; /*!< Port used by kNet SCTP */
-static guint32 knet_tcp_port =    PORT; /*!< Port used by kNet TCP */
-static guint32 knet_udp_port =    PORT; /*!< Port used by kNet UDP */
 
 static const value_string packettypenames[] = { /*!< Messageid List */
     { PINGREQUEST,          "Ping Request"        },
@@ -353,7 +339,6 @@ dissect_messageid(tvbuff_t *buffer, int *offset, proto_tree *tree, packet_info *
 {
     gint   messageid_length;
     guint8 messageid;
-    gboolean col_write;
 
     messageid = tvb_get_guint8(buffer, (*offset));
 
@@ -374,16 +359,9 @@ dissect_messageid(tvbuff_t *buffer, int *offset, proto_tree *tree, packet_info *
     proto_tree_add_uint_format_value(tree, hf_knet_messageid, buffer, *offset, messageid_length, messageid,
             "%s (%d)", val_to_str_const(messageid, packettypenames, "AppData or Malformed Message ID"), messageid);
 
-    /* XXX - TCP reassembly disables writing columns which prevents populating COL_INFO if multiple KNET messages
-       appear in a single packet that needed to be reassembled.
-       Force making columns writable.
-    */
     if (separator)
     {
-        col_write = col_get_writable(pinfo->cinfo);
-        col_set_writable(pinfo->cinfo, TRUE);
         col_append_sep_fstr(pinfo->cinfo, COL_INFO, ", ", "%s (%d)", val_to_str_const(messageid, packettypenames, "AppData"), messageid);
-        col_set_writable(pinfo->cinfo, col_write);
     }
     else
     {
@@ -749,12 +727,12 @@ proto_register_knet(void)
         &ett_knet_payload
     };
 
+    /* Register protocols */
+    proto_knet = proto_register_protocol ("kNet Protocol", "KNET", "knet");
+
     /* Register header field & subtree arrays */
     proto_register_field_array(proto_knet, hf_knet, array_length(hf_knet));
     proto_register_subtree_array(ett_knet, array_length(ett_knet));
-
-    /* Register protocols */
-    proto_knet = proto_register_protocol ("kNet Protocol", "KNET", "knet");
 
     knet_handle_sctp = register_dissector("knetsctp", dissect_knet_sctp, proto_knet);
     knet_handle_tcp = register_dissector("knettcp",  dissect_knet_tcp, proto_knet);
@@ -765,14 +743,6 @@ proto_register_knet(void)
     prefs_register_uint_preference(knet_module, "sctp.port", "kNet SCTP Port",
                                    "Set the SCTP port for kNet messages",
                                    10, &knet_sctp_port);
-
-    prefs_register_uint_preference(knet_module, "tcp.port", "kNet TCP Port",
-                                   "Set the TCP port for kNet messages",
-                                   10, &knet_tcp_port);
-
-    prefs_register_uint_preference(knet_module, "udp.port", "kNet UDP Port",
-                                   "Set the UDP port for kNet messages",
-                                   10, &knet_udp_port);
 }
 
 /**
@@ -785,28 +755,20 @@ proto_reg_handoff_knet(void)
     static gboolean initialized = FALSE;
 
     static guint current_sctp_port;
-    static guint current_tcp_port;
-    static guint current_udp_port;
 
     if(!initialized)
     {
+        dissector_add_uint_with_preference("tcp.port", PORT, knet_handle_tcp);
+        dissector_add_uint_with_preference("udp.port", PORT, knet_handle_udp);
         initialized = TRUE;
     }
     else
     {
         dissector_delete_uint("sctp.port", current_sctp_port, knet_handle_sctp);
-        dissector_delete_uint("tcp.port",  current_tcp_port,  knet_handle_tcp);
-        dissector_delete_uint("udp.port",  current_udp_port,  knet_handle_udp);
     }
 
     current_sctp_port = knet_sctp_port;
     dissector_add_uint("sctp.port", current_sctp_port, knet_handle_sctp);
-
-    current_tcp_port = knet_tcp_port;
-    dissector_add_uint("tcp.port", current_tcp_port, knet_handle_tcp);
-
-    current_udp_port = knet_udp_port;
-    dissector_add_uint("udp.port", current_udp_port, knet_handle_udp);
 }
 /*
 * Editor modelines - http://www.wireshark.org/tools/modelines.html

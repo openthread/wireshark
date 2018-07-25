@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -602,9 +590,9 @@ static const value_string info_element_values [] = {
     { CONTROL_FUNCTION_ELEMENT, "Control function element" },
     { CONTROL_FUNCTION_ID,      "Control function ID" },
     { ENABLE_METERING,          "Enable metering" },
-    { VARIANT,                  "Variant" },
+/*    { VARIANT,                  "Variant" },  XXX - Duplicate value of ENABLE_METERING */
     { METERING_REPORT,          "Metering report" },
-    { INTERFACE_ID,             "Interface ID" },
+/*    { INTERFACE_ID,             "Interface ID" }, XXX - Duplicate value of METERING_REPORT */
     { ATTENUATION,              "Attenuation" },
     { LINK_CONTROL_FUNCTION,    "Link control function" },
     { USER_PORT_ID,             "User port ID" },

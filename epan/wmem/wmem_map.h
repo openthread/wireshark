@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __WMEM_MAP_H__
@@ -70,6 +58,24 @@ wmem_map_new(wmem_allocator_t *allocator,
         GHashFunc hash_func, GEqualFunc eql_func)
 G_GNUC_MALLOC;
 
+/** Creates a map with two allocator scopes. The base structure lives in the
+ * master scope, however the data lives in the slave scope. Every time free_all
+ * occurs in the slave scope the map is transparently emptied without affecting
+ * the location of the master structure.
+ *
+ * WARNING: None of the map (even the part in the master scope) can be used
+ * after the slave scope has been *destroyed*.
+ *
+ * The primary use for this function is to create maps that reset for each new
+ * capture file that is loaded. This can be done by specifying wmem_epan_scope()
+ * as the master and wmem_file_scope() as the slave.
+ */
+WS_DLL_PUBLIC
+wmem_map_t *
+wmem_map_new_autoreset(wmem_allocator_t *master, wmem_allocator_t *slave,
+        GHashFunc hash_func, GEqualFunc eql_func)
+G_GNUC_MALLOC;
+
 /** Inserts a value into the map.
  *
  * @param map The map to insert into.
@@ -81,6 +87,16 @@ WS_DLL_PUBLIC
 void *
 wmem_map_insert(wmem_map_t *map, const void *key, void *value);
 
+/** Check if a value is in the map.
+ *
+ * @param map The map to search in.
+ * @param key The key to lookup.
+ * @return true if the key is in the map, otherwise false.
+ */
+WS_DLL_PUBLIC
+gboolean
+wmem_map_contains(wmem_map_t *map, const void *key);
+
 /** Lookup a value in the map.
  *
  * @param map The map to search in.
@@ -90,6 +106,19 @@ wmem_map_insert(wmem_map_t *map, const void *key, void *value);
 WS_DLL_PUBLIC
 void *
 wmem_map_lookup(wmem_map_t *map, const void *key);
+
+/** Lookup a value in the map, returning the key, value, and a boolean which
+ * is true if the key is found.
+ *
+ * @param map The map to search in.
+ * @param key The key to lookup.
+ * @param orig_key (optional) The key that was determined to be a match, if any.
+ * @param value (optional) The value stored at the key, if any.
+ * @return true if the key is in the map, otherwise false.
+ */
+WS_DLL_PUBLIC
+gboolean
+wmem_map_lookup_extended(wmem_map_t *map, const void *key, const void **orig_key, void **value);
 
 /** Remove a value from the map. If no value is stored at that key, nothing
  * happens.
@@ -102,6 +131,47 @@ WS_DLL_PUBLIC
 void *
 wmem_map_remove(wmem_map_t *map, const void *key);
 
+/** Remove a key and value from the map but does not destroy (free) them. If no
+ * value is stored at that key, nothing happens.
+ *
+ * @param map The map to remove from.
+ * @param key The key of the value to remove.
+ * @return TRUE if key is found FALSE if not.
+ */
+WS_DLL_PUBLIC
+gboolean
+wmem_map_steal(wmem_map_t *map, const void *key);
+
+/** Retrieves a list of keys inside the map
+ *
+ * @param list_allocator The allocator scope for the returned list.
+ * @param map The map to extract keys from
+ * @return list of keys in the map
+ */
+WS_DLL_PUBLIC
+wmem_list_t*
+wmem_map_get_keys(wmem_allocator_t *list_allocator, wmem_map_t *map);
+
+/** Run a function against all key/value pairs in the map. The order
+ * of the calls is unpredictable, since it is based on the internal
+ * storage of data.
+ *
+ * @param map The map to use
+ * @param foreach_func the function to call for each key/value pair
+ * @param user_data user data to pass to the function
+ */
+WS_DLL_PUBLIC
+void
+wmem_map_foreach(wmem_map_t *map, GHFunc foreach_func, gpointer user_data);
+
+/** Return the number of elements of the map.
+ *
+ * @param map The map to use
+ * @return the number of elements
+*/
+WS_DLL_PUBLIC
+guint
+wmem_map_size(wmem_map_t *map);
 
 /** Compute a strong hash value for an arbitrary sequence of bytes. Use of this
  * hash value should be secure against algorithmic complexity attacks, even for

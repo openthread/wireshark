@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -23,17 +11,24 @@
 #include "syntax-tree.h"
 #include "sttype-set.h"
 
+/*
+ * The GSList stores a list of elements of the set. Each element is represented
+ * by two list items: (lower, upper) in case of a value range or (value, NULL)
+ * if the element is not a range value.
+ */
+
 static void
-slist_stnode_free(gpointer data, gpointer user_data _U_)
+slist_stnode_free(gpointer data)
 {
-	stnode_free((stnode_t *)data);
+	if (data) {
+		stnode_free((stnode_t *)data);
+	}
 }
 
 void
 set_nodelist_free(GSList *params)
 {
-	g_slist_foreach(params, slist_stnode_free, NULL);
-	g_slist_free(params);
+	g_slist_free_full(params, slist_stnode_free);
 }
 
 void
@@ -41,6 +36,9 @@ sttype_set_replace_element(stnode_t *node, stnode_t *oldnode, stnode_t *newnode)
 {
 	GSList	*nodelist = (GSList*)stnode_data(node);
 
+	/* This deliberately checks both the left and right nodes, covering both
+	 * the lower and upper bound for ranges. NULL right nodes (in case of
+	 * normal, non-range elements) will usually not match "oldnode". */
 	while (nodelist) {
 		if (nodelist->data == oldnode) {
 			nodelist->data = newnode;

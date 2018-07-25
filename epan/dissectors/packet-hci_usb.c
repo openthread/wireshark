@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -362,7 +350,7 @@ proto_register_hci_usb(void)
         &ett_hci_usb_msg_fragments,
     };
 
-    reassembly_table_init(&hci_usb_reassembly_table,
+    reassembly_table_register(&hci_usb_reassembly_table,
                           &addresses_reassembly_table_functions);
     fragment_info_table = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
@@ -371,7 +359,7 @@ proto_register_hci_usb(void)
     proto_register_subtree_array(ett, array_length(ett));
     hci_usb_handle = register_dissector("hci_usb", dissect_hci_usb, proto_hci_usb);
 
-    module = prefs_register_protocol(proto_hci_usb, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_hci_usb, NULL);
     prefs_register_static_text_preference(module, "bthci_usb.version",
             "Bluetooth HCI USB Transport from Core 4.0",
             "Version of protocol supported by this dissector.");

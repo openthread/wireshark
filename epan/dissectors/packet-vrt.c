@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -31,8 +19,11 @@
 #include <epan/prefs.h>
 
 void proto_register_vrt(void);
+void proto_reg_handoff_vrt(void);
 
-static gint dissector_port_pref = 4991;
+#define VITA_49_PORT    4991
+
+static gboolean vrt_use_ettus_uhd_header_format = FALSE;
 
 static int proto_vrt = -1;
 
@@ -155,10 +146,9 @@ static const int *ind_hfs[] = {
     &hf_vrt_trailer_ind_caltime
 };
 
-void dissect_header(tvbuff_t *tvb, proto_tree *tree, int type, int offset);
-void dissect_trailer(tvbuff_t *tvb, proto_tree *tree, int offset);
-void dissect_cid(tvbuff_t *tvb, proto_tree *tree, int offset);
-void proto_reg_handoff_vrt(void);
+static void dissect_header(tvbuff_t *tvb, proto_tree *tree, int type, int offset);
+static void dissect_trailer(tvbuff_t *tvb, proto_tree *tree, int offset);
+static void dissect_cid(tvbuff_t *tvb, proto_tree *tree, int offset);
 
 static int dissect_vrt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
@@ -169,7 +159,7 @@ static int dissect_vrt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     col_clear(pinfo->cinfo,COL_INFO);
 
     /* HACK to support UHD's weird header offset on data packets. */
-    if (tvb_get_guint8(tvb, 0) == 0)
+    if (vrt_use_ettus_uhd_header_format && tvb_get_guint8(tvb, 0) == 0)
         offset += 4;
 
     /* get packet type */
@@ -261,7 +251,7 @@ static int dissect_vrt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     return tvb_captured_length(tvb);
 }
 
-void dissect_header(tvbuff_t *tvb, proto_tree *tree, int type, int offset)
+static void dissect_header(tvbuff_t *tvb, proto_tree *tree, int type, int offset)
 {
     proto_item *hdr_item;
     proto_tree *hdr_tree;
@@ -284,7 +274,7 @@ void dissect_header(tvbuff_t *tvb, proto_tree *tree, int type, int offset)
     proto_tree_add_item(hdr_tree, hf_vrt_len, tvb, offset, 2, ENC_BIG_ENDIAN);
 }
 
-void dissect_trailer(tvbuff_t *tvb, proto_tree *tree, int offset)
+static void dissect_trailer(tvbuff_t *tvb, proto_tree *tree, int offset)
 {
     proto_item *enable_item, *ind_item, *trailer_item;
     proto_tree *enable_tree;
@@ -321,7 +311,7 @@ void dissect_trailer(tvbuff_t *tvb, proto_tree *tree, int offset)
     proto_tree_add_item(trailer_tree, hf_vrt_trailer_acpc, tvb, offset, 1, ENC_BIG_ENDIAN);
 }
 
-void dissect_cid(tvbuff_t *tvb, proto_tree *tree, int offset)
+static void dissect_cid(tvbuff_t *tvb, proto_tree *tree, int offset)
 {
     proto_item *cid_item;
     proto_tree *cid_tree;
@@ -340,6 +330,8 @@ void dissect_cid(tvbuff_t *tvb, proto_tree *tree, int offset)
 void
 proto_register_vrt(void)
 {
+    module_t *vrt_module;
+
     static hf_register_info hf[] = {
         { &hf_vrt_header,
             { "VRT header", "vrt.hdr",
@@ -634,42 +626,25 @@ proto_register_vrt(void)
         &ett_cid
      };
 
-    module_t *vrt_module;
-
-    proto_vrt = proto_register_protocol (
-        "VITA 49 radio transport protocol", /* name       */
-        "VITA 49",      /* short name */
-        "vrt"       /* abbrev     */
-        );
+    proto_vrt = proto_register_protocol ("VITA 49 radio transport protocol", "VITA 49", "vrt");
 
     proto_register_field_array(proto_vrt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    vrt_module = prefs_register_protocol(proto_vrt, proto_reg_handoff_vrt);
-    prefs_register_uint_preference(vrt_module,
-        "dissector_port",
-        "Dissector UDP port",
-        "The UDP port used by this dissector",
-        10, &dissector_port_pref);
+    vrt_module = prefs_register_protocol(proto_vrt, NULL);
+    prefs_register_bool_preference(vrt_module, "ettus_uhd_header_format",
+        "Use Ettus UHD header format",
+        "Activate workaround for weird Ettus UHD header offset on data packets",
+        &vrt_use_ettus_uhd_header_format);
 }
 
 void
 proto_reg_handoff_vrt(void)
 {
-    static gboolean vrt_prefs_initialized = FALSE;
-    static dissector_handle_t vrt_handle;
-    static gint dissector_port;
+    dissector_handle_t vrt_handle;
 
-    if (!vrt_prefs_initialized) {
-        vrt_handle = create_dissector_handle(dissect_vrt, proto_vrt);
-        vrt_prefs_initialized = TRUE;
-    } else {
-        dissector_delete_uint("udp.port", dissector_port, vrt_handle);
-    }
-
-    dissector_port = dissector_port_pref;
-
-    dissector_add_uint("udp.port", dissector_port, vrt_handle);
+    vrt_handle = create_dissector_handle(dissect_vrt, proto_vrt);
+    dissector_add_uint_with_preference("udp.port", VITA_49_PORT, vrt_handle);
 }
 
 /*

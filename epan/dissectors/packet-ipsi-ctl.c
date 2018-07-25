@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,7 +19,7 @@
 void proto_register_ipsictl(void);
 void proto_reg_handoff_ipsictl(void);
 
-#define IPSICTL_PORT            5010
+#define IPSICTL_PORT            5010 /* Not IANA registered */
 #define IPSICTL_PDU_MAGIC       0x0300
 
 static int proto_ipsictl = -1;
@@ -237,7 +225,7 @@ void proto_reg_handoff_ipsictl(void)
 
   ipsictl_handle = create_dissector_handle(dissect_ipsictl, proto_ipsictl);
 
-  dissector_add_uint("tcp.port", IPSICTL_PORT, ipsictl_handle);
+  dissector_add_uint_with_preference("tcp.port", IPSICTL_PORT, ipsictl_handle);
 
 }
 

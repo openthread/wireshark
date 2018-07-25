@@ -9,19 +9,7 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # (-: I don't even think writing this in Lua  :-)
 # ...well I wished you had!
@@ -69,29 +57,18 @@ sub gorolla {
 	$s =~ s/^([\n]|\s)*//ms;
 	# remove trailing newlines and spaces at end
 	$s =~ s/([\n]|\s)*$//s;
-	# escape HTML entities everywhere
 
-	# bold and italics - but don't change a star followed by space (it's a list item)
-	$s =~ s/(\*\*)([^*]+?)(\*\*)/`$2`/g; # bold=command??
-
-	# one backtick is quote/command
-	#$s =~ s/([^`]|^)(`)([^`]+?)(`)/$1<command>$3<\/command>/g; # quote=command??
-	# two backticks are one (...and don't appear anywhere?)
-	#$s =~ s/(``)([^`]+?)(``)/`$2`/g; # quote=command??
-
-	# Convert wiki-style '[[url]]'
-	$s =~ s/(\[\[)([^\]\|]+?)(\]\])/link:\$\$$2\$\$:[$2]/g;
-	# handle '[[url|pretty]]'
-	$s =~ s/(\[\[)(([^\]\|]+?)\|\s*([^\]]+?))(\]\])/link:\$\$$3\$\$:[$4]/g;
+	# Prior versions converted a custom markup syntax to DocBook.
+	# Markup must now be compatible with Asciidoctor.
 
 	$s;
 }
 
 # break up descriptions based on newlines and keywords
 # builds an array of paragraphs and returns the array ref
-# each entry in the array is a single line for XML, but not a
+# each entry in the array is a single line for doc source, but not a
 # whole paragraph - there are "<para>"/"</para>" entries in the
-# array to make them paragraphs - this way the XML itself is
+# array to make them paragraphs - this way the doc source itself is
 # also pretty, while the resulting output is of course valid
 # first arg is the array to build into; second arg is an array
 # of lines to parse - this way it can be called from multiple
@@ -115,17 +92,22 @@ sub parse_desc_common {
 			# save number of spaces in case we need to know later
 			my $indent = length($1);
 
-			# if we find @code then treat it as a blob
-			if ($lines[$idx] =~ /^\@code\b/) {
-				my $line = $lines[$idx];
-				$line =~ s/\@code/[source,lua]\n----\n/;
-				# if this line didn't have ending token, keep eating paragraphs
-				while (!($line =~ /\@endcode\b/) && $idx <= $#lines) {
-					# also insert back the line separator we ate in earlier split()
-					$line .= $lines[++$idx] . "\n";
+			# if we find [source,...] then treat it as a blob
+			if ($lines[$idx] =~ /^\[source.*\]/) {
+				my $line = $lines[$idx] . "\n";
+				# the next line *should* be a delimiter...
+				my $block_delim = $lines[++$idx];
+				$block_delim =~ s/^\s+|\s+$//g;
+				$line .= $block_delim . "\n";
+				my $block_line = $lines[++$idx];
+				while (!($block_line =~ qr/^\s*$block_delim\s*$/) && $idx <= $#lines) {
+					# keep eating lines until the closing delimiter.
+					# XXX Strip $indent spaces?
+					$line .= $block_line . "\n";
+					$block_line = $lines[++$idx];
 				}
-				# fix ending token, and also remove trailing whitespace before it
-				$line =~ s/[\s\n]*\@endcode/\n----/;
+				$line .= $block_delim . "\n";
+
 				$r[++$#r] = $line . "\n";
 			} elsif ($lines[$idx] =~ /^\s*$/) {
 				# line is either empty or just whitespace, and we're not in a @code block
@@ -136,34 +118,8 @@ sub parse_desc_common {
 				# Add it as-is.
 				my $line = $lines[$idx];
 
-				# If line starts with "Note:" or "@note", make it an admonition
-				if ($line =~ /^[nN]ote:|^\@note /) {
-					$r[++$#r] = "[NOTE]\n";
-					$r[++$#r] = "====\n";
-					$line =~ s/^([nN]ote:\s*|\@note\s*)//;
-					$r[++$#r] = "" . $line . "\n";
-					# keep eating until we find a blank line or end
-					while (!($lines[++$idx] =~ /^\s*$/) && $idx <= $#lines) {
-						$lines[$idx] =~ s/^(\s*)//; # remove leading whitespace
-						$r[++$#r] = "" . $lines[$idx]. "\n";
-					}
-					$r[++$#r] = "====\n\n";
-
-				# If line starts with "Warning:"" or @warning", make it an admonition
-				} elsif ($line =~ /^[wW]arning:|^\@warning /) {
-					$r[++$#r] = "[WARNING]\n";
-					$r[++$#r] = "====\n";
-					$line =~ s/^(wW]arning:\s*|\@warning\s*)//;
-					# keep eating until we find a blank line or end
-					$r[++$#r] = "" . $line . "\n";
-					while (!($lines[++$idx] =~ /^\s*$/) && $idx <= $#lines) {
-						$lines[$idx] =~ s/^(\s*)//; # remove leading whitespace
-						$r[++$#r] = "" . $lines[$idx] . "\n";
-					}
-					$r[++$#r] = "====\n";
-
 				# if line starts with "@version" or "@since", make it a "Since:"
-				} elsif ($line =~ /^\@version |^\@since /) {
+				if ($line =~ /^\@version |^\@since /) {
 					$line =~ s/^\@version\s+|^\@since\s+/Since: /;
 					$r[++$#r] = "\n" . $line . "\n\n";
 
@@ -280,7 +236,7 @@ sub parse_attrib_desc {
 	return parse_desc_common(\@r, \@lines);
 }
 
-# prints the parse_* arrays into the XML file with pretty indenting
+# prints the parse_* arrays into the doc source file with pretty indenting
 # first arg is the description array, second is indent level
 sub print_desc {
 	my $desc_ref = $_[0];
@@ -357,6 +313,9 @@ my $out_extension = "asciidoc";
 # XXX: support \" within ""
 my $QUOTED_RE = "\042\050\133^\042\135*\051\042";
 
+# group 1: whole trailing comment (possibly empty), e.g. " /* foo */"
+# group 2: any leading whitespace. XXX why is this not removed using (?:...)
+# group 3: actual comment text, e.g. " foo ".
 my $TRAILING_COMMENT_RE = '((\s*|[\n\r]*)/\*(.*?)\*/)?';
 my $IN_COMMENT_RE       = '[\s\r\n]*((.*?)\*/)?';
 
@@ -460,28 +419,24 @@ sub {
 	push @{${$class}{methods}}, $function;
 } ],
 
-[ '#define WSLUA_(OPT)?ARG_([A-Za-z0-9_]+)_([A-Z0-9]+)\s+\d+' . $TRAILING_COMMENT_RE,
+# Splits "WSLUA_OPTARG_ProtoField_int8_NAME /* food */" into
+# "OPT" (1), "ProtoField_int8" (2), "NAME" (3), ..., ..., " food " (6)
+# Handles functions like "loadfile(filename)" too.
+[ '#define WSLUA_(OPT)?ARG_((?:[A-Za-z0-9]+_)?[a-z0-9_]+)_([A-Z0-9_]+)\s+\d+' . $TRAILING_COMMENT_RE,
 sub {
-	deb ">a=$1=$2=$3=$4=$5=$6=$7=\n";
+	deb ">a=$1=$2=$3=$4=$5=$6=\n";
 	my $name = $1 eq 'OPT' ? "[$3]" : $3;
 	push @{${$function}{arglist}} , $name;
 	${${$function}{args}}{$name} = {descr=>parse_function_arg_desc($6),}
 } ],
 
-[ '\057\052\s*WSLUA_(OPT)?ARG_([A-Za-z0-9_]+)_([A-Z0-9]+)\s*(.*?)\052\057',
+# same as above, except that there is no macro but a (multi-line) comment.
+[ '\057\052\s*WSLUA_(OPT)?ARG_((?:[A-Za-z0-9]+_)?[a-z0-9_]+)_([A-Z0-9_]+)\s*(.*?)\052\057',
 sub {
-	deb ">a=$1=$2=$3=$4=$5=$6=$7=\n";
+	deb ">a=$1=$2=$3=$4\n";
 	my $name = $1 eq 'OPT' ? "[$3]" : $3;
 	push @{${$function}{arglist}} , $name;
 	${${$function}{args}}{$name} = {descr=>parse_function_arg_desc($4),}
-} ],
-
-[ '#define WSLUA_(OPT)?ARG_([A-Za-z0-9]+)_([a-z_]+)_([A-Z0-9]+)\s+\d+' . $TRAILING_COMMENT_RE,
-sub {
-	deb ">ca=$1=$2=$3=$4=$5=$6=$7=\n";
-	my $name = $1 eq 'OPT' ? "[$4]" : $4;
-	push @{${$function}{arglist}} , $name;
-	${${$function}{args}}{$name} = {descr=>parse_function_arg_desc($7),optional => $1 eq '' ? 1 : 0 }
 } ],
 
 [ '/\052\s+WSLUA_ATTRIBUTE\s+([A-Za-z0-9]+)_([a-z_]+)\s+([A-Z]*)\s*(.*?)\052/',
@@ -610,7 +565,7 @@ while ( $file ) {
 
 	$modules{$module{name}} = $docfile;
 
-	print "Generating source XML for: $module{name}\n";
+	print "Generating source AsciiDoc for: $module{name}\n";
 
 	printf D ${$template_ref}{module_header}, $module{name}, $module{name};
 

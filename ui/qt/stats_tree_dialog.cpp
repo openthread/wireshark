@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "stats_tree_dialog.h"
@@ -25,7 +13,9 @@
 
 #include "epan/stats_tree_priv.h"
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
+
+#include <ui/qt/utils/variant_pointer.h>
 
 #include <QHeaderView>
 #include <QMessageBox>
@@ -33,8 +23,6 @@
 #include <QTreeWidgetItemIterator>
 
 const int item_col_ = 0;
-
-Q_DECLARE_METATYPE(stat_node *)
 
 const int sn_type_ = 1000;
 class StatsTreeWidgetItem : public QTreeWidgetItem
@@ -48,8 +36,8 @@ public:
     }
     bool operator< (const QTreeWidgetItem &other) const
     {
-        stat_node *thisnode = data(item_col_, Qt::UserRole).value<stat_node *>();
-        stat_node *othernode = other.data(item_col_, Qt::UserRole).value<stat_node *>();
+        stat_node *thisnode = VariantPointer<stat_node>::asPtr(data(item_col_, Qt::UserRole));
+        stat_node *othernode = VariantPointer<stat_node>::asPtr(other.data(item_col_, Qt::UserRole));
         Qt::SortOrder order = treeWidget()->header()->sortIndicatorOrder();
         int result;
 
@@ -96,7 +84,7 @@ void StatsTreeDialog::setupNode(stat_node* node)
     QTreeWidgetItem *ti = new StatsTreeWidgetItem(), *parent = NULL;
 
     ti->setText(item_col_, node->name);
-    ti->setData(item_col_, Qt::UserRole, qVariantFromValue(node));
+    ti->setData(item_col_, Qt::UserRole, VariantPointer<stat_node>::asQVariant(node));
     node->pr = (st_node_pres *) ti;
     if (node->parent && node->parent->pr) {
         parent = (QTreeWidgetItem *) node->parent->pr;
@@ -176,7 +164,7 @@ void StatsTreeDialog::drawTreeItems(void *st_ptr)
     int node_count = 0;
 
     while (*iter) {
-        stat_node *node = (*iter)->data(item_col_, Qt::UserRole).value<stat_node *>();
+        stat_node *node = VariantPointer<stat_node>::asPtr((*iter)->data(item_col_, Qt::UserRole));
         if (node) {
             gchar **valstrs = stats_tree_get_values_from_node(node);
             for (int count = 0; count<st->num_columns; count++) {

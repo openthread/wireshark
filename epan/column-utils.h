@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __COLUMN_UTILS_H__
@@ -144,21 +132,29 @@ WS_DLL_PUBLIC void	col_fill_in(packet_info *pinfo, const gboolean fill_col_exprs
  */
 WS_DLL_PUBLIC void	col_fill_in_error(column_info *cinfo, frame_data *fdata, const gboolean fill_col_exprs, const gboolean fill_fd_colums);
 
+/** Check to see if our column data has changed, e.g. we have new request/response info.
+ *
+ * Internal, don't use this in dissectors!
+ */
+WS_DLL_PUBLIC gboolean	col_data_changed(void);
+
 /* Utility routines used by packet*.c */
 
 /** Are the columns writable?
  *
  * @param cinfo the current packet row
+ * @param col the writable column, -1 for checking the state of all columns
  * @return TRUE if it's writable, FALSE if not
  */
-WS_DLL_PUBLIC gboolean	col_get_writable(column_info *cinfo);
+WS_DLL_PUBLIC gboolean	col_get_writable(column_info *cinfo, const gint col);
 
 /** Set the columns writable.
  *
  * @param cinfo the current packet row
+ * @param col the column to set, -1 for all
  * @param writable TRUE if it's writable, FALSE if not
  */
-WS_DLL_PUBLIC void	col_set_writable(column_info *cinfo, const gboolean writable);
+WS_DLL_PUBLIC void	col_set_writable(column_info *cinfo, const gint col, const gboolean writable);
 
 /** Sets a fence for the current column content,
  * so this content won't be affected by further col_... function calls.
@@ -280,6 +276,16 @@ WS_DLL_PUBLIC void col_append_str_uint(column_info *cinfo, const gint col, const
  * @param dst the destination port value to append
  */
 WS_DLL_PUBLIC void col_append_ports(column_info *cinfo, const gint col, port_type typ, guint16 src, guint16 dst);
+
+/** Append a frame number and signal that we have updated
+ * column information.
+ *
+ * @param pinfo the current packet info
+ * @param col the column to use, e.g. COL_INFO
+ * @param fmt_str format string, e.g. "reassembled in %u".
+ * @param frame_num frame number
+ */
+WS_DLL_PUBLIC void col_append_frame_number(packet_info *pinfo, const gint col, const gchar *fmt_str, guint frame_num);
 
 /* Append the given strings (terminated by COL_ADD_LSTR_TERMINATOR) to a column element,
  *

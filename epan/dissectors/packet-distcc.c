@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /* This dissector supports version 1 of the DISTCC protocol */
 
@@ -52,8 +40,6 @@ static gboolean distcc_desegment = TRUE;
 
 
 #define TCP_PORT_DISTCC 3632
-
-static guint glb_distcc_tcp_port = TCP_PORT_DISTCC;
 
 void proto_register_distcc(void);
 extern void proto_reg_handoff_distcc(void);
@@ -114,7 +100,7 @@ dissect_distcc_stat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
 }
 
 static int
-dissect_distcc_argc(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint32 parameter)
+dissect_distcc_argc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, guint32 parameter)
 {
     proto_tree_add_uint(tree, hf_distcc_argc, tvb, offset-12, 12, parameter);
 
@@ -124,7 +110,7 @@ dissect_distcc_argc(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int
 }
 
 static int
-dissect_distcc_argv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, gint parameter)
+dissect_distcc_argv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, gint parameter)
 {
     char argv[256];
     int argv_len;
@@ -151,7 +137,7 @@ dissect_distcc_argv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int
 }
 
 static int
-dissect_distcc_serr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, gint parameter)
+dissect_distcc_serr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, gint parameter)
 {
     char argv[256];
     int argv_len;
@@ -180,7 +166,7 @@ dissect_distcc_serr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int
 }
 
 static int
-dissect_distcc_sout(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, gint parameter)
+dissect_distcc_sout(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, gint parameter)
 {
     char argv[256];
     int argv_len;
@@ -366,15 +352,10 @@ proto_register_distcc(void)
     expert_distcc = expert_register_protocol(proto_distcc);
     expert_register_field_array(expert_distcc, ei, array_length(ei));
 
-    distcc_module = prefs_register_protocol(proto_distcc,
-        proto_reg_handoff_distcc);
-    prefs_register_uint_preference(distcc_module, "tcp.port",
-                   "DISTCC TCP Port",
-                   "Set the TCP port for DISTCC messages",
-                   10,
-                   &glb_distcc_tcp_port);
+    distcc_module = prefs_register_protocol(proto_distcc, NULL);
+
     prefs_register_bool_preference(distcc_module, "desegment_distcc_over_tcp",
-        "Reassemble DISTCC-over-TCP messages\nspanning multiple TCP segments",
+        "Reassemble DISTCC-over-TCP messages spanning multiple TCP segments",
         "Whether the DISTCC dissector should reassemble messages spanning multiple TCP segments."
         " To use this option, you must also enable \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
         &distcc_desegment);
@@ -383,28 +364,10 @@ proto_register_distcc(void)
 void
 proto_reg_handoff_distcc(void)
 {
-    static gboolean registered_dissector = FALSE;
-    static int distcc_tcp_port;
-    static dissector_handle_t distcc_handle;
+    dissector_handle_t distcc_handle;
 
-    if (!registered_dissector) {
-        /*
-         * We haven't registered the dissector yet; get a handle
-         * for it.
-         */
-        distcc_handle = create_dissector_handle(dissect_distcc,
-            proto_distcc);
-        registered_dissector = TRUE;
-    } else {
-        /*
-         * We've registered the dissector with a TCP port number
-         * of "distcc_tcp_port"; we might be changing the TCP port
-         * number, so remove that registration.
-         */
-        dissector_delete_uint("tcp.port", distcc_tcp_port, distcc_handle);
-    }
-    distcc_tcp_port = glb_distcc_tcp_port;
-    dissector_add_uint("tcp.port", distcc_tcp_port, distcc_handle);
+    distcc_handle = create_dissector_handle(dissect_distcc, proto_distcc);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_DISTCC, distcc_handle);
 }
 
 /*

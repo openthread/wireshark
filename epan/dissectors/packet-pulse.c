@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -29,12 +17,8 @@
 # include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 
-#define PORT_PULSE 539
-
-
-static guint  pulse_port = PORT_PULSE;
+#define PORT_PULSE 539 /* Not IANA registered */
 
 void proto_register_pulse(void);
 void proto_reg_handoff_pulse(void);
@@ -94,8 +78,6 @@ dissect_pulse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 void
 proto_register_pulse(void)
 {
-    module_t *pulse_module;
-
     static hf_register_info hf[] = {
         { &hf_pulse_magic,
           { "Magic", "pulse.magic",
@@ -108,42 +90,17 @@ proto_register_pulse(void)
     };
 
 
-    proto_pulse = proto_register_protocol("PULSE protocol for Linux Virtual Server redundancy",
-                                          "PULSE",
-                                          "pulse");
+    proto_pulse = proto_register_protocol("PULSE protocol for Linux Virtual Server redundancy", "PULSE", "pulse");
     proto_register_field_array(proto_pulse, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-
-    pulse_module = prefs_register_protocol(proto_pulse, proto_reg_handoff_pulse);
-    prefs_register_uint_preference(pulse_module, "udp.port",
-                                   "UDP Port",
-                                   "Set the UDP port for pulse",
-                                   10,
-                                   &pulse_port);
 }
 
 void
 proto_reg_handoff_pulse(void)
 {
-    static gboolean initialized = FALSE;
-
-    static int port = 0;
-
-    static dissector_handle_t pulse_handle;
-
-    if (initialized)
-        {
-            dissector_delete_uint("udp.port", port, pulse_handle);
-        }
-    else
-        {
-            pulse_handle = create_dissector_handle(dissect_pulse,
-                                                       proto_pulse);
-            initialized = TRUE;
-        }
-
-    port  = pulse_port;
-    dissector_add_uint("udp.port", port, pulse_handle);
+    dissector_handle_t pulse_handle;
+    pulse_handle = create_dissector_handle(dissect_pulse, proto_pulse);
+    dissector_add_uint_with_preference("udp.port", PORT_PULSE, pulse_handle);
 }
 
 /*

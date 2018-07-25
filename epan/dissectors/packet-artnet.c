@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1168,7 +1156,7 @@ static const value_string artnet_esta_man_vals[] = {
   { 0x4C58, "Lex Products Corp." },
   { 0x4C59, "Laser Technology Ltd." },
   { 0x4C5A, "LightMinded Industries, Inc." },
-  { 0x4C5A, "Sumolight GmbH" },
+/*  { 0x4C5A, "Sumolight GmbH" }, */
   { 0x4C5B, "LightLife, Gesellschaft fuer audiovisuelle Erlebnisse mbH" },
   { 0x4C64, "LED Team" },
   { 0x4C65, "Legargeant and Associates" },
@@ -1934,6 +1922,10 @@ static int hf_artnet_time_sync = -1;
 
 /* ArtTrigger */
 static int hf_artnet_trigger = -1;
+static int hf_artnet_trigger_oemcode = -1;
+static int hf_artnet_trigger_key = -1;
+static int hf_artnet_trigger_subkey = -1;
+static int hf_artnet_trigger_data = -1;
 
 /* ArtDirectory */
 static int hf_artnet_directory = -1;
@@ -2253,13 +2245,13 @@ dissect_artnet_poll_reply(tvbuff_t *tvb, guint offset, proto_tree *tree)
                       offset, 1, ENC_BIG_ENDIAN);
   offset += 1;
 
-  proto_tree_add_item(tree, hf_artnet_poll_reply_style, tvb,
-                      offset, 1, ENC_BIG_ENDIAN);
-  offset += 1;
-
   proto_tree_add_item(tree, hf_artnet_spare, tvb,
                       offset, 3, ENC_NA);
   offset += 3;
+
+  proto_tree_add_item(tree, hf_artnet_poll_reply_style, tvb,
+                      offset, 1, ENC_BIG_ENDIAN);
+  offset += 1;
 
   proto_tree_add_item(tree, hf_artnet_poll_reply_mac,
                         tvb, offset, 6, ENC_NA);
@@ -2317,15 +2309,14 @@ dissect_artnet_output(tvbuff_t *tvb, guint offset, proto_tree *tree, packet_info
 
   size = tvb_reported_length_remaining(tvb, offset);
 
-  save_info = col_get_writable(pinfo->cinfo);
-  col_set_writable(pinfo->cinfo, FALSE);
+  save_info = col_get_writable(pinfo->cinfo, COL_INFO);
+  col_set_writable(pinfo->cinfo, COL_INFO, FALSE);
 
   next_tvb = tvb_new_subset_length(tvb, offset, length);
 
-  /* XXX: Assumption: OK to call dmx-chan dissector under 'if (tree)' */
   call_dissector(dmx_chan_handle, next_tvb, pinfo, base_tree);
 
-  col_set_writable(pinfo->cinfo, save_info);
+  col_set_writable(pinfo->cinfo, COL_INFO, save_info);
 
   return offset + size;
 }
@@ -2813,15 +2804,14 @@ dissect_artnet_rdm(tvbuff_t *tvb, guint offset, proto_tree *tree,  packet_info *
 
   size = tvb_reported_length_remaining(tvb, offset);
 
-  save_info = col_get_writable(pinfo->cinfo);
-  col_set_writable(pinfo->cinfo, FALSE);
+  save_info = col_get_writable(pinfo->cinfo, COL_INFO);
+  col_set_writable(pinfo->cinfo, COL_INFO, FALSE);
 
   next_tvb = tvb_new_subset_remaining(tvb, offset);
 
-  /* XXX: Assumption: OK to call rdm dissector under 'if (tree)' */
   call_dissector(rdm_handle, next_tvb, pinfo, base_tree);
 
-  col_set_writable(pinfo->cinfo, save_info);
+  col_set_writable(pinfo->cinfo, COL_INFO, save_info);
 
   return offset + size;
 }
@@ -3048,6 +3038,26 @@ dissect_artnet_time_sync(tvbuff_t *tvb _U_, guint offset, proto_tree *tree _U_)
 static guint
 dissect_artnet_trigger(tvbuff_t *tvb _U_, guint offset, proto_tree *tree _U_)
 {
+  proto_tree_add_item(tree, hf_artnet_filler, tvb,
+                      offset, 2, ENC_NA);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_artnet_trigger_oemcode, tvb,
+                      offset, 2, ENC_BIG_ENDIAN);
+  offset += 2;
+
+  proto_tree_add_item(tree, hf_artnet_trigger_key, tvb,
+                      offset, 1, ENC_BIG_ENDIAN);
+  offset += 1;
+
+  proto_tree_add_item(tree, hf_artnet_trigger_subkey, tvb,
+                      offset, 1, ENC_BIG_ENDIAN);
+  offset += 1;
+
+  proto_tree_add_item(tree, hf_artnet_trigger_data, tvb,
+                      offset, 512, ENC_NA);
+  offset += 512;
+
   return offset;
 }
 
@@ -3143,8 +3153,7 @@ dissect_artnet_file_tn_master(tvbuff_t *tvb, guint offset, proto_tree *tree)
                       offset, 14, ENC_ASCII|ENC_NA);
   offset += 14;
 
-  proto_tree_add_item(tree, hf_artnet_file_tn_master_checksum, tvb,
-                      offset, 2, ENC_BIG_ENDIAN);
+  proto_tree_add_checksum(tree, tvb, offset, hf_artnet_file_tn_master_checksum, -1, NULL, NULL, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
   offset += 2;
 
   proto_tree_add_item(tree, hf_artnet_file_tn_master_spare, tvb,
@@ -3174,34 +3183,25 @@ dissect_artnet_file_fn_reply(tvbuff_t *tvb _U_, guint offset, proto_tree *tree _
 
 static int
 dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
-  gint        offset = 0;
-  guint       size;
-  guint16     opcode;
-  proto_tree *ti = NULL, *hi = NULL, *si = NULL, *artnet_tree = NULL, *artnet_header_tree = NULL;
+  gint          offset = 0;
+  guint         size;
+  guint16       opcode;
+  const guint8 *header;
+  proto_tree   *ti, *hi, *si = NULL, *artnet_tree, *artnet_header_tree;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "ARTNET");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  if (tree) {
-    ti = proto_tree_add_item(tree, proto_artnet, tvb, offset, -1, ENC_NA);
-    artnet_tree = proto_item_add_subtree(ti, ett_artnet);
+  ti = proto_tree_add_item(tree, proto_artnet, tvb, offset, -1, ENC_NA);
+  artnet_tree = proto_item_add_subtree(ti, ett_artnet);
 
-    hi = proto_tree_add_item(artnet_tree,
-                             hf_artnet_header,
-                             tvb,
-                             offset,
-                             ARTNET_HEADER_LENGTH ,
-                             ENC_NA);
+  hi = proto_tree_add_item(artnet_tree, hf_artnet_header, tvb,
+                             offset, ARTNET_HEADER_LENGTH, ENC_NA);
+  artnet_header_tree = proto_item_add_subtree(hi, ett_artnet);
 
-    artnet_header_tree = proto_item_add_subtree(hi, ett_artnet);
-  }
-
-  col_append_fstr(pinfo->cinfo, COL_INFO, "%s",
-                  tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 8, ENC_ASCII|ENC_NA));
-  if (tree) {
-    proto_tree_add_item(artnet_header_tree, hf_artnet_header_id,
-                        tvb, offset, 8, ENC_ASCII|ENC_NA);
-  }
+  proto_tree_add_item_ret_string(artnet_header_tree, hf_artnet_header_id,
+                        tvb, offset, 8, ENC_ASCII|ENC_NA, wmem_packet_scope(), &header);
+  col_append_str(pinfo->cinfo, COL_INFO, header);
   offset += 8;
 
   opcode = tvb_get_letohs(tvb, offset);
@@ -3322,7 +3322,6 @@ dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
       break;
 
     case ARTNET_OP_OUTPUT:
-      if (tree) {
         hi = proto_tree_add_item(artnet_tree,
                                  hf_artnet_output,
                                  tvb,
@@ -3336,7 +3335,6 @@ dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
         size -= offset;
         proto_item_set_len(si, size );
         offset += size;
-      }
       break;
 
 
@@ -3435,7 +3433,6 @@ dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
       break;
 
     case ARTNET_OP_RDM:
-      if (tree) {
         hi = proto_tree_add_item(artnet_tree,
                                  hf_artnet_rdm,
                                  tvb,
@@ -3448,7 +3445,6 @@ dissect_artnet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 
         proto_item_set_len( si, size );
         offset += size;
-      }
       break;
 
     case ARTNET_OP_RDM_SUB:
@@ -5196,6 +5192,30 @@ proto_register_artnet(void) {
         FT_NONE, BASE_NONE, NULL, 0,
         "Art-Net ArtTrigger packet", HFILL }},
 
+    { &hf_artnet_trigger_oemcode,
+      { "OEM Code",
+        "artnet.trigger.oemcode",
+        FT_UINT16, BASE_HEX, 0, 0x0,
+        NULL, HFILL }},
+
+    { &hf_artnet_trigger_key,
+      { "Key",
+        "artnet.trigger.key",
+        FT_UINT8, BASE_HEX_DEC, 0, 0x0,
+        NULL, HFILL }},
+
+    { &hf_artnet_trigger_subkey,
+      { "SubKey",
+        "artnet.trigger.subkey",
+        FT_UINT8, BASE_HEX_DEC, 0, 0x0,
+        NULL, HFILL }},
+
+    { &hf_artnet_trigger_data,
+      { "Data",
+        "artnet.trigger.data",
+        FT_BYTES, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }},
+
     /* ArtDirectory */
     { &hf_artnet_directory,
       { "ArtDirectory packet",
@@ -5384,7 +5404,7 @@ proto_reg_handoff_artnet(void) {
   dissector_handle_t artnet_handle;
 
   artnet_handle   = create_dissector_handle(dissect_artnet, proto_artnet);
-  dissector_add_for_decode_as("udp.port", artnet_handle);
+  dissector_add_for_decode_as_with_preference("udp.port", artnet_handle);
   rdm_handle      = find_dissector_add_dependency("rdm", proto_artnet);
   dmx_chan_handle = find_dissector_add_dependency("dmx-chan", proto_artnet);
 

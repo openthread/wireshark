@@ -10,19 +10,7 @@
  *
  * Copied from packet-tftp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -42,9 +30,7 @@
 void proto_register_rx(void);
 void proto_reg_handoff_rx(void);
 
-#define UDP_PORT_RX_LOW		7000
-#define UDP_PORT_RX_HIGH	7009
-#define UDP_PORT_RX_AFS_BACKUPS	7021
+#define UDP_PORT_RX_RANGE	"7000-7009,7021"
 
 static const value_string rx_types[] = {
 	{ RX_PACKET_TYPE_DATA,		"data" },
@@ -145,15 +131,8 @@ dissect_rx_response_encrypted(tvbuff_t *tvb, proto_tree *parent_tree, int offset
 	tree = proto_item_add_subtree(item, ett_rx_encrypted);
 
 	/* epoch : 4 bytes */
-	{
-		nstime_t ts;
-		ts.secs = tvb_get_ntohl(tvb, offset);
-		ts.nsecs = 0;
-
-		proto_tree_add_time(tree, hf_rx_epoch, tvb,
-			offset, 4, &ts);
-		offset += 4;
-	}
+	proto_tree_add_item(tree, hf_rx_epoch, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
+	offset += 4;
 
 	/* cid : 4 bytes */
 	proto_tree_add_item(tree, hf_rx_cid, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -376,7 +355,8 @@ dissect_rx_acks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, int 
 	 *
 	 * RX as a protocol seems to be completely undefined and seems to lack
 	 * any sort of documentation other than "read the source of any of the
-	 * (compatible?) implementations.
+	 * (compatible?) implementations.  The OpenAFS source indicates that
+	 * 3 bytes of padding are written after the acks.
 	 */
 	if (tvb_reported_length_remaining(tvb, offset)>3) {
 		offset += 3;	/* guess. some implementations add 3 bytes */
@@ -731,7 +711,7 @@ proto_register_rx(void)
 			NULL, 0, NULL, HFILL }},
 
 		{ &hf_rx_abortcode, {
-			"Abort Code", "rx.abort_code", FT_UINT32, BASE_DEC,
+			"Abort Code", "rx.abort_code", FT_INT32, BASE_DEC,
 			NULL, 0, NULL, HFILL }},
 
 	};
@@ -755,19 +735,13 @@ proto_reg_handoff_rx(void)
 {
 	dissector_handle_t rx_handle;
 
-	int port;
-
 	/*
 	 * Get handle for the AFS dissector.
 	 */
 	afs_handle = find_dissector_add_dependency("afs", proto_rx);
 
-	/* Ports in the range UDP_PORT_RX_LOW to UDP_PORT_RX_HIGH
-	   are all used for various AFS services. */
 	rx_handle = create_dissector_handle(dissect_rx, proto_rx);
-	for (port = UDP_PORT_RX_LOW; port <= UDP_PORT_RX_HIGH; port++)
-		dissector_add_uint("udp.port", port, rx_handle);
-	dissector_add_uint("udp.port", UDP_PORT_RX_AFS_BACKUPS, rx_handle);
+	dissector_add_uint_range_with_preference("udp.port", UDP_PORT_RX_RANGE, rx_handle);
 }
 
 /*

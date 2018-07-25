@@ -5,29 +5,41 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2006 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __FILE_DLG_WIN32_H__
 #define __FILE_DLG_WIN32_H__
 
+#ifndef RC_INVOKED // RC warns about gatomic's long identifiers.
 #include "ui/file_dialog.h"
+#include "ui/packet_range.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
+
+/**
+ * @brief set_thread_per_monitor_v2_awareness
+ *
+ * Qt <= 5.9 supports setting old (Windows 8.1) per-monitor DPI awareness
+ * via Qt:AA_EnableHighDpiScaling. We do this in main.cpp. In order for
+ * native dialogs to be rendered correctly we need to to set per-monitor
+ * *v2* awareness prior to creating the dialog, which we can do here.
+ * Qt doesn't render correctly when per-monitor v2 awareness is enabled, so
+ * we need to revert our thread context when we're done.
+ *
+ * @return The current thread DPI awareness context, which should
+ * be passed to revert_thread_per_monitor_v2_awareness.
+ */
+HANDLE set_thread_per_monitor_v2_awareness(void);
+
+/**
+ * @brief revert_thread_per_monitor_v2_awareness
+ * @param context
+ */
+void revert_thread_per_monitor_v2_awareness(HANDLE context);
 
 /** Open the "Open" dialog box.
  *
@@ -156,19 +168,15 @@ void file_set_save_marked_sensitive();
 /* Note: The preview title (PT) and text (PTX) MUST have sequential IDs;
    they're used in a for loop. EWFD_PT_FILENAME MUST be first, and
    EWFD_PTX_ELAPSED MUST be last.  (so why don't we just use an enum? */
-#define EWFD_PT_FORMAT     1006
-#define EWFD_PT_SIZE       1007
-#define EWFD_PT_PACKETS    1008
-#define EWFD_PT_FIRST_PKT  1009
-#define EWFD_PT_ELAPSED    1010
+#define EWFD_PT_FORMAT         1006
+#define EWFD_PT_SIZE           1007
+#define EWFD_PT_START_ELAPSED  1008
 
-#define EWFD_PTX_FORMAT    1011
-#define EWFD_PTX_SIZE      1012
-#define EWFD_PTX_PACKETS   1013
-#define EWFD_PTX_FIRST_PKT 1014
-#define EWFD_PTX_ELAPSED   1015
+#define EWFD_PTX_FORMAT        1009
+#define EWFD_PTX_SIZE          1010
+#define EWFD_PTX_START_ELAPSED 1011
 
-#define EWFD_FORMAT_TYPE   1016
+#define EWFD_FORMAT_TYPE   1020
 
 /* Save as and export dialog defines */
 #define EWFD_GZIP_CB     1040

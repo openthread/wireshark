@@ -11,19 +11,7 @@
  *
  * Copied from packet-m2pa.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -57,8 +45,10 @@ static int hf_mtp2_ext_spare = -1;
 static int hf_mtp2_sf        = -1;
 static int hf_mtp2_sf_extra  = -1;
 static int hf_mtp2_fcs_16    = -1;
+static int hf_mtp2_fcs_16_status = -1;
 
 static expert_field ei_mtp2_checksum_error = EI_INIT;
+static expert_field ei_mtp2_li_bad = EI_INIT;
 
 /* Initialize the subtree pointers */
 static gint ett_mtp2       = -1;
@@ -102,26 +92,56 @@ static gboolean use_extended_sequence_numbers_default = FALSE;
 #define EXTENDED_SPARE_MASK     0xfe00
 
 static void
-dissect_mtp2_header(tvbuff_t *su_tvb, proto_item *mtp2_tree, gboolean use_extended_sequence_numbers)
+dissect_mtp2_header(tvbuff_t *su_tvb, packet_info *pinfo, proto_item *mtp2_tree, gboolean use_extended_sequence_numbers, gboolean validate_crc, guint32 *li)
 {
-  if (mtp2_tree) {
-    if (use_extended_sequence_numbers) {
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_bsn,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_res,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_bib,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_fsn,   su_tvb, EXTENDED_FSN_FIB_OFFSET, EXTENDED_FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_res,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_fib,   su_tvb, EXTENDED_FSN_FIB_OFFSET, EXTENDED_FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_li,    su_tvb, EXTENDED_LI_OFFSET,      EXTENDED_LI_LENGTH,      ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_ext_spare, su_tvb, EXTENDED_LI_OFFSET,      EXTENDED_LI_LENGTH,      ENC_LITTLE_ENDIAN);
-    } else {
-      proto_tree_add_item(mtp2_tree, hf_mtp2_bsn,   su_tvb, BSN_BIB_OFFSET, BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_bib,   su_tvb, BSN_BIB_OFFSET, BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_fsn,   su_tvb, FSN_FIB_OFFSET, FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_fib,   su_tvb, FSN_FIB_OFFSET, FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_li,    su_tvb, LI_OFFSET,      LI_LENGTH,      ENC_LITTLE_ENDIAN);
-      proto_tree_add_item(mtp2_tree, hf_mtp2_spare, su_tvb, LI_OFFSET,      LI_LENGTH,      ENC_LITTLE_ENDIAN);
+  guint reported_len;
+  proto_item *li_item;
+
+  if (use_extended_sequence_numbers) {
+    reported_len = tvb_reported_length_remaining(su_tvb, EXTENDED_HEADER_LENGTH);
+    if (validate_crc) {
+      reported_len = reported_len < 2 ? 0 : (reported_len - 2);
     }
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_bsn,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_res,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_bib,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_fsn,   su_tvb, EXTENDED_FSN_FIB_OFFSET, EXTENDED_FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_res,   su_tvb, EXTENDED_BSN_BIB_OFFSET, EXTENDED_BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_fib,   su_tvb, EXTENDED_FSN_FIB_OFFSET, EXTENDED_FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
+    li_item = proto_tree_add_item_ret_uint(mtp2_tree, hf_mtp2_ext_li, su_tvb, EXTENDED_LI_OFFSET, EXTENDED_LI_LENGTH, ENC_LITTLE_ENDIAN, li);
+    if (*li != reported_len) {
+      /* ITU-T Q.703 A.2.3.3 When the extended sequence numbers are used,
+       * the field is large enough to contain all legal values. 0-273.
+       * Thus the check in the other case doesn't apply. */
+      proto_item_append_text(li_item, " [expected payload length %u]", reported_len);
+      expert_add_info_format(pinfo, li_item, &ei_mtp2_li_bad, "Bad length value %u != payload length ", *li);
+      col_append_fstr(pinfo->cinfo, COL_INFO, " [BAD MTP2 LI %u != PAYLOAD LENGTH]", *li);
+    }
+    proto_tree_add_item(mtp2_tree, hf_mtp2_ext_spare, su_tvb, EXTENDED_LI_OFFSET,      EXTENDED_LI_LENGTH,      ENC_LITTLE_ENDIAN);
+  } else {
+    reported_len = tvb_reported_length_remaining(su_tvb, HEADER_LENGTH);
+    if (validate_crc) {
+      reported_len = reported_len < 2 ? 0 : (reported_len - 2);
+    }
+    proto_tree_add_item(mtp2_tree, hf_mtp2_bsn,   su_tvb, BSN_BIB_OFFSET, BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_bib,   su_tvb, BSN_BIB_OFFSET, BSN_BIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_fsn,   su_tvb, FSN_FIB_OFFSET, FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(mtp2_tree, hf_mtp2_fib,   su_tvb, FSN_FIB_OFFSET, FSN_FIB_LENGTH, ENC_LITTLE_ENDIAN);
+    li_item = proto_tree_add_item_ret_uint(mtp2_tree, hf_mtp2_li, su_tvb, LI_OFFSET, LI_LENGTH, ENC_LITTLE_ENDIAN, li);
+    /* ITU-T Q.703 2.3.3: In the case that the payload is more than the
+     * li field allows, should be set to the max, i.e. the mask 63 */
+    if (reported_len > LI_MASK) {
+      if (*li != LI_MASK) {
+        proto_item_append_text(li_item, " [payload length %u, expected max value %u]", reported_len, LI_MASK);
+        expert_add_info_format(pinfo, li_item, &ei_mtp2_li_bad, "Bad length value %u != max value ", *li);
+        col_append_fstr(pinfo->cinfo, COL_INFO, " [BAD MTP2 LI %u != MAX VALUE]", *li);
+      }
+    } else if (*li != reported_len ) {
+      proto_item_append_text(li_item, " [expected payload length %u]", reported_len);
+      expert_add_info_format(pinfo, li_item, &ei_mtp2_li_bad, "Bad length value %u != payload length ", *li);
+      col_append_fstr(pinfo->cinfo, COL_INFO, " [BAD MTP2 LI %u != PAYLOAD LENGTH]", *li);
+    }
+    proto_tree_add_item(mtp2_tree, hf_mtp2_spare, su_tvb, LI_OFFSET,      LI_LENGTH,      ENC_LITTLE_ENDIAN);
   }
 }
 /*
@@ -148,11 +168,7 @@ mtp2_decode_crc16(tvbuff_t *tvb, proto_tree *fh_tree, packet_info *pinfo)
 {
   tvbuff_t   *next_tvb;
   gint       len, reported_len;
-  int        rx_fcs_offset;
-  guint32    rx_fcs_exp;
-  guint32    rx_fcs_got;
   int proto_offset=0;
-  proto_item *cause;
 
   /*
    * Do we have the entire packet, and does it include a 2-byte FCS?
@@ -178,7 +194,7 @@ mtp2_decode_crc16(tvbuff_t *tvb, proto_tree *fh_tree, packet_info *pinfo)
     reported_len -= 2;
     if (len > reported_len)
       len = reported_len;
-    next_tvb = tvb_new_subset(tvb, proto_offset, len, reported_len);
+    next_tvb = tvb_new_subset_length_caplen(tvb, proto_offset, len, reported_len);
   } else {
     /*
      * We have the entire packet, and it includes a 2-byte FCS.
@@ -186,21 +202,13 @@ mtp2_decode_crc16(tvbuff_t *tvb, proto_tree *fh_tree, packet_info *pinfo)
      */
     len -= 2;
     reported_len -= 2;
-    next_tvb = tvb_new_subset(tvb, proto_offset, len, reported_len);
+    next_tvb = tvb_new_subset_length_caplen(tvb, proto_offset, len, reported_len);
 
     /*
      * Compute the FCS and put it into the tree.
      */
-    rx_fcs_offset = proto_offset + len;
-    rx_fcs_exp = mtp2_fcs16(tvb);
-    rx_fcs_got = tvb_get_letohs(tvb, rx_fcs_offset);
-    cause=proto_tree_add_item(fh_tree, hf_mtp2_fcs_16, tvb, rx_fcs_offset, 2, ENC_LITTLE_ENDIAN);
-    if (rx_fcs_got != rx_fcs_exp) {
-      proto_item_append_text(cause, " [incorrect, should be 0x%04x]", rx_fcs_exp);
-      expert_add_info(pinfo, cause, &ei_mtp2_checksum_error);
-    } else {
-      proto_item_append_text(cause, " [correct]");
-    }
+    proto_tree_add_checksum(fh_tree, tvb, proto_offset + len, hf_mtp2_fcs_16, hf_mtp2_fcs_16_status, &ei_mtp2_checksum_error, pinfo, mtp2_fcs16(tvb),
+                            ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_VERIFY);
   }
   return next_tvb;
 }
@@ -300,35 +308,27 @@ dissect_mtp2_su(tvbuff_t *su_tvb, packet_info *pinfo, proto_item *mtp2_item,
                 proto_item *mtp2_tree, proto_tree *tree, gboolean validate_crc,
                 gboolean use_extended_sequence_numbers)
 {
-  guint16 li;
+  guint32 li=0;
   tvbuff_t  *next_tvb = NULL;
 
-  dissect_mtp2_header(su_tvb, mtp2_tree, use_extended_sequence_numbers);
+  dissect_mtp2_header(su_tvb, pinfo, mtp2_tree, use_extended_sequence_numbers, validate_crc, &li);
+  /* In some capture files (like .rf5), CRC are not present */
+  /* So, to avoid trouble, give the complete buffer if CRC validation is disabled */
   if (validate_crc)
     next_tvb = mtp2_decode_crc16(su_tvb, mtp2_tree, pinfo);
-
-  if (use_extended_sequence_numbers)
-    li = tvb_get_letohs(su_tvb, EXTENDED_LI_OFFSET) & EXTENDED_LI_MASK;
   else
-    li = tvb_get_guint8(su_tvb, LI_OFFSET) & LI_MASK;
+    next_tvb = su_tvb;
+
   switch(li) {
   case 0:
     dissect_mtp2_fisu(pinfo);
     break;
   case 1:
   case 2:
-    if (validate_crc)
-      dissect_mtp2_lssu(next_tvb, pinfo, mtp2_tree, use_extended_sequence_numbers);
-    else
-      dissect_mtp2_lssu(su_tvb, pinfo, mtp2_tree, use_extended_sequence_numbers);
+    dissect_mtp2_lssu(next_tvb, pinfo, mtp2_tree, use_extended_sequence_numbers);
     break;
   default:
-    /* In some capture files (like .rf5), CRC are not present */
-    /* So, to avoid trouble, give the complete buffer if CRC validation is disabled */
-    if (validate_crc)
-      dissect_mtp2_msu(next_tvb, pinfo, mtp2_item, tree, use_extended_sequence_numbers);
-    else
-      dissect_mtp2_msu(su_tvb, pinfo, mtp2_item, tree, use_extended_sequence_numbers);
+    dissect_mtp2_msu(next_tvb, pinfo, mtp2_item, tree, use_extended_sequence_numbers);
     break;
   }
 }
@@ -399,6 +399,7 @@ proto_register_mtp2(void)
     { &hf_mtp2_sf,        { "Status field",             "mtp2.sf",       FT_UINT8,  BASE_DEC, VALS(status_field_vals), 0x0,                 NULL, HFILL } },
     { &hf_mtp2_sf_extra,  { "Status field extra octet", "mtp2.sf_extra", FT_UINT8,  BASE_HEX, NULL,                    0x0,                 NULL, HFILL } },
     { &hf_mtp2_fcs_16,    { "FCS 16",                   "mtp2.fcs_16",   FT_UINT16, BASE_HEX, NULL,                    0x0,                 NULL, HFILL } },
+    { &hf_mtp2_fcs_16_status, { "FCS 16",               "mtp2.fcs_16.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,          NULL, HFILL } },
   };
 
   static gint *ett[] = {
@@ -407,6 +408,7 @@ proto_register_mtp2(void)
 
   static ei_register_info ei[] = {
      { &ei_mtp2_checksum_error, { "mtp2.checksum.error", PI_CHECKSUM, PI_WARN, "MTP2 Frame CheckFCS 16 Error", EXPFILL }},
+     { &ei_mtp2_li_bad, { "mtp2.li.bad", PI_PROTOCOL, PI_WARN, "Bad length indicator value", EXPFILL }},
   };
 
   module_t *mtp2_module;

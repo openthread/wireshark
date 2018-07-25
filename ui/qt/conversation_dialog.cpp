@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "conversation_dialog.h"
@@ -30,10 +18,12 @@
 
 #include "wsutil/str_util.h"
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/models/timeline_delegate.h>
 #include "wireshark_application.h"
 
 #include <QCheckBox>
+#include <QDateTime>
 #include <QDialogButtonBox>
 #include <QPushButton>
 
@@ -49,6 +39,7 @@
 // - Add follow, copy & graph actions to context menu.
 
 // Bugs:
+// - Slow for large numbers of items.
 // - Name resolution doesn't do anything if its preference is disabled.
 // - Columns don't resize correctly.
 // - Closing the capture file clears conversation data.
@@ -56,8 +47,11 @@
 // Fixed bugs:
 // - Friendly unit displays https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=9231
 // - Misleading bps calculation https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=8703
+// - Show Absolute time in conversation tables https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=11618
+// - The value of 'Rel start' and 'Duration' in "Conversations" no need too precise https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=12803
 
-const QString table_name_ = QObject::tr("Conversation");
+
+static const QString table_name_ = QObject::tr("Conversation");
 ConversationDialog::ConversationDialog(QWidget &parent, CaptureFile &cf, int cli_proto_id, const char *filter) :
     TrafficTableDialog(parent, cf, filter, table_name_)
 {
@@ -68,6 +62,8 @@ ConversationDialog::ConversationDialog(QWidget &parent, CaptureFile &cf, int cli
     graph_bt_ = buttonBox()->addButton(tr("Graph" UTF8_HORIZONTAL_ELLIPSIS), QDialogButtonBox::ActionRole);
     graph_bt_->setToolTip(tr("Graph a TCP conversation."));
     connect(graph_bt_, SIGNAL(clicked()), this, SLOT(graphTcp()));
+
+    absoluteTimeCheckBox()->show();
 
     addProgressFrame(&parent);
 
@@ -84,7 +80,7 @@ ConversationDialog::ConversationDialog(QWidget &parent, CaptureFile &cf, int cli
     }
 
     // Bring the command-line specified type to the front.
-    if (get_conversation_by_proto_id(cli_proto_id)) {
+    if ((cli_proto_id > 0) && (get_conversation_by_proto_id(cli_proto_id))) {
         conv_protos.removeAll(cli_proto_id);
         conv_protos.prepend(cli_proto_id);
     }
@@ -96,8 +92,13 @@ ConversationDialog::ConversationDialog(QWidget &parent, CaptureFile &cf, int cli
 
     fillTypeMenu(conv_protos);
 
+    QPushButton *close_bt = buttonBox()->button(QDialogButtonBox::Close);
+    if (close_bt) {
+        close_bt->setDefault(true);
+    }
+
     updateWidgets();
-    itemSelectionChanged();
+//    currentTabChanged();
 
     cap_file_.delayedRetapPackets();
 }
@@ -127,8 +128,8 @@ void ConversationDialog::captureFileClosing()
     // on a live capture file.
     for (int i = 0; i < trafficTableTabWidget()->count(); i++) {
         ConversationTreeWidget *cur_tree = qobject_cast<ConversationTreeWidget *>(trafficTableTabWidget()->widget(i));
-        disconnect(cur_tree, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-                   this, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+        disconnect(cur_tree, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+                   this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     }
     displayFilterCheckBox()->setEnabled(false);
     enabledTypesPushButton()->setEnabled(false);
@@ -152,14 +153,20 @@ bool ConversationDialog::addTrafficTable(register_ct_t* table)
 
     trafficTableTabWidget()->addTab(conv_tree, table_name);
 
+    conv_tree->setItemDelegateForColumn(CONV_COLUMN_START, new TimelineDelegate(conv_tree));
+    conv_tree->setItemDelegateForColumn(CONV_COLUMN_DURATION, new TimelineDelegate(conv_tree));
+
     connect(conv_tree, SIGNAL(itemSelectionChanged()),
-            this, SLOT(itemSelectionChanged()));
+            this, SLOT(conversationSelectionChanged()));
     connect(conv_tree, SIGNAL(titleChanged(QWidget*,QString)),
             this, SLOT(setTabText(QWidget*,QString)));
-    connect(conv_tree, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(conv_tree, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     connect(nameResolutionCheckBox(), SIGNAL(toggled(bool)),
             conv_tree, SLOT(setNameResolutionEnabled(bool)));
+    connect(absoluteTimeCheckBox(), SIGNAL(toggled(bool)),
+            conv_tree, SLOT(updateStartTime(bool)));
+
 
     // XXX Move to ConversationTreeWidget ctor?
     QByteArray filter_utf8;
@@ -181,17 +188,6 @@ bool ConversationDialog::addTrafficTable(register_ct_t* table)
     return true;
 }
 
-conv_item_t *ConversationDialog::currentConversation()
-{
-    ConversationTreeWidget *cur_tree = qobject_cast<ConversationTreeWidget *>(trafficTableTabWidget()->currentWidget());
-
-    if (!cur_tree || cur_tree->selectedItems().count() < 1) {
-        return NULL;
-    }
-
-    return cur_tree->selectedItems()[0]->data(0, Qt::UserRole).value<conv_item_t *>();
-}
-
 void ConversationDialog::followStream()
 {
     if (file_closed_) {
@@ -203,26 +199,20 @@ void ConversationDialog::followStream()
         return;
     }
 
-    QString filter;
-    follow_type_t ftype = FOLLOW_TCP;
-    switch (conv_item->ptype) {
-    case PT_TCP:
-        filter = QString("tcp.stream eq %1").arg(conv_item->conv_id);
+    follow_type_t ftype;
+    switch (conv_item->etype) {
+    case ENDPOINT_TCP:
+        ftype = FOLLOW_TCP;
         break;
-    case PT_UDP:
-        filter = QString("udp.stream eq %1").arg(conv_item->conv_id);
+    case ENDPOINT_UDP:
         ftype = FOLLOW_UDP;
         break;
     default:
-        break;
-    }
-
-    if (filter.length() < 1) {
         return;
     }
 
-    emit filterAction(filter, FilterAction::ActionApply, FilterAction::ActionTypePlain);
-    emit openFollowStreamDialog(ftype);
+    // Will set the display filter too.
+    emit openFollowStreamDialog(ftype, (int)conv_item->conv_id);
 }
 
 void ConversationDialog::graphTcp()
@@ -239,7 +229,7 @@ void ConversationDialog::graphTcp()
     // XXX The GTK+ code opens the TCP Stream dialog. We might want
     // to open the IO Graph dialog instead.
     QString filter;
-    if (conv_item->ptype == PT_TCP) {
+    if (conv_item->etype == ENDPOINT_TCP) {
         filter = QString("tcp.stream eq %1").arg(conv_item->conv_id);
     } else {
         return;
@@ -251,33 +241,35 @@ void ConversationDialog::graphTcp()
     openTcpStreamGraph(GRAPH_TSEQ_TCPTRACE);
 }
 
-void ConversationDialog::itemSelectionChanged()
+void ConversationDialog::currentTabChanged()
 {
     bool copy_enable = trafficTableTabWidget()->currentWidget() ? true : false;
+
+    copy_bt_->setEnabled(copy_enable);
+
+    conversationSelectionChanged();
+    TrafficTableDialog::currentTabChanged();
+}
+
+void ConversationDialog::conversationSelectionChanged()
+{
     bool follow_enable = false, graph_enable = false;
     conv_item_t *conv_item = currentConversation();
 
     if (!file_closed_ && conv_item) {
-        switch (conv_item->ptype) {
-        case PT_TCP:
+        switch (conv_item->etype) {
+        case ENDPOINT_TCP:
             graph_enable = true;
             // Fall through
-        case PT_UDP:
+        case ENDPOINT_UDP:
             follow_enable = true;
             break;
         default:
             break;
         }
     }
-
-    copy_bt_->setEnabled(copy_enable);
     follow_bt_->setEnabled(follow_enable);
     graph_bt_->setEnabled(graph_enable);
-}
-
-void ConversationDialog::on_nameResolutionCheckBox_toggled(bool)
-{
-    updateWidgets();
 }
 
 void ConversationDialog::on_displayFilterCheckBox_toggled(bool checked)
@@ -318,80 +310,130 @@ void init_conversation_table(struct register_ct* ct, const char *filter)
 
 // Minimum bandwidth calculation duration
 // https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=8703
-const double min_bw_calc_duration_ = 5 / 1000.0; // seconds
-const QString bps_na_ = QObject::tr("N/A");
+static const double min_bw_calc_duration_ = 5 / 1000.0; // seconds
+static const char *bps_na_ = UTF8_EM_DASH;
 
-const int ci_col_ = 0;
-const int pkts_col_ = 1;
 class ConversationTreeWidgetItem : public TrafficTableTreeWidgetItem
 {
 public:
-    ConversationTreeWidgetItem(QTreeWidget *tree) : TrafficTableTreeWidgetItem(tree)  {}
-    ConversationTreeWidgetItem(QTreeWidget *parent, const QStringList &strings)
-                   : TrafficTableTreeWidgetItem (parent, strings)  {}
-
-    // Set column text to its cooked representation.
-    void update(gboolean resolve_names) {
-        conv_item_t *conv_item = data(ci_col_, Qt::UserRole).value<conv_item_t *>();
-        bool ok;
-        quint64 cur_packets = data(pkts_col_, Qt::UserRole).toULongLong(&ok);
-        char *src_addr, *dst_addr, *src_port, *dst_port;
-
-        if (!conv_item) {
-            return;
-        }
-
-        quint64 packets = conv_item->tx_frames + conv_item->rx_frames;
-        if (ok && cur_packets == packets) {
-            return;
-        }
-
-        src_addr = get_conversation_address(NULL, &conv_item->src_address, resolve_names);
-        dst_addr = get_conversation_address(NULL, &conv_item->dst_address, resolve_names);
-        src_port = get_conversation_port(NULL, conv_item->src_port, conv_item->ptype, resolve_names);
-        dst_port = get_conversation_port(NULL, conv_item->dst_port, conv_item->ptype, resolve_names);
-        setText(CONV_COLUMN_SRC_ADDR, src_addr);
-        setText(CONV_COLUMN_SRC_PORT, src_port);
-        setText(CONV_COLUMN_DST_ADDR, dst_addr);
-        setText(CONV_COLUMN_DST_PORT, dst_port);
-        wmem_free(NULL, src_addr);
-        wmem_free(NULL, dst_addr);
-        wmem_free(NULL, src_port);
-        wmem_free(NULL, dst_port);
-
-        double duration = nstime_to_sec(&conv_item->stop_time) - nstime_to_sec(&conv_item->start_time);
-        QString col_str, bps_ab = bps_na_, bps_ba = bps_na_;
-
-        col_str = QString("%L1").arg(packets);
-        setText(CONV_COLUMN_PACKETS, col_str);
-        col_str = gchar_free_to_qstring(format_size(conv_item->tx_bytes + conv_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
-        setText(CONV_COLUMN_BYTES, col_str);
-        col_str = QString("%L1").arg(conv_item->tx_frames);
-        setText(CONV_COLUMN_PKT_AB, QString::number(conv_item->tx_frames));
-        col_str = gchar_free_to_qstring(format_size(conv_item->tx_bytes, format_size_unit_none|format_size_prefix_si));
-        setText(CONV_COLUMN_BYTES_AB, col_str);
-        col_str = QString("%L1").arg(conv_item->rx_frames);
-        setText(CONV_COLUMN_PKT_BA, QString::number(conv_item->rx_frames));
-        col_str = gchar_free_to_qstring(format_size(conv_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
-        setText(CONV_COLUMN_BYTES_BA, col_str);
-        setText(CONV_COLUMN_START, QString::number(nstime_to_sec(&conv_item->start_time), 'f', 9));
-        setText(CONV_COLUMN_DURATION, QString::number(duration, 'f', 6));
-        if (duration > min_bw_calc_duration_) {
-            bps_ab = gchar_free_to_qstring(format_size((gint64) conv_item->tx_bytes * 8 / duration, format_size_unit_none|format_size_prefix_si));
-            bps_ba = gchar_free_to_qstring(format_size((gint64) conv_item->rx_bytes * 8 / duration, format_size_unit_none|format_size_prefix_si));
-        }
-        setText(CONV_COLUMN_BPS_AB, bps_ab);
-        setText(CONV_COLUMN_BPS_BA, bps_ba);
-        setData(pkts_col_, Qt::UserRole, qVariantFromValue(packets));
+    ConversationTreeWidgetItem(GArray *conv_array, guint conv_idx, bool *resolve_names_ptr) :
+        TrafficTableTreeWidgetItem(NULL),
+        conv_array_(conv_array),
+        conv_idx_(conv_idx),
+        resolve_names_ptr_(resolve_names_ptr)
+    {
+        QString timeline_tt = QObject::tr("Bars show the relative timeline for each conversation.");
+        setToolTip(CONV_COLUMN_START, timeline_tt);
+        setToolTip(CONV_COLUMN_DURATION, timeline_tt);
     }
 
+    conv_item_t *convItem() {
+        return &g_array_index(conv_array_, conv_item_t, conv_idx_);
+    }
+
+    virtual QVariant data(int column, int role) const {
+        switch (role) {
+        case Qt::DisplayRole:
+        {
+            // Column text cooked representation.
+            conv_item_t *conv_item = &g_array_index(conv_array_, conv_item_t, conv_idx_);
+
+            bool resolve_names = false;
+            if (resolve_names_ptr_ && *resolve_names_ptr_) resolve_names = true;
+            double duration = nstime_to_sec(&conv_item->stop_time) - nstime_to_sec(&conv_item->start_time);
+            QString bps_ab = bps_na_, bps_ba = bps_na_;
+
+            switch (column) {
+            case CONV_COLUMN_PACKETS:
+                return QString("%L1").arg(conv_item->tx_frames + conv_item->rx_frames);
+            case CONV_COLUMN_BYTES:
+                return gchar_free_to_qstring(format_size(conv_item->tx_bytes + conv_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
+            case CONV_COLUMN_PKT_AB:
+                return QString("%L1").arg(conv_item->tx_frames);
+            case CONV_COLUMN_BYTES_AB:
+                return gchar_free_to_qstring(format_size(conv_item->tx_bytes, format_size_unit_none|format_size_prefix_si));
+            case CONV_COLUMN_PKT_BA:
+                return QString("%L1").arg(conv_item->rx_frames);
+            case CONV_COLUMN_BYTES_BA:
+                return gchar_free_to_qstring(format_size(conv_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
+            case CONV_COLUMN_START:
+            {
+                bool use_ns = treeWidget()->window()->property("nanosecond_precision").toBool();
+                int width = use_ns ? 9 : 6;
+
+                if (treeWidget()->window()->property("absolute_start_time").toBool()) {
+                    nstime_t *abs_time = &conv_item->start_abs_time;
+                    QDateTime abs_dt = QDateTime::fromMSecsSinceEpoch(nstime_to_msec(abs_time));
+                    return QString("%1.%2")
+                            // Mimic column-utils:set_abs_time as best we can
+                            .arg(abs_dt.toString("hh:mm:ss"))
+                            .arg(use_ns ? abs_time->nsecs : abs_time->nsecs / 1000, width, 10, QChar('0'));
+                }
+
+                return QString::number(nstime_to_sec(&conv_item->start_time), 'f', width);
+            }
+            case CONV_COLUMN_DURATION:
+            {
+                // The GTK+ UI uses 9 digit precision for the start time and 4 for the duration.
+                // Do the same here and above for non-nanosecond precision and add a couple
+                // of digits for nanosecond precision.
+                bool use_ns = treeWidget()->window()->property("nanosecond_precision").toBool();
+                int width = use_ns ? 6 : 4;
+
+                return QString::number(duration, 'f', width);
+            }
+            case CONV_COLUMN_BPS_AB:
+                if (duration > min_bw_calc_duration_) {
+                    bps_ab = gchar_free_to_qstring(format_size((gint64) conv_item->tx_bytes * 8 / duration, format_size_unit_none|format_size_prefix_si));
+                }
+                return bps_ab;
+            case CONV_COLUMN_BPS_BA:
+                if (duration > min_bw_calc_duration_) {
+                    bps_ba = gchar_free_to_qstring(format_size((gint64) conv_item->rx_bytes * 8 / duration, format_size_unit_none|format_size_prefix_si));
+                }
+                return bps_ba;
+            default:
+                return colData(column, resolve_names).toString();
+            }
+            break;
+        }
+        case Qt::UserRole:
+        {
+            if (column != CONV_COLUMN_START && column != CONV_COLUMN_DURATION) break;
+
+            ConversationTreeWidget *ctw = qobject_cast<ConversationTreeWidget *>(treeWidget());
+            if (!ctw) break;
+
+            conv_item_t *conv_item = &g_array_index(conv_array_, conv_item_t, conv_idx_);
+            double start_time = nstime_to_sec(&conv_item->start_time);
+            double stop_time = nstime_to_sec(&conv_item->stop_time);
+
+            double span_s = ctw->maxRelStopTime() - ctw->minRelStartTime();
+            if (span_s <= 0) break;
+            int start_px = ctw->columnWidth(CONV_COLUMN_START);
+            int column_px = start_px + ctw->columnWidth(CONV_COLUMN_DURATION);
+
+            struct timeline_span span_px;
+            span_px.start = ((start_time - ctw->minRelStartTime()) * column_px) / span_s;
+            span_px.width = ((stop_time - start_time) * column_px) / span_s;
+
+            if (column == CONV_COLUMN_DURATION) {
+                span_px.start -= start_px;
+            }
+            return QVariant::fromValue(span_px);
+
+            break;
+        }
+        default:
+            break;
+        }
+        return QTreeWidgetItem::data(column, role);
+    }
+
+    // Column text raw representation.
     // Return a QString, qulonglong, double, or invalid QVariant representing the raw column data.
     QVariant colData(int col, bool resolve_names) const {
-        conv_item_t *conv_item = data(ci_col_, Qt::UserRole).value<conv_item_t *>();
-
-        if (!conv_item) {
-            return QVariant();
-        }
+        conv_item_t *conv_item = &g_array_index(conv_array_, conv_item_t, conv_idx_);
 
         double duration = nstime_to_sec(&conv_item->stop_time) - nstime_to_sec(&conv_item->start_time);
         double bps_ab = 0, bps_ba = 0;
@@ -410,7 +452,7 @@ public:
             }
         case CONV_COLUMN_SRC_PORT:
             if (resolve_names) {
-                char* port_str = get_conversation_port(NULL, conv_item->src_port, conv_item->ptype, resolve_names);
+                char* port_str = get_conversation_port(NULL, conv_item->src_port, conv_item->etype, resolve_names);
                 QString q_port_str(port_str);
                 wmem_free(NULL, port_str);
                 return q_port_str;
@@ -426,7 +468,7 @@ public:
             }
         case CONV_COLUMN_DST_PORT:
             if (resolve_names) {
-                char* port_str = get_conversation_port(NULL, conv_item->dst_port, conv_item->ptype, resolve_names);
+                char* port_str = get_conversation_port(NULL, conv_item->dst_port, conv_item->etype, resolve_names);
                 QString q_port_str(port_str);
                 wmem_free(NULL, port_str);
                 return q_port_str;
@@ -460,12 +502,9 @@ public:
 
     bool operator< (const QTreeWidgetItem &other) const
     {
-        conv_item_t *conv_item = data(ci_col_, Qt::UserRole).value<conv_item_t *>();
-        conv_item_t *other_item = other.data(ci_col_, Qt::UserRole).value<conv_item_t *>();
-
-        if (!conv_item || !other_item) {
-            return false;
-        }
+        const ConversationTreeWidgetItem *other_row = static_cast<const ConversationTreeWidgetItem *>(&other);
+        conv_item_t *conv_item = &g_array_index(conv_array_, conv_item_t, conv_idx_);
+        conv_item_t *other_item = &g_array_index(other_row->conv_array_, conv_item_t, other_row->conv_idx_);
 
         int sort_col = treeWidget()->sortColumn();
         double conv_duration = nstime_to_sec(&conv_item->stop_time) - nstime_to_sec(&conv_item->start_time);
@@ -504,15 +543,34 @@ public:
             return false;
         }
     }
+private:
+    GArray *conv_array_;
+    guint conv_idx_;
+    bool *resolve_names_ptr_;
 };
+
+conv_item_t *ConversationDialog::currentConversation()
+{
+    ConversationTreeWidget *cur_tree = qobject_cast<ConversationTreeWidget *>(trafficTableTabWidget()->currentWidget());
+
+    if (!cur_tree || cur_tree->selectedItems().count() < 1) {
+        return NULL;
+    }
+
+    ConversationTreeWidgetItem *ctwi = dynamic_cast<ConversationTreeWidgetItem *>(cur_tree->selectedItems()[0]);
+    return (ctwi ? ctwi->convItem() : NULL);
+}
 
 // ConversationTreeWidget
 // TrafficTableTreeWidget / QTreeWidget subclass that allows tapping
 
 ConversationTreeWidget::ConversationTreeWidget(QWidget *parent, register_ct_t* table) :
-    TrafficTableTreeWidget(parent, table)
+    TrafficTableTreeWidget(parent, table),
+    min_rel_start_time_(0),
+    max_rel_stop_time_(0)
 {
     setColumnCount(CONV_NUM_COLUMNS);
+    setUniformRowHeights(true);
 
     for (int i = 0; i < CONV_NUM_COLUMNS; i++) {
         headerItem()->setText(i, conv_column_titles[i]);
@@ -615,20 +673,35 @@ ConversationTreeWidget::~ConversationTreeWidget() {
 void ConversationTreeWidget::tapReset(void *conv_hash_ptr)
 {
     conv_hash_t *hash = (conv_hash_t*)conv_hash_ptr;
-    ConversationTreeWidget *conv_tree = static_cast<ConversationTreeWidget *>(hash->user_data);
+    ConversationTreeWidget *conv_tree = qobject_cast<ConversationTreeWidget *>((ConversationTreeWidget *)hash->user_data);
     if (!conv_tree) return;
 
     conv_tree->clear();
     reset_conversation_table_data(&conv_tree->hash_);
+    conv_tree->min_rel_start_time_ = 0;
+    conv_tree->max_rel_stop_time_ = 0;
 }
 
 void ConversationTreeWidget::tapDraw(void *conv_hash_ptr)
 {
     conv_hash_t *hash = (conv_hash_t*)conv_hash_ptr;
-    ConversationTreeWidget *conv_tree = static_cast<ConversationTreeWidget *>(hash->user_data);
+    ConversationTreeWidget *conv_tree = qobject_cast<ConversationTreeWidget *>((ConversationTreeWidget *)hash->user_data);
     if (!conv_tree) return;
 
     conv_tree->updateItems();
+}
+
+void ConversationTreeWidget::updateStartTime(bool absolute)
+{
+    headerItem()->setText(CONV_COLUMN_START, absolute
+                          ? conv_abs_start_title
+                          : conv_column_titles[CONV_COLUMN_START]);
+
+    dataChanged(QModelIndex(), QModelIndex());
+
+    if (topLevelItemCount() > 0) {
+        resizeColumnToContents(CONV_COLUMN_START);
+    }
 }
 
 QMap<FilterAction::ActionDirection, conv_direction_e> fad_to_cd_;
@@ -651,6 +724,7 @@ void ConversationTreeWidget::initDirectionMap()
 }
 
 void ConversationTreeWidget::updateItems() {
+    bool resize = topLevelItemCount() < resizeThreshold();
     title_ = proto_get_protocol_short_name(find_protocol_by_id(get_conversation_proto_id(table_)));
 
     if (hash_.conv_array && hash_.conv_array->len > 0) {
@@ -663,11 +737,16 @@ void ConversationTreeWidget::updateItems() {
     }
 
     setSortingEnabled(false);
+
+    QList<QTreeWidgetItem *>new_items;
     for (int i = topLevelItemCount(); i < (int) hash_.conv_array->len; i++) {
-        ConversationTreeWidgetItem *ctwi = new ConversationTreeWidgetItem(this);
-        conv_item_t *conv_item = &g_array_index(hash_.conv_array, conv_item_t, i);
-        ctwi->setData(ci_col_, Qt::UserRole, qVariantFromValue(conv_item));
-        addTopLevelItem(ctwi);
+        ConversationTreeWidgetItem *ctwi = new ConversationTreeWidgetItem(hash_.conv_array, i, &resolve_names_);
+        new_items << ctwi;
+
+        if (i == 0) {
+            min_rel_start_time_ = nstime_to_sec(&(ctwi->convItem()->start_time));
+            max_rel_stop_time_ = nstime_to_sec(&(ctwi->convItem()->stop_time));
+        }
 
         for (int col = 0; col < columnCount(); col++) {
             switch (col) {
@@ -680,16 +759,30 @@ void ConversationTreeWidget::updateItems() {
             }
         }
     }
-    QTreeWidgetItemIterator iter(this);
-    while (*iter) {
-        ConversationTreeWidgetItem *ci = static_cast<ConversationTreeWidgetItem *>(*iter);
-        ci->update(resolve_names_);
-        ++iter;
+    addTopLevelItems(new_items);
+
+    for (int i = 0; i < topLevelItemCount(); i++) {
+        ConversationTreeWidgetItem *ctwi = dynamic_cast<ConversationTreeWidgetItem *>(topLevelItem(i));
+
+        if (ctwi) {
+            double item_rel_start = nstime_to_sec(&(ctwi->convItem()->start_time));
+            if (item_rel_start < min_rel_start_time_) {
+                min_rel_start_time_ = item_rel_start;
+            }
+
+            double item_rel_stop = nstime_to_sec(&(ctwi->convItem()->stop_time));
+            if (item_rel_stop > max_rel_stop_time_) {
+                max_rel_stop_time_ = item_rel_stop;
+            }
+        }
     }
+
     setSortingEnabled(true);
 
-    for (int col = 0; col < columnCount(); col++) {
-        resizeColumnToContents(col);
+    if (resize) {
+        for (int col = 0; col < columnCount(); col++) {
+            resizeColumnToContents(col);
+        }
     }
 }
 
@@ -702,7 +795,7 @@ void ConversationTreeWidget::filterActionTriggered()
         return;
     }
 
-    conv_item_t *conv_item = ctwi->data(ci_col_, Qt::UserRole).value<conv_item_t *>();
+    conv_item_t *conv_item = ctwi->convItem();
     if (!conv_item) {
         return;
     }

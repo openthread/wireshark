@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef BYTE_VIEW_TAB_H
@@ -28,52 +16,58 @@
 #include <epan/proto.h>
 #include <epan/tvbuff.h>
 
+#include <ui/qt/utils/field_information.h>
+
 #include "cfile.h"
 
 #include <QTabWidget>
 
-class QTreeWidget;
-class QTreeWidgetItem;
+
+#include <ui/qt/widgets/byte_view_text.h>
 
 class ByteViewTab : public QTabWidget
 {
     Q_OBJECT
-public:
-    enum copyDataType {
-        copyDataHexTextDump,
-        copyDataHexDump,
-        copyDataPrintableText,
-        copyDataHexStream,
-        copyDataBinary
-    };
 
-    explicit ByteViewTab(QWidget *parent = 0);
-    void addTab(const char *name = "", tvbuff_t *tvb = NULL, proto_tree *tree = NULL, QTreeWidget *protoTree = NULL, packet_char_enc encoding = PACKET_CHAR_ENC_CHAR_ASCII);
-    void clear();
-    void copyData(copyDataType copy_type, field_info *fi = NULL);
+public:
+    explicit ByteViewTab(QWidget *parent = 0, epan_dissect_t *edt_fixed = 0);
+
+public slots:
+    /* Set the capture file */
+    void setCaptureFile(capture_file *cf);
+    /* Creates the tabs and data, depends on an dissection which has already run */
+    void selectedFrameChanged(int);
+    /* Selects or marks a field */
+    void selectedFieldChanged(FieldInformation *);
+    /* Highlights field */
+    void highlightedFieldChanged(FieldInformation *);
+
+signals:
+    void fieldSelected(FieldInformation *);
+    void fieldHighlight(FieldInformation *);
 
 private:
     capture_file *cap_file_;
-    QFont mono_font_;
+    bool is_fixed_packet_;  /* true if this byte view is related to a single
+                               packet in the packet dialog and false if the
+                               packet dissection context can change. */
+    epan_dissect_t *edt_;   /* Packet dissection result for the currently selected packet. */
 
     void setTabsVisible();
-    void copyHexTextDump(const guint8 *data_p, int data_len, bool append_text);
-    void copyPrintableText(const guint8 *data_p, int data_len);
-    void copyHexStream(const guint8 *data_p, int data_len);
-    void copyBinary(const guint8 *data_p, int data_len);
+    ByteViewText * findByteViewTextForTvb(tvbuff_t * search, int * idx = 0);
+    void addTab(const char *name = "", tvbuff_t *tvb = NULL);
 
 protected:
-    void tabInserted(int index);
-    void tabRemoved(int index);
+    void tabInserted(int);
+    void tabRemoved(int);
 
-signals:
-    void monospaceFontChanged(const QFont &mono_font);
-    void byteFieldHovered(const QString &);
+private slots:
+    void byteViewTextHovered(int);
+    void byteViewTextMarked(int);
 
-public slots:
-    void protoTreeItemChanged(QTreeWidgetItem *current);
-    void setCaptureFile(capture_file *cf);
-    void setMonospaceFont(const QFont &mono_font);
+    void connectToMainWindow();
+
+    void captureActive(int);
 };
 
 #endif // BYTE_VIEW_TAB_H

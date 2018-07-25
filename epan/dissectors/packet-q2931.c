@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -35,7 +23,7 @@
 /*
  * See
  *
- *	http://www.protocols.com/pbook/atmsig.htm
+ *	http://web.archive.org/web/20150408122122/http://www.protocols.com/pbook/atmsig.htm
  *
  * for some information on Q.2931, although, alas, not the actual message
  * type and information element values - those I got from the FreeBSD 3.2
@@ -636,6 +624,8 @@ static const value_string q2931_atm_td_subfield_vals[] = {
 	{ 0x0,				NULL }
 };
 
+static const unit_name_string units_cells_s = { " cell/s", " cells/s" };
+
 static void
 dissect_q2931_atm_cell_rate_ie(tvbuff_t *tvb, packet_info* pinfo, int offset, int len,
 			       proto_tree *tree)
@@ -664,9 +654,9 @@ dissect_q2931_atm_cell_rate_ie(tvbuff_t *tvb, packet_info* pinfo, int offset, in
 		case Q2931_ATM_CR_BW_MAXB_CLP_0_1:
 			if (len < 4)
 				return;
+
 			value = tvb_get_ntoh24(tvb, offset + 1);
-			proto_tree_add_uint_format_value(tree, hf_q2931_atm_identifier_value, tvb, offset+3, 3, value,
-			    "%u cell%s/s", value, plurality(value, "", "s"));
+			proto_tree_add_uint(tree, hf_q2931_atm_identifier_value, tvb, offset+3, 3, value);
 			offset += 4;
 			len -= 4;
 			break;
@@ -950,8 +940,7 @@ l2_done:
 			break;
 
 		case Q2931_UIL3_USER_SPEC:
-			proto_tree_add_uint_format_value(tree, hf_q2931_bband_low_layer_info_default_packet_size, tvb, offset, 1,
-			    1 << (octet & 0x0F), "%u octets", 1 << (octet & 0x0F));
+			proto_tree_add_uint(tree, hf_q2931_bband_low_layer_info_default_packet_size, tvb, offset, 1, 1 << (octet & 0x0F));
 			/*offset += 1;*/
 			/*len -= 1;*/
 			break;
@@ -1480,8 +1469,7 @@ dissect_q2931_e2e_transit_delay_ie(tvbuff_t *tvb, packet_info* pinfo, int offset
 		switch (identifier) {
 
 		case 0x01:	/* Cumulative transit delay identifier */
-			proto_tree_add_uint_format_value(tree, hf_q2931_e2e_transit_delay_cumulative, tvb, offset, 2,
-			    value, "%u ms", value);
+			proto_tree_add_uint(tree, hf_q2931_e2e_transit_delay_cumulative, tvb, offset, 2, value);
 			break;
 
 		case 0x03:	/* Maximum transit delay identifier */
@@ -1870,9 +1858,9 @@ static int
 dissect_q2931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	int	    offset     = 0;
-	proto_tree *q2931_tree = NULL;
+	proto_tree *q2931_tree;
 	proto_item *ti;
-	guint8	    call_ref_len;
+	guint32	    call_ref_len;
 	guint8	    call_ref[16];
 	guint8	    message_type;
 	guint8	    message_type_ext;
@@ -1896,17 +1884,13 @@ dissect_q2931(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "Q.2931");
 
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_q2931, tvb, offset, -1,
-		    ENC_NA);
-		q2931_tree = proto_item_add_subtree(ti, ett_q2931);
+	ti = proto_tree_add_item(tree, proto_q2931, tvb, offset, -1, ENC_NA);
+	q2931_tree = proto_item_add_subtree(ti, ett_q2931);
 
-		proto_tree_add_uint(q2931_tree, hf_q2931_discriminator, tvb, offset, 1, tvb_get_guint8(tvb, offset));
-	}
+	proto_tree_add_item(q2931_tree, hf_q2931_discriminator, tvb, offset, 1, ENC_NA);
 	offset += 1;
-	call_ref_len = tvb_get_guint8(tvb, offset) & 0xF;	/* XXX - do as a bit field? */
-	if (q2931_tree != NULL)
-		proto_tree_add_uint(q2931_tree, hf_q2931_call_ref_len, tvb, offset, 1, call_ref_len);
+
+	proto_tree_add_item_ret_uint(q2931_tree, hf_q2931_call_ref_len, tvb, offset, 1, ENC_NA, &call_ref_len);
 	offset += 1;
 	if (call_ref_len != 0) {
 		tvb_memcpy(tvb, call_ref, offset, call_ref_len);
@@ -1992,7 +1976,7 @@ proto_register_q2931(void)
 
 		{ &hf_q2931_call_ref_len,
 		  { "Call reference value length", "q2931.call_ref_len",
-		    FT_UINT8, BASE_DEC, NULL, 0x0,
+		    FT_UINT8, BASE_DEC, NULL, 0x0F,
 		    NULL, HFILL }
 		},
 
@@ -2099,7 +2083,7 @@ proto_register_q2931(void)
 		},
 		{ &hf_q2931_aal1_partially_filled_cells_method,
 		  { "Partially filled cells method", "q2931.aal1.partially_filled_cells_method",
-		    FT_UINT8, BASE_DEC, NULL, 0x0,
+		    FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_octet_octets, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_q2931_aal1_forward_max_cpcs_sdu_size,
@@ -2179,7 +2163,7 @@ proto_register_q2931(void)
 		},
 		{ &hf_q2931_bband_low_layer_info_default_packet_size,
 		  { "Default packet size", "q2931.bband_low_layer_info.default_packet_size",
-		    FT_UINT8, BASE_DEC, NULL, 0x0F,
+		    FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_octet_octets, 0x0F,
 		    NULL, HFILL }
 		},
 		{ &hf_q2931_bband_low_layer_info_packet_window_size,
@@ -2194,7 +2178,7 @@ proto_register_q2931(void)
 		},
 		{ &hf_q2931_organization_code,
 		  { "Organization Code", "q2931.bband_low_layer_info.organization_code",
-		    FT_UINT24, BASE_HEX, VALS(oui_vals), 0x0,
+		    FT_UINT24, BASE_OUI, NULL, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_q2931_ethernet_type,
@@ -2354,7 +2338,7 @@ proto_register_q2931(void)
 		},
 		{ &hf_q2931_e2e_transit_delay_cumulative,
 		  { "Cumulative transit delay", "q2931.e2e_transit_delay.cumulative",
-		    FT_UINT16, BASE_DEC, NULL, 0x0,
+		    FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_q2931_e2e_transit_delay_maximum_end_to_end,
@@ -2509,7 +2493,7 @@ proto_register_q2931(void)
 		},
 		{ &hf_q2931_atm_identifier_value,
 		  { "Value", "q2931.atm_identifier_value",
-		    FT_UINT24, BASE_DEC, NULL, 0x0,
+		    FT_UINT24, BASE_DEC|BASE_UNIT_STRING, &units_cells_s, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_q2931_aal_parameter_identifier,

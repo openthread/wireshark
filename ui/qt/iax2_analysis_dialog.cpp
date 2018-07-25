@@ -4,23 +4,11 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "iax2_analysis_dialog.h"
-#include "ui_iax2_analysis_dialog.h"
+#include <ui_iax2_analysis_dialog.h>
 
 #include "file.h"
 #include "frame_tvbuff.h"
@@ -41,15 +29,15 @@
 #include <wsutil/g711.h>
 #include <wsutil/pint.h>
 
-#include <QFileDialog>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTemporaryFile>
 
-#include "color_utils.h"
-#include "qt_ui_utils.h"
-#include "stock_icon.h"
+#include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/utils/stock_icon.h>
 #include "wireshark_application.h"
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 
 /*
  * @file RTP stream analysis dialog
@@ -206,10 +194,7 @@ enum {
 Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     WiresharkDialog(parent, cf),
     ui(new Ui::Iax2AnalysisDialog),
-    port_src_fwd_(0),
-    port_dst_fwd_(0),
-    port_src_rev_(0),
-    port_dst_rev_(0)
+    save_payload_error_(TAP_IAX2_NO_ERROR)
 {
     ui->setupUi(this);
     loadGeometry(parent.width() * 4 / 5, parent.height() * 4 / 5);
@@ -248,10 +233,8 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     }
     ui->reverseTreeWidget->setHeaderLabels(header_labels);
 
-    memset(&src_fwd_, 0, sizeof(address));
-    memset(&dst_fwd_, 0, sizeof(address));
-    memset(&src_rev_, 0, sizeof(address));
-    memset(&dst_rev_, 0, sizeof(address));
+    memset(&fwd_id_, 0, sizeof(fwd_id_));
+    memset(&rev_id_, 0, sizeof(rev_id_));
 
     QList<QCheckBox *> graph_cbs = QList<QCheckBox *>()
             << ui->fJitterCheckBox << ui->fDiffCheckBox
@@ -296,6 +279,11 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     save_menu->addAction(ui->actionSaveGraph);
     ui->buttonBox->button(QDialogButtonBox::Save)->setMenu(save_menu);
 
+    ui->buttonBox->button(QDialogButtonBox::Close)->setDefault(true);
+
+    resetStatistics();
+    updateStatistics(); // Initialize stats if an error occurs
+
 #if 0
     /* Only accept Voice or MiniPacket packets */
     const gchar filter_text[] = "iax2.call && (ip || ipv6)";
@@ -313,7 +301,12 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
         return;
     }
 
-    if (!cap_file_.capFile() || !cap_file_.capFile()->current_frame) close();
+    if (!cap_file_.capFile() || !cap_file_.capFile()->current_frame) {
+        err_str_ = tr("Please select an IAX2 packet.");
+        save_payload_error_ = TAP_IAX2_NO_PACKET_SELECTED;
+        updateWidgets();
+        return;
+    }
 
     frame_data *fdata = cap_file_.capFile()->current_frame;
 
@@ -322,15 +315,17 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     epan_dissect_t edt;
 
     epan_dissect_init(&edt, cap_file_.capFile()->epan, TRUE, FALSE);
-    epan_dissect_prime_dfilter(&edt, sfcode);
-    epan_dissect_run(&edt, cap_file_.capFile()->cd_t, &cap_file_.capFile()->phdr,
-                     frame_tvbuff_new_buffer(fdata, &cap_file_.capFile()->buf), fdata, NULL);
+    epan_dissect_prime_with_dfilter(&edt, sfcode);
+    epan_dissect_run(&edt, cap_file_.capFile()->cd_t, &cap_file_.capFile()->rec,
+                     frame_tvbuff_new_buffer(&cap_file_.capFile()->provider, fdata, &cap_file_.capFile()->buf),
+                     fdata, NULL);
 
     // This shouldn't happen (the menu item should be disabled) but check anyway
     if (!dfilter_apply_edt(sfcode, &edt)) {
         epan_dissect_cleanup(&edt);
         dfilter_free(sfcode);
-        err_str_ = tr("Please select an IAX2 packet");
+        err_str_ = tr("Please select an IAX2 packet.");
+        save_payload_error_ = TAP_IAX2_NO_PACKET_SELECTED;
         updateWidgets();
         return;
     }
@@ -338,52 +333,47 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
     dfilter_free(sfcode);
 
     /* ok, it is a IAX2 frame, so let's get the ip and port values */
-    copy_address(&(src_fwd_), &(edt.pi.src));
-    copy_address(&(dst_fwd_), &(edt.pi.dst));
-    port_src_fwd_ = edt.pi.srcport;
-    port_dst_fwd_ = edt.pi.destport;
+    rtpstream_id_copy_pinfo(&(edt.pi),&(fwd_id_),FALSE);
 
     /* assume the inverse ip/port combination for the reverse direction */
-    copy_address(&(src_rev_), &(edt.pi.dst));
-    copy_address(&(dst_rev_), &(edt.pi.src));
-    port_src_rev_ = edt.pi.destport;
-    port_dst_rev_ = edt.pi.srcport;
+    rtpstream_id_copy_pinfo(&(edt.pi),&(rev_id_),TRUE);
 
 #ifdef IAX2_RTP_STREAM_CHECK
-    rtpstream_tapinfot tapinfo;
+    rtpstream_tapinfo_t tapinfo;
 
     /* Register the tap listener */
-    memset(&tapinfo, 0, sizeof(rtpstream_tapinfot));
+    rtpstream_info_init(&tapinfo);
+
     tapinfo.tap_data = this;
     tapinfo.mode = TAP_ANALYSE;
 
-//    register_tap_listener_rtp_stream(&tapinfo, NULL);
+//    register_tap_listener_rtpstream(&tapinfo, NULL);
     /* Scan for RTP streams (redissect all packets) */
     rtpstream_scan(&tapinfo, cap_file_.capFile(), NULL);
 
     int num_streams = 0;
-    GList *filtered_list = NULL;
+    // TODO: Not used
+    //GList *filtered_list = NULL;
     for (GList *strinfo_list = g_list_first(tapinfo.strinfo_list); strinfo_list; strinfo_list = g_list_next(strinfo_list)) {
-        rtp_stream_info_t * strinfo = (rtp_stream_info_t*)(strinfo_list->data);
-                 << address_to_qstring(&strinfo->dest_addr) << address_to_qstring(&src_rev_) << address_to_qstring(&dst_rev_);
-        if (addresses_equal(&(strinfo->src_addr), &(src_fwd_))
-            && (strinfo->src_port == port_src_fwd_)
-            && (addresses_equal(&(strinfo->dest_addr), &(dst_fwd_)))
-            && (strinfo->dest_port == port_dst_fwd_))
+        rtpstream_info_t * strinfo = (rtpstream_info_t*)(strinfo_list->data);
+        if (rtpstream_id_equal(&(strinfo->id), &(fwd_id_),RTPSTREAM_ID_EQUAL_NONE))
         {
             ++num_streams;
-            filtered_list = g_list_prepend(filtered_list, strinfo);
+            // TODO: Not used
+            //filtered_list = g_list_prepend(filtered_list, strinfo);
         }
 
-        if (addresses_equal(&(strinfo->src_addr), &(src_rev_))
-            && (strinfo->src_port == port_src_rev_)
-            && (addresses_equal(&(strinfo->dest_addr), &(dst_rev_)))
-            && (strinfo->dest_port == port_dst_rev_))
+        if (rtpstream_id_equal(&(strinfo->id), &(rev_id_),RTPSTREAM_ID_EQUAL_NONE))
         {
             ++num_streams;
-            filtered_list = g_list_append(filtered_list, strinfo);
+            // TODO: Not used
+            //filtered_list = g_list_append(filtered_list, strinfo);
         }
+
+        rtpstream_info_free_data(strinfo);
+        g_free(list->data);
     }
+    g_list_free(tapinfo->strinfo_list);
 
     if (num_streams > 1) {
         // Open the RTP streams dialog.
@@ -396,8 +386,8 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
             this, SLOT(updateWidgets()));
     connect(ui->reverseTreeWidget, SIGNAL(itemSelectionChanged()),
             this, SLOT(updateWidgets()));
-    connect(&cap_file_, SIGNAL(captureFileClosing()),
-            this, SLOT(updateWidgets()));
+    connect(&cap_file_, SIGNAL(captureEvent(CaptureEvent)),
+            this, SLOT(captureEvent(CaptureEvent)));
     updateWidgets();
 
     registerTapListener("IAX2", this, NULL, 0, tapReset, tapPacket, tapDraw);
@@ -410,9 +400,18 @@ Iax2AnalysisDialog::Iax2AnalysisDialog(QWidget &parent, CaptureFile &cf) :
 Iax2AnalysisDialog::~Iax2AnalysisDialog()
 {
     delete ui;
-//    remove_tap_listener_rtp_stream(&tapinfo);
+//    remove_tap_listener_rtpstream(&tapinfo);
     delete fwd_tempfile_;
     delete rev_tempfile_;
+}
+
+void Iax2AnalysisDialog::captureEvent(CaptureEvent e)
+{
+    if ((e.captureContext() == CaptureEvent::File) &&
+            (e.eventType() == CaptureEvent::Closing))
+    {
+        updateWidgets();
+    }
 }
 
 void Iax2AnalysisDialog::updateWidgets()
@@ -420,7 +419,9 @@ void Iax2AnalysisDialog::updateWidgets()
     bool enable_tab = false;
     QString hint = err_str_;
 
-    if (hint.isEmpty()) {
+    if (hint.isEmpty() || save_payload_error_ != TAP_IAX2_NO_ERROR) {
+        /* We cannot save the payload but can still display the widget
+           or save CSV data */
         enable_tab = true;
     }
 
@@ -439,8 +440,8 @@ void Iax2AnalysisDialog::updateWidgets()
         hint.append(tr(" G: Go to packet, N: Next problem packet"));
     }
 
-    bool enable_save_fwd_audio = fwd_tempfile_->isOpen();
-    bool enable_save_rev_audio = rev_tempfile_->isOpen();
+    bool enable_save_fwd_audio = fwd_tempfile_->isOpen() && (save_payload_error_ == TAP_IAX2_NO_ERROR);
+    bool enable_save_rev_audio = rev_tempfile_->isOpen() && (save_payload_error_ == TAP_IAX2_NO_ERROR);
     ui->actionSaveAudio->setEnabled(enable_save_fwd_audio && enable_save_rev_audio);
     ui->actionSaveForwardAudio->setEnabled(enable_save_fwd_audio);
     ui->actionSaveReverseAudio->setEnabled(enable_save_rev_audio);
@@ -570,9 +571,9 @@ void Iax2AnalysisDialog::on_actionSaveGraph_triggered()
 
     QString save_file = path.canonicalPath();
     if (!file_closed_) {
-        save_file += QString("/%1").arg(cap_file_.fileTitle());
+        save_file += QString("/%1").arg(cap_file_.fileBaseName());
     }
-    file_name = QFileDialog::getSaveFileName(this, wsApp->windowTitleString(tr("Save Graph As" UTF8_HORIZONTAL_ELLIPSIS)),
+    file_name = WiresharkFileDialog::getSaveFileName(this, wsApp->windowTitleString(tr("Save Graph As" UTF8_HORIZONTAL_ELLIPSIS)),
                                              save_file, filter, &extension);
 
     if (!file_name.isEmpty()) {
@@ -627,18 +628,18 @@ gboolean Iax2AnalysisDialog::tapPacket(void *tapinfoptr, packet_info *pinfo, str
         return FALSE;
 
     /* is it the forward direction?  */
-    else if ((cmp_address(&(iax2_analysis_dialog->src_fwd_), &(pinfo->src)) == 0)
-         && (iax2_analysis_dialog->port_src_fwd_ == pinfo->srcport)
-         && (cmp_address(&(iax2_analysis_dialog->dst_fwd_), &(pinfo->dst)) == 0)
-         && (iax2_analysis_dialog->port_dst_fwd_ == pinfo->destport))  {
+    else if ((cmp_address(&(iax2_analysis_dialog->fwd_id_.src_addr), &(pinfo->src)) == 0)
+         && (iax2_analysis_dialog->fwd_id_.src_port == pinfo->srcport)
+         && (cmp_address(&(iax2_analysis_dialog->fwd_id_.dst_addr), &(pinfo->dst)) == 0)
+         && (iax2_analysis_dialog->fwd_id_.dst_port == pinfo->destport))  {
 
         iax2_analysis_dialog->addPacket(true, pinfo, iax2info);
     }
     /* is it the reversed direction? */
-    else if ((cmp_address(&(iax2_analysis_dialog->src_rev_), &(pinfo->src)) == 0)
-         && (iax2_analysis_dialog->port_src_rev_ == pinfo->srcport)
-         && (cmp_address(&(iax2_analysis_dialog->dst_rev_), &(pinfo->dst)) == 0)
-         && (iax2_analysis_dialog->port_dst_rev_ == pinfo->destport))  {
+    else if ((cmp_address(&(iax2_analysis_dialog->rev_id_.src_addr), &(pinfo->src)) == 0)
+         && (iax2_analysis_dialog->rev_id_.src_port == pinfo->srcport)
+         && (cmp_address(&(iax2_analysis_dialog->rev_id_.dst_addr), &(pinfo->dst)) == 0)
+         && (iax2_analysis_dialog->rev_id_.dst_port == pinfo->destport))  {
 
         iax2_analysis_dialog->addPacket(false, pinfo, iax2info);
     }
@@ -732,6 +733,7 @@ void Iax2AnalysisDialog::savePayload(QTemporaryFile *tmpfile, packet_info *pinfo
     if (pinfo->fd->pkt_len != pinfo->fd->cap_len) {
         tmpfile->close();
         err_str_ = tr("Can't save in a file: Wrong length of captured packets.");
+        save_payload_error_ = TAP_IAX2_WRONG_LENGTH;
         return;
     }
 
@@ -743,6 +745,7 @@ void Iax2AnalysisDialog::savePayload(QTemporaryFile *tmpfile, packet_info *pinfo
         if (nchars != (iax2info->payload_len)) {
             /* Write error or short write */
             err_str_ = tr("Can't save in a file: File I/O problem.");
+            save_payload_error_ = TAP_IAX2_FILE_IO_ERROR;
             tmpfile->close();
             return;
         }
@@ -776,11 +779,11 @@ void Iax2AnalysisDialog::updateStatistics()
 
     QString stats_tables = "<html><head></head><body>\n";
     stats_tables += QString("<p>%1:%2 " UTF8_LEFT_RIGHT_ARROW)
-            .arg(address_to_qstring(&src_fwd_, true))
-            .arg(port_src_fwd_);
+            .arg(address_to_qstring(&fwd_id_.src_addr, true))
+            .arg(fwd_id_.src_port);
     stats_tables += QString("<br>%1:%2</p>\n")
-            .arg(address_to_qstring(&dst_fwd_, true))
-            .arg(port_dst_fwd_);
+            .arg(address_to_qstring(&fwd_id_.dst_addr, true))
+            .arg(fwd_id_.dst_port);
     stats_tables += "<h4>Forward</h4>\n";
     stats_tables += "<p><table>\n";
     stats_tables += QString("<tr><th align=\"left\">Max Delta</th><td>%1 ms @ %2</td></tr>")
@@ -880,7 +883,7 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
         ext_filter.append(tr(";;Raw (*.raw)"));
     }
     QString sel_filter;
-    QString file_path = QFileDialog::getSaveFileName(
+    QString file_path = WiresharkFileDialog::getSaveFileName(
                 this, caption, wsApp->lastOpenDir().absoluteFilePath("Saved RTP Audio.au"),
                 ext_filter, &sel_filter);
 
@@ -900,7 +903,7 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
 
     QFile      save_file(file_path);
     gint16     sample;
-    gchar      pd[4];
+    guint8     pd[4];
     gboolean   stop_flag = FALSE;
     size_t     nchars;
 
@@ -916,8 +919,12 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
     ui->hintLabel->setText(tr("Saving %1" UTF8_HORIZONTAL_ELLIPSIS).arg(save_file.fileName()));
     ui->progressFrame->showProgress(true, true, &stop_flag);
 
-    if	(save_format == save_audio_au_) { /* au format */
-        /* First we write the .au header. XXX Hope this is endian independent */
+    if	(save_format == save_audio_au_) { /* au format; http://pubs.opengroup.org/external/auformat.html */
+        /* First we write the .au header.  All values in the header are
+         * 4-byte big-endian values, so we use pntoh32() to copy them
+         * to a 4-byte buffer, in big-endian order, and then write out
+         * the buffer. */
+
         /* the magic word 0x2e736e64 == .snd */
         phton32(pd, 0x2e736e64);
         nchars = save_file.write((const char *)pd, 4);
@@ -958,7 +965,7 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
                 if (stop_flag) {
                     break;
                 }
-                ui->progressFrame->setValue(fwd_tempfile_->pos() * 100 / fwd_tempfile_->size());
+                ui->progressFrame->setValue(int(fwd_tempfile_->pos() * 100 / fwd_tempfile_->size()));
 
                 if (fwd_statinfo_.pt == PT_PCMU) {
                     sample = ulaw2linear((unsigned char)f_rawvalue);
@@ -985,7 +992,7 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
                 if (stop_flag) {
                     break;
                 }
-                ui->progressFrame->setValue(rev_tempfile_->pos() * 100 / rev_tempfile_->size());
+                ui->progressFrame->setValue(int(rev_tempfile_->pos() * 100 / rev_tempfile_->size()));
 
                 if (rev_statinfo_.pt == PT_PCMU) {
                     sample = ulaw2linear((unsigned char)r_rawvalue);
@@ -1025,8 +1032,8 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
                 if (stop_flag) {
                     break;
                 }
-                int fwd_pct = fwd_tempfile_->pos() * 100 / fwd_tempfile_->size();
-                int rev_pct = rev_tempfile_->pos() * 100 / rev_tempfile_->size();
+                int fwd_pct = int(fwd_tempfile_->pos() * 100 / fwd_tempfile_->size());
+                int rev_pct = int(rev_tempfile_->pos() * 100 / rev_tempfile_->size());
                 ui->progressFrame->setValue(qMin(fwd_pct, rev_pct));
 
                 if (f_write_silence > 0) {
@@ -1092,13 +1099,13 @@ void Iax2AnalysisDialog::saveAudio(Iax2AnalysisDialog::StreamDirection direction
         switch (direction) {
         /* Only forward direction */
         case dir_forward_: {
-            progress_pct = fwd_tempfile_->pos() * 100 / fwd_tempfile_->size();
+            progress_pct = int(fwd_tempfile_->pos() * 100 / fwd_tempfile_->size());
             tempfile = fwd_tempfile_;
             break;
         }
             /* only reversed direction */
         case dir_reverse_: {
-            progress_pct = rev_tempfile_->pos() * 100 / rev_tempfile_->size();
+            progress_pct = int(rev_tempfile_->pos() * 100 / rev_tempfile_->size());
             tempfile = rev_tempfile_;
             break;
         }
@@ -1146,7 +1153,7 @@ void Iax2AnalysisDialog::saveCsv(Iax2AnalysisDialog::StreamDirection direction)
         break;
     }
 
-    QString file_path = QFileDialog::getSaveFileName(
+    QString file_path = WiresharkFileDialog::getSaveFileName(
                 this, caption, wsApp->lastOpenDir().absoluteFilePath("RTP Packet Data.csv"),
                 tr("Comma-separated values (*.csv)"));
 
@@ -1182,15 +1189,15 @@ void Iax2AnalysisDialog::saveCsv(Iax2AnalysisDialog::StreamDirection direction)
     if (direction == dir_reverse_ || direction == dir_both_) {
         save_file.write("Reverse\n");
 
-        for (int row = 0; row < ui->forwardTreeWidget->topLevelItemCount(); row++) {
-            QTreeWidgetItem *ti = ui->forwardTreeWidget->topLevelItem(row);
+        for (int row = 0; row < ui->reverseTreeWidget->topLevelItemCount(); row++) {
+            QTreeWidgetItem *ti = ui->reverseTreeWidget->topLevelItem(row);
             if (ti->type() != iax2_analysis_type_) continue;
             Iax2AnalysisTreeWidgetItem *ra_ti = dynamic_cast<Iax2AnalysisTreeWidgetItem *>((Iax2AnalysisTreeWidgetItem *)ti);
             QStringList values;
             foreach (QVariant v, ra_ti->rowData()) {
                 if (!v.isValid()) {
                     values << "\"\"";
-                } else if ((int) v.type() == (int) QMetaType::QString) {
+                } else if (v.type() == QVariant::String) {
                     values << QString("\"%1\"").arg(v.toString());
                 } else {
                     values << v.toString();

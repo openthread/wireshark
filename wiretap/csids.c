@@ -3,19 +3,7 @@
  * Copyright (c) 2000 by Mike Hall <mlh@io.com>
  * Copyright (c) 2000 by Cisco Systems
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -45,9 +33,9 @@ typedef struct {
 static gboolean csids_read(wtap *wth, int *err, gchar **err_info,
         gint64 *data_offset);
 static gboolean csids_seek_read(wtap *wth, gint64 seek_off,
-        struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
+        wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
 static gboolean csids_read_packet(FILE_T fh, csids_t *csids,
-        struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
+        wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
 
 struct csids_header {
   guint32 seconds; /* seconds since epoch */
@@ -142,7 +130,7 @@ static gboolean csids_read(wtap *wth, int *err, gchar **err_info,
 
   *data_offset = file_tell(wth->fh);
 
-  return csids_read_packet( wth->fh, csids, &wth->phdr, wth->frame_buffer,
+  return csids_read_packet( wth->fh, csids, &wth->rec, wth->rec_data,
                             err, err_info );
 }
 
@@ -150,7 +138,7 @@ static gboolean csids_read(wtap *wth, int *err, gchar **err_info,
 static gboolean
 csids_seek_read(wtap *wth,
                 gint64 seek_off,
-                struct wtap_pkthdr *phdr,
+                wtap_rec *rec,
                 Buffer *buf,
                 int *err,
                 gchar **err_info)
@@ -160,7 +148,7 @@ csids_seek_read(wtap *wth,
   if( file_seek( wth->random_fh, seek_off, SEEK_SET, err ) == -1 )
     return FALSE;
 
-  if( !csids_read_packet( wth->random_fh, csids, phdr, buf, err, err_info ) ) {
+  if( !csids_read_packet( wth->random_fh, csids, rec, buf, err, err_info ) ) {
     if( *err == 0 )
       *err = WTAP_ERR_SHORT_READ;
     return FALSE;
@@ -169,7 +157,7 @@ csids_seek_read(wtap *wth,
 }
 
 static gboolean
-csids_read_packet(FILE_T fh, csids_t *csids, struct wtap_pkthdr *phdr,
+csids_read_packet(FILE_T fh, csids_t *csids, wtap_rec *rec,
                   Buffer *buf, int *err, gchar **err_info)
 {
   struct csids_header hdr;
@@ -179,24 +167,29 @@ csids_read_packet(FILE_T fh, csids_t *csids, struct wtap_pkthdr *phdr,
     return FALSE;
   hdr.seconds = pntoh32(&hdr.seconds);
   hdr.caplen = pntoh16(&hdr.caplen);
+  /*
+   * The maximum value of hdr.caplen is 65535, which is less than
+   * WTAP_MAX_PACKET_SIZE_STANDARD will ever be, so we don't need to check
+   * it.
+   */
 
-  phdr->rec_type = REC_TYPE_PACKET;
-  phdr->presence_flags = WTAP_HAS_TS;
-  phdr->len = hdr.caplen;
-  phdr->caplen = hdr.caplen;
-  phdr->ts.secs = hdr.seconds;
-  phdr->ts.nsecs = 0;
+  rec->rec_type = REC_TYPE_PACKET;
+  rec->presence_flags = WTAP_HAS_TS;
+  rec->rec_header.packet_header.len = hdr.caplen;
+  rec->rec_header.packet_header.caplen = hdr.caplen;
+  rec->ts.secs = hdr.seconds;
+  rec->ts.nsecs = 0;
 
-  if( !wtap_read_packet_bytes( fh, buf, phdr->caplen, err, err_info ) )
+  if( !wtap_read_packet_bytes( fh, buf, rec->rec_header.packet_header.caplen, err, err_info ) )
     return FALSE;
 
   pd = ws_buffer_start_ptr( buf );
   if( csids->byteswapped ) {
-    if( phdr->caplen >= 2 ) {
+    if( rec->rec_header.packet_header.caplen >= 2 ) {
       PBSWAP16(pd);   /* the ip len */
-      if( phdr->caplen >= 4 ) {
+      if( rec->rec_header.packet_header.caplen >= 4 ) {
         PBSWAP16(pd+2); /* ip id */
-        if( phdr->caplen >= 6 )
+        if( rec->rec_header.packet_header.caplen >= 6 )
           PBSWAP16(pd+4); /* ip flags and fragoff */
       }
     }

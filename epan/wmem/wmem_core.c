@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <stdlib.h>
@@ -34,6 +22,8 @@
 #include "wmem_allocator_block.h"
 #include "wmem_allocator_block_fast.h"
 #include "wmem_allocator_strict.h"
+
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 /* Set according to the WIRESHARK_DEBUG_WMEM_OVERRIDE environment variable in
  * wmem_init. Should not be set again. */
@@ -53,7 +43,7 @@ wmem_alloc(wmem_allocator_t *allocator, const size_t size)
         return NULL;
     }
 
-    return allocator->alloc(allocator->private_data, size);
+    return allocator->walloc(allocator->private_data, size);
 }
 
 void *
@@ -84,7 +74,7 @@ wmem_free(wmem_allocator_t *allocator, void *ptr)
         return;
     }
 
-    allocator->free(allocator->private_data, ptr);
+    allocator->wfree(allocator->private_data, ptr);
 }
 
 void *
@@ -105,7 +95,7 @@ wmem_realloc(wmem_allocator_t *allocator, void *ptr, const size_t size)
 
     g_assert(allocator->in_scope);
 
-    return allocator->realloc(allocator->private_data, ptr, size);
+    return allocator->wrealloc(allocator->private_data, ptr, size);
 }
 
 static void
@@ -208,7 +198,7 @@ wmem_init(void)
             override_type = WMEM_ALLOCATOR_BLOCK_FAST;
         }
         else {
-            g_warning("Unrecognized wmem override");
+            ws_g_warning("Unrecognized wmem override");
             do_override = FALSE;
         }
     }

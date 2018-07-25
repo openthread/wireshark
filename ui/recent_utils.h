@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __UI_RECENT_UTILS_H__
@@ -56,23 +44,6 @@ extern gboolean dfilter_combo_add_recent(const gchar *dftext);
  * @param rf the recent file
  */
 extern void dfilter_recent_combo_write_all(FILE *rf);
-
-#ifdef HAVE_PCAP_REMOTE
-/** Write all remote hosts to the recent file
- *
- * @param rf recent file
- */
-void
-capture_remote_combo_recent_write_all(FILE *rf);
-
-/** Add a new remote host from the recent file
- *
- * @param s string with hostname,port,auth_type
- * @return TRUE if correctly added
- */
-gboolean
-capture_remote_combo_add_recent(const gchar *s);
-#endif
 
 /** Write all packet list geometry values to the recent file.
  *

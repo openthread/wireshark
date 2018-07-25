@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref 3GPP TS 29.168
  */
@@ -28,10 +16,14 @@
 #include <epan/strutil.h>
 #include <epan/asn1.h>
 #include <epan/sctpppids.h>
+#include <epan/proto_data.h>
 
 #include "packet-ber.h"
 #include "packet-per.h"
 #include "packet-e212.h"
+#include "packet-gsm_map.h"
+#include "packet-s1ap.h"
+#include "packet-lte-rrc.h"
 
 #define PNAME  "SBc Application Part"
 #define PSNAME "SBCAP"
@@ -52,10 +44,22 @@ static dissector_handle_t sbc_ap_handle=NULL;
 /* Initialize the protocol and registered fields */
 static int proto_sbc_ap = -1;
 
+static int hf_sbc_ap_Serial_Number_gs = -1;
+static int hf_sbc_ap_Serial_Number_msg_code = -1;
+static int hf_sbc_ap_Serial_Number_upd_nb = -1;
+static int hf_sbc_ap_Warning_Type_value = -1;
+static int hf_sbc_ap_Warning_Type_emergency_user_alert = -1;
+static int hf_sbc_ap_Warning_Type_popup = -1;
+static int hf_sbc_ap_Warning_Message_Contents_nb_pages = -1;
+static int hf_sbc_ap_Warning_Message_Contents_decoded_page = -1;
 #include "packet-sbc-ap-hf.c"
 
 /* Initialize the subtree pointers */
 static int ett_sbc_ap = -1;
+static int ett_sbc_ap_Serial_Number = -1;
+static int ett_sbc_ap_Warning_Type = -1;
+static int ett_sbc_ap_Data_Coding_Scheme = -1;
+static int ett_sbc_ap_Warning_Message_Contents = -1;
 
 #include "packet-sbc-ap-ett.c"
 
@@ -63,6 +67,10 @@ enum{
 	INITIATING_MESSAGE,
 	SUCCESSFUL_OUTCOME,
 	UNSUCCESSFUL_OUTCOME
+};
+
+struct sbc_ap_private_data {
+  guint8 data_coding_scheme;
 };
 
 /* Global variables */
@@ -83,6 +91,18 @@ static int dissect_ProtocolExtensionFieldExtensionValue(tvbuff_t *tvb, packet_in
 static int dissect_InitiatingMessageValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 static int dissect_SuccessfulOutcomeValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 static int dissect_UnsuccessfulOutcomeValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
+
+
+static struct sbc_ap_private_data*
+sbc_ap_get_private_data(packet_info *pinfo)
+{
+  struct sbc_ap_private_data *sbc_ap_data = (struct sbc_ap_private_data*)p_get_proto_data(pinfo->pool, pinfo, proto_sbc_ap, 0);
+  if (!sbc_ap_data) {
+    sbc_ap_data = wmem_new0(pinfo->pool, struct sbc_ap_private_data);
+    p_add_proto_data(pinfo->pool, pinfo, proto_sbc_ap, 0, sbc_ap_data);
+  }
+  return sbc_ap_data;
+}
 
 #include "packet-sbc-ap-fn.c"
 
@@ -146,13 +166,48 @@ void proto_register_sbc_ap(void) {
 
   /* List of fields */
   static hf_register_info hf[] = {
-
+    { &hf_sbc_ap_Serial_Number_gs,
+      { "Geographical Scope", "sbc_ap.SerialNumber.gs",
+        FT_UINT16, BASE_DEC, VALS(s1ap_serialNumber_gs_vals), 0xc000,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Serial_Number_msg_code,
+      { "Message Code", "sbc_ap.SerialNumber.msg_code",
+        FT_UINT16, BASE_DEC, NULL, 0x3ff0,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Serial_Number_upd_nb,
+      { "Update Number", "sbc_ap.SerialNumber.upd_nb",
+        FT_UINT16, BASE_DEC, NULL, 0x000f,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Warning_Type_value,
+      { "Warning Type Value", "sbc-ap.WarningType.value",
+        FT_UINT16, BASE_DEC, VALS(s1ap_warningType_vals), 0xfe00,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Warning_Type_emergency_user_alert,
+      { "Emergency User Alert", "sbc-ap.WarningType.emergency_user_alert",
+        FT_BOOLEAN, 16, TFS(&tfs_yes_no), 0x0100,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Warning_Type_popup,
+      { "Popup", "sbc-ap.WarningType.popup",
+        FT_BOOLEAN, 16, TFS(&tfs_yes_no), 0x0080,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Warning_Message_Contents_nb_pages,
+      { "Number of Pages", "sbc-ap.WarningMessageContents.nb_pages",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL, HFILL }},
+    { &hf_sbc_ap_Warning_Message_Contents_decoded_page,
+      { "Decoded Page", "sbc-ap.WarningMessageContents.decoded_page",
+        FT_STRING, STR_UNICODE, NULL, 0,
+        NULL, HFILL }},
 #include "packet-sbc-ap-hfarr.c"
   };
 
   /* List of subtrees */
   static gint *ett[] = {
                   &ett_sbc_ap,
+                  &ett_sbc_ap_Serial_Number,
+                  &ett_sbc_ap_Warning_Type,
+                  &ett_sbc_ap_Data_Coding_Scheme,
+                  &ett_sbc_ap_Warning_Message_Contents,
 #include "packet-sbc-ap-ettarr.c"
   };
 
@@ -165,11 +220,11 @@ void proto_register_sbc_ap(void) {
 
 
   /* Register dissector tables */
-  sbc_ap_ies_dissector_table = register_dissector_table("sbc_ap.ies", "SBC-AP-PROTOCOL-IES", proto_sbc_ap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  sbc_ap_extension_dissector_table = register_dissector_table("sbc_ap.extension", "SBC-AP-PROTOCOL-EXTENSION", proto_sbc_ap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  sbc_ap_proc_imsg_dissector_table = register_dissector_table("sbc_ap.proc.imsg", "SBC-AP-ELEMENTARY-PROCEDURE InitiatingMessage", proto_sbc_ap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  sbc_ap_proc_sout_dissector_table = register_dissector_table("sbc_ap.proc.sout", "SBC-AP-ELEMENTARY-PROCEDURE SuccessfulOutcome", proto_sbc_ap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  sbc_ap_proc_uout_dissector_table = register_dissector_table("sbc_ap.proc.uout", "SBC-AP-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", proto_sbc_ap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  sbc_ap_ies_dissector_table = register_dissector_table("sbc_ap.ies", "SBC-AP-PROTOCOL-IES", proto_sbc_ap, FT_UINT32, BASE_DEC);
+  sbc_ap_extension_dissector_table = register_dissector_table("sbc_ap.extension", "SBC-AP-PROTOCOL-EXTENSION", proto_sbc_ap, FT_UINT32, BASE_DEC);
+  sbc_ap_proc_imsg_dissector_table = register_dissector_table("sbc_ap.proc.imsg", "SBC-AP-ELEMENTARY-PROCEDURE InitiatingMessage", proto_sbc_ap, FT_UINT32, BASE_DEC);
+  sbc_ap_proc_sout_dissector_table = register_dissector_table("sbc_ap.proc.sout", "SBC-AP-ELEMENTARY-PROCEDURE SuccessfulOutcome", proto_sbc_ap, FT_UINT32, BASE_DEC);
+  sbc_ap_proc_uout_dissector_table = register_dissector_table("sbc_ap.proc.uout", "SBC-AP-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", proto_sbc_ap, FT_UINT32, BASE_DEC);
 
 
 }
@@ -201,6 +256,15 @@ proto_reg_handoff_sbc_ap(void)
 }
 
 
-
-
-
+/*
+ * Editor modelines
+ *
+ * Local Variables:
+ * c-basic-offset: 2
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * ex: set shiftwidth=2 tabstop=8 expandtab:
+ * :indentSize=2:tabSize=8:noTabs=true:
+ */

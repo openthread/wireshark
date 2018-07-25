@@ -1,6 +1,8 @@
 /* packet-couchbase.c
  *
  * Routines for Couchbase Protocol
+ *
+ * Copyright 2018, Jim Walker <jim@couchbase.com>
  * Copyright 2015-2016, Dave Rigby <daver@couchbase.com>
  * Copyright 2011, Sergey Avseyev <sergey.avseyev@gmail.com>
  *
@@ -23,19 +25,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -45,8 +35,16 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 
+#ifdef HAVE_SNAPPY
+#include <snappy-c.h>
+#endif
 
 #include "packet-tcp.h"
+#include "packet-ssl.h"
+
+#include <glib.h>
+#include <math.h>
+#include <stdio.h>
 
 #define PNAME  "Couchbase Protocol"
 #define PSNAME "Couchbase"
@@ -58,6 +56,7 @@
  /* Magic Byte */
 #define MAGIC_REQUEST         0x80
 #define MAGIC_RESPONSE        0x81
+#define MAGIC_RESPONSE_FLEX   0x18
 
  /* Response Status */
 #define PROTOCOL_BINARY_RESPONSE_SUCCESS            0x00
@@ -68,17 +67,23 @@
 #define PROTOCOL_BINARY_RESPONSE_NOT_STORED         0x05
 #define PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL       0x06
 #define PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET     0x07
+#define PROTOCOL_BINARY_RESPONSE_NO_VBUCKET         0x08
+#define PROTOCOL_BINARY_RESPONSE_LOCKED             0x09
+#define PROTOCOL_BINARY_RESPONSE_AUTH_STALE         0x1f
 #define PROTOCOL_BINARY_RESPONSE_AUTH_ERROR         0x20
 #define PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE      0x21
 #define PROTOCOL_BINARY_RESPONSE_ERANGE             0x22
 #define PROTOCOL_BINARY_RESPONSE_ROLLBACK           0x23
 #define PROTOCOL_BINARY_RESPONSE_EACCESS            0x24
+#define PROTOCOL_BINARY_RESPONSE_NOT_INITIALIZED    0x25
 #define PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND    0x81
 #define PROTOCOL_BINARY_RESPONSE_ENOMEM             0x82
 #define PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED      0x83
 #define PROTOCOL_BINARY_RESPONSE_EINTERNAL          0x84
 #define PROTOCOL_BINARY_RESPONSE_EBUSY              0x85
 #define PROTOCOL_BINARY_RESPONSE_ETMPFAIL           0x86
+#define PROTOCOL_BINARY_RESPONSE_XATTR_EINVAL       0x87
+#define PROTOCOL_BINARY_RESPONSE_UNKNOWN_COLLECTION         0x88
 #define PROTOCOL_BINARY_RESPONSE_SUBDOC_PATH_ENOENT         0xc0
 #define PROTOCOL_BINARY_RESPONSE_SUBDOC_PATH_MISMATCH       0xc1
 #define PROTOCOL_BINARY_RESPONSE_SUBDOC_PATH_EINVAL         0xc2
@@ -92,6 +97,14 @@
 #define PROTOCOL_BINARY_RESPONSE_SUBDOC_VALUE_ETOODEEP      0xca
 #define PROTOCOL_BINARY_RESPONSE_SUBDOC_INVALID_COMBO       0xcb
 #define PROTOCOL_BINARY_RESPONSE_SUBDOC_MULTI_PATH_FAILURE  0xcc
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_SUCCESS_DELETED            0xcd
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_INVALID_FLAG_COMBO   0xce
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_INVALID_KEY_COMBO    0xcf
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_UNKNOWN_MACRO        0xd0
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_UNKNOWN_VATTR        0xd1
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_CANT_MODIFY_VATTR    0xd2
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_MULTI_PATH_FAILURE_DELETED 0xd3
+#define PROTOCOL_BINARY_RESPONSE_SUBDOC_INVALID_XATTR_ORDER        0xd4
 
  /* Command Opcodes */
 #define PROTOCOL_BINARY_CMD_GET                     0x00
@@ -135,6 +148,11 @@
 /* Control */
 #define PROTOCOL_BINARY_CMD_IOCTL_GET               0x23
 #define PROTOCOL_BINARY_CMD_IOCTL_SET               0x24
+#define PROTOCOL_BINARY_CMD_CONFIG_VALIDATE         0x25
+#define PROTOCOL_BINARY_CMD_CONFIG_RELOAD           0x26
+#define PROTOCOL_BINARY_CMD_AUDIT_PUT               0x27
+#define PROTOCOL_BINARY_CMD_AUDIT_CONFIG_RELOAD     0x28
+#define PROTOCOL_BINARY_CMD_SHUTDOWN                0x29
 
  /* Range operations.
   * These commands are used for range operations and exist within
@@ -184,7 +202,7 @@
 #define PROTOCOL_BINARY_CMD_EXPAND_BUCKET           0x88
 #define PROTOCOL_BINARY_CMD_SELECT_BUCKET           0x89
 #define PROTOCOL_BINARY_CMD_START_REPLICATION       0x90
-#define PROTOCOL_BINARY_CMD_STOP_REPLICATION        0x91
+#define PROTOCOL_BINARY_CMD_OBSERVE_SEQNO           0x91
 #define PROTOCOL_BINARY_CMD_OBSERVE                 0x92
 #define PROTOCOL_BINARY_CMD_EVICT_KEY               0x93
 #define PROTOCOL_BINARY_CMD_GET_LOCKED              0x94
@@ -222,6 +240,12 @@
 #define PROTOCOL_BINARY_CMD_SET_CLUSTER_CONFIG      0xb4
 #define PROTOCOL_BINARY_CMD_GET_CLUSTER_CONFIG      0xb5
 
+#define PROTOCOL_BINARY_CMD_COLLECTIONS_SET_MANIFEST 0xb9
+#define PROTOCOL_BINARY_CMD_COLLECTIONS_GET_MANIFEST 0xba
+
+#define PROTOCOL_BINARY_CMD_SET_DRIFT_COUNTER_STATE 0xc1
+#define PROTOCOL_BINARY_CMD_GET_ADJUSTED_TIME       0xc2
+
 /* Sub-document API commands */
 #define PROTOCOL_BINARY_CMD_SUBDOC_GET              0xc5
 #define PROTOCOL_BINARY_CMD_SUBDOC_EXISTS           0xc6
@@ -253,16 +277,22 @@
 #define PROTOCOL_BINARY_DCP_NOOP                    0x5c
 #define PROTOCOL_BINARY_DCP_BUFFER_ACKNOWLEDGEMENT  0x5d
 #define PROTOCOL_BINARY_DCP_CONTROL                 0x5e
-#define PROTOCOL_BINARY_DCP_RESERVED4               0x5f
+#define PROTOCOL_BINARY_DCP_SYSTEM_EVENT            0x5f
 
 #define PROTOCOL_BINARY_CMD_GET_RANDOM_KEY          0xb6
 #define PROTOCOL_BINARY_CMD_SEQNO_PERSISTENCE       0xb7
+#define PROTOCOL_BINARY_CMD_GET_KEYS                0xb8
 #define PROTOCOL_BINARY_CMD_SCRUB                   0xf0
 #define PROTOCOL_BINARY_CMD_ISASL_REFRESH           0xf1
 #define PROTOCOL_BINARY_CMD_SSL_CERTS_REFRESH       0xf2
 #define PROTOCOL_BINARY_CMD_GET_CMD_TIMER           0xf3
 #define PROTOCOL_BINARY_CMD_SET_CTRL_TOKEN          0xf4
 #define PROTOCOL_BINARY_CMD_GET_CTRL_TOKEN          0xf5
+#define PROTOCOL_BINARY_CMD_RBAC_REFRESH            0xf7
+#define PROTOCOL_BINARY_CMD_DROP_PRIVILEGE          0xfb
+#define PROTOCOL_BINARY_CMD_ADJUST_TIMEOFDAY        0xfc
+#define PROTOCOL_BINARY_CMD_EWOULDBLOCK_CTL         0xfd
+#define PROTOCOL_BINARY_CMD_GET_ERROR_MAP           0xfe
 
  /* vBucket states */
 #define VBUCKET_ACTIVE                              0x01
@@ -272,6 +302,9 @@
 
  /* Data Types */
 #define DT_RAW_BYTES          0x00
+#define DT_JSON               0x01
+#define DT_SNAPPY             0x02
+#define DT_XATTR              0x04
 
 void proto_register_couchbase(void);
 void proto_reg_handoff_couchbase(void);
@@ -284,6 +317,9 @@ static int hf_extlength = -1;
 static int hf_keylength = -1;
 static int hf_value_length = -1;
 static int hf_datatype = -1;
+static int hf_datatype_json = -1;
+static int hf_datatype_snappy = -1;
+static int hf_datatype_xattr = -1;
 static int hf_vbucket = -1;
 static int hf_status = -1;
 static int hf_total_bodylength = -1;
@@ -291,6 +327,8 @@ static int hf_opaque = -1;
 static int hf_cas = -1;
 static int hf_ttp = -1;
 static int hf_ttr = -1;
+static int hf_flex_extras_length = -1;
+static int hf_flex_keylength = -1;
 static int hf_extras = -1;
 static int hf_extras_flags = -1;
 static int hf_extras_flags_backfill = -1;
@@ -308,8 +346,20 @@ static int hf_extras_flags_dcp_snapshot_marker_memory = -1;
 static int hf_extras_flags_dcp_snapshot_marker_disk = -1;
 static int hf_extras_flags_dcp_snapshot_marker_chk = -1;
 static int hf_extras_flags_dcp_snapshot_marker_ack = -1;
+static int hf_extras_flags_dcp_include_xattrs = -1;
+static int hf_extras_flags_dcp_no_value = -1;
+static int hf_extras_flags_dcp_include_delete_times = -1;
+static int hf_extras_flags_dcp_collections = -1;
+static int hf_subdoc_doc_flags = -1;
+static int hf_subdoc_doc_flags_mkdoc = -1;
+static int hf_subdoc_doc_flags_add = -1;
+static int hf_subdoc_doc_flags_accessdeleted = -1;
+static int hf_subdoc_doc_flags_reserved = -1;
 static int hf_subdoc_flags = -1;
 static int hf_subdoc_flags_mkdirp = -1;
+static int hf_subdoc_flags_xattrpath = -1;
+static int hf_subdoc_flags_expandmacros = -1;
+static int hf_subdoc_flags_reserved = -1;
 static int hf_extras_seqno = -1;
 static int hf_extras_opaque = -1;
 static int hf_extras_reserved = -1;
@@ -328,6 +378,9 @@ static int hf_extras_lock_time = -1;
 static int hf_extras_nmeta = -1;
 static int hf_extras_nru = -1;
 static int hf_extras_bytes_to_ack = -1;
+static int hf_extras_delete_time = -1;
+static int hf_extras_collection_len = -1;
+static int hf_extras_system_event_id = -1;
 static int hf_extras_pathlen = -1;
 static int hf_key = -1;
 static int hf_path = -1;
@@ -339,6 +392,14 @@ static int hf_observe_keylength = -1;
 static int hf_observe_key = -1;
 static int hf_observe_status = -1;
 static int hf_observe_cas = -1;
+static int hf_observe_vbucket_uuid = -1;
+static int hf_observe_failed_over = -1;
+static int hf_observe_last_persisted_seqno = -1;
+static int hf_observe_current_seqno = -1;
+static int hf_observe_old_vbucket_uuid = -1;
+static int hf_observe_last_received_seqno = -1;
+
+static int hf_get_errmap_version = -1;
 
 static int hf_failover_log = -1;
 static int hf_failover_log_size = -1;
@@ -351,6 +412,11 @@ static int hf_vbucket_states_size = -1;
 static int hf_vbucket_states_id = -1;
 static int hf_vbucket_states_seqno = -1;
 
+static int hf_bucket_type = -1;
+static int hf_bucket_config = -1;
+static int hf_config_key = -1;
+static int hf_config_value = -1;
+
 static int hf_multipath_opcode = -1;
 static int hf_multipath_index = -1;
 static int hf_multipath_pathlen = -1;
@@ -358,9 +424,43 @@ static int hf_multipath_path = -1;
 static int hf_multipath_valuelen = -1;
 static int hf_multipath_value = -1;
 
+static int hf_meta_flags = -1;
+static int hf_meta_expiration = -1;
+static int hf_meta_revseqno = -1;
+static int hf_meta_cas = -1;
+static int hf_skip_conflict = -1;
+static int hf_force_accept = -1;
+static int hf_regenerate_cas = -1;
+static int hf_meta_options = -1;
+static int hf_metalen = -1;
+static int hf_meta_reqextmeta = -1;
+static int hf_meta_deleted = -1;
+static int hf_exptime = -1;
+static int hf_extras_meta_seqno = -1;
+static int hf_confres = -1;
+static int hf_hello_features = -1;
+static int hf_hello_features_feature = -1;
+
+static int hf_xattr_length = -1;
+static int hf_xattr_pair_length = -1;
+static int hf_xattr_key = -1;
+static int hf_xattr_value = -1;
+static int hf_xattrs = -1;
+
+static int hf_flex_extras = -1;
+static int hf_flex_frame = -1;
+static int hf_flex_frame_id_len = -1;
+static int hf_flex_frame_id = -1;
+static int hf_flex_frame_len = -1;
+static int hf_flex_frame_id_esc = -1;
+static int hf_flex_frame_len_esc = -1;
+static int hf_flex_frame_tracing_duration = -1;
+
 static expert_field ef_warn_shall_not_have_value = EI_INIT;
 static expert_field ef_warn_shall_not_have_extras = EI_INIT;
 static expert_field ef_warn_shall_not_have_key = EI_INIT;
+static expert_field ef_compression_error = EI_INIT;
+static expert_field ef_warn_unknown_flex_code = EI_INIT;
 
 static expert_field ei_value_missing = EI_INIT;
 static expert_field ef_warn_must_have_extras = EI_INIT;
@@ -370,6 +470,8 @@ static expert_field ef_warn_illegal_value_length = EI_INIT;
 static expert_field ef_warn_unknown_magic_byte = EI_INIT;
 static expert_field ef_warn_unknown_opcode = EI_INIT;
 static expert_field ef_note_status_code = EI_INIT;
+static expert_field ef_separator_not_found = EI_INIT;
+static expert_field ef_illegal_value = EI_INIT;
 
 static gint ett_couchbase = -1;
 static gint ett_extras = -1;
@@ -378,10 +480,26 @@ static gint ett_observe = -1;
 static gint ett_failover_log = -1;
 static gint ett_vbucket_states = -1;
 static gint ett_multipath = -1;
+static gint ett_config = -1;
+static gint ett_config_key = -1;
+static gint ett_hello_features = -1;
+static gint ett_datatype = -1;
+static gint ett_xattrs = -1;
+static gint ett_xattr_pair = -1;
+static gint ett_flex_frame_extras = -1;
 
 static const value_string magic_vals[] = {
-  { MAGIC_REQUEST,     "Request"  },
-  { MAGIC_RESPONSE,    "Response" },
+  { MAGIC_REQUEST,       "Request"  },
+  { MAGIC_RESPONSE,      "Response" },
+  { MAGIC_RESPONSE_FLEX, "Response with flexible framing extras" },
+  { 0, NULL }
+};
+
+#define FLEX_ID_RX_TX_DURATION 0
+#define FLEX_ID_ESCAPE 0x0F
+static const value_string flex_frame_ids[] = {
+  { FLEX_ID_RX_TX_DURATION, "Server Recv->Send duration"  },
+  { FLEX_ID_ESCAPE, "Escape"  },
   { 0, NULL }
 };
 
@@ -394,17 +512,27 @@ static const value_string status_vals[] = {
   { PROTOCOL_BINARY_RESPONSE_NOT_STORED,        "Key not stored"          },
   { PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL,      "Bad value to incr/decr"  },
   { PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET,    "Not my vBucket"          },
+  { PROTOCOL_BINARY_RESPONSE_NO_VBUCKET,        "Not connected to a bucket" },
+  { PROTOCOL_BINARY_RESPONSE_LOCKED,            "The requested resource is locked" },
+  { PROTOCOL_BINARY_RESPONSE_AUTH_STALE,        "Authentication context is stale. Should reauthenticate." },
   { PROTOCOL_BINARY_RESPONSE_AUTH_ERROR,        "Authentication error"    },
   { PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE,     "Authentication continue" },
   { PROTOCOL_BINARY_RESPONSE_ERANGE,            "Range error"             },
   { PROTOCOL_BINARY_RESPONSE_ROLLBACK,          "Rollback"                },
   { PROTOCOL_BINARY_RESPONSE_EACCESS,           "Access error"            },
+  { PROTOCOL_BINARY_RESPONSE_NOT_INITIALIZED,
+    "The Couchbase cluster is currently initializing this node, and "
+    "the Cluster manager has not yet granted all users access to the cluster."},
   { PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,   "Unknown command"         },
   { PROTOCOL_BINARY_RESPONSE_ENOMEM,            "Out of memory"           },
   { PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED,     "Command isn't supported" },
   { PROTOCOL_BINARY_RESPONSE_EINTERNAL,         "Internal error"          },
   { PROTOCOL_BINARY_RESPONSE_EBUSY,             "Server is busy"          },
   { PROTOCOL_BINARY_RESPONSE_ETMPFAIL,          "Temporary failure"       },
+  { PROTOCOL_BINARY_RESPONSE_XATTR_EINVAL,
+    "There is something wrong with the syntax of the provided XATTR."},
+  { PROTOCOL_BINARY_RESPONSE_UNKNOWN_COLLECTION,
+    "Operation attempted with an unknown collection."},
   { PROTOCOL_BINARY_RESPONSE_SUBDOC_PATH_ENOENT,
     "Subdoc: Path not does not exist"},
   { PROTOCOL_BINARY_RESPONSE_SUBDOC_PATH_MISMATCH,
@@ -431,7 +559,22 @@ static const value_string status_vals[] = {
     "Subdoc: Invalid combination for multi-path command"},
   { PROTOCOL_BINARY_RESPONSE_SUBDOC_MULTI_PATH_FAILURE,
     "Subdoc: One or more paths in a multi-path command failed"},
-
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_SUCCESS_DELETED,
+    "Subdoc: The operation completed successfully, but operated on a deleted document."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_INVALID_FLAG_COMBO,
+    "Subdoc: The combination of the subdoc flags for the xattrs doesn't make any sense."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_INVALID_KEY_COMBO,
+    "Subdoc: Only a single xattr key may be accessed at the same time."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_UNKNOWN_MACRO,
+    "Subdoc: The server has no knowledge of the requested macro."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_UNKNOWN_VATTR,
+    "Subdoc: The server has no knowledge of the requested virtual xattr."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_XATTR_CANT_MODIFY_VATTR,
+    "Subdoc: Virtual xattrs can't be modified."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_MULTI_PATH_FAILURE_DELETED,
+    "Subdoc: Specified key was found as a deleted document, but one or more path operations failed."},
+  { PROTOCOL_BINARY_RESPONSE_SUBDOC_INVALID_XATTR_ORDER,
+    "Subdoc: According to the spec all xattr commands should come first, followed by the commands for the document body."},
   { 0, NULL }
 };
 
@@ -475,6 +618,11 @@ static const value_string opcode_vals[] = {
   { PROTOCOL_BINARY_CMD_SASL_STEP,                  "SASL Step"                },
   { PROTOCOL_BINARY_CMD_IOCTL_GET,                  "IOCTL Get"                },
   { PROTOCOL_BINARY_CMD_IOCTL_SET,                  "IOCTL Set"                },
+  { PROTOCOL_BINARY_CMD_CONFIG_VALIDATE,            "Config Validate"          },
+  { PROTOCOL_BINARY_CMD_CONFIG_RELOAD,              "Config Reload"            },
+  { PROTOCOL_BINARY_CMD_AUDIT_PUT,                  "Audit Put"                },
+  { PROTOCOL_BINARY_CMD_AUDIT_CONFIG_RELOAD,        "Audit Config Reload"      },
+  { PROTOCOL_BINARY_CMD_SHUTDOWN,                   "Shutdown"                 },
   { PROTOCOL_BINARY_CMD_RGET,                       "Range Get"                },
   { PROTOCOL_BINARY_CMD_RSET,                       "Range Set"                },
   { PROTOCOL_BINARY_CMD_RSETQ,                      "Range Set Quietly"        },
@@ -515,7 +663,7 @@ static const value_string opcode_vals[] = {
   { PROTOCOL_BINARY_DCP_NOOP,                       "DCP NOOP"                 },
   { PROTOCOL_BINARY_DCP_BUFFER_ACKNOWLEDGEMENT,     "DCP Buffer Acknowledgement"},
   { PROTOCOL_BINARY_DCP_CONTROL,                    "DCP Control"              },
-  { PROTOCOL_BINARY_DCP_RESERVED4,                  "DCP Set Reserved"         },
+  { PROTOCOL_BINARY_DCP_SYSTEM_EVENT,               "DCP System Event"         },
   { PROTOCOL_BINARY_CMD_STOP_PERSISTENCE,           "Stop Persistence"         },
   { PROTOCOL_BINARY_CMD_START_PERSISTENCE,          "Start Persistence"        },
   { PROTOCOL_BINARY_CMD_SET_PARAM,                  "Set Parameter"            },
@@ -526,7 +674,7 @@ static const value_string opcode_vals[] = {
   { PROTOCOL_BINARY_CMD_EXPAND_BUCKET,              "Expand Bucket"            },
   { PROTOCOL_BINARY_CMD_SELECT_BUCKET,              "Select Bucket"            },
   { PROTOCOL_BINARY_CMD_START_REPLICATION,          "Start Replication"        },
-  { PROTOCOL_BINARY_CMD_STOP_REPLICATION,           "Stop Replication"         },
+  { PROTOCOL_BINARY_CMD_OBSERVE_SEQNO,              "Observe Sequence Number"  },
   { PROTOCOL_BINARY_CMD_OBSERVE,                    "Observe"                  },
   { PROTOCOL_BINARY_CMD_EVICT_KEY,                  "Evict Key"                },
   { PROTOCOL_BINARY_CMD_GET_LOCKED,                 "Get Locked"               },
@@ -563,6 +711,11 @@ static const value_string opcode_vals[] = {
   { PROTOCOL_BINARY_CMD_GET_CLUSTER_CONFIG,         "Get Cluster Config"       },
   { PROTOCOL_BINARY_CMD_GET_RANDOM_KEY,             "Get Random Key"           },
   { PROTOCOL_BINARY_CMD_SEQNO_PERSISTENCE,          "Seqno Persistence"        },
+  { PROTOCOL_BINARY_CMD_GET_KEYS,                   "Get Keys"                 },
+  { PROTOCOL_BINARY_CMD_COLLECTIONS_SET_MANIFEST,   "Set Collection's Manifest" },
+  { PROTOCOL_BINARY_CMD_COLLECTIONS_GET_MANIFEST,   "Get Collection's Manifest" },
+  { PROTOCOL_BINARY_CMD_SET_DRIFT_COUNTER_STATE,    "Set Drift Counter State"  },
+  { PROTOCOL_BINARY_CMD_GET_ADJUSTED_TIME,          "Get Adjusted Time"        },
   { PROTOCOL_BINARY_CMD_SUBDOC_GET,                 "Subdoc Get"               },
   { PROTOCOL_BINARY_CMD_SUBDOC_EXISTS,              "Subdoc Exists"            },
   { PROTOCOL_BINARY_CMD_SUBDOC_DICT_ADD,            "Subdoc Dictionary Add"    },
@@ -582,6 +735,11 @@ static const value_string opcode_vals[] = {
   { PROTOCOL_BINARY_CMD_GET_CMD_TIMER,              "Internal Timer Control"   },
   { PROTOCOL_BINARY_CMD_SET_CTRL_TOKEN,             "Set Control Token"        },
   { PROTOCOL_BINARY_CMD_GET_CTRL_TOKEN,             "Get Control Token"        },
+  { PROTOCOL_BINARY_CMD_RBAC_REFRESH,               "RBAC Refresh"             },
+  { PROTOCOL_BINARY_CMD_DROP_PRIVILEGE,             "Drop Privilege"           },
+  { PROTOCOL_BINARY_CMD_ADJUST_TIMEOFDAY,           "Adjust Timeofday"         },
+  { PROTOCOL_BINARY_CMD_EWOULDBLOCK_CTL,            "EWOULDBLOCK Control"      },
+  { PROTOCOL_BINARY_CMD_GET_ERROR_MAP,              "Get Error Map"            },
 
   /* Internally defined values not valid here */
   { 0, NULL }
@@ -604,25 +762,62 @@ const value_string vbucket_states_vals[] = {
   {0, NULL}
 };
 
-static const value_string datatype_vals[] = {
-  { DT_RAW_BYTES, "Raw bytes"},
-  { 0, NULL }
+static const int * datatype_vals[] = {
+  &hf_datatype_json,
+  &hf_datatype_snappy,
+  &hf_datatype_xattr,
+  NULL
 };
 
 static const int * subdoc_flags[] = {
   &hf_subdoc_flags_mkdirp,
+  &hf_subdoc_flags_xattrpath,
+  &hf_subdoc_flags_expandmacros,
+  &hf_subdoc_flags_reserved,
   NULL
 };
 
-static dissector_handle_t couchbase_tcp_handle;
+static const int * subdoc_doc_flags[] = {
+  &hf_subdoc_doc_flags_mkdoc,
+  &hf_subdoc_doc_flags_add,
+  &hf_subdoc_doc_flags_accessdeleted,
+  &hf_subdoc_doc_flags_reserved,
+  NULL
+};
+
+static const value_string feature_vals[] = {
+  {0x01, "Datatype (deprecated)"},
+  {0x02, "TLS"},
+  {0x03, "TCP Nodelay"},
+  {0x04, "Mutation Seqno"},
+  {0x05, "TCP Delay"},
+  {0x06, "XATTR"},
+  {0x07, "Error Map"},
+  {0x08, "Select Bucket"},
+  {0x09, "Collections"},
+  {0x0a, "Snappy"},
+  {0x0b, "JSON"},
+  {0x0c, "Duplex"},
+  {0x0d, "Clustermap Change Notification"},
+  {0x0e, "Unordered Execution"},
+  {0x0f, "Tracing"},
+  {0, NULL}
+};
+
+static const value_string dcp_system_event_id_vals [] = {
+    {0, "CreateCollection"},
+    {1, "DeleteCollection"},
+    {2, "CollectionSeparatorChanged"},
+    {0, NULL}
+};
+
+static dissector_handle_t couchbase_handle;
 static dissector_handle_t json_handle;
-
-/* couchbase ports */
-static range_t *couchbase_tcp_port_range;
-
 
 /* desegmentation of COUCHBASE payload */
 static gboolean couchbase_desegment_body = TRUE;
+static guint couchbase_ssl_port = 11207;
+static guint couchbase_ssl_port_pref = 11207;
 
 
 static guint
@@ -645,16 +840,76 @@ get_couchbase_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb,
 
 /* Returns true if the specified opcode's response value is JSON. */
 static gboolean
-has_json_value(guint8 opcode)
+has_json_value(gboolean is_request, guint8 opcode)
 {
-  switch (opcode) {
-  case PROTOCOL_BINARY_CMD_GET_CLUSTER_CONFIG:
-  case PROTOCOL_BINARY_CMD_SUBDOC_GET:
-    return TRUE;
+  if (is_request) {
+    switch (opcode) {
+    case PROTOCOL_BINARY_CMD_AUDIT_PUT:
+      return TRUE;
 
-  default:
-    return FALSE;
+    default:
+      return FALSE;
+    }
+  } else {
+    switch (opcode) {
+    case PROTOCOL_BINARY_CMD_GET_CLUSTER_CONFIG:
+    case PROTOCOL_BINARY_CMD_SUBDOC_GET:
+    case PROTOCOL_BINARY_CMD_COLLECTIONS_GET_MANIFEST:
+    case PROTOCOL_BINARY_CMD_COLLECTIONS_SET_MANIFEST:
+      return TRUE;
+
+    default:
+      return FALSE;
+    }
   }
+}
+
+static void dissect_dcp_xattrs(tvbuff_t *tvb, proto_tree *tree,
+                               guint32 value_len, gint offset,
+                               packet_info *pinfo) {
+  guint32 xattr_size, pair_len;
+  gint mark;
+  proto_tree *xattr_tree, *pair_tree;
+  proto_item *ti;
+
+  proto_tree_add_item_ret_uint(tree, hf_xattr_length, tvb, offset, 4, ENC_BIG_ENDIAN, &xattr_size);
+  value_len = value_len - (xattr_size + 4);
+  offset += 4;
+
+  ti = proto_tree_add_item(tree, hf_xattrs, tvb, offset, xattr_size, ENC_NA);
+  xattr_tree = proto_item_add_subtree(ti, ett_xattrs);
+
+  while (xattr_size > 0) {
+
+    ti = proto_tree_add_item_ret_uint(xattr_tree, hf_xattr_pair_length, tvb, offset, 4, ENC_BIG_ENDIAN, &pair_len);
+    pair_tree = proto_item_add_subtree(ti, ett_xattr_pair);
+    offset += 4;
+    xattr_size -= 4;
+
+    mark = tvb_find_guint8(tvb, offset, pair_len, 0x00);
+    if (mark == -1) {
+      expert_add_info_format(pinfo, ti, &ef_separator_not_found, "Null byte not found");
+      return;
+    }
+
+    ti = proto_tree_add_item(pair_tree, hf_xattr_key, tvb, offset, mark - offset, ENC_ASCII | ENC_NA);
+    xattr_size -= (mark - offset) + 1;
+    pair_len -= (mark - offset) + 1;
+    offset = mark + 1;
+
+    mark = tvb_find_guint8(tvb, offset, pair_len, 0x00);
+    if (mark == -1) {
+      expert_add_info_format(pinfo, ti, &ef_separator_not_found, "Null byte not found");
+      return;
+    }
+
+    proto_tree_add_item(pair_tree, hf_xattr_value, tvb, offset, mark - offset, ENC_ASCII | ENC_NA);
+    xattr_size -= (mark - offset) + 1;
+    offset = mark + 1;
+  }
+
+  //The regular value
+  proto_tree_add_item(tree, hf_value, tvb, offset, value_len, ENC_ASCII | ENC_NA);
 }
 
 /* Dissects the required extras for subdoc single-path packets */
@@ -792,6 +1047,7 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
   case PROTOCOL_BINARY_CMD_PREPENDQ:
   case PROTOCOL_BINARY_CMD_STAT:
   case PROTOCOL_BINARY_CMD_OBSERVE:
+  case PROTOCOL_BINARY_CMD_OBSERVE_SEQNO:
     /* Must not have extras */
     if (extlen) {
       illegal = TRUE;
@@ -864,6 +1120,10 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       if (request) {
         static const int * extra_flags[] = {
           &hf_extras_flags_dcp_connection_type,
+          &hf_extras_flags_dcp_include_xattrs,
+          &hf_extras_flags_dcp_no_value,
+          &hf_extras_flags_dcp_collections,
+          &hf_extras_flags_dcp_include_delete_times,
           NULL
         };
 
@@ -977,6 +1237,12 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 2;
         proto_tree_add_item(extras_tree, hf_extras_nru, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
+
+        // Add the collections_len when extlen == 32
+        if (extlen == 32) {
+          proto_tree_add_item(extras_tree, hf_extras_collection_len, tvb, offset, 1, ENC_BIG_ENDIAN);
+          offset += 1;
+        }
       } else {
         illegal = TRUE;
       }
@@ -987,6 +1253,30 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     break;
 
   case PROTOCOL_BINARY_DCP_DELETION:
+    if (request) {
+      if (extlen == 18 || extlen == 21) {
+        proto_tree_add_item(extras_tree, hf_extras_by_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+        proto_tree_add_item(extras_tree, hf_extras_rev_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+
+        // Is this a delete with delete_time (21 bytes) or not (18 bytes)?
+        if (extlen == 18) {
+          proto_tree_add_item(extras_tree, hf_extras_nmeta, tvb, offset, 2, ENC_BIG_ENDIAN);
+          offset += 2;
+        } else if (extlen == 21) {
+          proto_tree_add_item(extras_tree, hf_extras_delete_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+          offset += 4;
+          proto_tree_add_item(extras_tree, hf_extras_collection_len, tvb, offset, 1, ENC_BIG_ENDIAN);
+          offset += 1;
+        }
+      } else if (extlen == 0) {
+        missing = TRUE; // request with no extras
+      }
+    } else if (extlen) {
+        illegal = TRUE; // response with extras
+    }
+    break;
   case PROTOCOL_BINARY_DCP_EXPIRATION:
   case PROTOCOL_BINARY_DCP_FLUSH:
     if (extlen) {
@@ -1019,11 +1309,24 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       missing = TRUE;
     }
     break;
-
+  case PROTOCOL_BINARY_DCP_SYSTEM_EVENT: {
+    if (request && extlen == 12) {
+      proto_tree_add_item(extras_tree, hf_extras_by_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+      offset += 8;
+      proto_tree_add_item(extras_tree, hf_extras_system_event_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+    }
+    break;
+  }
   case PROTOCOL_BINARY_CMD_SUBDOC_GET:
   case PROTOCOL_BINARY_CMD_SUBDOC_EXISTS:
     dissect_subdoc_spath_required_extras(tvb, extras_tree, extlen, request,
                                          &offset, path_len, &illegal);
+    if (extlen == 4) {
+      proto_tree_add_bitmask(extras_tree, tvb, offset, hf_subdoc_doc_flags,
+                             ett_extras_flags, subdoc_doc_flags, ENC_BIG_ENDIAN);
+      offset += 1;
+    }
     break;
 
   case PROTOCOL_BINARY_CMD_SUBDOC_DICT_ADD:
@@ -1039,11 +1342,21 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                          &offset, path_len, &illegal);
     if (request) {
       /* optional expiry only permitted for mutation requests,
-         iff extlen == 7 */
-      if (extlen == 7) {
-        proto_tree_add_item(extras_tree, hf_extras_expiration, tvb, offset, 4, ENC_BIG_ENDIAN);
+         if and only if (extlen == 7 || extlen == 8) */
+      if (extlen == 7 || extlen == 8) {
+        proto_tree_add_item(extras_tree, hf_extras_expiration, tvb, offset,
+                            4, ENC_BIG_ENDIAN);
         offset += 4;
-      } else if (extlen != 3) {
+      }
+      /* optional doc flags only permitted if and only if
+         (extlen == 4 || extlen == 8) */
+      if (extlen == 4 || extlen == 8) {
+        proto_tree_add_bitmask(extras_tree, tvb, offset, hf_subdoc_doc_flags,
+                               ett_extras_flags, subdoc_doc_flags,
+                               ENC_BIG_ENDIAN);
+        offset += 1;
+      }
+      if (extlen != 3 && extlen != 7 && extlen != 4 && extlen != 8) {
         illegal = TRUE;
       }
     }
@@ -1051,12 +1364,92 @@ dissect_extras(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
   case PROTOCOL_BINARY_CMD_SUBDOC_MULTI_LOOKUP:
     if (request) {
-      if (extlen) {
+      if (extlen == 1) {
+        proto_tree_add_bitmask(extras_tree, tvb, offset, hf_subdoc_doc_flags,
+                               ett_extras_flags, subdoc_doc_flags,
+                               ENC_BIG_ENDIAN);
+        offset += 1;
+      } else {
         illegal = TRUE;
       }
     }
     break;
 
+  case PROTOCOL_BINARY_CMD_SUBDOC_MULTI_MUTATION:
+    if (request) {
+      if (extlen == 4 || extlen == 5) {
+        proto_tree_add_item(extras_tree, hf_extras_expiration, tvb, offset, 4,
+                            ENC_BIG_ENDIAN);
+        offset += 4;
+      }
+      if (extlen == 1 || extlen == 5) {
+        proto_tree_add_bitmask(extras_tree, tvb, offset, hf_subdoc_doc_flags,
+                               ett_extras_flags, subdoc_doc_flags, ENC_BIG_ENDIAN);
+        offset += 1;
+      }
+      if (extlen != 1 && extlen != 4 && extlen != 5) {
+        illegal = TRUE;
+      }
+    }
+    break;
+
+  case PROTOCOL_BINARY_CMD_DEL_WITH_META:
+  case PROTOCOL_BINARY_CMD_SET_WITH_META:
+    if (request) {
+      proto_tree_add_item(extras_tree, hf_meta_flags, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(extras_tree, hf_meta_expiration, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(extras_tree, hf_meta_revseqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+      offset += 8;
+      proto_tree_add_item(extras_tree, hf_meta_cas, tvb, offset, 8, ENC_BIG_ENDIAN);
+      offset += 8;
+
+      /*The previous 24 bytes are required. The next two fields are optional,
+       * hence we are checking the extlen to see what fields we have. As they
+       * are different lengths we can do this by just checking the length.*/
+
+      // Options field (4 bytes)
+      if (extlen == 28 || extlen == 30) {
+        static const int *extra_flags[] = {
+          &hf_skip_conflict,
+          &hf_force_accept,
+          &hf_regenerate_cas,
+          NULL
+        };
+        proto_tree_add_bitmask(extras_tree, tvb, offset, hf_meta_options,
+                               ett_extras_flags, extra_flags, ENC_BIG_ENDIAN);
+        offset += 4;
+      }
+      // Meta Length field (2 bytes)
+      if (extlen == 26 || extlen == 30) {
+        proto_tree_add_item(extras_tree, hf_metalen, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+      }
+    }
+    break;
+
+  case PROTOCOL_BINARY_CMD_GET_META:
+    if (request) {
+      if(extlen) {
+        proto_tree_add_item(extras_tree, hf_meta_reqextmeta, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+      }
+    } else {
+      proto_tree_add_item(extras_tree, hf_meta_deleted, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(extras_tree, hf_meta_flags, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(extras_tree, hf_exptime, tvb, offset, 4, ENC_BIG_ENDIAN);
+      offset += 4;
+      proto_tree_add_item(extras_tree, hf_extras_meta_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+      offset += 8;
+      if (extlen == 21) {
+        proto_tree_add_item(extras_tree, hf_confres, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+      }
+    }
+    break;
   default:
     if (extlen) {
       /* Decode as unknown extras */
@@ -1166,6 +1559,7 @@ dissect_key(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     case PROTOCOL_BINARY_DCP_MUTATION:
     case PROTOCOL_BINARY_DCP_DELETION:
     case PROTOCOL_BINARY_DCP_EXPIRATION:
+    case PROTOCOL_BINARY_DCP_SYSTEM_EVENT:
       /* Request must have key */
       if (request) {
         missing = TRUE;
@@ -1214,7 +1608,7 @@ dissect_multipath_lookup_response(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree_add_item(multipath_tree, hf_value, tvb, offset, result_len,
                         ENC_ASCII | ENC_NA);
     if (result_len > 0) {
-        json_tvb = tvb_new_subset(tvb, offset, result_len, result_len);
+        json_tvb = tvb_new_subset_length_caplen(tvb, offset, result_len, result_len);
         call_dissector(json_handle, json_tvb, pinfo, multipath_tree);
     }
     offset += result_len;
@@ -1264,7 +1658,7 @@ dissect_multipath_mutation_response(tvbuff_t *tvb, packet_info *pinfo,
       proto_tree_add_item(multipath_tree, hf_value, tvb, offset, result_len,
                           ENC_ASCII | ENC_NA);
       if (result_len > 0) {
-        json_tvb = tvb_new_subset(tvb, offset, result_len, result_len);
+        json_tvb = tvb_new_subset_length_caplen(tvb, offset, result_len, result_len);
         call_dissector(json_handle, json_tvb, pinfo, multipath_tree);
       }
       offset += result_len;
@@ -1288,10 +1682,10 @@ dissect_multipath_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
   if (request) {
     gint min_spec_size;
 
-    /* Minimum size is the fixed header plus at least 1 byte for path. */
-    min_spec_size = (is_mutation ? 8 : 4) + 1;
+    /* Minimum size is the fixed header. */
+    min_spec_size = (is_mutation ? 8 : 4);
 
-    while (offset + min_spec_size < end) {
+    while (offset + min_spec_size <= end) {
       guint32 path_len;
       guint32 spec_value_len = 0;
       gint start_offset = offset;
@@ -1320,9 +1714,11 @@ dissect_multipath_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 4;
       }
 
-      proto_tree_add_item(multipath_tree, hf_multipath_path, tvb, offset, path_len,
-                          ENC_ASCII | ENC_NA);
-      offset += path_len;
+      if (path_len) {
+        proto_tree_add_item(multipath_tree, hf_multipath_path, tvb, offset, path_len,
+                            ENC_ASCII | ENC_NA);
+        offset += path_len;
+      }
 
       if (spec_value_len > 0) {
         proto_tree_add_item(multipath_tree, hf_multipath_value, tvb, offset,
@@ -1346,7 +1742,7 @@ dissect_multipath_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static void
 dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
               gint offset, guint32 value_len, guint16 path_len, guint8 opcode,
-              gboolean request)
+              gboolean request, guint8 datatype)
 {
   proto_item *ti = NULL;
   gboolean    illegal = FALSE;  /* Set when value shall not be present */
@@ -1374,7 +1770,61 @@ dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
           oo += 8;
         }
       }
-    } else if (!request && opcode == PROTOCOL_BINARY_DCP_STREAM_REQUEST) {
+    } else if (opcode == PROTOCOL_BINARY_CMD_OBSERVE_SEQNO) {
+      if (request) {
+        ti = proto_tree_add_item(tree, hf_observe_vbucket_uuid, tvb, offset, 8, ENC_BIG_ENDIAN);
+        if (value_len != 8) {
+          expert_add_info_format(pinfo, ti, &ef_warn_illegal_value_length, "Illegal Value length, should be 8");
+        }
+      } else {
+        /*
+         * <format_type, vbucket id, vbucket uuid, last_persisted_seqno, current_seqno>
+         *
+         * - format_type is of type uint8_t and it describes whether
+         *   the vbucket has failed over or not. 1 indicates a hard
+         *   failover, 0 indicates otherwise.
+         * - vbucket id is of type uint16_t and it is the identifier for
+         *   the vbucket.
+         * - vbucket uuid is of type uint64_t and it represents a UUID for
+         *    the vbucket.
+         * - last_persisted_seqno is of type uint64_t and it is the
+         *   last sequence number that was persisted for this
+         *   vbucket.
+         * - current_seqno is of the type uint64_t and it is the
+         *   sequence number of the latest mutation in the vbucket.
+         *
+         * In the case of a hard failover, the tuple is of the form
+         * <format_type, vbucket id, vbucket uuid, last_persisted_seqno, current_seqno,
+         * old vbucket uuid, last_received_seqno>
+         *
+         * - old vbucket uuid is of type uint64_t and it is the
+         *   vbucket UUID of the vbucket prior to the hard failover.
+         *
+         * - last_received_seqno is of type uint64_t and it is the
+         *   last received sequence number in the old vbucket uuid.
+         *
+         * The other fields are the same as that mentioned in the normal case.
+         */
+        guint8 failed_over;
+
+        proto_tree_add_item(tree, hf_observe_failed_over, tvb, offset, 1, ENC_BIG_ENDIAN);
+        failed_over = tvb_get_guint8(tvb, offset);
+        offset++;
+        proto_tree_add_item(tree, hf_observe_vbucket, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_observe_vbucket_uuid, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+        proto_tree_add_item(tree, hf_observe_last_persisted_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+        proto_tree_add_item(tree, hf_observe_current_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+        if (failed_over) {
+          proto_tree_add_item(tree, hf_observe_old_vbucket_uuid, tvb, offset, 8, ENC_BIG_ENDIAN);
+          offset += 8;
+          proto_tree_add_item(tree, hf_observe_last_received_seqno, tvb, offset, 8, ENC_BIG_ENDIAN);
+        }
+      }
+    } else if (!request && (opcode == PROTOCOL_BINARY_DCP_STREAM_REQUEST || opcode == PROTOCOL_BINARY_DCP_FAILOVER_LOG_REQUEST)) {
       if (value_len % 16 != 0) {
         expert_add_info_format(pinfo, ti, &ef_warn_illegal_value_length, "Response with bad failover log length");
       } else {
@@ -1413,10 +1863,10 @@ dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       if (value_len != 8) {
         expert_add_info_format(pinfo, ti, &ef_warn_illegal_value_length, "Illegal Value length, should be 8");
       }
-    } else if (!request && has_json_value(opcode)) {
+    } else if (has_json_value(request, opcode)) {
       tvbuff_t *json_tvb;
       ti = proto_tree_add_item(tree, hf_value, tvb, offset, value_len, ENC_ASCII | ENC_NA);
-      json_tvb = tvb_new_subset(tvb, offset, value_len, value_len);
+      json_tvb = tvb_new_subset_length_caplen(tvb, offset, value_len, value_len);
       call_dissector(json_handle, json_tvb, pinfo, tree);
 
     } else if (opcode == PROTOCOL_BINARY_CMD_SUBDOC_MULTI_LOOKUP ||
@@ -1425,6 +1875,15 @@ dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                               (opcode == PROTOCOL_BINARY_CMD_SUBDOC_MULTI_MUTATION),
                               request);
 
+    } else if (opcode == PROTOCOL_BINARY_CMD_HELLO) {
+      gint curr = offset, end = offset + value_len;
+      proto_tree *hello_features_tree;
+      ti = proto_tree_add_item(tree, hf_hello_features, tvb, offset, value_len, ENC_ASCII|ENC_NA);
+      hello_features_tree = proto_item_add_subtree(ti, ett_hello_features);
+      while (curr < end) {
+        proto_tree_add_item(hello_features_tree, hf_hello_features_feature, tvb, curr, 2, ENC_BIG_ENDIAN);
+        curr += 2;
+      }
     } else if (path_len != 0) {
         ti = proto_tree_add_item(tree, hf_path, tvb, offset, path_len, ENC_ASCII | ENC_NA);
         value_len -= path_len;
@@ -1432,8 +1891,103 @@ dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             ti = proto_tree_add_item(tree, hf_value, tvb, offset + path_len,
                                      value_len, ENC_ASCII | ENC_NA);
         }
+    } else if (request && opcode == PROTOCOL_BINARY_CMD_CREATE_BUCKET) {
+      gint sep, equals_pos, sep_pos, config_len;
+      proto_tree *key_tree, *config_tree = NULL;
+
+      /* There are 2 main items stored in the value. The bucket type (represented by a path to the engine) and the
+       * bucket config. These are separated by a NULL byte with the bucket type coming first.*/
+
+      sep = tvb_find_guint8(tvb, offset, value_len, 0x00);
+      if (sep == -1) {
+        ti = proto_tree_add_item(tree, hf_value, tvb, offset, value_len, ENC_ASCII|ENC_NA);
+        expert_add_info_format(pinfo, ti, &ef_separator_not_found, "Null byte not found");
+      } else {
+        proto_tree_add_item(tree, hf_bucket_type, tvb, offset, sep - offset, ENC_ASCII | ENC_NA);
+        config_len = value_len - (sep - offset) - 1; //Don't include NULL byte in length
+        if(config_len <= 0) {
+          expert_add_info_format(pinfo, ti, &ef_separator_not_found, "Separator not found in expected location");
+        } else {
+          offset = sep + 1;// Ignore NULL byte
+
+          ti = proto_tree_add_item(tree, hf_bucket_config, tvb, offset, config_len, ENC_ASCII | ENC_NA);
+          config_tree = proto_item_add_subtree(ti, ett_config);
+        }
+
+        /* The config is arranged as "key=value;key=value..."*/
+        while (config_len > 0) {
+          // Get the key
+          equals_pos = tvb_find_guint8(tvb, offset, config_len, 0x3d);
+          if (equals_pos == -1) {
+            expert_add_info_format(pinfo, ti, &ef_illegal_value, "Each key needs a value");
+            break; // Break out the while loop
+          }
+          ti = proto_tree_add_item(config_tree, hf_config_key, tvb, offset, equals_pos - offset, ENC_ASCII | ENC_NA);
+          key_tree = proto_item_add_subtree(ti, ett_config_key);
+          config_len -= (equals_pos - offset + 1);
+          offset = equals_pos + 1;
+          if (config_len <= 0) {
+            expert_add_info_format(pinfo, ti, &ef_illegal_value, "Corresponding value missing");
+            break;//Break out of while loop
+          }
+
+          // Get the value
+          sep_pos = tvb_find_guint8(tvb, offset, config_len, 0x3b);
+          if (sep_pos == -1) {
+            expert_add_info_format(pinfo, ti, &ef_separator_not_found, "Each key-value pair must be terminated by semi-colon");
+            break; // Break out the while loop
+          }
+          proto_tree_add_item(key_tree, hf_config_value, tvb, offset, sep_pos - offset, ENC_ASCII | ENC_NA);
+          config_len -= (sep_pos - offset + 1);
+          offset = sep_pos + 1;
+        }
+      }
+    } else if ((datatype & DT_XATTR) && (opcode == PROTOCOL_BINARY_CMD_SET_WITH_META ||
+      opcode == PROTOCOL_BINARY_DCP_MUTATION || opcode == PROTOCOL_BINARY_DCP_DELETION ||
+      opcode == PROTOCOL_BINARY_CMD_DEL_WITH_META || opcode == PROTOCOL_BINARY_CMD_ADD_WITH_META ||
+      opcode == PROTOCOL_BINARY_CMD_SETQ_WITH_META || opcode == PROTOCOL_BINARY_CMD_DELQ_WITH_META ||
+      opcode == PROTOCOL_BINARY_CMD_ADDQ_WITH_META )) {
+
+      dissect_dcp_xattrs(tvb, tree, value_len, offset, pinfo);
+    } else if (request && opcode == PROTOCOL_BINARY_CMD_GET_ERROR_MAP) {
+      if (value_len != 2) {
+        expert_add_info_format(pinfo, ti, &ef_warn_illegal_value_length, "Illegal Value length, should be 2");
+        ti = proto_tree_add_item(tree, hf_value, tvb, offset, value_len, ENC_ASCII | ENC_NA);
+      } else {
+        ti = proto_tree_add_item(tree, hf_get_errmap_version, tvb, offset, value_len, ENC_BIG_ENDIAN);
+      }
     } else {
       ti = proto_tree_add_item(tree, hf_value, tvb, offset, value_len, ENC_ASCII | ENC_NA);
+#ifdef HAVE_SNAPPY
+      if (datatype & DT_SNAPPY) {
+        size_t orig_size = 0;
+        snappy_status ret;
+        guchar *decompressed_buffer = NULL;
+        tvbuff_t* compressed_tvb = NULL;
+
+        ret = snappy_uncompressed_length(tvb_get_ptr(tvb, offset, -1),
+                                         tvb_captured_length_remaining(tvb, offset),
+                                         &orig_size);
+        if (ret == SNAPPY_OK) {
+          decompressed_buffer = (guchar*)wmem_alloc(pinfo->pool, orig_size);
+          ret = snappy_uncompress(tvb_get_ptr(tvb, offset, -1),
+                                  tvb_captured_length_remaining(tvb, offset),
+                                  decompressed_buffer,
+                                  &orig_size);
+          if (ret == SNAPPY_OK) {
+            compressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer, (guint32)orig_size, (guint32)orig_size);
+            add_new_data_source(pinfo, compressed_tvb, "Decompressed Data");
+            if (datatype & DT_JSON) {
+              call_dissector(json_handle, compressed_tvb, pinfo, tree);
+            }
+          } else {
+            expert_add_info_format(pinfo, ti, &ef_compression_error, "Error uncompressing snappy data");
+          }
+        } else {
+            expert_add_info_format(pinfo, ti, &ef_compression_error, "Error uncompressing snappy data");
+        }
+      }
+#endif
     }
   }
 
@@ -1512,13 +2066,117 @@ dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
   }
 }
 
+/*
+  Add an escaped field for Flexible Framing Extras:
+  https://github.com/couchbase/kv_engine/blob/master/docs/BinaryProtocol.md
+
+  len or id can be escaped, i.e. the len/id is derived from more then 1 byte
+*/
+static guint16 add_escaped_field(tvbuff_t* tvb,
+                                 proto_tree* tree,
+                                 int hfid,
+                                 gint* offset) {
+    guint16 escaped_val = 0x0F + tvb_get_guint8(tvb, *offset);
+    char str[32];
+    g_snprintf(str, 32, "%" G_GUINT16_FORMAT , escaped_val);
+    proto_tree_add_string(tree, hfid, tvb, *offset, 1, str);
+    (*offset)++;
+    return escaped_val;
+}
+
+/*
+  Flexible Framing Extras:
+  https://github.com/couchbase/kv_engine/blob/master/docs/BinaryProtocol.md
+*/
+static void dissect_flexible_framing_extras(tvbuff_t* tvb,
+                                            packet_info* pinfo,
+                                            proto_tree* tree,
+                                            gint offset,
+                                            guint8 flex_frame_extra_len) {
+
+  proto_item* flex_item = proto_tree_add_item(tree,
+                                              hf_flex_extras,
+                                              tvb,
+                                              offset,
+                                              flex_frame_extra_len,
+                                              ENC_NA);
+
+  /* iterate until we've consumed the flex_frame_extra_len */
+  gint bytes_remaining = flex_frame_extra_len;
+  while(bytes_remaining > 0) {
+    guint8 id_and_len = tvb_get_guint8(tvb, offset);
+    /*id/len u16 as they may be escaped and derived from 2 bytes */
+    guint16 id = id_and_len >> 4;
+    guint16 len = id_and_len & 0x0F;
+
+    proto_tree* frame_tree = proto_item_add_subtree(flex_item,
+                                                    ett_flex_frame_extras);
+
+    static const gint* frame_id_len_fields[] = {
+      &hf_flex_frame_id,
+      &hf_flex_frame_len,
+      NULL
+    };
+
+    proto_item* frame = proto_tree_add_bitmask(frame_tree,
+                                               tvb,
+                                               offset,
+                                               hf_flex_frame_id_len,
+                                               ett_flex_frame_extras,
+                                               frame_id_len_fields,
+                                               ENC_BIG_ENDIAN);
+    offset++;
+    bytes_remaining--;
+
+    /* Handle escaped id and/or len, this where 0xF is reserved to mean the rest
+       of id is in the next byte (same for len)
+       Final id or len is 0xF + the next byte value*/
+    if (id == 0x0F) {
+        id = add_escaped_field(tvb, frame_tree, hf_flex_frame_id_esc, &offset);
+        bytes_remaining--;
+    }
+
+     if (len == 0x0F) {
+        len = add_escaped_field(tvb, frame_tree, hf_flex_frame_len_esc, &offset);
+        bytes_remaining--;
+    }
+
+    if (id == FLEX_ID_RX_TX_DURATION) {
+      // Decode the u16 time value into a double
+      guint16 encoded_micros = tvb_get_ntohs(tvb, offset);
+      proto_tree_add_double(frame_tree,
+                            hf_flex_frame_tracing_duration,
+                            tvb,
+                            offset,
+                            2,
+                            pow(encoded_micros, 1.74) / 2);
+    } else {
+        expert_add_info_format(pinfo,
+                               frame,
+                               &ef_warn_unknown_flex_code,
+                               "Unknown flexible ID");
+    }
+    offset += len;
+    bytes_remaining -= len;
+  }
+}
+
+static gboolean
+is_xerror(guint8 datatype, guint16 status)
+{
+  if ((datatype & DT_JSON) && status != PROTOCOL_BINARY_RESPONSE_SUBDOC_MULTI_PATH_FAILURE) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
 static int
 dissect_couchbase(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree *couchbase_tree;
   proto_item *couchbase_item, *ti;
   gint        offset = 0;
-  guint8      magic, opcode, extlen;
+  guint8      magic, opcode, extlen, datatype, flex_frame_extras = 0;
   guint16     keylen, status = 0, vbucket;
   guint32     bodylen, value_len;
   gboolean    request;
@@ -1555,18 +2213,32 @@ dissect_couchbase(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
                   val_to_str(magic, magic_vals, "Unknown magic (0x%x)"),
                   opcode);
 
-  keylen = tvb_get_ntohs(tvb, offset);
-  proto_tree_add_item(couchbase_tree, hf_keylength, tvb, offset, 2, ENC_BIG_ENDIAN);
-  offset += 2;
+  /* A response now has two magic values */
+  if (magic == MAGIC_RESPONSE_FLEX) {
+    /* 2 separate bytes for the flex_extras and keylen */
+    flex_frame_extras = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(couchbase_tree, hf_flex_extras_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    keylen = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(couchbase_tree, hf_flex_keylength, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+  } else {
+    /* 2 bytes for the key */
+    keylen = tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(couchbase_tree, hf_keylength, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+  }
 
   extlen = tvb_get_guint8(tvb, offset);
   proto_tree_add_item(couchbase_tree, hf_extlength, tvb, offset, 1, ENC_BIG_ENDIAN);
   offset += 1;
 
-  proto_tree_add_item(couchbase_tree, hf_datatype, tvb, offset, 1, ENC_BIG_ENDIAN);
+  datatype = tvb_get_guint8(tvb, offset);
+  proto_tree_add_bitmask(couchbase_tree, tvb, offset, hf_datatype, ett_datatype, datatype_vals, ENC_BIG_ENDIAN);
   offset += 1;
 
-  if (magic & 0x01) {    /* We suppose this is a response, even when unknown magic byte */
+  /* We suppose this is a response, even when unknown magic byte */
+  if (magic & 0x01 || magic == MAGIC_RESPONSE_FLEX) {
     request = FALSE;
     status = tvb_get_ntohs(tvb, offset);
     ti = proto_tree_add_item(couchbase_tree, hf_status, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -1587,7 +2259,7 @@ dissect_couchbase(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
   offset += 2;
 
   bodylen = tvb_get_ntohl(tvb, offset);
-  value_len = bodylen - extlen - keylen;
+  value_len = bodylen - extlen - keylen - flex_frame_extras;
   ti = proto_tree_add_uint(couchbase_tree, hf_value_length, tvb, offset, 0, value_len);
   PROTO_ITEM_SET_GENERATED(ti);
 
@@ -1609,6 +2281,12 @@ dissect_couchbase(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     offset += 8;
   }
 
+  // Flex frame extras should be dissected for success and errors
+  if (flex_frame_extras) {
+    dissect_flexible_framing_extras(tvb, pinfo, couchbase_tree, offset, flex_frame_extras);
+    offset += flex_frame_extras;
+  }
+
   if (status == 0) {
     guint16 path_len = 0;
 
@@ -1620,13 +2298,13 @@ dissect_couchbase(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     offset += keylen;
 
     dissect_value(tvb, pinfo, couchbase_tree, offset, value_len, path_len,
-                  opcode, request);
+                  opcode, request, datatype);
   } else if (bodylen) {
     proto_tree_add_item(couchbase_tree, hf_value, tvb, offset, bodylen,
                         ENC_ASCII | ENC_NA);
-    if (status == PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET) {
+    if (status == PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET || is_xerror(datatype, status)) {
       tvbuff_t *json_tvb;
-      json_tvb = tvb_new_subset(tvb, offset, bodylen, bodylen);
+      json_tvb = tvb_new_subset_length_caplen(tvb, offset, bodylen, bodylen);
       call_dissector(json_handle, json_tvb, pinfo, couchbase_tree);
 
     } else if (opcode == PROTOCOL_BINARY_CMD_SUBDOC_MULTI_LOOKUP) {
@@ -1700,7 +2378,10 @@ proto_register_couchbase(void)
     { &hf_extlength, { "Extras Length", "couchbase.extras.length", FT_UINT8, BASE_DEC, NULL, 0x0, "Length in bytes of the command extras", HFILL } },
     { &hf_keylength, { "Key Length", "couchbase.key.length", FT_UINT16, BASE_DEC, NULL, 0x0, "Length in bytes of the text key that follows the command extras", HFILL } },
     { &hf_value_length, { "Value Length", "couchbase.value.length", FT_UINT32, BASE_DEC, NULL, 0x0, "Length in bytes of the value that follows the key", HFILL } },
-    { &hf_datatype, { "Data Type", "couchbase.datatype", FT_UINT8, BASE_HEX, VALS(datatype_vals), 0x0, NULL, HFILL } },
+    { &hf_datatype, { "Data Type", "couchbase.datatype", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_datatype_json, { "JSON", "couchbase.datatype.json", FT_BOOLEAN, 8, TFS(&tfs_set_notset), DT_JSON, "JSON datatype", HFILL} },
+    { &hf_datatype_snappy, { "Snappy", "couchbase.datatype.snappy", FT_BOOLEAN, 8, TFS(&tfs_set_notset), DT_SNAPPY, "Snappy Compressed", HFILL} },
+    { &hf_datatype_xattr, { "XATTR", "couchbase.datatype.xattr", FT_BOOLEAN, 8, TFS(&tfs_set_notset), DT_XATTR, "Xattrs included", HFILL} },
     { &hf_vbucket, { "VBucket", "couchbase.vbucket", FT_UINT16, BASE_DEC_HEX, NULL, 0x0, "VBucket ID", HFILL } },
     { &hf_status, { "Status", "couchbase.status", FT_UINT16, BASE_HEX|BASE_EXT_STRING, &status_vals_ext, 0x0, "Status of the response", HFILL } },
     { &hf_total_bodylength, { "Total Body Length", "couchbase.total_bodylength", FT_UINT32, BASE_DEC, NULL, 0x0, "Length in bytes of extra + key + value", HFILL } },
@@ -1708,6 +2389,17 @@ proto_register_couchbase(void)
     { &hf_cas, { "CAS", "couchbase.cas", FT_UINT64, BASE_HEX, NULL, 0x0, "Data version check", HFILL } },
     { &hf_ttp, { "Time to Persist", "couchbase.ttp", FT_UINT32, BASE_DEC, NULL, 0x0, "Approximate time needed to persist the key (milliseconds)", HFILL } },
     { &hf_ttr, { "Time to Replicate", "couchbase.ttr", FT_UINT32, BASE_DEC, NULL, 0x0, "Approximate time needed to replicate the key (milliseconds)", HFILL } },
+    { &hf_flex_keylength, { "Key Length", "couchbase.key.length", FT_UINT8, BASE_DEC, NULL, 0x0, "Length in bytes of the text key that follows the command extras", HFILL } },
+    { &hf_flex_extras_length, { "Flexible Framing Extras Length", "couchbase.flex_extras", FT_UINT8, BASE_DEC, NULL, 0x0, "Length in bytes of the flexible framing extras that follows the response header", HFILL } },
+    { &hf_flex_extras, {"Flexible Framing Extras", "couchbase.flex_frame_extras", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL } },
+    { &hf_flex_frame, {"Flexible Frame", "couchbase.flex_frame.frame", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL } },
+    { &hf_flex_frame_id_len, {"Flexible Frame Byte0", "couchbase.flex_frame.byte0", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL } },
+    { &hf_flex_frame_id, {"Flexible Frame ID", "couchbase.flex_frame.frame.id", FT_UINT8, BASE_DEC, VALS(flex_frame_ids), 0xF0, NULL, HFILL } },
+    { &hf_flex_frame_id_esc, {"Flexible Frame ID (escaped)", "couchbase.flex_frame.frame.id", FT_UINT16, BASE_DEC, VALS(flex_frame_ids), 0xF0, NULL, HFILL } },
+    { &hf_flex_frame_len, {"Flexible Frame Len", "couchbase.flex_frame.frame.len", FT_UINT8, BASE_DEC, NULL, 0x0F, NULL, HFILL } },
+    { &hf_flex_frame_len_esc, {"Flexible Frame Len (escaped)", "couchbase.flex_frame.frame.len", FT_UINT16, BASE_DEC, NULL, 0x0F, NULL, HFILL } },
+    { &hf_flex_frame_tracing_duration, {"Server Recv->Send duration", "couchbase.flex_frame.frame.duration", FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_microseconds, 0, NULL, HFILL } },
+
     { &hf_extras, { "Extras", "couchbase.extras", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL } },
     { &hf_extras_flags, { "Flags", "couchbase.extras.flags", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL } },
     { &hf_extras_flags_backfill, { "Backfill Age", "couchbase.extras.flags.backfill", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x01, NULL, HFILL } },
@@ -1719,8 +2411,16 @@ proto_register_couchbase(void)
     { &hf_extras_flags_checkpoint, { "Checkpoint", "couchbase.extras.flags.checkpoint", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x40, NULL, HFILL } },
 
     /* Sub-document */
-    { &hf_subdoc_flags, {"Subdoc flags", "couchbase.extras.subdoc.flags", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL} },
-    { &hf_subdoc_flags_mkdirp, {"MKDIR_P", "couchbase.extras.subdoc.flags.mkdir_p", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x01, "Create non-existent intermediate paths", HFILL} },
+    { &hf_subdoc_flags, { "Subdoc flags", "couchbase.extras.subdoc.flags", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_subdoc_flags_mkdirp, { "MKDIR_P", "couchbase.extras.subdoc.flags.mkdir_p", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x01, "Create non-existent intermediate paths", HFILL} },
+    { &hf_subdoc_flags_xattrpath, { "XATTR_PATH", "couchbase.extras.subdoc.flags.xattr_path", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x04, "If set path refers to extended attribute (XATTR)", HFILL} },
+    { &hf_subdoc_flags_expandmacros, { "EXPAND_MACROS", "couchbase.extras.subdoc.flags.expand_macros", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x10, "Expand macro values inside XATTRs", HFILL} },
+    { &hf_subdoc_flags_reserved, {"Reserved fields", "couchbase.extras.subdoc.flags.reserved", FT_UINT8, BASE_HEX, NULL, 0xEA, "A reserved field", HFILL} },
+    { &hf_subdoc_doc_flags, { "Subdoc Doc flags", "couchbase.extras.subdoc.doc_flags", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_subdoc_doc_flags_mkdoc, { "MKDOC", "couchbase.extras.subdoc.doc_flags.mkdoc", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x01, "Create document if it does not exist, implies mkdir_p", HFILL} },
+    { &hf_subdoc_doc_flags_add, { "ADD", "couchbase.extras.subdoc.doc_flags.add", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x02, "Fail if doc already exists", HFILL} },
+    { &hf_subdoc_doc_flags_accessdeleted, { "ACCESS_DELETED", "couchbase.extras.subdoc.doc_flags.access_deleted", FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x04, "Allow access to XATTRs for deleted documents", HFILL} },
+    { &hf_subdoc_doc_flags_reserved, {"Reserved fields", "couchbase.extras.subdoc.doc_flags.reserved", FT_UINT8, BASE_HEX, NULL, 0xF8, "A reserved field", HFILL} },
     { &hf_extras_pathlen, { "Path Length", "couchbase.extras.pathlen", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL } },
 
     /* DCP flags */
@@ -1732,6 +2432,10 @@ proto_register_couchbase(void)
     { &hf_extras_flags_dcp_snapshot_marker_disk, {"Disk", "couchbase.extras.flags.dcp_snapshot_marker_disk", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x02, NULL, HFILL } },
     { &hf_extras_flags_dcp_snapshot_marker_chk, {"Chk", "couchbase.extras.flags.dcp_snapshot_marker_chk", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x04, NULL, HFILL } },
     { &hf_extras_flags_dcp_snapshot_marker_ack, {"Ack", "couchbase.extras.flags.dcp_snapshot_marker_ack", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x08, NULL, HFILL } },
+    { &hf_extras_flags_dcp_include_xattrs, {"Include XATTRs", "couchbase.extras.flags.dcp_include_xattrs", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x04, "Indicates the server should include documents XATTRs", HFILL} },
+    { &hf_extras_flags_dcp_no_value, {"No Value", "couchbase.extras.flags.dcp_no_value", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x08, "Indicates the server should strip off values", HFILL} },
+    { &hf_extras_flags_dcp_collections, {"Enable Collections", "couchbase.extras.flags.dcp_collections", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x10, "Indicates the server should stream collections", HFILL} },
+    { &hf_extras_flags_dcp_include_delete_times, {"Include Delete Times", "couchbase.extras.flags.dcp_include_delete_times", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x20, "Indicates the server should include delete timestamps", HFILL} },
     { &hf_extras_seqno, { "Sequence number", "couchbase.extras.seqno", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL } },
     { &hf_extras_opaque, { "Opaque (vBucket identifier)", "couchbase.extras.opaque", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL } },
     { &hf_extras_reserved, { "Reserved", "couchbase.extras.reserved", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL } },
@@ -1746,6 +2450,9 @@ proto_register_couchbase(void)
     { &hf_extras_nmeta, { "nmeta", "couchbase.extras.nmeta", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL } },
     { &hf_extras_nru, { "nru", "couchbase.extras.nru", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL } },
     { &hf_extras_bytes_to_ack, { "bytes_to_ack", "couchbase.extras.bytes_to_ack", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL } },
+    { &hf_extras_delete_time, { "delete_time", "couchbase.extras.delete_time", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL } },
+    { &hf_extras_collection_len, { "collection_len", "couchbase.extras.collection_len", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL } },
+    { &hf_extras_system_event_id, { "system_event_id", "couchbase.extras.system_event_id", FT_UINT32, BASE_DEC, VALS(dcp_system_event_id_vals), 0x0, NULL, HFILL } },
 
     { &hf_failover_log, { "Failover Log", "couchbase.dcp.failover_log", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL } },
     { &hf_failover_log_size, { "Size", "couchbase.dcp.failover_log.size", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL } },
@@ -1772,6 +2479,14 @@ proto_register_couchbase(void)
     { &hf_observe_vbucket, { "VBucket", "couchbase.observe.vbucket", FT_UINT16, BASE_HEX, NULL, 0x0, "VBucket of the observable key", HFILL } },
     { &hf_observe_status, { "Status", "couchbase.observe.status", FT_UINT8, BASE_HEX, NULL, 0x0, "Status of the observable key", HFILL } },
     { &hf_observe_cas, { "CAS", "couchbase.observe.cas", FT_UINT64, BASE_HEX, NULL, 0x0, "CAS value of the observable key", HFILL } },
+    { &hf_observe_vbucket_uuid, { "VBucket UUID", "couchbase.observe.vbucket_uuid", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL } },
+    { &hf_observe_last_persisted_seqno, { "Last persisted sequence number", "couchbase.observe.last_persisted_seqno", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL } },
+    { &hf_observe_current_seqno, { "Current sequence number", "couchbase.observe.current_seqno", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL } },
+    { &hf_observe_old_vbucket_uuid, { "Old VBucket UUID", "couchbase.observe.old_vbucket_uuid", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL } },
+    { &hf_observe_last_received_seqno, { "Last received sequence number", "couchbase.observe.last_received_seqno", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL } },
+    { &hf_observe_failed_over, { "Failed over", "couchbase.observe.failed_over", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL } },
+
+    { &hf_get_errmap_version, {"Version", "couchbase.geterrmap.version", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL} },
 
     { &hf_multipath_opcode, { "Opcode", "couchbase.multipath.opcode", FT_UINT8, BASE_HEX|BASE_EXT_STRING, &opcode_vals_ext, 0x0, "Command code", HFILL } },
     { &hf_multipath_index, { "Index", "couchbase.multipath.index", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL } },
@@ -1779,6 +2494,34 @@ proto_register_couchbase(void)
     { &hf_multipath_path, { "Path", "couchbase.multipath.path", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL } },
     { &hf_multipath_valuelen, { "Value Length", "couchbase.multipath.value.length", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL } },
     { &hf_multipath_value, { "Value", "couchbase.multipath.value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL } },
+
+    { &hf_meta_flags, {"Flags", "couchbase.extras.flags", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_meta_expiration, {"Expiration", "couchbase.extras.expiration", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_meta_revseqno, {"RevSeqno", "couchbase.extras.revseqno", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_meta_cas, {"CAS", "couchbase.extras.cas", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_meta_options, {"Options", "couchbase.extras.options", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_skip_conflict, {"SKIP_CONFLICT_RESOLUTION", "couchbase.extras.options.skip_conflict_resolution", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x01, NULL, HFILL} },
+    { &hf_force_accept, {"FORCE_ACCEPT_WITH_META_OPS", "couchbase.extras.options.force_accept_with_meta_ops", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x02, NULL, HFILL} },
+    { &hf_regenerate_cas, {"REGENERATE_CAS", "couchbase.extras.option.regenerate_cas", FT_BOOLEAN, 16, TFS(&tfs_set_notset), 0x04, NULL, HFILL} },
+    { &hf_metalen, {"Meta Length", "couchbase.extras.meta_length", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_meta_reqextmeta, {"ReqExtMeta", "couchbase.extras.reqextmeta", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_meta_deleted, {"Deleted", "couchbase.extras.deleted", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_exptime, {"Expiry", "couchbase.extras.expiry", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_extras_meta_seqno, {"Seqno", "couchbase.extras.meta.seqno", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL} },
+    { &hf_confres, {"ConfRes", "couchbase.extras.confres", FT_UINT8, BASE_HEX, NULL, 0x0, "Conflict Resolution Mode", HFILL} },
+
+    { &hf_bucket_type, {"Bucket Type", "couchbase.bucket.type", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_bucket_config, {"Bucket Config", "couchbase.bucket.config", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_config_key, {"Key", "couchbase.bucket.config.key", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_config_value, {"Value", "couchbase.bucket.config.value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_hello_features, {"Hello Features", "couchbase.hello.features", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_hello_features_feature, {"Feature", "couchbase.hello.features.feature", FT_UINT16, BASE_HEX, VALS(feature_vals), 0x0, NULL, HFILL} },
+
+    { &hf_xattrs, { "XATTRs", "couchbase.xattrs", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_xattr_length, {  "XATTR Length", "couchbase.xattrs.length", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL} },
+    { &hf_xattr_pair_length, { "XATTR Pair Length", "couchbase.xattrs.pair.length", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL} },
+    { &hf_xattr_key, { "Key", "couchbase.xattrs.pair.key", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_xattr_value, { "Value", "couchbase.xattrs.pair.value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
   };
 
   static ei_register_info ei[] = {
@@ -1792,17 +2535,29 @@ proto_register_couchbase(void)
     { &ef_warn_illegal_value_length, { "couchbase.warn.illegal_value_length", PI_UNDECODED, PI_WARN, "Illegal Value length", EXPFILL }},
     { &ef_warn_unknown_magic_byte, { "couchbase.warn.unknown_magic_byte", PI_UNDECODED, PI_WARN, "Unknown magic byte", EXPFILL }},
     { &ef_warn_unknown_opcode, { "couchbase.warn.unknown_opcode", PI_UNDECODED, PI_WARN, "Unknown opcode", EXPFILL }},
-    { &ef_note_status_code, { "couchbase.note.status_code", PI_RESPONSE_CODE, PI_NOTE, "Status", EXPFILL }}
+    { &ef_note_status_code, { "couchbase.note.status_code", PI_RESPONSE_CODE, PI_NOTE, "Status", EXPFILL }},
+    { &ef_separator_not_found, { "couchbase.warn.separator_not_found", PI_UNDECODED, PI_WARN, "Separator not found", EXPFILL }},
+    { &ef_illegal_value, { "couchbase.warn.illegal_value", PI_UNDECODED, PI_WARN, "Illegal value for command", EXPFILL }},
+    { &ef_compression_error, { "couchbase.error.compression", PI_UNDECODED, PI_WARN, "Compression error", EXPFILL }},
+    { &ef_warn_unknown_flex_code, { "couchbase.warn.unknown_flexible_frame_id", PI_UNDECODED, PI_WARN, "Flexible Response ID warning", EXPFILL }}
+
   };
 
   static gint *ett[] = {
     &ett_couchbase,
     &ett_extras,
+    &ett_flex_frame_extras,
     &ett_extras_flags,
     &ett_observe,
     &ett_failover_log,
     &ett_vbucket_states,
-    &ett_multipath
+    &ett_multipath,
+    &ett_config,
+    &ett_config_key,
+    &ett_hello_features,
+    &ett_datatype,
+    &ett_xattrs,
+    &ett_xattr_pair
   };
 
   module_t *couchbase_module;
@@ -1816,11 +2571,10 @@ proto_register_couchbase(void)
   expert_couchbase = expert_register_protocol(proto_couchbase);
   expert_register_field_array(expert_couchbase, ei, array_length(ei));
 
-  /* Set default port range */
-  range_convert_str(&couchbase_tcp_port_range, COUCHBASE_DEFAULT_PORT, MAX_TCP_PORT);
-
   /* Register our configuration options */
-  couchbase_module = prefs_register_protocol(proto_couchbase, NULL);
+  couchbase_module = prefs_register_protocol(proto_couchbase, &proto_reg_handoff_couchbase);
+
+  couchbase_handle = register_dissector("couchbase", dissect_couchbase_tcp, proto_couchbase);
 
   prefs_register_bool_preference(couchbase_module, "desegment_pdus",
                                  "Reassemble PDUs spanning multiple TCP segments",
@@ -1830,32 +2584,28 @@ proto_register_couchbase(void)
                                  " to reassemble TCP streams\" in the TCP protocol settings.",
                                  &couchbase_desegment_body);
 
-  prefs_register_range_preference(couchbase_module, "tcp.ports", "Couchbase TCP ports",
-                                  "TCP ports to be decoded as Couchbase (default is "
-                                  COUCHBASE_DEFAULT_PORT ")",
-                                  &couchbase_tcp_port_range, MAX_TCP_PORT);
+  prefs_register_uint_preference(couchbase_module, "ssl_port", "SSL/TLS Data Port",
+                                 "The port used for communicating with the data service via ssl/tls",
+                                 10, &couchbase_ssl_port_pref);
+
+
 }
 
 /* Register the tcp couchbase dissector. */
 void
 proto_reg_handoff_couchbase(void)
 {
-  static range_t *tcp_port_range;
   static gboolean initialized = FALSE;
 
-  if (initialized == FALSE) {
-    couchbase_tcp_handle = create_dissector_handle(dissect_couchbase_tcp, proto_couchbase);
+  if (!initialized){
+    json_handle = find_dissector_add_dependency("json", proto_couchbase);
+    dissector_add_uint_range_with_preference("tcp.port", COUCHBASE_DEFAULT_PORT, couchbase_handle);
     initialized = TRUE;
+  } else {
+    ssl_dissector_delete(couchbase_ssl_port, couchbase_handle);
   }
-  else {
-    dissector_delete_uint_range("tcp.port", tcp_port_range, couchbase_tcp_handle);
-    g_free(tcp_port_range);
-  }
-
-  tcp_port_range = range_copy(couchbase_tcp_port_range);
-  dissector_add_uint_range("tcp.port", tcp_port_range, couchbase_tcp_handle);
-
-  json_handle = find_dissector_add_dependency("json", proto_couchbase);
+  couchbase_ssl_port = couchbase_ssl_port_pref;
+  ssl_dissector_add(couchbase_ssl_port, couchbase_handle);
 }
 
 /*

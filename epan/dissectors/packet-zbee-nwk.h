@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef PACKET_ZBEE_NWK_H
 #define PACKET_ZBEE_NWK_H
@@ -38,6 +26,7 @@
 /*  ZigBee NWK FCF Frame Types */
 #define ZBEE_NWK_FCF_DATA                   0x0000
 #define ZBEE_NWK_FCF_CMD                    0x0001
+#define ZBEE_NWK_FCF_INTERPAN               0x0003
 
 /* ZigBee NWK Discovery Modes. */
 #define ZBEE_NWK_FCF_DISCOVERY_SUPPRESS     0x0000
@@ -64,6 +53,7 @@
 #define ZBEE_NWK_CMD_NWK_UPDATE                 0x0a    /* ZigBee 2007 and later */
 #define ZBEE_NWK_CMD_ED_TIMEOUT_REQUEST         0x0b    /* r21 */
 #define ZBEE_NWK_CMD_ED_TIMEOUT_RESPONSE        0x0c    /* r21 */
+#define ZBEE_NWK_CMD_LINK_PWR_DELTA             0x0d    /* r22 */
 
 /*  ZigBee NWK Route Options Flags */
 #define ZBEE_NWK_CMD_ROUTE_OPTION_REPAIR        0x80    /* ZigBee 2004 only. */
@@ -96,6 +86,7 @@
 #define ZBEE_NWK_CMD_NWK_REPORT_COUNT_MASK      0x1f
 #define ZBEE_NWK_CMD_NWK_REPORT_ID_MASK         0xe0
 #define ZBEE_NWK_CMD_NWK_REPORT_ID_PAN_CONFLICT 0x00
+#define ZBEE_NWK_CMD_NWK_REPORT_ID_ZBOSS_KEY_TRACE 6
 
 /* ZigBee NWK Update Options. */
 #define ZBEE_NWK_CMD_NWK_UPDATE_COUNT_MASK      0x1f
@@ -105,6 +96,10 @@
 /* ZigBee NWK Values of the Parent Information Bitmask (Table 3.47) */
 #define ZBEE_NWK_CMD_ED_TIMEO_RSP_PRNT_INFO_MAC_DATA_POLL_KEEPAL_SUPP  0x01
 #define ZBEE_NWK_CMD_ED_TIMEO_RSP_PRNT_INFO_ED_TIMOU_REQ_KEEPAL_SUPP   0x02
+#define ZBEE_NWK_CMD_ED_TIMEO_RSP_PRNT_INFO_PWR_NEG_SUPP               0x04
+
+/* ZigBee NWK Link Power Delta Options */
+#define ZBEE_NWK_CMD_NWK_LINK_PWR_DELTA_TYPE_MASK   0x03
 
 /* Network Status Code Definitions. */
 #define ZBEE_NWK_STATUS_NO_ROUTE_AVAIL      0x00
@@ -126,6 +121,7 @@
 #define ZBEE_NWK_STATUS_ADDRESS_UPDATE      0x10
 #define ZBEE_NWK_STATUS_BAD_FRAME_COUNTER   0x11
 #define ZBEE_NWK_STATUS_BAD_KEY_SEQNO       0x12
+#define ZBEE_NWK_STATUS_UNKNOWN_COMMAND     0x13
 
 #define ZBEE_SEC_CONST_KEYSIZE              16
 
@@ -193,11 +189,12 @@ extern GHashTable *zbee_table_link_keyring;
 
 /* ZigBee PRO beacons */
 #define ZBEE_NWK_BEACON_PROTOCOL_ID            0x00
-#define ZBEE_NWK_BEACON_STACK_PROFILE          0x0f
-#define ZBEE_NWK_BEACON_PROTOCOL_VERSION       0xf0
-#define ZBEE_NWK_BEACON_ROUTER_CAPACITY        0x04
-#define ZBEE_NWK_BEACON_NETWORK_DEPTH          0x78
-#define ZBEE_NWK_BEACON_END_DEVICE_CAPACITY    0x80
+#define ZBEE_NWK_BEACON_STACK_PROFILE        0x000f
+#define ZBEE_NWK_BEACON_PROTOCOL_VERSION     0x00f0
+#define ZBEE_NWK_BEACON_ROUTER_CAPACITY      0x0400
+#define ZBEE_NWK_BEACON_NETWORK_DEPTH        0x7800
+#define ZBEE_NWK_BEACON_END_DEVICE_CAPACITY  0x8000
+#define ZBEE_NWK_BEACON_LENGTH                   15
 
 /* ZigBee IP beacons */
 #define ZBEE_IP_BEACON_PROTOCOL_ID             0x02
@@ -209,13 +206,6 @@ extern GHashTable *zbee_table_link_keyring;
 #define ZBEE_IP_BEACON_TLV_LENGTH_MASK         0x0f
 #define ZBEE_IP_BEACON_TLV_TYPE_MASK           0xf0
 #define ZBEE_IP_BEACON_TLV_TYPE_LFDI           0x0
-
-/* Thread beacons */
-#define THREAD_BEACON_PROTOCOL_ID              0x03
-#define THREAD_BEACON_JOINING                  0x01
-#define THREAD_BEACON_NATIVE                   0x08
-#define THREAD_BEACON_PROTOCOL_VERSION         0xf0
-#define THREAD_BEACON_TLV_STEERING_DATA_S      0x80
 
 #endif /* PACKET_ZBEE_NWK_H */
 

@@ -9,19 +9,7 @@
  * Chargen specs taken from RFC 864
  * http://tools.ietf.org/html/rfc864
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -81,7 +69,7 @@ proto_register_chargen(void)
 		&ett_chargen,
 	};
 
-	proto_chargen = proto_register_protocol("Character Generator Protocol", "chargen",
+	proto_chargen = proto_register_protocol("Character Generator Protocol", "Chargen",
 	    "chargen");
 	proto_register_field_array(proto_chargen, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
@@ -93,8 +81,8 @@ proto_reg_handoff_chargen(void)
 	dissector_handle_t chargen_handle;
 
 	chargen_handle = create_dissector_handle(dissect_chargen, proto_chargen);
-	dissector_add_uint("udp.port", CHARGEN_PORT_UDP, chargen_handle);
-	dissector_add_uint("tcp.port", CHARGEN_PORT_TCP, chargen_handle);
+	dissector_add_uint_with_preference("udp.port", CHARGEN_PORT_UDP, chargen_handle);
+	dissector_add_uint_with_preference("tcp.port", CHARGEN_PORT_TCP, chargen_handle);
 }
 
 /*

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Documentation:
  * http://www.nasdaqtrader.com/Trader.aspx?id=DPSpecs
@@ -308,7 +296,7 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
     offset = time_stamp (tvb, nasdaq_itch_tree, hf_nasdaq_itch_millisecond, offset, 8);
   }
 
-  proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_message_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+  proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_message_type, tvb, offset, 1, ENC_ASCII|ENC_NA);
   offset += 1;
 
   if (version == 3) {
@@ -325,20 +313,20 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 
   switch (nasdaq_itch_type) {
   case 'S': /* system event */
-    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_system_event, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_system_event, tvb, offset, 1, ENC_ASCII|ENC_NA);
     /*offset += 1;*/
     break;
 
   case 'R': /* Stock Directory */
     offset = stock(tvb, pinfo, nasdaq_itch_tree, offset);
 
-    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_market_category, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_market_category, tvb, offset, 1, ENC_ASCII|ENC_NA);
     offset += 1;
-    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_financial_status, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_financial_status, tvb, offset, 1, ENC_ASCII|ENC_NA);
     offset += 1;
     proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_round_lot_size, tvb, offset, 6, ENC_ASCII|ENC_NA);
     offset += 6;
-    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_round_lots_only, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_round_lots_only, tvb, offset, 1, ENC_ASCII|ENC_NA);
     /*offset += 1;*/
     break;
 
@@ -355,6 +343,7 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 
   case 'a' :
     big = 1;
+    /* FALL THROUGH */
   case 'A': /* Add order, no MPID */
     offset = order(tvb, pinfo, nasdaq_itch_tree, offset, big);
     if (version == 2) {
@@ -371,6 +360,7 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 
   case 'e' :
     big = 1;
+    /* FALL THROUGH */
   case 'E' : /* Order executed */
     /*offset =*/ executed(tvb, pinfo, nasdaq_itch_tree, offset, big);
     break;
@@ -385,6 +375,7 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 
   case 'x' :
     big = 1;
+    /* FALL THROUGH */
   case 'X' : /* Order cancel */
     offset = order_ref_number(tvb, pinfo, nasdaq_itch_tree, offset);
     /*offset = */number_of_shares(tvb, pinfo, nasdaq_itch_tree, hf_nasdaq_itch_canceled, offset, big);
@@ -397,6 +388,7 @@ dissect_nasdaq_itch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 
   case 'p' :
     big = 1;
+    /* FALL THROUGH */
   case 'P' : /* Trade identifier */
     offset = order(tvb, pinfo, nasdaq_itch_tree, offset, big);
     proto_tree_add_item(nasdaq_itch_tree, hf_nasdaq_itch_match, tvb, offset, 9, ENC_ASCII|ENC_NA);
@@ -451,7 +443,7 @@ proto_register_nasdaq_itch(void)
 
     { &hf_nasdaq_itch_message_type,
       { "Message Type",         "nasdaq-itch.message_type",
-        FT_UINT8, BASE_DEC, VALS(message_types_val), 0x0,
+        FT_CHAR, BASE_HEX, VALS(message_types_val), 0x0,
         NULL, HFILL }},
 
     { &hf_nasdaq_itch_second,
@@ -466,17 +458,17 @@ proto_register_nasdaq_itch(void)
 
     { &hf_nasdaq_itch_system_event,
       { "System Event",         "nasdaq-itch.system_event",
-        FT_UINT8, BASE_DEC, VALS(system_event_val), 0x0,
+        FT_CHAR, BASE_HEX, VALS(system_event_val), 0x0,
         NULL, HFILL }},
 
     { &hf_nasdaq_itch_market_category,
       { "Market Category",         "nasdaq-itch.market_category",
-        FT_UINT8, BASE_DEC, VALS(market_category_val), 0x0,
+        FT_CHAR, BASE_HEX, VALS(market_category_val), 0x0,
         NULL, HFILL }},
 
     { &hf_nasdaq_itch_financial_status,
       { "Financial Status Indicator",         "nasdaq-itch.financial_status",
-        FT_UINT8, BASE_DEC, VALS(financial_status_val), 0x0,
+        FT_CHAR, BASE_HEX, VALS(financial_status_val), 0x0,
         NULL, HFILL }},
 
     { &hf_nasdaq_itch_stock,
@@ -491,7 +483,7 @@ proto_register_nasdaq_itch(void)
 
     { &hf_nasdaq_itch_round_lots_only,
       { "Round Lots Only",         "nasdaq-itch.round_lots_only",
-        FT_UINT8, BASE_DEC, VALS(round_lots_only_val), 0x0,
+        FT_CHAR, BASE_HEX, VALS(round_lots_only_val), 0x0,
         NULL, HFILL }},
 
     { &hf_nasdaq_itch_trading_state,
@@ -596,6 +588,7 @@ void
 proto_reg_handoff_nasdaq_itch(void)
 {
   dissector_add_for_decode_as("moldudp64.payload", nasdaq_itch_handle );
+  dissector_add_for_decode_as("moldudp.payload", nasdaq_itch_handle );
 }
 
 /*

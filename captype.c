@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <config.h>
@@ -36,26 +24,22 @@
 #include <getopt.h>
 #endif
 
-#ifdef HAVE_LIBZ
-#include <zlib.h>     /* to get the libz version number */
-#endif
-
 #include <glib.h>
 
 #include <wiretap/wtap.h>
 
+#include <wsutil/cmdarg_err.h>
 #include <wsutil/crash_info.h>
 #include <wsutil/file_util.h>
 #include <wsutil/filesystem.h>
 #include <wsutil/privileges.h>
-#include <wsutil/ws_diag_control.h>
-#include <wsutil/ws_version_info.h>
+#include <version_info.h>
 
 #ifdef HAVE_PLUGINS
 #include <wsutil/plugins.h>
 #endif
 
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 #include <wsutil/str_util.h>
 
 #ifdef _WIN32
@@ -66,6 +50,8 @@
 #include "wsutil/wsgetopt.h"
 #endif
 
+#include "ui/failure_message.h"
+
 static void
 print_usage(FILE *output)
 {
@@ -73,48 +59,26 @@ print_usage(FILE *output)
   fprintf(output, "Usage: captype <infile> ...\n");
 }
 
-#ifdef HAVE_PLUGINS
 /*
- *  Don't report failures to load plugins because most (non-wiretap) plugins
- *  *should* fail to load (because we're not linked against libwireshark and
- *  dissector plugins need libwireshark).
+ * General errors and warnings are reported with an console message
+ * in captype.
  */
 static void
-failure_message(const char *msg_format _U_, va_list ap _U_)
+failure_warning_message(const char *msg_format, va_list ap)
 {
-  return;
-}
-#endif
-
-static void
-get_captype_compiled_info(GString *str)
-{
-  /* LIBZ */
-  g_string_append(str, ", ");
-#ifdef HAVE_LIBZ
-  g_string_append(str, "with libz ");
-#ifdef ZLIB_VERSION
-  g_string_append(str, ZLIB_VERSION);
-#else /* ZLIB_VERSION */
-  g_string_append(str, "(version unknown)");
-#endif /* ZLIB_VERSION */
-#else /* HAVE_LIBZ */
-  g_string_append(str, "without libz");
-#endif /* HAVE_LIBZ */
+  fprintf(stderr, "captype: ");
+  vfprintf(stderr, msg_format, ap);
+  fprintf(stderr, "\n");
 }
 
+/*
+ * Report additional information for an error in command-line arguments.
+ */
 static void
-get_captype_runtime_info(
-#if defined(HAVE_LIBZ) && !defined(_WIN32)
-    GString *str)
-#else
-    GString *str _U_)
-#endif
+failure_message_cont(const char *msg_format, va_list ap)
 {
-  /* zlib */
-#if defined(HAVE_LIBZ) && !defined(_WIN32)
-  g_string_append_printf(str, ", with libz %s", zlibVersion());
-#endif
+  vfprintf(stderr, msg_format, ap);
+  fprintf(stderr, "\n");
 }
 
 int
@@ -122,6 +86,7 @@ main(int argc, char *argv[])
 {
   GString *comp_info_str;
   GString *runtime_info_str;
+  char  *init_progfile_dir_error;
   wtap  *wth;
   int    err;
   gchar *err_info;
@@ -134,18 +99,16 @@ main(int argc, char *argv[])
       {0, 0, 0, 0 }
   };
 
-#ifdef HAVE_PLUGINS
-  char  *init_progfile_dir_error;
-#endif
-
   /* Set the C-language locale to the native environment. */
   setlocale(LC_ALL, "");
 
+  cmdarg_err_init(failure_warning_message, failure_message_cont);
+
   /* Get the compile-time version information string */
-  comp_info_str = get_compiled_version_info(NULL, get_captype_compiled_info);
+  comp_info_str = get_compiled_version_info(NULL, NULL);
 
   /* Get the run-time version information string */
-  runtime_info_str = get_runtime_version_info(get_captype_runtime_info);
+  runtime_info_str = get_runtime_version_info(NULL);
 
   /* Add it to the information to be reported on a crash. */
   ws_add_crash_info("Captype (Wireshark) %s\n"
@@ -154,6 +117,8 @@ main(int argc, char *argv[])
          "\n"
          "%s",
       get_ws_vcs_version_info(), comp_info_str->str, runtime_info_str->str);
+  g_string_free(comp_info_str, TRUE);
+  g_string_free(runtime_info_str, TRUE);
 
 #ifdef _WIN32
   arg_list_utf_16to8(argc, argv);
@@ -164,26 +129,23 @@ main(int argc, char *argv[])
    * Get credential information for later use.
    */
   init_process_policies();
-  init_open_routines();
 
-#ifdef HAVE_PLUGINS
-  if ((init_progfile_dir_error = init_progfile_dir(argv[0], main))) {
-    g_warning("captype: init_progfile_dir(): %s", init_progfile_dir_error);
+  /*
+   * Attempt to get the pathname of the directory containing the
+   * executable file.
+   */
+  init_progfile_dir_error = init_progfile_dir(argv[0]);
+  if (init_progfile_dir_error != NULL) {
+    fprintf(stderr,
+            "captype: Can't get pathname of directory containing the captype program: %s.\n",
+            init_progfile_dir_error);
     g_free(init_progfile_dir_error);
-  } else {
-    /* Register all the plugin types we have. */
-    wtap_register_plugin_types(); /* Types known to libwiretap */
-
-    init_report_err(failure_message,NULL,NULL,NULL);
-
-    /* Scan for plugins.  This does *not* call their registration routines;
-       that's done later. */
-    scan_plugins();
-
-    /* Register all libwiretap plugin modules. */
-    register_all_wiretap_modules();
   }
-#endif
+
+  init_report_message(failure_warning_message, failure_warning_message,
+                      NULL, NULL, NULL);
+
+  wtap_init(TRUE);
 
   /* Process the options */
   while ((opt = getopt_long(argc, argv, "hv", long_options, NULL)) !=-1) {
@@ -200,6 +162,8 @@ main(int argc, char *argv[])
         break;
 
       case 'v':
+        comp_info_str = get_compiled_version_info(NULL, NULL);
+        runtime_info_str = get_runtime_version_info(NULL);
         show_version("Captype (Wireshark)", comp_info_str, runtime_info_str);
         g_string_free(comp_info_str, TRUE);
         g_string_free(runtime_info_str, TRUE);
@@ -230,18 +194,15 @@ main(int argc, char *argv[])
       if (err == WTAP_ERR_FILE_UNKNOWN_FORMAT)
         printf("%s: unknown\n", argv[i]);
       else {
-        fprintf(stderr, "captype: Can't open %s: %s\n", argv[i],
-                wtap_strerror(err));
-        if (err_info != NULL) {
-          fprintf(stderr, "(%s)\n", err_info);
-          g_free(err_info);
-        }
-        overall_error_status = 1; /* remember that an error has occurred */
+        cfile_open_failure_message("captype", argv[i], err, err_info);
+        overall_error_status = 2; /* remember that an error has occurred */
       }
     }
 
   }
 
+  wtap_cleanup();
+  free_progdirs();
   return overall_error_status;
 }
 

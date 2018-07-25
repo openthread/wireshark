@@ -16,25 +16,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/reassemble.h>
+#include <epan/conversation.h>
 
 void proto_register_lapsat(void);
 
@@ -243,19 +232,6 @@ static const fragment_items lapsat_frag_items = {
 	/* Tag */
 	"fragments"
 };
-
-static void
-lapsat_defragment_init(void)
-{
-	reassembly_table_init(&lapsat_reassembly_table,
-	    &addresses_reassembly_table_functions);
-}
-
-static void
-lapsat_defragment_cleanup(void)
-{
-	reassembly_table_destroy(&lapsat_reassembly_table);
-}
 
 
 /*
@@ -503,17 +479,14 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
 	if (!plen)
 		return 3;	/* No point in doing more if there is no payload */
 
-	DISSECTOR_ASSERT((plen + hlen) <= tvb_captured_length(tvb));
-
 	if ((plen + hlen) == tvb_captured_length(tvb)) {
 		/* Need to integrate the last nibble */
-		guint8 *data = (guint8 *)tvb_memdup(NULL, tvb, hlen, plen);
+		guint8 *data = (guint8 *)tvb_memdup(pinfo->pool, tvb, hlen, plen);
 		data[plen-1] |= tvb_get_guint8(tvb, 2) << 4;
 		payload = tvb_new_child_real_data(tvb, data, plen, plen);
-		tvb_set_free_cb(payload, g_free);
 	} else {
 		/* Last nibble doesn't need merging */
-		payload = tvb_new_subset(tvb, hlen, plen, -1);
+		payload = tvb_new_subset_length_caplen(tvb, hlen, plen, plen);
 	}
 
 	add_new_data_source(pinfo, payload, "LAPSat Payload");
@@ -532,7 +505,7 @@ dissect_lapsat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
 		pinfo->fragmented = !!(addr & LAPSAT_SI);
 
 		/* Rely on caller to provide a way to group fragments */
-		fragment_id = (pinfo->circuit_id << 3) | (sapi << 1) | pinfo->p2p_dir;
+		fragment_id = (conversation_get_endpoint_by_id(pinfo, ENDPOINT_GSMTAP, USE_LAST_ENDPOINT) << 3) | (sapi << 1) | pinfo->p2p_dir;
 
 		/* Fragment reconstruction helpers */
 		fd_m = fragment_add_seq_next(
@@ -763,10 +736,10 @@ proto_register_lapsat(void)
 
 	register_dissector("lapsat", dissect_lapsat, proto_lapsat);
 
-	lapsat_sapi_dissector_table = register_dissector_table("lapsat.sapi", "LAPSat SAPI", proto_lapsat, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	lapsat_sapi_dissector_table = register_dissector_table("lapsat.sapi", "LAPSat SAPI", proto_lapsat, FT_UINT8, BASE_DEC);
 
-	register_init_routine (lapsat_defragment_init);
-	register_cleanup_routine (lapsat_defragment_cleanup);
+	reassembly_table_register(&lapsat_reassembly_table,
+	    &addresses_reassembly_table_functions);
 }
 
 

@@ -4,28 +4,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "funnel_string_dialog.h"
-#include "ui_funnel_string_dialog.h"
+#include <ui_funnel_string_dialog.h>
 
 #include <QLabel>
 #include <QLineEdit>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "wireshark_application.h"
 
 // Helper object used for sending close signal to open dialogs from a C function
@@ -86,9 +74,8 @@ void FunnelStringDialog::on_buttonBox_accepted()
     }
     g_ptr_array_add(returns, NULL);
 
-    dialog_cb_((gchar**)returns->pdata, dialog_cb_data_);
-
-    g_ptr_array_free(returns, FALSE);
+    gchar **user_input = (gchar **)g_ptr_array_free(returns, FALSE);
+    dialog_cb_(user_input, dialog_cb_data_);
 }
 
 void FunnelStringDialog::stringDialogNew(const QString title, const QStringList field_name_list, funnel_dlg_cb_t dialog_cb, void *dialog_cb_data)

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -802,6 +790,9 @@ static const value_string user_port_object_result_rr_vals[] = {
     { 0, NULL }
 };
 
+static const unit_name_string units_pdus_100ms = { " (PDUs/100ms)", NULL };
+static const unit_name_string units_num_100ms = { " (Number of 100ms)", NULL };
+
 /* Initialise the protocol and registered fields */
 static int proto_oampdu = -1;
 
@@ -954,10 +945,6 @@ static gint ett_oampdu_lpbk_ctrl = -1;
 
 static expert_field ei_oampdu_event_length_bad = EI_INIT;
 
-#define APPEND_OUI_NAME(item, string, tvb, offset) \
-        string = tvb_get_manuf_name(tvb, offset);  \
-        proto_item_append_text(item, " (%s)", string);
-
 static void
 dissect_oampdu_information(tvbuff_t *tvb, proto_tree *tree);
 
@@ -1094,12 +1081,8 @@ dissect_oampdu_information(tvbuff_t *tvb, proto_tree *tree)
     guint32   offset;
     guint16   bytes;
 
-    const guint8 *ptr;
-
     proto_tree *info_tree;
     proto_item *info_item;
-    proto_item *oui_item;
-    proto_item *item;
 
 
     offset = OAMPDU_HEADER_SIZE;
@@ -1183,17 +1166,13 @@ dissect_oampdu_information(tvbuff_t *tvb, proto_tree *tree)
 
             offset += OAMPDU_INFO_OAM_CONFIG_SZ;
 
-            item = proto_tree_add_item(info_tree, hf_oampdu_info_oampduConfig,
+            proto_tree_add_item(info_tree, hf_oampdu_info_oampduConfig,
                     tvb, offset, 2, ENC_BIG_ENDIAN);
-
-            proto_item_append_text(item, " (bytes)");
 
             offset += OAMPDU_INFO_OAMPDU_CONFIG_SZ;
 
-            oui_item = proto_tree_add_item(info_tree, hf_oampdu_info_oui,
-                    tvb, offset, 3, ENC_NA);
-
-            APPEND_OUI_NAME(oui_item, ptr, tvb, offset);
+            proto_tree_add_item(info_tree, hf_oampdu_info_oui,
+                    tvb, offset, 3, ENC_BIG_ENDIAN);
 
             offset += OAMPDU_INFO_OUI_SZ;
 
@@ -1211,11 +1190,7 @@ dissect_oampdu_information(tvbuff_t *tvb, proto_tree *tree)
 
             offset += OAMPDU_INFO_LENGTH_SZ;
 
-            oui_item = proto_tree_add_item(info_tree, hf_oampdu_info_oui,
-                    tvb, offset, 3, ENC_NA);
-
-            APPEND_OUI_NAME(oui_item, ptr, tvb, offset);
-
+            proto_tree_add_item(info_tree, hf_oampdu_info_oui, tvb, offset, 3, ENC_BIG_ENDIAN);
             offset += OAMPDU_INFO_OUI_SZ;
 
             proto_tree_add_item(info_tree, hf_oampdu_info_vendor,
@@ -1685,7 +1660,6 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, proto_tree *tree)
     guint8    pir_subtype;
     guint8    rr_byte;
 
-    const guint8 *ptr;
     const guint8 oui_cl[] = {OUI_CL_0, OUI_CL_1, OUI_CL_2};
 
     proto_item *oui_item;
@@ -1699,8 +1673,7 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, proto_tree *tree)
     bytes = tvb_captured_length_remaining(tvb, offset);
 
     if (bytes >= 3) {
-        oui_item = proto_tree_add_item(tree, hf_oampdu_info_oui, tvb, offset, 3, ENC_NA);
-        APPEND_OUI_NAME(oui_item, ptr, tvb, offset);
+        oui_item = proto_tree_add_item(tree, hf_oampdu_info_oui, tvb, offset, 3, ENC_BIG_ENDIAN);
 
         if (tvb_memeql(tvb, offset, oui_cl, OUI_SIZE) == 0) {
 
@@ -1760,10 +1733,8 @@ dissect_oampdu_vendor_specific(tvbuff_t *tvb, proto_tree *tree)
                             } else if (leaf_branch == DPOE_LB_NUM_S1_INT) {
                                 proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_response_int, tvb, offset, variable_length, ENC_BIG_ENDIAN);
                             } else if (leaf_branch == DPOE_LB_OAM_FR) {
-                                dpoe_opcode_response = proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_frame_rate_minimum, tvb, offset, 1, ENC_BIG_ENDIAN);
-                                proto_item_append_text(dpoe_opcode_response, " (PDUs/100ms)");
-                                dpoe_opcode_response = proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_frame_rate_maximum, tvb, offset+1, 1, ENC_BIG_ENDIAN);
-                                proto_item_append_text(dpoe_opcode_response, " (Number of 100ms)");
+                                proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_frame_rate_minimum, tvb, offset, 1, ENC_BIG_ENDIAN);
+                                proto_tree_add_item(dpoe_opcode_response_tree, hf_oam_dpoe_frame_rate_maximum, tvb, offset+1, 1, ENC_BIG_ENDIAN);
                             } else if (leaf_branch == DPOE_LB_REP_THRESH) {
                                 guint8 nqs;
                                 guint8 rvpqs;
@@ -2059,12 +2030,12 @@ proto_register_oampdu(void)
 
         { &hf_oampdu_info_oampduConfig,
             { "Max OAMPDU Size",    "oampdu.info.oampduConfig",
-                FT_UINT16,    BASE_DEC,    NULL,    0x0,
+                FT_UINT16,    BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes,    0x0,
                 "OAMPDU Configuration", HFILL }},
 
         { &hf_oampdu_info_oui,
             { "Organizationally Unique Identifier", "oampdu.info.oui",
-                FT_BYTES,    BASE_NONE,    NULL,    0x0,
+                FT_UINT24,    BASE_OUI,    NULL,    0x0,
                 NULL, HFILL }},
 
         { &hf_oampdu_info_vendor,
@@ -2302,12 +2273,12 @@ proto_register_oampdu(void)
 
         { &hf_oam_dpoe_frame_rate_maximum,
             { "Maximum OAM Rate", "oampdu.frame.rate.min",
-                FT_UINT16, BASE_DEC, NULL, 0x0,
+                FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_num_100ms, 0x0,
                 NULL, HFILL } },
 
         { &hf_oam_dpoe_frame_rate_minimum,
             { "Minimum OAM Rate", "oampdu.frame.rate.max",
-                FT_UINT16, BASE_DEC, NULL, 0x0,
+                FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_pdus_100ms, 0x0,
                 NULL, HFILL } },
 
         { &hf_oam_dpoe_repthr_nqs,

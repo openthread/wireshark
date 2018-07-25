@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __CAPTURE_IFINFO_H__
@@ -38,9 +26,7 @@ typedef enum {
 	IF_WIRELESS,
 	IF_DIALUP,
 	IF_USB,
-#ifdef HAVE_EXTCAP
 	IF_EXTCAP,
-#endif
 	IF_VIRTUAL
 } interface_type;
 
@@ -59,9 +45,7 @@ typedef struct {
 	GSList  *addrs;         /* containing address values of if_addr_t */
 	interface_type type;    /* type of interface */
 	gboolean loopback;      /* TRUE if loopback, FALSE otherwise */
-#ifdef HAVE_EXTCAP
 	char	*extcap;		/* extcap arguments, which present the data to call the extcap interface */
-#endif
 } if_info_t;
 
 /*
@@ -99,6 +83,7 @@ void free_interface_list(GList *if_list);
 typedef struct {
 	gboolean	can_set_rfmon;	/* TRUE if can be put into monitor mode */
 	GList		*data_link_types;	/* GList of data_link_info_t's */
+	GList		*timestamp_types;   /* GList of timestamp_info_t's */
 } if_capabilities_t;
 
 /*
@@ -109,6 +94,14 @@ typedef struct {
 	char	*name;          /* e.g. "EN10MB" or "DLT 1" */
 	char	*description;   /* descriptive name from wiretap e.g. "Ethernet", NULL if unknown */
 } data_link_info_t;
+
+/*
+ * Information about timestamp types.
+ */
+typedef struct {
+	char	*name;          /* e.g. "adapter_unsynced" */
+	char	*description;   /* description from libpcap e.g. "Adapter, not synced with system time" */
+} timestamp_info_t;
 
 /**
  * Fetch the linktype list for the specified interface from a child process.

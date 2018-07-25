@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,30 +20,30 @@
 
 #include "protocol_preferences_menu.h"
 
-#include "enabled_protocols_dialog.h"
-#include "qt_ui_utils.h"
+#include <ui/qt/models/enabled_protocols_model.h>
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "uat_dialog.h"
 #include "wireshark_application.h"
 
 // To do:
 // - Elide really long items?
-// - Handle PREF_FILENAME and PREF_DIRNAME.
+// - Handle PREF_SAVE_FILENAME, PREF_OPEN_FILENAME and PREF_DIRNAME.
 // - Handle color prefs.
 
 class BoolPreferenceAction : public QAction
 {
 public:
-    BoolPreferenceAction(pref_t *pref) :
-        QAction(NULL),
+    BoolPreferenceAction(pref_t *pref, QObject *parent=0) :
+        QAction(parent),
         pref_(pref)
     {
-        setText(pref_->title);
+        setText(prefs_get_title(pref_));
         setCheckable(true);
-        setChecked(*pref->varp.boolp);
+        setChecked(prefs_get_bool_value(pref_, pref_current));
     }
 
-    void setBoolValue() {
-        *pref_->varp.boolp = isChecked();
+    unsigned int setBoolValue() {
+        return prefs_set_bool_value(pref_, isChecked(), pref_current);
     }
 
 private:
@@ -65,8 +53,8 @@ private:
 class EnumPreferenceAction : public QAction
 {
 public:
-    EnumPreferenceAction(pref_t *pref, const char *title, int enumval, QActionGroup *ag) :
-        QAction(NULL),
+    EnumPreferenceAction(pref_t *pref, const char *title, int enumval, QActionGroup *ag, QObject *parent=0) :
+        QAction(parent),
         pref_(pref),
         enumval_(enumval)
     {
@@ -75,12 +63,8 @@ public:
         setCheckable(true);
     }
 
-    bool setEnumValue() {
-        if (*pref_->varp.enump != enumval_) {
-            *pref_->varp.enump = enumval_;
-            return true;
-        }
-        return false;
+    unsigned int setEnumValue() {
+        return prefs_set_enum_value(pref_, enumval_, pref_current);
     }
 
 private:
@@ -91,18 +75,18 @@ private:
 class UatPreferenceAction : public QAction
 {
 public:
-    UatPreferenceAction(pref_t *pref) :
-        QAction(NULL),
+    UatPreferenceAction(pref_t *pref, QObject *parent=0) :
+        QAction(parent),
         pref_(pref)
     {
-        setText(QString("%1" UTF8_HORIZONTAL_ELLIPSIS).arg(pref_->title));
+        setText(QString("%1" UTF8_HORIZONTAL_ELLIPSIS).arg(prefs_get_title(pref_)));
     }
 
     void showUatDialog() {
-        UatDialog uat_dlg(parentWidget(), pref_->varp.uat);
+        UatDialog uat_dlg(parentWidget(), prefs_get_uat_value(pref_));
         uat_dlg.exec();
         // Emitting PacketDissectionChanged directly from a QDialog can cause
-        // problems on OS X.
+        // problems on macOS.
         wsApp->flushAppSignals();
     }
 
@@ -114,39 +98,13 @@ private:
 class EditorPreferenceAction : public QAction
 {
 public:
-    EditorPreferenceAction(pref_t *pref) :
-        QAction(NULL),
+    EditorPreferenceAction(pref_t *pref, QObject *parent=0) :
+        QAction(parent),
         pref_(pref)
     {
-        QString title = pref_->title;
+        QString title = prefs_get_title(pref_);
 
-        switch(pref_->type) {
-        case PREF_UINT:
-        {
-            int base = 10;
-            switch(pref_->info.base) {
-            case 8:
-                base = 8;
-                break;
-            case 16:
-                base = 16;
-                break;
-            default:
-                break;
-            }
-            title.append(QString(": %1" UTF8_HORIZONTAL_ELLIPSIS).arg(QString::number(*pref->varp.uint, base)));
-            break;
-        }
-        case PREF_STRING:
-            title.append(QString(": %1" UTF8_HORIZONTAL_ELLIPSIS).arg(*pref->varp.string));
-            break;
-        case PREF_RANGE:
-            title.append(QString(": %1" UTF8_HORIZONTAL_ELLIPSIS).arg(range_to_qstring(*pref->varp.range)));
-            break;
-        default:
-            // We shouldn't be here.
-            break;
-        }
+        title.append(QString(": %1" UTF8_HORIZONTAL_ELLIPSIS).arg(gchar_free_to_qstring(prefs_pref_to_str(pref_, pref_current))));
 
         setText(title);
     }
@@ -178,13 +136,13 @@ ProtocolPreferencesMenu::ProtocolPreferencesMenu()
     setModule(NULL);
 }
 
-void ProtocolPreferencesMenu::setModule(const char *module_name)
+void ProtocolPreferencesMenu::setModule(const QString module_name)
 {
     QAction *action;
     int proto_id = -1;
 
-    if (module_name) {
-        proto_id = proto_get_id_by_filter_name(module_name);
+    if (!module_name.isEmpty()) {
+        proto_id = proto_get_id_by_filter_name(module_name.toUtf8().constData());
     }
 
     clear();
@@ -194,7 +152,7 @@ void ProtocolPreferencesMenu::setModule(const char *module_name)
     protocol_ = find_protocol_by_id(proto_id);
     const QString long_name = proto_get_protocol_long_name(protocol_);
     const QString short_name = proto_get_protocol_short_name(protocol_);
-    if (!module_name || proto_id < 0 || !protocol_) {
+    if (module_name.isEmpty() || proto_id < 0 || !protocol_) {
         action = addAction(tr("No protocol preferences available"));
         action->setDisabled(true);
         return;
@@ -202,9 +160,10 @@ void ProtocolPreferencesMenu::setModule(const char *module_name)
 
     QAction *disable_action = new QAction(tr("Disable %1" UTF8_HORIZONTAL_ELLIPSIS).arg(short_name), this);
     connect(disable_action, SIGNAL(triggered(bool)), this, SLOT(disableProtocolTriggered()));
+    disable_action->setDisabled(!proto_can_toggle_protocol(proto_id));
 
-    module_ = prefs_find_module(module_name);
-    if (!module_ || !prefs_is_registered_protocol(module_name)) {
+    module_ = prefs_find_module(module_name.toUtf8().constData());
+    if (!module_ || !prefs_is_registered_protocol(module_name.toUtf8().constData())) {
         action = addAction(tr("%1 has no preferences").arg(long_name));
         action->setDisabled(true);
         addSeparator();
@@ -229,40 +188,46 @@ void ProtocolPreferencesMenu::setModule(const char *module_name)
 
 void ProtocolPreferencesMenu::addMenuItem(preference *pref)
 {
-    switch (pref->type) {
+    switch (prefs_get_type(pref)) {
     case PREF_BOOL:
     {
-        BoolPreferenceAction *bpa = new BoolPreferenceAction(pref);
+        BoolPreferenceAction *bpa = new BoolPreferenceAction(pref, this);
         addAction(bpa);
         connect(bpa, SIGNAL(triggered(bool)), this, SLOT(boolPreferenceTriggered()));
         break;
     }
     case PREF_ENUM:
     {
-        QActionGroup *ag = new QActionGroup(this);
-        QMenu *enum_menu = addMenu(pref->title);
-        for (const enum_val_t *enum_valp = pref->info.enum_info.enumvals; enum_valp->name; enum_valp++) {
-            EnumPreferenceAction *epa = new EnumPreferenceAction(pref, enum_valp->description, enum_valp->value, ag);
-            if (*pref->varp.enump == enum_valp->value) {
-                epa->setChecked(true);
+        QMenu *enum_menu = addMenu(prefs_get_title(pref));
+        const enum_val_t *enum_valp = prefs_get_enumvals(pref);
+        if (enum_valp && enum_valp->name) {
+            QActionGroup *ag = new QActionGroup(this);
+            while (enum_valp->name) {
+                EnumPreferenceAction *epa = new EnumPreferenceAction(pref, enum_valp->description, enum_valp->value, ag, this);
+                if (prefs_get_enum_value(pref, pref_current) == enum_valp->value) {
+                    epa->setChecked(true);
+                }
+                enum_menu->addAction(epa);
+                connect(epa, SIGNAL(triggered(bool)), this, SLOT(enumPreferenceTriggered()));
+                enum_valp++;
             }
-            enum_menu->addAction(epa);
-            connect(epa, SIGNAL(triggered(bool)), this, SLOT(enumPreferenceTriggered()));
         }
         break;
     }
     case PREF_UINT:
     case PREF_STRING:
     case PREF_RANGE:
+    case PREF_DECODE_AS_UINT:
+    case PREF_DECODE_AS_RANGE:
     {
-        EditorPreferenceAction *epa = new EditorPreferenceAction(pref);
+        EditorPreferenceAction *epa = new EditorPreferenceAction(pref, this);
         addAction(epa);
         connect(epa, SIGNAL(triggered(bool)), this, SLOT(editorPreferenceTriggered()));
         break;
     }
     case PREF_UAT:
     {
-        UatPreferenceAction *upa = new UatPreferenceAction(pref);
+        UatPreferenceAction *upa = new UatPreferenceAction(pref, this);
         addAction(upa);
         connect(upa, SIGNAL(triggered(bool)), this, SLOT(uatPreferenceTriggered()));
         break;
@@ -272,9 +237,9 @@ void ProtocolPreferencesMenu::addMenuItem(preference *pref)
     case PREF_OBSOLETE:
         break;
     default:
-        // A type we currently don't handle (e.g. PREF_FILENAME). Just open
+        // A type we currently don't handle (e.g. PREF_SAVE_FILENAME). Just open
         // the prefs dialog.
-        QString title = QString("%1" UTF8_HORIZONTAL_ELLIPSIS).arg(pref->title);
+        QString title = QString("%1" UTF8_HORIZONTAL_ELLIPSIS).arg(prefs_get_title(pref));
         QAction *mpa = addAction(title);
         connect(mpa, SIGNAL(triggered(bool)), this, SLOT(modulePreferencesTriggered()));
         break;
@@ -283,10 +248,7 @@ void ProtocolPreferencesMenu::addMenuItem(preference *pref)
 
 void ProtocolPreferencesMenu::disableProtocolTriggered()
 {
-    EnabledProtocolsDialog enable_proto_dialog(this);
-    enable_proto_dialog.selectProtocol(protocol_);
-    hide();
-    enable_proto_dialog.exec();
+    EnabledProtocolsModel::disableProtocol(protocol_);
 }
 
 void ProtocolPreferencesMenu::modulePreferencesTriggered()
@@ -311,13 +273,15 @@ void ProtocolPreferencesMenu::boolPreferenceTriggered()
     BoolPreferenceAction *bpa = static_cast<BoolPreferenceAction *>(QObject::sender());
     if (!bpa) return;
 
-    bpa->setBoolValue();
+    module_->prefs_changed_flags |= bpa->setBoolValue();
 
     prefs_apply(module_);
     if (!prefs.gui_use_pref_save) {
         prefs_main_write();
     }
 
+    /* Protocol preference changes almost always affect dissection,
+       so don't bother checking flags */
     wsApp->emitAppSignal(WiresharkApplication::PacketDissectionChanged);
 }
 
@@ -326,12 +290,16 @@ void ProtocolPreferencesMenu::enumPreferenceTriggered()
     EnumPreferenceAction *epa = static_cast<EnumPreferenceAction *>(QObject::sender());
     if (!epa) return;
 
-    if (epa->setEnumValue()) { // Changed
+    unsigned int changed_flags = epa->setEnumValue();
+    if (changed_flags) { // Changed
+        module_->prefs_changed_flags |= changed_flags;
         prefs_apply(module_);
         if (!prefs.gui_use_pref_save) {
             prefs_main_write();
         }
 
+        /* Protocol preference changes almost always affect dissection,
+           so don't bother checking flags */
         wsApp->emitAppSignal(WiresharkApplication::PacketDissectionChanged);
     }
 }

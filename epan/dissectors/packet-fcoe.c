@@ -9,19 +9,7 @@
  *
  * Based on packet-fcip.c, Copyright 2001, Dinesh G Dutt (ddutt@cisco.com)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -95,11 +83,9 @@ static int hf_fcoe_len         = -1;
 static int hf_fcoe_sof         = -1;
 static int hf_fcoe_eof         = -1;
 static int hf_fcoe_crc         = -1;
-static int hf_fcoe_crc_bad     = -1;
-static int hf_fcoe_crc_good    = -1;
+static int hf_fcoe_crc_status  = -1;
 
 static int ett_fcoe            = -1;
-static int ett_fcoe_crc        = -1;
 
 static expert_field ei_fcoe_crc = EI_INIT;
 
@@ -122,9 +108,7 @@ dissect_fcoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     const char *crc_msg;
     const char *len_msg;
     proto_item *ti;
-    proto_item *item;
     proto_tree *fcoe_tree;
-    proto_tree *crc_tree;
     tvbuff_t   *next_tvb;
     gboolean    crc_exists;
     guint32     crc_computed = 0;
@@ -166,7 +150,7 @@ dissect_fcoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     bytes_remaining = tvb_captured_length_remaining(tvb, header_len);
     if (bytes_remaining > frame_len)
         bytes_remaining = frame_len;        /* backing length */
-    next_tvb = tvb_new_subset(tvb, header_len, bytes_remaining, frame_len);
+    next_tvb = tvb_new_subset_length_caplen(tvb, header_len, bytes_remaining, frame_len);
 
     eof_str = "none";
     if (tvb_bytes_exist(tvb, eof_offset, 1)) {
@@ -213,34 +197,12 @@ dissect_fcoe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
      * Create the CRC information.
      */
     if (crc_exists) {
-        if (crc == crc_computed) {
-            item = proto_tree_add_uint_format_value(fcoe_tree, hf_fcoe_crc, tvb,
-                                              crc_offset, 4, crc,
-                                              "%8.8x [valid]", crc);
-        } else {
-            item = proto_tree_add_uint_format_value(fcoe_tree, hf_fcoe_crc, tvb,
-                                              crc_offset, 4, crc,
-                                              "%8.8x [error: should be %8.8x]",
-                                              crc, crc_computed);
-            expert_add_info_format(pinfo, item, &ei_fcoe_crc,
-                                   "Bad FC CRC %8.8x %8.x",
-                                   crc, crc_computed);
-        }
+        proto_tree_add_checksum(fcoe_tree, tvb, crc_offset, hf_fcoe_crc, hf_fcoe_crc_status, &ei_fcoe_crc, pinfo, crc_computed, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
         proto_tree_set_appendix(fcoe_tree, tvb, crc_offset,
                                 tvb_captured_length_remaining (tvb, crc_offset));
     } else {
-        item = proto_tree_add_uint_format_value(fcoe_tree, hf_fcoe_crc, tvb, crc_offset, 0,
-                                   0, "CRC: [missing]");
+        proto_tree_add_checksum(fcoe_tree, tvb, crc_offset, hf_fcoe_crc, hf_fcoe_crc_status, &ei_fcoe_crc, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NOT_PRESENT);
     }
-    crc_tree = proto_item_add_subtree(item, ett_fcoe_crc);
-    ti = proto_tree_add_boolean(crc_tree, hf_fcoe_crc_bad, tvb,
-                                crc_offset, 4,
-                                crc_exists && crc != crc_computed);
-    PROTO_ITEM_SET_GENERATED(ti);
-    ti = proto_tree_add_boolean(crc_tree, hf_fcoe_crc_good, tvb,
-                                crc_offset, 4,
-                                crc_exists && crc == crc_computed);
-    PROTO_ITEM_SET_GENERATED(ti);
 
     /*
      * Interpret the EOF.
@@ -294,16 +256,12 @@ proto_register_fcoe(void)
             BASE_DEC, NULL, 0, NULL, HFILL}},
         { &hf_fcoe_crc,
           {"CRC", "fcoe.crc", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL}},
-        { &hf_fcoe_crc_good,
-          {"CRC good", "fcoe.crc_good", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-            "True: CRC matches packet content; False: doesn't match or not checked.", HFILL }},
-        { &hf_fcoe_crc_bad,
-          {"CRC bad", "fcoe.crc_bad", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-            "True: CRC doesn't match packet content; False: matches or not checked.", HFILL }}
+        { &hf_fcoe_crc_status,
+          {"CRC Status", "fcoe.crc.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+            NULL, HFILL }}
     };
     static gint *ett[] = {
         &ett_fcoe,
-        &ett_fcoe_crc
     };
 
     static ei_register_info ei[] = {

@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -654,7 +642,7 @@ dissect_isns_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
         /* Fall Thru if there are attributes */
         if (tvb_reported_length_remaining(tvb, offset) == 0)
             return tvb_captured_length(tvb);
-
+    /* FALL THROUGH */
     /* Messages */
     case ISNS_FUNC_DEVATTRREG:
     case ISNS_FUNC_DEVATTRQRY:
@@ -767,7 +755,7 @@ dissect_isns_attr_port(tvbuff_t *tvb, guint offset, proto_tree *tree, int hf_ind
     guint16             port  = tvb_get_ntohs(tvb, offset+2);
     gboolean            is_udp = ((tvb_get_ntohs(tvb, offset) & 0x01) == 0x01);
     conversation_t     *conversation;
-    port_type           pt;
+    endpoint_type       et;
     dissector_handle_t  handle;
 
     proto_tree_add_uint(tree, hf_index, tvb, offset, 4, port);
@@ -775,19 +763,19 @@ dissect_isns_attr_port(tvbuff_t *tvb, guint offset, proto_tree *tree, int hf_ind
 
     if ((isns_port_type == ISNS_ESI_PORT) || (isns_port_type == ISNS_SCN_PORT)) {
         if (is_udp) {
-            pt = PT_UDP;
+            et = ENDPOINT_UDP;
             handle = isns_udp_handle;
         }
         else {
-            pt = PT_TCP;
+            et = ENDPOINT_TCP;
             handle = isns_tcp_handle;
         }
 
         conversation = find_conversation(pinfo->num,
-                &pinfo->src, &pinfo->dst, pt, port, 0, NO_PORT_B);
+                &pinfo->src, &pinfo->dst, et, port, 0, NO_PORT_B);
         if (conversation == NULL) {
             conversation = conversation_new(pinfo->num,
-                    &pinfo->src, &pinfo->dst, pt, port, 0, NO_PORT2_FORCE);
+                    &pinfo->src, &pinfo->dst, et, port, 0, NO_PORT2_FORCE);
             conversation_set_dissector(conversation, handle);
         }
     }
@@ -880,12 +868,18 @@ AddAttribute(packet_info *pinfo, tvbuff_t *tvb, proto_tree *tree, guint offset,
             tvb, offset, 4, ENC_BIG_ENDIAN);
     offset +=4;
 
-    proto_item_set_len(attr_item, 8+len);
     proto_item_append_text(attr_item, ": %s", val_to_str_ext_const(tag, &isns_attribute_tags_ext, "Unknown"));
 
     /* it seems that an empty attribute is always valid, the original code had a similar statement */
-    if (len==0)
+    if (len==0) {
+        if ((tag==ISNS_ATTR_TAG_PORTAL_GROUP_TAG) &&
+                ((function_id==ISNS_FUNC_DEVATTRREG) || (function_id==ISNS_FUNC_RSP_DEVATTRREG))) {
+            /* 5.6.5.1 */
+            proto_tree_add_uint_format_value(tree, hf_isns_portal_group_tag, tvb, offset, 8, 0, "<NULL>");
+        }
+        proto_item_set_len(attr_item, 8+len);
         return offset;
+    }
 
     switch( tag )
     {
@@ -986,14 +980,8 @@ AddAttribute(packet_info *pinfo, tvbuff_t *tvb, proto_tree *tree, guint offset,
             dissect_isns_attr_port(tvb, offset, attr_tree, hf_isns_pg_portal_port, ISNS_OTHER_PORT, pinfo);
             break;
         case ISNS_ATTR_TAG_PORTAL_GROUP_TAG:
-            if((len==0) && ((function_id==ISNS_FUNC_DEVATTRREG) || (function_id==ISNS_FUNC_RSP_DEVATTRREG))) {
-                /* 5.6.5.1 */
-                proto_tree_add_uint_format_value(tree, hf_isns_portal_group_tag, tvb, offset, 8, 0, "<NULL>");
-            }
-            else {
-                ISNS_REQUIRE_ATTR_LEN(4);
-                proto_tree_add_item(attr_tree, hf_isns_portal_group_tag, tvb, offset, len, ENC_BIG_ENDIAN);
-            }
+            ISNS_REQUIRE_ATTR_LEN(4);
+            proto_tree_add_item(attr_tree, hf_isns_portal_group_tag, tvb, offset, len, ENC_BIG_ENDIAN);
             break;
         case ISNS_ATTR_TAG_PORTAL_GROUP_INDEX:
             ISNS_REQUIRE_ATTR_LEN(4);
@@ -1138,6 +1126,11 @@ AddAttribute(packet_info *pinfo, tvbuff_t *tvb, proto_tree *tree, guint offset,
         default:
             proto_tree_add_item(attr_tree, hf_isns_not_decoded_yet, tvb, offset, len, ENC_NA);
     }
+
+    /* Make sure the data is all there - and that the length won't overflow */
+    tvb_ensure_bytes_exist(tvb, offset, len);
+    /* Set the length of the item to cover only the actual item length */
+    proto_item_set_len(attr_item, 8+len);
 
     offset += len;
     return offset;
@@ -1727,8 +1720,8 @@ proto_reg_handoff_isns(void)
     isns_tcp_handle = create_dissector_handle(dissect_isns_tcp,proto_isns);
     isns_udp_handle = create_dissector_handle(dissect_isns_udp,proto_isns);
 
-    dissector_add_uint("tcp.port",ISNS_TCP_PORT,isns_tcp_handle);
-    dissector_add_uint("udp.port",ISNS_UDP_PORT,isns_udp_handle);
+    dissector_add_uint_with_preference("tcp.port",ISNS_TCP_PORT,isns_tcp_handle);
+    dissector_add_uint_with_preference("udp.port",ISNS_UDP_PORT,isns_udp_handle);
 }
 
 /*

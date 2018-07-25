@@ -1,15 +1,24 @@
-= Wireshark Developer's Guide
 //v1.0, February 2014: Finished conversion from DocBook to AsciiDoc
 :doctype: book
+include::attributes.asciidoc[]
+= Wireshark Developer’s Guide: Version {wireshark-version}
+
+// Convenience attribute.
+// XXX This should be surrounded by single quotes in the text. It’s
+// currently surrounded by plus signs for AsciiDoc compatibility.
+:dlt-glob: DLT_*
 
 [[Preface]]
 ["preface",id="Preface"]
-= Preface
+== Preface
 
 include::wsdg_src/WSDG_preface.asciidoc[]
 
+include::common_src/typographic_conventions.asciidoc[]
+
 [[PartEnvironment]]
 = Wireshark Build Environment
+
 [partintro]
 .Wireshark Build Environment
 --
@@ -29,6 +38,7 @@ include::wsdg_src/WSDG_chapter_libraries.asciidoc[]
 
 [[PartDevelopment]]
 = Wireshark Development
+
 [partintro]
 .Wireshark Development
 --
@@ -48,4 +58,6 @@ include::wsluarm.asciidoc[]
 
 include::wsdg_src/WSDG_chapter_userinterface.asciidoc[]
 
-include::GPL_appendix.asciidoc[]
+include::wsdg_src/WSDG_chapter_tests.asciidoc[]
+
+include::common_src/GPL_appendix.asciidoc[]

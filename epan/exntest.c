@@ -2,32 +2,67 @@
  *
  * Copyright (c) 2004 MX Telecom Ltd. <richardv@mxtelecom.com>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
 
+#include <config.h>
+
 #include <stdio.h>
 #include <glib.h>
-#include <config.h>
 #include "exceptions.h"
-
-#include <wsutil/ws_diag_control.h>
 
 gboolean failed = FALSE;
 
-DIAG_OFF(shadow)
+static void
+finally_called_uncaught_exception(volatile unsigned int* called)
+{
+    TRY {
+        THROW(BoundsError);
+    }
+    FINALLY {
+        (*called)++;
+    }
+    ENDTRY;
+}
+
+static void
+finally_called_rethrown_exception(volatile unsigned int* thrown, volatile unsigned int* called)
+{
+    TRY {
+        THROW(BoundsError);
+    }
+    CATCH_ALL {
+        (*thrown) += 10;
+        RETHROW;
+    }
+    FINALLY {
+        (*called) += 10;
+    }
+    ENDTRY;
+}
+
+static void
+finally_called_exception_from_catch(volatile unsigned int* thrown, volatile unsigned int* called)
+{
+    TRY {
+        THROW(BoundsError);
+    }
+    CATCH_ALL {
+        if((*thrown) > 0) {
+            printf("05: Looping exception\n");
+            failed = TRUE;
+        } else {
+            (*thrown) += 10;
+            THROW(BoundsError);
+        }
+    }
+    FINALLY {
+        (*called) += 10;
+    }
+    ENDTRY;
+}
+
 void
 run_tests(void)
 {
@@ -102,13 +137,7 @@ run_tests(void)
     /* check that finally is called on an uncaught exception */
     ex_thrown = finally_called = 0;
     TRY {
-        TRY {
-            THROW(BoundsError);
-        }
-        FINALLY {
-            finally_called ++;
-        }
-        ENDTRY;
+        finally_called_uncaught_exception(&finally_called);
     }
     CATCH(BoundsError) {
         ex_thrown++;
@@ -129,17 +158,7 @@ run_tests(void)
     /* check that finally is called on an rethrown exception */
     ex_thrown = finally_called = 0;
     TRY {
-        TRY {
-            THROW(BoundsError);
-        }
-        CATCH_ALL {
-            ex_thrown += 10;
-            RETHROW;
-        }
-        FINALLY {
-            finally_called += 10;
-        }
-        ENDTRY;
+        finally_called_rethrown_exception(&ex_thrown, &finally_called);
     }
     CATCH(BoundsError) {
         ex_thrown ++;
@@ -163,22 +182,7 @@ run_tests(void)
     /* check that finally is called on an exception thrown from a CATCH block */
     ex_thrown = finally_called = 0;
     TRY {
-        TRY {
-            THROW(BoundsError);
-        }
-        CATCH_ALL {
-            if(ex_thrown > 0) {
-                printf("05: Looping exception\n");
-                failed = TRUE;
-            } else {
-                ex_thrown += 10;
-                THROW(BoundsError);
-            }
-        }
-        FINALLY {
-            finally_called += 10;
-        }
-        ENDTRY;
+        finally_called_exception_from_catch(&ex_thrown, &finally_called);
     }
     CATCH(BoundsError) {
         ex_thrown ++;
@@ -201,7 +205,6 @@ run_tests(void)
     if(failed == FALSE )
         printf("success\n");
 }
-DIAG_ON(shadow)
 
 int main(void)
 {

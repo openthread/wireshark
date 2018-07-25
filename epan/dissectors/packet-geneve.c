@@ -1,6 +1,6 @@
 /* packet-geneve.c
  * Routines for Geneve - Generic Network Virtualization Encapsulation
- * http://tools.ietf.org/html/draft-gross-geneve-00
+ * http://tools.ietf.org/html/draft-ietf-nvo3-geneve
  *
  * Copyright (c) 2014 VMware, Inc. All Rights Reserved.
  * Author: Jesse Gross <jesse@nicira.com>
@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -45,7 +33,12 @@
 
 static const range_string class_id_names[] = {
     { 0, 0xFF, "Standard" },
-    { 0xFFFF, 0xFFFF, "Experimental" },
+    { 0x0100, 0x0100, "Linux" },
+    { 0x0101, 0x0101, "Open vSwitch" },
+    { 0x0102, 0x0102, "Open Virtual Networking (OVN)" },
+    { 0x0103, 0x0103, "In-band Network Telemetry (INT)" },
+    { 0x0104, 0x0104, "VMware" },
+    { 0xFFF0, 0xFFFF, "Experimental" },
     { 0, 0, NULL }
 };
 
@@ -55,7 +48,6 @@ void proto_reg_handoff_geneve(void);
 static int proto_geneve = -1;
 
 static int hf_geneve_version = -1;
-static int hf_geneve_opt_len = -1;
 static int hf_geneve_flags = -1;
 static int hf_geneve_flag_oam = -1;
 static int hf_geneve_flag_critical = -1;
@@ -83,38 +75,6 @@ static expert_field ei_geneve_ver_unknown = EI_INIT;
 static expert_field ei_geneve_opt_len_invalid = EI_INIT;
 
 static dissector_table_t ethertype_dissector_table;
-
-static void
-print_flags(guint8 flags, proto_item *flag_item)
-{
-    static const char flag_names[][5] = {"OAM", "CRIT"};
-    unsigned int i;
-
-    if (!flags) {
-        return;
-    }
-
-    proto_item_append_text(flag_item, " (");
-
-    for (i = 0; i < array_length(flag_names); i++) {
-        guint8 bit = 1 << (7 - i);
-
-        if (flags & bit) {
-            proto_item_append_text(flag_item, "%s", flag_names[i]);
-            flags &= ~bit;
-
-            if (flags) {
-                proto_item_append_text(flag_item, ", ");
-            }
-        }
-    }
-
-    if (flags) {
-        proto_item_append_text(flag_item, "RSVD");
-    }
-
-    proto_item_append_text(flag_item, ")");
-}
 
 static const char *
 format_unknown_option_name(guint16 opt_class, guint8 opt_type)
@@ -172,8 +132,7 @@ dissect_unknown_option(tvbuff_t *tvb, proto_tree *opts_tree, int offset,
         PROTO_ITEM_SET_HIDDEN(flag_item);
     }
 
-    proto_tree_add_uint_format_value(opt_tree, hf_geneve_option_length, tvb,
-                                     offset, 1, len, "%u bytes", len);
+    proto_tree_add_uint(opt_tree, hf_geneve_option_length, tvb, offset, 1, len);
     offset += 1;
 
     proto_tree_add_item(opt_tree, hf_geneve_opt_unknown_data, tvb, offset,
@@ -222,8 +181,8 @@ dissect_geneve_options(tvbuff_t *tvb, packet_info *pinfo,
 static int
 dissect_geneve(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-    proto_item *ti, *flag_item, *rsvd_item;
-    proto_tree *geneve_tree, *flag_tree;
+    proto_item *ti, *rsvd_item;
+    proto_tree *geneve_tree;
     tvbuff_t *next_tvb;
     int offset = 0;
     guint8 ver_opt;
@@ -231,6 +190,12 @@ dissect_geneve(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
     guint8 flags;
     guint16 proto_type;
     int opts_len;
+    static const int * flag_fields[] = {
+        &hf_geneve_flag_oam,
+        &hf_geneve_flag_critical,
+        &hf_geneve_flag_reserved,
+        NULL
+    };
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Geneve");
     col_clear(pinfo->cinfo, COL_INFO);
@@ -253,26 +218,13 @@ dissect_geneve(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 
     /* Option length. */
     opts_len = (ver_opt & HDR_OPTS_LEN_MASK) * 4;
-    proto_tree_add_uint_format_value(geneve_tree, hf_geneve_opt_len, tvb,
-                                     offset, 1, opts_len, "%u bytes", opts_len);
+    proto_tree_add_uint(geneve_tree, hf_geneve_option_length, tvb,
+                                     offset, 1, opts_len);
     offset += 1;
 
     /* Flags. */
     flags = tvb_get_guint8(tvb, offset);
-    if (tree) {
-        flag_item = proto_tree_add_item(geneve_tree, hf_geneve_flags, tvb,
-                                       offset, 1, ENC_BIG_ENDIAN);
-        print_flags(flags, flag_item);
-
-        flag_tree = proto_item_add_subtree(flag_item, ett_geneve_flags);
-
-        proto_tree_add_item(flag_tree, hf_geneve_flag_oam, tvb, offset,
-                            1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flag_tree, hf_geneve_flag_critical, tvb, offset,
-                            1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flag_tree, hf_geneve_flag_reserved, tvb, offset,
-                            1, ENC_BIG_ENDIAN);
-    }
+    proto_tree_add_bitmask(geneve_tree, tvb, offset, hf_geneve_flags, ett_geneve_flags, flag_fields, ENC_BIG_ENDIAN);
     offset += 1;
 
     /* Protocol Type. */
@@ -323,11 +275,6 @@ proto_register_geneve(void)
         { &hf_geneve_version,
           { "Version", "geneve.version",
             FT_UINT8, BASE_DEC, NULL, 0x00,
-            NULL, HFILL }
-        },
-        { &hf_geneve_opt_len,
-          { "Options Length", "geneve.options_length",
-            FT_UINT8, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_geneve_flags,
@@ -397,7 +344,7 @@ proto_register_geneve(void)
         },
         { &hf_geneve_option_length,
           { "Length", "geneve.option.length",
-            FT_UINT8, BASE_DEC, NULL, 0x00,
+            FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x00,
             NULL, HFILL }
         },
         { &hf_geneve_opt_unknown,
@@ -446,8 +393,7 @@ proto_reg_handoff_geneve(void)
     dissector_handle_t geneve_handle;
 
     geneve_handle = create_dissector_handle(dissect_geneve, proto_geneve);
-    dissector_add_uint("udp.port", UDP_PORT_GENEVE, geneve_handle);
-    dissector_add_for_decode_as("udp.port", geneve_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_GENEVE, geneve_handle);
 
     ethertype_dissector_table = find_dissector_table("ethertype");
 }

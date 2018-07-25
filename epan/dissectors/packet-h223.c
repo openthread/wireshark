@@ -6,28 +6,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 
 #include <epan/packet.h>
-#include <epan/circuit.h>
 #include <epan/conversation.h>
 #include <epan/exceptions.h>
+#include <epan/expert.h>
 #include <epan/stream.h>
 #include <epan/golay.h>
 #include <epan/iax2_codec_type.h>
@@ -95,7 +83,7 @@ static int hf_h223_al2_sequenced = -1;
 static int hf_h223_al2_unsequenced = -1;
 static int hf_h223_al2_seqno = -1;
 static int hf_h223_al2_crc = -1;
-static int hf_h223_al2_crc_bad = -1;
+static int hf_h223_al2_crc_status = -1;
 
 static int hf_h223_al_payload = -1;
 
@@ -116,9 +104,12 @@ static gint ett_h223_al1 = -1;
 static gint ett_h223_al2 = -1;
 static gint ett_h223_al_payload = -1;
 
+static expert_field ei_h223_al2_crc = EI_INIT;
+
 /* These are the handles of our subdissectors */
 static dissector_handle_t data_handle;
 static dissector_handle_t srp_handle;
+static dissector_handle_t h223_bitswapped;
 
 static const fragment_items h223_mux_frag_items _U_ = {
     &ett_h223_mux_fragment,
@@ -174,7 +165,7 @@ typedef struct {
     guint32 vc;                 /* child circuit */
 } circuit_chain_key;
 
-static GHashTable *circuit_chain_hashtable = NULL;
+static wmem_map_t *circuit_chain_hashtable = NULL;
 static guint circuit_chain_count = 1;
 
 /* Hash Functions */
@@ -204,12 +195,12 @@ circuit_chain_lookup(const h223_call_info* call_info, guint32 child_vc)
     guint32 circuit_id;
     key.call = call_info;
     key.vc = child_vc;
-    circuit_id = GPOINTER_TO_UINT(g_hash_table_lookup( circuit_chain_hashtable, &key ));
+    circuit_id = GPOINTER_TO_UINT(wmem_map_lookup( circuit_chain_hashtable, &key ));
     if( circuit_id == 0 ) {
         new_key = wmem_new(wmem_file_scope(), circuit_chain_key);
         *new_key = key;
         circuit_id = ++circuit_chain_count;
-        g_hash_table_insert(circuit_chain_hashtable, new_key, GUINT_TO_POINTER(circuit_id));
+        wmem_map_insert(circuit_chain_hashtable, new_key, GUINT_TO_POINTER(circuit_id));
     }
     return circuit_id;
 }
@@ -217,14 +208,7 @@ circuit_chain_lookup(const h223_call_info* call_info, guint32 child_vc)
 static void
 circuit_chain_init(void)
 {
-    circuit_chain_hashtable = g_hash_table_new(circuit_chain_hash, circuit_chain_equal);
     circuit_chain_count = 1;
-}
-
-static void
-circuit_chain_destroy(void)
-{
-    g_hash_table_destroy(circuit_chain_hashtable);
 }
 
 
@@ -408,19 +392,19 @@ static void
 init_logical_channel( guint32 start_frame, h223_call_info* call_info, int vc, int direction, h223_lc_params* params )
 {
     guint32 circuit_id = circuit_chain_lookup(call_info, vc);
-    circuit_t *subcircuit;
+    conversation_t *subcircuit;
     h223_vc_info *vc_info;
-    subcircuit = find_circuit( CT_H223, circuit_id, start_frame );
+    subcircuit = find_conversation_by_id( start_frame, ENDPOINT_H223, circuit_id, 0);
 
     if( subcircuit == NULL ) {
-        subcircuit = circuit_new( CT_H223, circuit_id, start_frame );
+        subcircuit = conversation_new_by_id( start_frame, ENDPOINT_H223, circuit_id, 0 );
 #ifdef DEBUG_H223
         g_debug("%d: Created new circuit %d for call %p VC %d", start_frame, circuit_id, call_info, vc);
 #endif
         vc_info = h223_vc_info_new( call_info );
-        circuit_add_proto_data( subcircuit, proto_h223, vc_info );
+        conversation_add_proto_data( subcircuit, proto_h223, vc_info );
     } else {
-        vc_info = (h223_vc_info *)circuit_get_proto_data( subcircuit, proto_h223 );
+        vc_info = (h223_vc_info *)conversation_get_proto_data( subcircuit, proto_h223 );
     }
     add_h223_lc_params( vc_info, direction, params, start_frame );
 }
@@ -453,17 +437,17 @@ create_call_info( guint32 start_frame )
 
 /* find or create call_info struct for calls over circuits (eg, IAX) */
 static h223_call_info *
-find_or_create_call_info_circ(packet_info * pinfo, circuit_type ctype, guint32 circuit_id)
+find_or_create_call_info_circ(packet_info * pinfo, endpoint_type etype, guint32 circuit_id)
 {
     h223_call_info *datax;
-    circuit_t *circ = NULL;
+    conversation_t *circ = NULL;
 
-    if(ctype != CT_NONE)
-        circ = find_circuit( ctype, circuit_id, pinfo->num );
+    if(etype != ENDPOINT_NONE)
+        circ = find_conversation_by_id( pinfo->num, etype, circuit_id, 0);
     if(circ == NULL)
         return NULL;
 
-    datax = (h223_call_info *)circuit_get_proto_data(circ, proto_h223);
+    datax = (h223_call_info *)conversation_get_proto_data(circ, proto_h223);
 
     if( datax == NULL ) {
         datax = create_call_info(pinfo->num);
@@ -472,7 +456,7 @@ find_or_create_call_info_circ(packet_info * pinfo, circuit_type ctype, guint32 c
         g_debug("%u: Created new call %p for circuit %p ctype %d, id %u",
                 pinfo->num, datax, circ, type, circuit_id);
 #endif
-        circuit_add_proto_data(circ, proto_h223, datax);
+        conversation_add_proto_data(circ, proto_h223, datax);
     }
 
     /* work out what direction we're really going in */
@@ -490,10 +474,7 @@ find_or_create_call_info_conv(packet_info * pinfo)
     conversation_t *conv;
 
     /* assume we're running atop TCP or RTP; use the conversation support */
-    conv = find_conversation( pinfo->num,
-                              &pinfo->src,&pinfo->dst,
-                              pinfo->ptype,
-                              pinfo->srcport,pinfo->destport, 0 );
+    conv = find_conversation_pinfo(pinfo, 0 );
 
     /* both RTP and TCP track their conversations, so just assert here if
      * we can't find one */
@@ -511,7 +492,7 @@ find_or_create_call_info_conv(packet_info * pinfo)
          */
         conv2 = find_conversation( pinfo->num,
                                   &pinfo->dst,&pinfo->src,
-                                  pinfo->ptype,
+                                  conversation_pt_to_endpoint_type(pinfo->ptype),
                                   pinfo->destport,pinfo->srcport, 0 );
         if(conv2 != NULL)
             datax = (h223_call_info *)conversation_get_proto_data(conv2, proto_h223);
@@ -546,7 +527,7 @@ find_or_create_call_info_conv(packet_info * pinfo)
         conversation_add_proto_data(conv, proto_h223, datax);
         /* add the source details so we can distinguish directions
          * in future */
-        copy_address(&(datax -> srcaddress), &(pinfo->src));
+        copy_address_wmem(wmem_file_scope(), &(datax -> srcaddress), &(pinfo->src));
         datax -> srcport = pinfo->srcport;
     }
 
@@ -561,11 +542,11 @@ find_or_create_call_info_conv(packet_info * pinfo)
 }
 
 static h223_call_info *
-find_or_create_call_info ( packet_info * pinfo, circuit_type ctype, guint32 circuit_id )
+find_or_create_call_info ( packet_info * pinfo, endpoint_type etype, guint32 circuit_id )
 {
     h223_call_info *datax;
 
-    datax = find_or_create_call_info_circ(pinfo, ctype, circuit_id);
+    datax = find_or_create_call_info_circ(pinfo, etype, circuit_id);
     if(datax == NULL)
         datax = find_or_create_call_info_conv(pinfo);
     return datax;
@@ -573,31 +554,33 @@ find_or_create_call_info ( packet_info * pinfo, circuit_type ctype, guint32 circ
 
 /* called from the h245 dissector to handle a MultiplexEntrySend message */
 static void
-h223_set_mc( packet_info* pinfo, guint8 mc, h223_mux_element* me, circuit_type ctype, guint32 circuit_id )
+h223_set_mc( packet_info* pinfo, guint8 mc, h223_mux_element* me)
 {
-    circuit_t *circ = find_circuit( ctype, circuit_id, pinfo->num );
+    conversation_t *circ = find_conversation_pinfo( pinfo, 0 );
     h223_vc_info* vc_info;
 
     /* if this h245 pdu packet came from an h223 circuit, add the details on
      * the new mux entry */
     if(circ) {
-        vc_info = (h223_vc_info *)circuit_get_proto_data(circ, proto_h223);
-        add_h223_mux_element( &(vc_info->call_info->direction_data[pinfo->p2p_dir ? 0 : 1]), mc, me, pinfo->num );
+        vc_info = (h223_vc_info *)conversation_get_proto_data(circ, proto_h223);
+        if (vc_info != NULL)
+            add_h223_mux_element( &(vc_info->call_info->direction_data[pinfo->p2p_dir ? 0 : 1]), mc, me, pinfo->num );
     }
 }
 
 /* called from the h245 dissector to handle an OpenLogicalChannelAck message */
 static void
-h223_add_lc( packet_info* pinfo, guint16 lc, h223_lc_params* params, circuit_type ctype, guint32 circuit_id )
+h223_add_lc( packet_info* pinfo, guint16 lc, h223_lc_params* params )
 {
-    circuit_t *circ = find_circuit( ctype, circuit_id, pinfo->num );
+    conversation_t *circ = find_conversation_pinfo( pinfo, 0 );
     h223_vc_info* vc_info;
 
     /* if this h245 pdu packet came from an h223 circuit, add the details on
      * the new channel */
     if(circ) {
-        vc_info = (h223_vc_info *)circuit_get_proto_data(circ, proto_h223);
-        init_logical_channel( pinfo->num, vc_info->call_info, lc, pinfo->p2p_dir, params );
+        vc_info = (h223_vc_info *)conversation_get_proto_data(circ, proto_h223);
+        if (vc_info != NULL)
+            init_logical_channel( pinfo->num, vc_info->call_info, lc, pinfo->p2p_dir, params );
     }
 }
 
@@ -697,15 +680,9 @@ dissect_mux_al_pdu( tvbuff_t *tvb, packet_info *pinfo, proto_tree *vc_tree,
             calc_checksum = h223_al2_crc8bit(tvb);
             real_checksum = tvb_get_guint8(tvb, len - 1);
 
-            if( calc_checksum == real_checksum ) {
-                proto_tree_add_uint_format_value(al_tree, hf_h223_al2_crc, tvb, len - 1, 1, real_checksum,
-                                           "0x%02x (correct)", real_checksum );
-            } else {
-                proto_tree_add_uint_format_value(al_tree, hf_h223_al2_crc, tvb, len - 1, 1, real_checksum,
-                                           "0x%02x (incorrect, should be 0x%02x)", real_checksum, calc_checksum );
-                tmp_item = proto_tree_add_boolean( al_tree, hf_h223_al2_crc_bad, tvb, len - 1, 1, TRUE );
-                PROTO_ITEM_SET_GENERATED(tmp_item);
+            proto_tree_add_checksum(al_tree, tvb, len - 1, hf_h223_al2_crc, hf_h223_al2_crc_status, &ei_h223_al2_crc, pinfo, calc_checksum, ENC_NA, PROTO_CHECKSUM_VERIFY);
 
+            if( calc_checksum != real_checksum ) {
                 /* don't pass pdus which fail checksums on to the subdissector */
                 subdissector = data_handle;
             }
@@ -744,32 +721,27 @@ static void
 dissect_mux_sdu_fragment(tvbuff_t *volatile next_tvb, packet_info *pinfo,
                          guint32 pkt_offset, proto_tree *pdu_tree,
                          h223_call_info* call_info, guint16 vc,
-                         gboolean end_of_mux_sdu, circuit_type orig_ctype, guint32 orig_circuit)
+                         gboolean end_of_mux_sdu, endpoint_type orig_etype, guint32 orig_circuit)
 {
-    /* update the circuit details before passing to a subdissector */
-    circuit_type ctype = CT_H223;
-    /* XXX - Not sure if these need to be saved */
-    pinfo->circuit_id = circuit_chain_lookup(call_info, vc);
-    pinfo->ctype = ctype;
-
     TRY {
-        guint32 circuit_id = pinfo->circuit_id;
-        circuit_t *subcircuit=find_circuit(ctype,circuit_id,pinfo->num);
-        proto_tree *vc_tree = NULL;
+        /* update the circuit details before passing to a subdissector */
+        guint32 circuit_id = circuit_chain_lookup(call_info, vc);
+        conversation_create_endpoint_by_id(pinfo, ENDPOINT_H223, circuit_id, 0);
+
+        conversation_t *subcircuit = find_conversation_by_id(pinfo->num, ENDPOINT_H223, circuit_id, 0);
+        proto_tree *vc_tree;
         proto_item *vc_item;
         h223_vc_info *vc_info = NULL;
         h223_lc_params *lc_params = NULL;
 
-        if(pdu_tree) {
-            vc_item = proto_tree_add_uint(pdu_tree, hf_h223_mux_vc, next_tvb, 0, tvb_reported_length(next_tvb), vc);
-            vc_tree = proto_item_add_subtree (vc_item, ett_h223_mux_vc);
-        }
+        vc_item = proto_tree_add_uint(pdu_tree, hf_h223_mux_vc, next_tvb, 0, tvb_reported_length(next_tvb), vc);
+        vc_tree = proto_item_add_subtree (vc_item, ett_h223_mux_vc);
 
         if( subcircuit == NULL ) {
             g_message( "Frame %d: Subcircuit id %d not found for call %p VC %d", pinfo->num,
                        circuit_id, (void *)call_info, vc );
         } else {
-            vc_info = (h223_vc_info *)circuit_get_proto_data(subcircuit, proto_h223);
+            vc_info = (h223_vc_info *)conversation_get_proto_data(subcircuit, proto_h223);
             if( vc_info != NULL ) {
                 lc_params = find_h223_lc_params( vc_info, pinfo->p2p_dir, pinfo->num );
             }
@@ -781,9 +753,9 @@ dissect_mux_sdu_fragment(tvbuff_t *volatile next_tvb, packet_info *pinfo,
                     stream_t *substream;
                     stream_pdu_fragment_t *frag;
 
-                    substream = find_stream_circ(subcircuit,pinfo->p2p_dir);
+                    substream = find_stream_conv(subcircuit,pinfo->p2p_dir);
                     if(substream == NULL )
-                        substream = stream_new_circ(subcircuit,pinfo->p2p_dir);
+                        substream = stream_new_conv(subcircuit,pinfo->p2p_dir);
                     frag = stream_find_frag(substream,pinfo->num,pkt_offset);
 
                     if(frag == NULL ) {
@@ -820,8 +792,7 @@ dissect_mux_sdu_fragment(tvbuff_t *volatile next_tvb, packet_info *pinfo,
 
     /* restore the original circuit details for future PDUs */
     FINALLY {
-        pinfo->ctype=orig_ctype;
-        pinfo->circuit_id=orig_circuit;
+        conversation_create_endpoint_by_id(pinfo, orig_etype, orig_circuit, 0);
     }
     ENDTRY;
 }
@@ -863,7 +834,7 @@ dissect_mux_payload_by_me_list( tvbuff_t *tvb, packet_info *pinfo,
                                 guint32 pkt_offset, proto_tree *pdu_tree,
                                 h223_call_info* call_info,
                                 h223_mux_element *me, guint32 offset,
-                                gboolean endOfMuxSdu, circuit_type ctype, guint32 circuit_id)
+                                gboolean endOfMuxSdu, endpoint_type etype, guint32 circuit_id)
 {
     guint32 len = tvb_reported_length(tvb);
     guint32 frag_len;
@@ -876,12 +847,12 @@ dissect_mux_payload_by_me_list( tvbuff_t *tvb, packet_info *pinfo,
                     offset + sublist_len <= len;
                     offset = dissect_mux_payload_by_me_list( tvb, pinfo, pkt_offset, pdu_tree,
                                                              call_info, me->sublist, offset, endOfMuxSdu,
-                                                             ctype, circuit_id) );
+                                                             etype, circuit_id) );
             } else {
                 for(i = 0; i < me->repeat_count; ++i)
                     offset = dissect_mux_payload_by_me_list( tvb, pinfo, pkt_offset, pdu_tree,
                                                              call_info, me->sublist, offset, endOfMuxSdu,
-                                                             ctype, circuit_id);
+                                                             etype, circuit_id);
             }
         } else {
             if ( me->repeat_count == 0 )
@@ -893,7 +864,7 @@ dissect_mux_payload_by_me_list( tvbuff_t *tvb, packet_info *pinfo,
                 next_tvb = tvb_new_subset_length(tvb, offset, frag_len);
                 dissect_mux_sdu_fragment( next_tvb, pinfo, pkt_offset + offset, pdu_tree,
                                           call_info, me->vc, (offset+frag_len==len) && endOfMuxSdu,
-                                          ctype, circuit_id);
+                                          etype, circuit_id);
                 offset += frag_len;
             }
         }
@@ -917,14 +888,14 @@ dissect_mux_payload_by_me_list( tvbuff_t *tvb, packet_info *pinfo,
 static void
 dissect_mux_payload( tvbuff_t *tvb, packet_info *pinfo, guint32 pkt_offset,
                      proto_tree *pdu_tree, h223_call_info *call_info,
-                     guint8 mc, gboolean endOfMuxSdu, circuit_type ctype, guint32 circuit_id )
+                     guint8 mc, gboolean endOfMuxSdu, endpoint_type etype, guint32 circuit_id )
 {
     guint32 len = tvb_reported_length(tvb);
 
     h223_mux_element* me = find_h223_mux_element( &(call_info->direction_data[pinfo->p2p_dir ? 0 : 1]), mc, pinfo->num, pkt_offset );
 
     if( me ) {
-        dissect_mux_payload_by_me_list( tvb, pinfo, pkt_offset, pdu_tree, call_info, me, 0, endOfMuxSdu, ctype, circuit_id );
+        dissect_mux_payload_by_me_list( tvb, pinfo, pkt_offset, pdu_tree, call_info, me, 0, endOfMuxSdu, etype, circuit_id );
     } else {
         /* no entry found in mux-table. ignore packet and dissect as data */
         proto_tree *vc_tree = NULL;
@@ -951,7 +922,7 @@ dissect_mux_payload( tvbuff_t *tvb, packet_info *pinfo, guint32 pkt_offset,
  */
 static void
 dissect_mux_pdu( tvbuff_t *tvb, packet_info *pinfo, guint32 pkt_offset,
-                 proto_tree *h223_tree, h223_call_info *call_info, circuit_type ctype, guint32 circuit_id)
+                 proto_tree *h223_tree, h223_call_info *call_info, endpoint_type etype, guint32 circuit_id)
 {
     guint32 offset = 0;
     /* actual (as opposed to reported) payload len */
@@ -1065,9 +1036,9 @@ dissect_mux_pdu( tvbuff_t *tvb, packet_info *pinfo, guint32 pkt_offset,
     }
 
     if(mpl > 0) {
-        pdu_tvb = tvb_new_subset(tvb, offset, len, mpl);
+        pdu_tvb = tvb_new_subset_length_caplen(tvb, offset, len, mpl);
         if(errors != -1) {
-            dissect_mux_payload(pdu_tvb,pinfo,pkt_offset+offset,pdu_tree,call_info,mc,end_of_mux_sdu, ctype, circuit_id);
+            dissect_mux_payload(pdu_tvb,pinfo,pkt_offset+offset,pdu_tree,call_info,mc,end_of_mux_sdu, etype, circuit_id);
         } else {
             call_dissector(data_handle,pdu_tvb,pinfo,pdu_tree);
         }
@@ -1194,7 +1165,7 @@ h223_mux_check_hdlc(int h223_level, guint32 nbytes, guint32 tail_buf)
 static gint
 dissect_mux_pdu_fragment( tvbuff_t *tvb, guint32 start_offset,
                           packet_info *pinfo, proto_tree *h223_tree,
-                          h223_call_info *call_info, circuit_type ctype, guint32 circuit_id)
+                          h223_call_info *call_info, endpoint_type etype, guint32 circuit_id)
 {
     tvbuff_t *volatile next_tvb;
     volatile guint32 offset = start_offset;
@@ -1270,7 +1241,7 @@ dissect_mux_pdu_fragment( tvbuff_t *tvb, guint32 start_offset,
      * data.
      */
     TRY {
-        dissect_mux_pdu( next_tvb, pinfo, start_offset, h223_tree, call_info, ctype, circuit_id);
+        dissect_mux_pdu( next_tvb, pinfo, start_offset, h223_tree, call_info, etype, circuit_id);
     }
     CATCH_NONFATAL_ERRORS {
         show_exception(tvb, pinfo, h223_tree, EXCEPT_CODE, GET_MESSAGE);
@@ -1292,7 +1263,7 @@ dissect_mux_pdu_fragment( tvbuff_t *tvb, guint32 start_offset,
  * line up with the end of a pdu.
  */
 static void
-dissect_h223_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, circuit_type ctype, guint32 circuit_id)
+dissect_h223_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, endpoint_type etype, guint32 circuit_id)
 {
     proto_tree *h223_tree = NULL;
     proto_item *h223_item = NULL;
@@ -1305,7 +1276,7 @@ dissect_h223_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, circuit
     col_clear(pinfo->cinfo, COL_INFO);
 
     /* find or create the call_info for this call */
-    call_info = find_or_create_call_info(pinfo, ctype, circuit_id);
+    call_info = find_or_create_call_info(pinfo, etype, circuit_id);
 
     /* add the 'h223' tree to the main tree */
     if (tree) {
@@ -1315,7 +1286,7 @@ dissect_h223_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, circuit
 
     while( offset < tvb_reported_length( tvb )) {
         int res = dissect_mux_pdu_fragment( tvb, offset, pinfo,
-                                            h223_tree, call_info, ctype, circuit_id);
+                                            h223_tree, call_info, etype, circuit_id);
         if(res <= 0) {
             /* the end of the tvb held the start of a PDU */
             pinfo->desegment_offset = offset;
@@ -1353,26 +1324,17 @@ dissect_h223_circuit_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 {
     iax2_dissector_info_t circuit_info;
 
-    if (data != NULL)
-    {
-        circuit_info = *((iax2_dissector_info_t*)data);
-    }
-    else
-    {
-        /* Just in case dissectors are still using the "old" method */
-        /* XXX - This should eventually be removed */
-        circuit_info.ctype = (circuit_type)pinfo->ctype;
-        circuit_info.circuit_id = pinfo->circuit_id;
-    }
+    DISSECTOR_ASSERT(data);
+    circuit_info = *((iax2_dissector_info_t*)data);
 
-    dissect_h223_common(tvb, pinfo, tree, circuit_info.ctype, circuit_info.circuit_id);
+    dissect_h223_common(tvb, pinfo, tree, circuit_info.etype, circuit_info.circuit_id);
     return tvb_captured_length(tvb);
 }
 
 static int
 dissect_h223(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-    dissect_h223_common(tvb, pinfo, tree, CT_NONE, 0);
+    dissect_h223_common(tvb, pinfo, tree, ENDPOINT_NONE, 0);
     return tvb_captured_length(tvb);
 }
 
@@ -1384,7 +1346,7 @@ dissect_h223(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
  * normal entry point.
  */
 static void
-dissect_h223_bitswapped_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, circuit_type ctype, guint32 circuit_id)
+dissect_h223_bitswapped_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, endpoint_type etype, guint32 circuit_id)
 {
     tvbuff_t *reversed_tvb;
     guint8 *datax;
@@ -1404,7 +1366,7 @@ dissect_h223_bitswapped_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     /* Add the reversed data to the data source list. */
     add_new_data_source(pinfo, reversed_tvb, "Bit-swapped H.223 frame" );
 
-    dissect_h223_common(reversed_tvb,pinfo,tree,ctype,circuit_id);
+    dissect_h223_common(reversed_tvb,pinfo,tree,etype,circuit_id);
 }
 
 static int
@@ -1412,26 +1374,17 @@ dissect_h223_bitswapped_circuit_data(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 {
     iax2_dissector_info_t circuit_info;
 
-    if (data != NULL)
-    {
-        circuit_info = *((iax2_dissector_info_t*)data);
-    }
-    else
-    {
-        /* Just in case dissectors are still using the "old" method */
-        /* XXX - This should eventually be removed */
-        circuit_info.ctype = (circuit_type)pinfo->ctype;
-        circuit_info.circuit_id = pinfo->circuit_id;
-    }
+    DISSECTOR_ASSERT(data);
+    circuit_info = *((iax2_dissector_info_t*)data);
 
-    dissect_h223_bitswapped_common(tvb, pinfo, tree, circuit_info.ctype, circuit_info.circuit_id);
+    dissect_h223_bitswapped_common(tvb, pinfo, tree, circuit_info.etype, circuit_info.circuit_id);
     return tvb_captured_length(tvb);
 }
 
 static int
 dissect_h223_bitswapped(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
-    dissect_h223_bitswapped_common(tvb, pinfo, tree, CT_NONE, 0);
+    dissect_h223_bitswapped_common(tvb, pinfo, tree, ENDPOINT_NONE, 0);
     return tvb_captured_length(tvb);
 }
 
@@ -1610,8 +1563,8 @@ void proto_register_h223 (void)
           { "CRC", "h223.al2.crc", FT_UINT8, BASE_HEX, NULL, 0x0,
             NULL, HFILL }},
 
-        { &hf_h223_al2_crc_bad,
-          { "Bad CRC","h223.al2.crc_bad", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+        { &hf_h223_al2_crc_status,
+          { "CRC Status","h223.al2.crc.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
             NULL, HFILL }},
 
         { &hf_h223_al_payload,
@@ -1638,21 +1591,31 @@ void proto_register_h223 (void)
         &ett_h223_al_payload
     };
 
+    static ei_register_info ei[] = {
+        { &ei_h223_al2_crc, { "h223.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+    };
+
+    expert_module_t* expert_h223;
+
     proto_h223 =
         proto_register_protocol ("ITU-T Recommendation H.223", "H.223", "h223");
     /* Create a H.223 "placeholder" to remove confusion with Decode As" */
     proto_h223_bitswapped =
-        proto_register_protocol ("ITU-T Recommendation H.223 (Bitswapped)", "H.223 (Bitswapped)", "h223_bitswapped");
+        proto_register_protocol_in_name_only ("ITU-T Recommendation H.223 (Bitswapped)", "H.223 (Bitswapped)", "h223_bitswapped", proto_h223, FT_PROTOCOL);
 
     proto_register_field_array (proto_h223, hf, array_length (hf));
     proto_register_subtree_array (ett, array_length (ett));
+    expert_h223 = expert_register_protocol(proto_h223);
+    expert_register_field_array(expert_h223, ei, array_length(ei));
+
     register_dissector("h223", dissect_h223_circuit_data, proto_h223);
-    register_dissector("h223_bitswapped", dissect_h223_bitswapped, proto_h223_bitswapped);
+    h223_bitswapped = register_dissector("h223_bitswapped", dissect_h223_bitswapped, proto_h223_bitswapped);
 
     /* register our init routine to be called at the start of a capture,
        to clear out our hash tables etc */
     register_init_routine(&circuit_chain_init);
-    register_cleanup_routine(&circuit_chain_destroy);
+
+    circuit_chain_hashtable = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), circuit_chain_hash, circuit_chain_equal);
 
     h245_set_h223_set_mc_handle( &h223_set_mc );
     h245_set_h223_add_lc_handle( &h223_add_lc );
@@ -1660,12 +1623,11 @@ void proto_register_h223 (void)
 
 void proto_reg_handoff_h223(void)
 {
-    dissector_handle_t h223_bitswapped = find_dissector("h223_bitswapped");
     data_handle = find_dissector("data");
     srp_handle = find_dissector("srp");
 
-    dissector_add_for_decode_as("tcp.port", create_dissector_handle( dissect_h223, proto_h223));
-    dissector_add_for_decode_as("tcp.port", h223_bitswapped);
+    dissector_add_for_decode_as_with_preference("tcp.port", create_dissector_handle( dissect_h223, proto_h223));
+    dissector_add_for_decode_as_with_preference("tcp.port", h223_bitswapped);
     dissector_add_string("rtp_dyn_payload_type","CLEARMODE", h223_bitswapped);
     dissector_add_uint("iax2.dataformat", AST_DATAFORMAT_H223_H245, create_dissector_handle(dissect_h223_bitswapped_circuit_data, proto_h223_bitswapped));
 }

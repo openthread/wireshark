@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* 2014-04      Philip Rosenberg-Watt <p.rosenberg-watt[at]cablelabs.com>
@@ -47,6 +35,7 @@ static int hf_epon_dpoe_keyid = -1;
 static int hf_epon_mode = -1;
 static int hf_epon_llid = -1;
 static int hf_epon_checksum = -1;
+static int hf_epon_checksum_status = -1;
 
 static expert_field ei_epon_sld_bad = EI_INIT;
 static expert_field ei_epon_dpoe_reserved_bad = EI_INIT;
@@ -80,12 +69,14 @@ dissect_epon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
   guint       dpoe_sec_byte;
   gboolean    dpoe_encrypted = FALSE;
 
-  /* Start_of_Packet delimiter (/S/) can either happen in byte 1 or byte 2,
-   * making the captured preamble either 7 or 6 bytes in length. If the
+  /* Start_of_Packet delimiter (/S/) can happen in byte 1, 2 or 3,
+   * making the captured preamble 8, 7 or 6 bytes in length. If the
    * preamble starts with 0x55, then /S/ happened in byte 1, making the
    * captured preamble 7 bytes in length.
    */
-  if (tvb_get_ntoh24(tvb, 0) == 0x55D555) {
+  if (tvb_get_ntohl(tvb, 0) == 0x5555D555) {
+    offset += 2;
+  } else if (tvb_get_ntoh24(tvb, 0) == 0x55D555) {
     offset += 1;
   } else if (tvb_get_ntohs(tvb, 0) == 0xD555) {
     offset += 0;
@@ -172,16 +163,8 @@ dissect_epon(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
   sent_checksum = tvb_get_guint8(tvb, 5+offset);
   checksum = get_crc8_ieee8023_epon(tvb, 5, 0+offset);
 
-  if (sent_checksum == checksum) {
-    proto_tree_add_uint_format_value(epon_tree, hf_epon_checksum, tvb,
-                                     5+offset, 1, sent_checksum,
-                                     "0x%01x [correct]", sent_checksum);
-  } else {
-    item = proto_tree_add_uint_format_value(epon_tree, hf_epon_checksum, tvb,
-                                            5+offset, 1, sent_checksum,
-                                            "0x%01x [incorrect, should be 0x%01x]",
-                                            sent_checksum, checksum);
-    expert_add_info(pinfo, item, &ei_epon_checksum_bad);
+  proto_tree_add_checksum(epon_tree, tvb, 5+offset, hf_epon_checksum, hf_epon_checksum_status, &ei_epon_checksum_bad, pinfo, checksum, ENC_NA, PROTO_CHECKSUM_VERIFY);
+  if (sent_checksum != checksum) {
     col_append_str(pinfo->cinfo, COL_INFO, " [EPON PREAMBLE CHECKSUM INCORRECT]");
   }
 
@@ -243,6 +226,10 @@ proto_register_epon(void)
     { &hf_epon_checksum,
       { "Frame check sequence", "epon.checksum", FT_UINT8, BASE_HEX, NULL,
         0x0, "EPON preamble checksum", HFILL }
+    },
+    { &hf_epon_checksum_status,
+      { "Frame check sequence Status", "epon.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals),
+        0x0, NULL, HFILL }
     },
   };
 

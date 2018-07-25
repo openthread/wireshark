@@ -20,19 +20,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *                  -------------------------------------
  *
@@ -253,6 +241,10 @@ typedef struct _rtps_dissector_data {
 #define PID_STATUS_INFO                         (0x0071)
 #define PID_TYPE_OBJECT                         (0x0072)
 #define PID_TYPE_CONSISTENCY                    (0x0074)
+#define PID_EQUIVALENT_TYPE_NAME                (0x0075)
+#define PID_BASE_TYPE_NAME                      (0x0076)
+#define PID_ENABLE_ENCRYPTION                   (0x0077)
+#define PID_ENABLE_AUTHENTICATION               (0x0078)
 
 /* Vendor-specific: RTI */
 #define PID_PRODUCT_VERSION                     (0x8000)
@@ -266,17 +258,63 @@ typedef struct _rtps_dissector_data {
 #define PID_ROLE_NAME                           (0x800a)
 #define PID_ACK_KIND                            (0x800b)
 #define PID_PEER_HOST_EPOCH                     (0x800e)
+#define PID_RELATED_ORIGINAL_WRITER_INFO        (0x800f)/* inline QoS */
 #define PID_DOMAIN_ID                           (0x800f)
+#define PID_RELATED_READER_GUID                 (0x8010)/* inline QoS */
 #define PID_TRANSPORT_INFO_LIST                 (0x8010)
+#define PID_SOURCE_GUID                         (0x8011)/* inline QoS */
 #define PID_DIRECT_COMMUNICATION                (0x8011)
+#define PID_RELATED_SOURCE_GUID                 (0x8012)/* inline QoS */
+#define PID_TOPIC_QUERY_GUID                    (0x8013)/* inline QoS */
+#define PID_TOPIC_QUERY_PUBLICATION             (0x8014)
+#define PID_ENDPOINT_PROPERTY_CHANGE_EPOCH      (0x8015)
+#define PID_REACHABILITY_LEASE_DURATION         (0x8016)
+#define PID_VENDOR_BUILTIN_ENDPOINT_SET         (0x8017)
+#define PID_ENDPOINT_SECURITY_ATTRIBUTES        (0x8018)
+#define PID_SAMPLE_SIGNATURE                    (0x8019)/* inline QoS */
 #define PID_EXTENDED                            (0x3f01)
 #define PID_LIST_END                            (0x3f02)
+
+#define PID_IDENTITY_TOKEN                      (0x1001)
+#define PID_PERMISSIONS_TOKEN                   (0x1002)
+#define PID_DATA_TAGS                           (0x1003)
+#define PID_ENDPOINT_SECURITY_INFO              (0x1004)
+#define PID_PARTICIPANT_SECURITY_INFO           (0x1005)
+
+/* Vendor-specific: PT */
+#define PID_PRISMTECH_WRITER_INFO               (0x8001)
+#define PID_PRISMTECH_READER_DATA_LIFECYCLE     (0x8002)
+#define PID_PRISMTECH_WRITER_DATA_LIFECYCLE     (0x8003)
+#define PID_PRISMTECH_ENDPOINT_GUID             (0x8004)
+#define PID_PRISMTECH_SYNCHRONOUS_ENDPOINT      (0x8005)
+#define PID_PRISMTECH_RELAXED_QOS_MATCHING      (0x8006)
+#define PID_PRISMTECH_PARTICIPANT_VERSION_INFO  (0x8007)
+#define PID_PRISMTECH_NODE_NAME                 (0x8008)
+#define PID_PRISMTECH_EXEC_NAME                 (0x8009)
+#define PID_PRISMTECH_PROCESS_ID                (0x800a)
+#define PID_PRISMTECH_SERVICE_TYPE              (0x800b)
+#define PID_PRISMTECH_ENTITY_FACTORY            (0x800c)
+#define PID_PRISMTECH_WATCHDOG_SCHEDULING       (0x800d)
+#define PID_PRISMTECH_LISTENER_SCHEDULING       (0x800e)
+#define PID_PRISMTECH_SUBSCRIPTION_KEYS         (0x800f)
+#define PID_PRISMTECH_READER_LIFESPAN           (0x8010)
+#define PID_PRISMTECH_SHARE                     (0x8011)
+#define PID_PRISMTECH_TYPE_DESCRIPTION          (0x8012)
+#define PID_PRISMTECH_LAN_ID                    (0x8013)
+#define PID_PRISMTECH_ENDPOINT_GID              (0x8014)
+#define PID_PRISMTECH_GROUP_GID                 (0x8015)
+#define PID_PRISMTECH_EOTINFO                   (0x8016)
+#define PID_PRISMTECH_PART_CERT_NAME            (0x8017)
+#define PID_PRISMTECH_LAN_CERT_NAME             (0x8018)
 
 /* appId.appKind possible values */
 #define APPKIND_UNKNOWN                         (0x00)
 #define APPKIND_MANAGED_APPLICATION             (0x01)
 #define APPKIND_MANAGER                         (0x02)
 
+#define RTI_SERVICE_REQUEST_ID_UNKNOWN                          0
+#define RTI_SERVICE_REQUEST_ID_TOPIC_QUERY                      1
+#define RTI_SERVICE_REQUEST_ID_LOCATOR_REACHABILITY             2
 
 /* Predefined EntityId */
 #define ENTITYID_UNKNOWN                        (0x00000000)
@@ -291,6 +329,26 @@ typedef struct _rtps_dissector_data {
 #define ENTITYID_BUILTIN_SDP_PARTICIPANT_READER (0x000100c7)
 #define ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_WRITER (0x000200c2)
 #define ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_READER (0x000200c7)
+
+/* Secure DDS */
+#define ENTITYID_P2P_BUILTIN_PARTICIPANT_STATELESS_WRITER          (0x000201c3)
+#define ENTITYID_P2P_BUILTIN_PARTICIPANT_STATELESS_READER          (0x000201c4)
+#define ENTITYID_SEDP_BUILTIN_PUBLICATIONS_SECURE_WRITER           (0xff0003c2)
+#define ENTITYID_SEDP_BUILTIN_PUBLICATIONS_SECURE_READER           (0xff0003c7)
+#define ENTITYID_SEDP_BUILTIN_SUBSCRIPTIONS_SECURE_WRITER          (0xff0004c2)
+#define ENTITYID_SEDP_BUILTIN_SUBSCRIPTIONS_SECURE_READER          (0xff0004c7)
+#define ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_SECURE_WRITER     (0xff0200c2)
+#define ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_SECURE_READER     (0xff0200c7)
+#define ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_WRITER    (0xff0202c2)
+#define ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_READER    (0xff0202c7)
+#define ENTITYID_SPDP_RELIABLE_BUILTIN_PARTICIPANT_SECURE_WRITER   (0xff0101c2)
+#define ENTITYID_SPDP_RELIABLE_BUILTIN_PARTICIPANT_SECURE_READER   (0xff0101c7)
+
+/* Vendor-specific: RTI */
+#define ENTITYID_RTI_BUILTIN_SERVICE_REQUEST_WRITER             (0x00020082)
+#define ENTITYID_RTI_BUILTIN_SERVICE_REQUEST_READER             (0x00020087)
+#define ENTITYID_RTI_BUILTIN_LOCATOR_PING_WRITER                (0x00020182)
+#define ENTITYID_RTI_BUILTIN_LOCATOR_PING_READER                (0x00020187)
 
 /* Deprecated EntityId */
 #define ENTITYID_APPLICATIONS_WRITER            (0x000001c2)
@@ -318,6 +376,11 @@ typedef struct _rtps_dissector_data {
 #define ENTITYKIND_BUILTIN_READER_NO_KEY        (0xc4)
 #define ENTITYKIND_BUILTIN_READER_WITH_KEY      (0xc7)
 
+/* vendor specific RTI */
+#define ENTITYKIND_RTI_BUILTIN_WRITER_WITH_KEY      (0x82)
+#define ENTITYKIND_RTI_BUILTIN_WRITER_NO_KEY        (0x83)
+#define ENTITYKIND_RTI_BUILTIN_READER_NO_KEY        (0x84)
+#define ENTITYKIND_RTI_BUILTIN_READER_WITH_KEY      (0x87)
 
 /* Submessage Type */
 #define SUBMESSAGE_PAD                                  (0x01)
@@ -348,7 +411,13 @@ typedef struct _rtps_dissector_data {
 #define SUBMESSAGE_APP_ACK                              (0x1c)
 #define SUBMESSAGE_APP_ACK_CONF                         (0x1d)
 #define SUBMESSAGE_HEARTBEAT_VIRTUAL                    (0x1e)
+#define SUBMESSAGE_SEC_BODY                             (0x30)
+#define SUBMESSAGE_SEC_PREFIX                           (0x31)
+#define SUBMESSAGE_SEC_POSTFIX                          (0x32)
+#define SUBMESSAGE_SRTPS_PREFIX                         (0x33)
+#define SUBMESSAGE_SRTPS_POSTFIX                        (0x34)
 
+#define SUBMESSAGE_RTI_CRC                              (0x80)
 
 /* An invalid IP Address:
  * Make sure the _STRING macro is bigger than a normal IP
@@ -425,11 +494,13 @@ typedef struct _rtps_dissector_data {
 #define LOCATOR_KIND_UDPV4              (1)
 #define LOCATOR_KIND_UDPV6              (2)
 /* Vendor specific - rti */
+#define LOCATOR_KIND_DTLS               (6)
 #define LOCATOR_KIND_TCPV4_LAN          (8)
 #define LOCATOR_KIND_TCPV4_WAN          (9)
 #define LOCATOR_KIND_TLSV4_LAN          (10)
 #define LOCATOR_KIND_TLSV4_WAN          (11)
 #define LOCATOR_KIND_SHMEM              (0x01000000)
+#define LOCATOR_KIND_TUDPV4             (0x01001001)
 
 /* History Kind */
 #define HISTORY_KIND_KEEP_LAST          (0)
@@ -458,6 +529,12 @@ typedef struct _rtps_dissector_data {
 #define APPLICATION_ORDERED_ACKNOWLEDGMENT   (2)
 #define APPLICATION_EXPLICIT_ACKNOWLEDGMENT  (3)
 
+#define CRYPTO_TRANSFORMATION_KIND_NONE          (0)
+#define CRYPTO_TRANSFORMATION_KIND_AES128_GMAC   (1)
+#define CRYPTO_TRANSFORMATION_KIND_AES128_GCM    (2)
+#define CRYPTO_TRANSFORMATION_KIND_AES256_GMAC   (3)
+#define CRYPTO_TRANSFORMATION_KIND_AES256_GCM    (4)
+
 /* Vendor specific - rti */
 #define NDDS_TRANSPORT_CLASSID_ANY                  (0)
 #define NDDS_TRANSPORT_CLASSID_UDPv4                (1)
@@ -473,58 +550,62 @@ typedef struct _rtps_dissector_data {
 #define NDDS_TRANSPORT_CLASSID_ITP                  (13)
 #define NDDS_TRANSPORT_CLASSID_SHMEM                (0x01000000)
 
-#define TOPIC_INFO_ADD_GUID                      (1)
-#define TOPIC_INFO_ADD_TYPE_NAME                 (2)
-#define TOPIC_INFO_ADD_TOPIC_NAME                (4)
-#define TOPIC_INFO_ALL_SET                       (TOPIC_INFO_ADD_GUID | \
-                                                  TOPIC_INFO_ADD_TYPE_NAME | \
-                                                  TOPIC_INFO_ADD_TOPIC_NAME)
+#define TOPIC_INFO_ADD_GUID                      (0x01)
+#define TOPIC_INFO_ADD_TYPE_NAME                 (0x02)
+#define TOPIC_INFO_ADD_TOPIC_NAME                (0x04)
+#define TOPIC_INFO_ADD_RELIABILITY               (0x08)
+#define TOPIC_INFO_ADD_DURABILITY                (0x10)
+#define TOPIC_INFO_ADD_OWNERSHIP                 (0x20)
+#define TOPIC_INFO_ALL_SET                       (0x3f)
+
 /* Utilities to add elements to the protocol tree for packet-rtps.h and packet-rtps2.h */
 extern guint16 rtps_util_add_protocol_version(proto_tree *tree, tvbuff_t* tvb, gint offset);
 extern guint16 rtps_util_add_vendor_id(proto_tree *tree, tvbuff_t * tvb, gint offset);
 extern void rtps_util_add_locator_t(proto_tree *tree, packet_info *pinfo, tvbuff_t * tvb, gint offset,
-                             gboolean little_endian, const guint8 * label);
+                             const guint encoding, const guint8 * label);
 extern int rtps_util_add_locator_list(proto_tree *tree, packet_info *pinfo, tvbuff_t * tvb,
-                                gint offset, const guint8* label, gboolean little_endian);
+                                gint offset, const guint8* label, const guint encoding);
+extern int rtps_util_add_multichannel_locator_list(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
+    gint offset, const guint8 *label, const guint encoding);
 extern void rtps_util_add_ipv4_address_t(proto_tree *tree, packet_info *pinfo, tvbuff_t * tvb, gint offset,
-                                         gboolean little_endian, int hf_item);
+                                         const guint encoding, int hf_item);
 extern void rtps_util_add_locator_udp_v4(proto_tree *tree, packet_info *pinfo, tvbuff_t * tvb,
-                                  gint offset, const guint8 * label, gboolean little_endian);
+                                  gint offset, const guint8 * label, const guint encoding);
 extern int rtps_util_add_entity_id(proto_tree *tree, tvbuff_t * tvb, gint offset,
                             int hf_item, int hf_item_entity_key, int hf_item_entity_kind,
                             int subtree_entity_id, const char *label, guint32* entity_id_out);
 extern void rtps_util_add_generic_entity_id(proto_tree *tree, tvbuff_t * tvb, gint offset, const char* label,
                                      int hf_item, int hf_item_entity_key, int hf_item_entity_kind,
                                      int subtree_entity_id);
-extern guint64 rtps_util_add_seq_number(proto_tree *, tvbuff_t *,
-                        gint, int, const char *);
+extern guint64 rtps_util_add_seq_number(proto_tree *tree, tvbuff_t *tvb, gint offset, const guint encoding,
+                                 const char *label);
 extern void rtps_util_add_ntp_time(proto_tree *tree, tvbuff_t * tvb, gint offset,
-                                   gboolean little_endian, int hf_time);
+                                   const guint encoding, int hf_time);
 extern gint rtps_util_add_string(proto_tree *tree, tvbuff_t* tvb, gint offset,
-                          int hf_item, gboolean little_endian);
+                          int hf_item, const guint encoding);
 extern void rtps_util_add_port(proto_tree *tree, packet_info *pinfo, tvbuff_t * tvb,
-                        gint offset, gboolean little_endian, int hf_item);
+                        gint offset, const guint encoding, int hf_item);
 extern void rtps_util_add_durability_service_qos(proto_tree *tree, tvbuff_t * tvb,
-                                                 gint offset, gboolean little_endian);
+                                                 gint offset, const guint encoding);
 extern void rtps_util_add_liveliness_qos(proto_tree *tree, tvbuff_t * tvb, gint offset,
-                                         gboolean little_endian);
+                                         const guint encoding);
 extern gint rtps_util_add_seq_string(proto_tree *tree, tvbuff_t* tvb, gint offset,
-                              gboolean little_endian, int param_length, int hf_numstring,
+                              const guint encoding, int hf_numstring,
                               int hf_string, const char *label);
-extern void rtps_util_add_seq_octets(proto_tree *tree, packet_info *pinfo, tvbuff_t* tvb,
-                              gint offset, gboolean little_endian, int param_length, int hf_id);
+extern gint rtps_util_add_seq_octets(proto_tree *tree, packet_info *pinfo, tvbuff_t* tvb,
+                              gint offset, const guint encoding, int param_length, int hf_id);
 extern gint rtps_util_add_seq_ulong(proto_tree *tree, tvbuff_t * tvb, gint offset, int hf_item,
-                        gboolean little_endian, int param_length, const char *label);
+                        const guint encoding, int param_length, const char *label);
 
 extern gboolean rtps_is_ping(tvbuff_t *tvb, packet_info *pinfo, gint offset);
 
 /* Shared submessage dissection */
 extern void dissect_PAD(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
-                        gboolean little_endian, int octects_to_next_header, proto_tree *tree);
+                        const guint encoding, int octects_to_next_header, proto_tree *tree);
 extern void dissect_INFO_SRC(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
-                        gboolean little_endian, int octets_to_next_header, proto_tree *tree, guint16 rtps_version);
+                        const guint encoding, int octets_to_next_header, proto_tree *tree, guint16 rtps_version);
 extern void dissect_INFO_TS(tvbuff_t *tvb, packet_info *pinfo, gint offset, guint8 flags,
-                        gboolean little_endian, int octets_to_next_header, proto_tree *tree);
+                        const guint encoding, int octets_to_next_header, proto_tree *tree);
 
 
 #ifdef __cplusplus

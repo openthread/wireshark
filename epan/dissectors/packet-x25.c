@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -27,7 +15,7 @@
 #include <epan/packet.h>
 #include <epan/ax25_pids.h>
 #include <epan/llcsaps.h>
-#include <epan/circuit.h>
+#include <epan/conversation.h>
 #include <epan/reassemble.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
@@ -236,6 +224,8 @@ static gint hf_x25_reg_confirm_cause = -1;
 static gint hf_x25_reg_confirm_diagnostic = -1;
 
 static expert_field ei_x25_facility_length = EI_INIT;
+
+static dissector_handle_t x25_handle;
 
 static const value_string vals_modulo[] = {
     { 1, "8" },
@@ -540,45 +530,45 @@ static heur_dissector_list_t x25_heur_subdissector_list;
 static void
 x25_hash_add_proto_start(guint16 vc, guint32 frame, dissector_handle_t dissect)
 {
-    circuit_t *circuit;
+    conversation_t *conv;
 
     /*
      * Is there already a circuit with this VC number?
      */
-    circuit = find_circuit(CT_X25, vc, frame);
-    if (circuit != NULL) {
+    conv = find_conversation_by_id(frame, ENDPOINT_X25, vc, 0);
+    if (conv != NULL) {
         /*
          * Yes - close it, as we're creating a new one.
          */
-        close_circuit(circuit, frame - 1);
+        conv->last_frame = frame - 1;
     }
 
     /*
      * Set up a new circuit.
      */
-    circuit = circuit_new(CT_X25, vc, frame);
+    conv = conversation_new_by_id(frame, ENDPOINT_X25, vc, 0);
 
     /*
      * Set its dissector.
      */
-    circuit_set_dissector(circuit, dissect);
+    conversation_set_dissector(conv, dissect);
 }
 
 static void
 x25_hash_add_proto_end(guint16 vc, guint32 frame)
 {
-    circuit_t *circuit;
+    conversation_t *conv;
 
     /*
      * Try to find the circuit.
      */
-    circuit = find_circuit(CT_X25, vc, frame);
+    conv = find_conversation_by_id(frame, ENDPOINT_X25, vc, 0);
 
     /*
      * If we succeeded, close it.
      */
-    if (circuit != NULL)
-        close_circuit(circuit, frame);
+    if (conv != NULL)
+        conv->last_frame = frame;
 }
 
 static const range_string clear_code_rvals[] = {
@@ -1239,8 +1229,7 @@ dissect_x25_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     modulo = ((bytes0_1 & 0x2000) ? 128 : 8);
     vc     = (int)(bytes0_1 & 0x0FFF);
 
-    pinfo->ctype = CT_X25;
-    pinfo->circuit_id = vc;
+    conversation_create_endpoint_by_id(pinfo, ENDPOINT_X25, vc, 0);
 
     if (bytes0_1 & X25_ABIT) toa = TRUE;
     else toa = FALSE;
@@ -1829,12 +1818,10 @@ dissect_x25_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                             localoffset, 1, pkt_type);
                     proto_tree_add_uint(x25_tree, hf_x25_type_data, tvb,
                             localoffset, 1, pkt_type);
-                    proto_tree_add_uint(x25_tree, hf_x25_p_s_mod128, tvb,
-                            localoffset+1, 1,
-                            tvb_get_guint8(tvb, localoffset+1));
-                    proto_tree_add_boolean(x25_tree, hf_x25_mbit_mod128, tvb,
-                            localoffset+1, 1,
-                            tvb_get_guint8(tvb, localoffset+1));
+                    proto_tree_add_item(x25_tree, hf_x25_p_s_mod128, tvb,
+                            localoffset+1, 1, ENC_NA);
+                    proto_tree_add_item(x25_tree, hf_x25_mbit_mod128, tvb,
+                            localoffset+1, 1, ENC_NA);
                 }
             }
             if (modulo == 8) {
@@ -1936,7 +1923,7 @@ dissect_x25_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       next_tvb = tvb_new_subset_remaining(tvb, localoffset);
 
     /* See if there's already a dissector for this circuit. */
-    if (try_circuit_dissector(CT_X25, vc, pinfo->num, next_tvb, pinfo,
+    if (try_conversation_dissector_by_id(ENDPOINT_X25, vc, next_tvb, pinfo,
                               tree, &q_bit_set)) {
                 return; /* found it and dissected it */
     }
@@ -2027,19 +2014,6 @@ dissect_x25(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         direction = (pinfo->srcport > pinfo->destport)*2 - 1;
     dissect_x25_common(tvb, pinfo, tree, X25_UNKNOWN, direction > 0);
     return tvb_captured_length(tvb);
-}
-
-static void
-x25_reassemble_init(void)
-{
-    reassembly_table_init(&x25_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-x25_reassemble_cleanup(void)
-{
-    reassembly_table_destroy(&x25_reassembly_table);
 }
 
 void
@@ -2369,11 +2343,11 @@ proto_register_x25(void)
     expert_register_field_array(expert_x25, ei, array_length(ei));
 
     x25_subdissector_table = register_dissector_table("x.25.spi",
-        "X.25 secondary protocol identifier", proto_x25, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+        "X.25 secondary protocol identifier", proto_x25, FT_UINT8, BASE_HEX);
     x25_heur_subdissector_list = register_heur_dissector_list("x.25", proto_x25);
 
     register_dissector("x.25_dir", dissect_x25_dir, proto_x25);
-    register_dissector("x.25", dissect_x25, proto_x25);
+    x25_handle = register_dissector("x.25", dissect_x25, proto_x25);
 
     /* Preferences */
     x25_module = prefs_register_protocol(proto_x25, NULL);
@@ -2394,15 +2368,13 @@ proto_register_x25(void)
                                    "Reassemble fragmented X.25 packets",
                                    "Reassemble fragmented X.25 packets",
                                    &reassemble_x25);
-    register_init_routine(&x25_reassemble_init);
-    register_cleanup_routine(&x25_reassemble_cleanup);
+    reassembly_table_register(&x25_reassembly_table,
+                          &addresses_reassembly_table_functions);
 }
 
 void
 proto_reg_handoff_x25(void)
 {
-    dissector_handle_t x25_handle;
-
     /*
      * Get handles for various dissectors.
      */
@@ -2411,7 +2383,6 @@ proto_reg_handoff_x25(void)
     ositp_handle = find_dissector_add_dependency("ositp", proto_x25);
     qllc_handle = find_dissector_add_dependency("qllc", proto_x25);
 
-    x25_handle = find_dissector("x.25");
     dissector_add_uint("llc.dsap", SAP_X25, x25_handle);
     dissector_add_uint("lapd.sapi", LAPD_SAPI_X25, x25_handle);
     dissector_add_uint("ax25.pid", AX25_P_ROSE, x25_handle);

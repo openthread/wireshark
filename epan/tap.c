@@ -5,28 +5,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include "config.h"
+#include <config.h>
 
 #include <stdio.h>
 
-#ifdef HAVE_SYS_TYPES_H
-# include <sys/types.h>
-#endif
+#include <sys/types.h>
 
 #ifdef HAVE_NETINET_IN_H
 # include <netinet/in.h>
@@ -39,8 +25,7 @@
 #include <epan/packet_info.h>
 #include <epan/dfilter/dfilter.h>
 #include <epan/tap.h>
-
-#include <wsutil/ws_diag_control.h>
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 static gboolean tapping_is_active=FALSE;
 
@@ -104,70 +89,27 @@ typedef struct _tap_listener_t {
 	tap_reset_cb reset;
 	tap_packet_cb packet;
 	tap_draw_cb draw;
+	tap_finish_cb finish;
 } tap_listener_t;
 static volatile tap_listener_t *tap_listener_queue=NULL;
 
 #ifdef HAVE_PLUGINS
-
-#include <gmodule.h>
-
-#include <wsutil/plugins.h>
-
-/*
- * List of tap plugins.
- */
-typedef struct {
-	void (*register_tap_listener_fn)(void);   /* routine to call to register tap listener */
-} tap_plugin;
-
 static GSList *tap_plugins = NULL;
 
-/*
- * Callback for each plugin found.
- */
-static gboolean
-check_for_tap_plugin(GModule *handle)
-{
-	gpointer gp;
-	void (*register_tap_listener_fn)(void);
-	tap_plugin *plugin;
-
-	/*
-	 * Do we have a register_tap_listener routine?
-	 */
-	if (!g_module_symbol(handle, "plugin_register_tap_listener", &gp)) {
-		/* No, so this isn't a tap plugin. */
-		return FALSE;
-	}
-
-	/*
-	 * Yes - this plugin includes one or more taps.
-	 */
-DIAG_OFF(pedantic)
-	register_tap_listener_fn = (void (*)(void))gp;
-DIAG_ON(pedantic)
-
-	/*
-	 * Add this one to the list of tap plugins.
-	 */
-	plugin = (tap_plugin *)g_malloc(sizeof (tap_plugin));
-	plugin->register_tap_listener_fn = register_tap_listener_fn;
-	tap_plugins = g_slist_append(tap_plugins, plugin);
-	return TRUE;
-}
-
 void
-register_tap_plugin_type(void)
+tap_register_plugin(const tap_plugin *plug)
 {
-	add_plugin_type("tap", check_for_tap_plugin);
+	tap_plugins = g_slist_prepend(tap_plugins, (tap_plugin *)plug);
 }
 
 static void
-register_tap_plugin_listener(gpointer data, gpointer user_data _U_)
+call_plugin_register_tap_listener(gpointer data, gpointer user_data _U_)
 {
-	tap_plugin *plugin = (tap_plugin *)data;
+	tap_plugin *plug = (tap_plugin *)data;
 
-	(plugin->register_tap_listener_fn)();
+	if (plug->register_tap_listener) {
+		plug->register_tap_listener();
+	}
 }
 
 /*
@@ -176,7 +118,7 @@ register_tap_plugin_listener(gpointer data, gpointer user_data _U_)
 void
 register_all_plugin_tap_listeners(void)
 {
-	g_slist_foreach(tap_plugins, register_tap_plugin_listener, NULL);
+	g_slist_foreach(tap_plugins, call_plugin_register_tap_listener, NULL);
 }
 #endif /* HAVE_PLUGINS */
 
@@ -215,13 +157,19 @@ tap_init(void)
 int
 register_tap(const char *name)
 {
-	tap_dissector_t *td, *tdl;
-	int i, tap_id;
+	tap_dissector_t *td, *tdl = NULL, *tdl_prev = NULL;
+	int i=0;
 
 	if(tap_dissector_list){
-		tap_id=find_tap_id(name);
-		if (tap_id)
-			return tap_id;
+		/* Check if we allready have the name registered, if it is return the tap_id of that tap.
+		 * After the for loop tdl_prev will point to the last element of the list, add the new one there.
+		 */
+		for (i = 1, tdl = tap_dissector_list; tdl; i++, tdl_prev = tdl, tdl = tdl->next) {
+			if (!strcmp(tdl->name, name)) {
+				return i;
+			}
+		}
+		tdl = tdl_prev;
 	}
 
 	td=(tap_dissector_t *)g_malloc(sizeof(tap_dissector_t));
@@ -232,8 +180,6 @@ register_tap(const char *name)
 		tap_dissector_list=td;
 		i=1;
 	} else {
-		for(i=2,tdl=tap_dissector_list;tdl->next;i++,tdl=tdl->next)
-			;
 		tdl->next=td;
 	}
 	return i;
@@ -273,7 +219,7 @@ tap_queue_packet(int tap_id, packet_info *pinfo, const void *tap_specific_data)
 	 * rather than having a fixed maximum number of entries?
 	 */
 	if(tap_packet_index >= TAP_PACKET_QUEUE_LEN){
-		g_warning("Too many taps queued");
+		ws_g_warning("Too many taps queued");
 		return;
 	}
 
@@ -308,7 +254,7 @@ void tap_build_interesting (epan_dissect_t *edt)
 	   interesting hf_fields */
 	for(tl=tap_listener_queue;tl;tl=tl->next){
 		if(tl->code){
-			epan_dissect_prime_dfilter(edt, tl->code);
+			epan_dissect_prime_with_dfilter(edt, tl->code);
 		}
 	}
 }
@@ -505,9 +451,7 @@ free_tap_listener(volatile tap_listener_t *tl)
 {
 	if(!tl)
 		return;
-	if(tl->code){
-		dfilter_free(tl->code);
-	}
+	dfilter_free(tl->code);
 	g_free(tl->fstring);
 DIAG_OFF(cast-qual)
 	g_free((gpointer)tl);
@@ -522,7 +466,8 @@ DIAG_ON(cast-qual)
  */
 GString *
 register_tap_listener(const char *tapname, void *tapdata, const char *fstring,
-		      guint flags, tap_reset_cb reset, tap_packet_cb packet, tap_draw_cb draw)
+		      guint flags, tap_reset_cb reset, tap_packet_cb packet,
+		      tap_draw_cb draw, tap_finish_cb finish)
 {
 	volatile tap_listener_t *tl;
 	int tap_id;
@@ -559,6 +504,7 @@ register_tap_listener(const char *tapname, void *tapdata, const char *fstring,
 	tl->reset=reset;
 	tl->packet=packet;
 	tl->draw=draw;
+	tl->finish=finish;
 	tl->next=tap_listener_queue;
 
 	tap_listener_queue=tl;
@@ -636,8 +582,10 @@ tap_listeners_dfilter_recompile(void)
 		if(tl->fstring){
 			if(!dfilter_compile(tl->fstring, &code, &err_msg)){
 				g_free(err_msg);
+				err_msg = NULL;
 				/* Not valid, make a dfilter matching no packets */
-				dfilter_compile("frame.number == 0", &code, &err_msg);
+				if (!dfilter_compile("frame.number == 0", &code, &err_msg))
+					g_free(err_msg);
 			}
 		}
 		tl->code=code;
@@ -668,6 +616,8 @@ remove_tap_listener(void *tapdata)
 
 		}
 	}
+	if(tl->finish)
+		tl->finish(tapdata);
 	free_tap_listener(tl);
 }
 
@@ -737,6 +687,32 @@ union_of_tap_listener_flags(void)
 		flags|=tl->flags;
 	}
 	return flags;
+}
+
+void tap_cleanup(void)
+{
+	volatile tap_listener_t *elem_lq;
+	volatile tap_listener_t *head_lq = tap_listener_queue;
+	tap_dissector_t *elem_dl;
+	tap_dissector_t *head_dl = tap_dissector_list;
+
+	while(head_lq){
+		elem_lq = head_lq;
+		head_lq = head_lq->next;
+		free_tap_listener(elem_lq);
+	}
+
+	while(head_dl){
+		elem_dl = head_dl;
+		head_dl = head_dl->next;
+		g_free((char*)elem_dl->name);
+		g_free((gpointer)elem_dl);
+	}
+
+#ifdef HAVE_PLUGINS
+	g_slist_free(tap_plugins);
+	tap_plugins = NULL;
+#endif /* HAVE_PLUGINS */
 }
 
 /*

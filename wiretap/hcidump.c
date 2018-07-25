@@ -2,19 +2,7 @@
  *
  * Copyright (c) 2003 by Marcel Holtmann <marcel@holtmann.org>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,7 +21,7 @@ struct dump_hdr {
 
 #define DUMP_HDR_SIZE (sizeof(struct dump_hdr))
 
-static gboolean hcidump_read_packet(FILE_T fh, struct wtap_pkthdr *phdr,
+static gboolean hcidump_read_packet(FILE_T fh, wtap_rec *rec,
     Buffer *buf, int *err, gchar **err_info)
 {
 	struct dump_hdr dh;
@@ -43,25 +31,25 @@ static gboolean hcidump_read_packet(FILE_T fh, struct wtap_pkthdr *phdr,
 		return FALSE;
 
 	packet_size = GUINT16_FROM_LE(dh.len);
-	if (packet_size > WTAP_MAX_PACKET_SIZE) {
+	if (packet_size > WTAP_MAX_PACKET_SIZE_STANDARD) {
 		/*
 		 * Probably a corrupt capture file; don't blow up trying
 		 * to allocate space for an immensely-large packet.
 		 */
 		*err = WTAP_ERR_BAD_FILE;
 		*err_info = g_strdup_printf("hcidump: File has %u-byte packet, bigger than maximum of %u",
-			packet_size, WTAP_MAX_PACKET_SIZE);
+			packet_size, WTAP_MAX_PACKET_SIZE_STANDARD);
 		return FALSE;
 	}
 
-	phdr->rec_type = REC_TYPE_PACKET;
-	phdr->presence_flags = WTAP_HAS_TS;
-	phdr->ts.secs = GUINT32_FROM_LE(dh.ts_sec);
-	phdr->ts.nsecs = GUINT32_FROM_LE(dh.ts_usec) * 1000;
-	phdr->caplen = packet_size;
-	phdr->len = packet_size;
+	rec->rec_type = REC_TYPE_PACKET;
+	rec->presence_flags = WTAP_HAS_TS;
+	rec->ts.secs = GUINT32_FROM_LE(dh.ts_sec);
+	rec->ts.nsecs = GUINT32_FROM_LE(dh.ts_usec) * 1000;
+	rec->rec_header.packet_header.caplen = packet_size;
+	rec->rec_header.packet_header.len = packet_size;
 
-	phdr->pseudo_header.p2p.sent = (dh.in ? FALSE : TRUE);
+	rec->rec_header.packet_header.pseudo_header.p2p.sent = (dh.in ? FALSE : TRUE);
 
 	return wtap_read_packet_bytes(fh, buf, packet_size, err, err_info);
 }
@@ -71,17 +59,17 @@ static gboolean hcidump_read(wtap *wth, int *err, gchar **err_info,
 {
 	*data_offset = file_tell(wth->fh);
 
-	return hcidump_read_packet(wth->fh, &wth->phdr, wth->frame_buffer,
+	return hcidump_read_packet(wth->fh, &wth->rec, wth->rec_data,
 	    err, err_info);
 }
 
 static gboolean hcidump_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info)
+    wtap_rec *rec, Buffer *buf, int *err, gchar **err_info)
 {
 	if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
 		return FALSE;
 
-	return hcidump_read_packet(wth->random_fh, phdr, buf, err, err_info);
+	return hcidump_read_packet(wth->random_fh, rec, buf, err, err_info);
 }
 
 wtap_open_return_val hcidump_open(wtap *wth, int *err, gchar **err_info)

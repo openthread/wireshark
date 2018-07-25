@@ -586,7 +586,7 @@ class wireshark_gen_C:
     # static const char get_Penguin_Echo_get_width_at[] = "_get_width" ;
     # static const char set_Penguin_Echo_set_width_at[] = "_set_width" ;
     #
-    # TODO: Implement some language dependant templates to handle naming conventions
+    # TODO: Implement some language dependent templates to handle naming conventions
     #       language <=> attribute. for C, C++. Java etc
     #
     # OR, just add a runtime GUI option to select language binding for attributes -- FS
@@ -2544,19 +2544,7 @@ for (i_@aname@=0; i_@aname@ < @aval@; i_@aname@++) {
 
     template_GPL = """\
 /*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 """
 
@@ -2883,7 +2871,7 @@ static const value_string @valstringname@[] = {
 """
 
     #
-    # get/set accessor method names are language mapping dependant.
+    # get/set accessor method names are language mapping dependent.
     #
 
     template_attributes_declare_Java_get = """static const char get_@sname@_at[] = \"_get_@atname@\" ;"""

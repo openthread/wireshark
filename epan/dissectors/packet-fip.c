@@ -10,19 +10,7 @@
  * Based on packet-fcoe.c, Copyright 2006, Nuova Systems, (jre@nuovasystems.com)
  * Based on packet-fcp.c, Copyright 2001, Dinesh G Dutt (ddutt@cisco.com)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -440,7 +428,7 @@ dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         if (!tvb_bytes_exist(tvb, desc_offset, dlen) || dlen > rlen) {
             break;
         }
-        desc_tvb = tvb_new_subset(tvb, desc_offset, dlen, -1);
+        desc_tvb = tvb_new_subset_length_caplen(tvb, desc_offset, dlen, -1);
         dtype = tvb_get_guint8(desc_tvb, 0);
         desc_offset += dlen;
         rlen -= dlen;
@@ -493,7 +481,7 @@ dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             fc_data_t fc_data = {ETHERTYPE_FIP, 0};
 
             subtree = fip_desc_type_len(fip_tree, desc_tvb, dtype, ett_fip_dt_caps, &item);
-            ls_tvb = tvb_new_subset(desc_tvb, 4, dlen - 4, -1);
+            ls_tvb = tvb_new_subset_length_caplen(desc_tvb, 4, dlen - 4, -1);
             call_dissector_with_data(fc_handle, ls_tvb, pinfo, subtree, &fc_data);
             proto_item_append_text(item, "%u bytes", dlen - 4);
         }
@@ -521,7 +509,7 @@ dissect_fip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             subtree = fip_desc_type_len(fip_tree, desc_tvb, dtype, ett_fip_dt_vend, &item);
             proto_tree_add_item(subtree, hf_fip_desc_vend, desc_tvb,
                     4, 8, ENC_NA);
-            if (tvb_bytes_exist(desc_tvb, 9, -1)) {
+            if (tvb_reported_length_remaining(desc_tvb, 9)) {
                 proto_tree_add_item(subtree, hf_fip_desc_vend_data,
                      desc_tvb, 9, -1, ENC_NA);
             }

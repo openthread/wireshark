@@ -35,6 +35,9 @@
 #include <glib.h>
 
 #include "except.h"
+#ifdef KAZLIB_TEST_MAIN
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -180,7 +183,7 @@ static int match(const volatile except_id_t *thrown, const except_id_t *caught)
     return group_match && code_match;
 }
 
-G_GNUC_NORETURN WS_MSVC_NORETURN static void do_throw(except_t *except)
+WS_NORETURN static void do_throw(except_t *except)
 {
     struct except_stacknode *top;
 
@@ -261,7 +264,7 @@ struct except_stacknode *except_pop(void)
     return top;
 }
 
-G_GNUC_NORETURN WS_MSVC_NORETURN void except_rethrow(except_t *except)
+WS_NORETURN void except_rethrow(except_t *except)
 {
     struct except_stacknode *top = get_top();
     assert (top != 0);
@@ -271,7 +274,7 @@ G_GNUC_NORETURN WS_MSVC_NORETURN void except_rethrow(except_t *except)
     do_throw(except);
 }
 
-G_GNUC_NORETURN WS_MSVC_NORETURN void except_throw(long group, long code, const char *msg)
+WS_NORETURN void except_throw(long group, long code, const char *msg)
 {
     except_t except;
 
@@ -289,7 +292,7 @@ G_GNUC_NORETURN WS_MSVC_NORETURN void except_throw(long group, long code, const 
     do_throw(&except);
 }
 
-G_GNUC_NORETURN WS_MSVC_NORETURN void except_throwd(long group, long code, const char *msg, void *data)
+WS_NORETURN void except_throwd(long group, long code, const char *msg, void *data)
 {
     except_t except;
 
@@ -306,15 +309,22 @@ G_GNUC_NORETURN WS_MSVC_NORETURN void except_throwd(long group, long code, const
  * XCEPT_BUFFER_SIZE?  We could then just use this to generate formatted
  * messages.
  */
-G_GNUC_NORETURN WS_MSVC_NORETURN void except_throwf(long group, long code, const char *fmt, ...)
+WS_NORETURN void except_vthrowf(long group, long code, const char *fmt,
+                                va_list vl)
 {
     char *buf = (char *)except_alloc(XCEPT_BUFFER_SIZE);
+
+    g_vsnprintf(buf, XCEPT_BUFFER_SIZE, fmt, vl);
+    except_throwd(group, code, buf, buf);
+}
+
+WS_NORETURN void except_throwf(long group, long code, const char *fmt, ...)
+{
     va_list vl;
 
     va_start (vl, fmt);
-    g_vsnprintf(buf, XCEPT_BUFFER_SIZE, fmt, vl);
+    except_vthrowf(group, code, fmt, vl);
     va_end (vl);
-    except_throwd(group, code, buf, buf);
 }
 
 void (*except_unhandled_catcher(void (*new_catcher)(except_t *)))(except_t *)
@@ -381,13 +391,13 @@ void except_free(void *ptr)
 
 static void cleanup(void *arg)
 {
-    printf("cleanup(\"%s\") called\n", (char *) arg);
+    ws_debug_printf("cleanup(\"%s\") called\n", (char *) arg);
 }
 
 static void bottom_level(void)
 {
     char buf[256];
-    printf("throw exception? "); fflush(stdout);
+    ws_debug_printf("throw exception? "); fflush(stdout);
     fgets(buf, sizeof buf, stdin);
 
     if (buf[0] >= 0 && (buf[0] == 'Y' || buf[0] == 'y'))
@@ -422,10 +432,10 @@ int main(int argc, char **argv)
             /* inner catch */
             msg = except_message(ex);
             if (msg == NULL) {
-                printf("caught exception (inner): s=%lu, c=%lu\n",
+                ws_debug_printf("caught exception (inner): s=%lu, c=%lu\n",
                        except_group(ex), except_code(ex));
             } else {
-                printf("caught exception (inner): \"%s\", s=%lu, c=%lu\n",
+                ws_debug_printf("caught exception (inner): \"%s\", s=%lu, c=%lu\n",
                        msg, except_group(ex), except_code(ex));
             }
             except_rethrow(ex);
@@ -435,10 +445,10 @@ int main(int argc, char **argv)
         /* outer catch */
         msg = except_message(ex);
         if (msg == NULL) {
-            printf("caught exception (outer): s=%lu, c=%lu\n",
+            ws_debug_printf("caught exception (outer): s=%lu, c=%lu\n",
                    except_group(ex), except_code(ex));
         } else {
-            printf("caught exception (outer): \"%s\", s=%lu, c=%lu\n",
+            ws_debug_printf("caught exception (outer): \"%s\", s=%lu, c=%lu\n",
                    except_message(ex), except_group(ex), except_code(ex));
         }
     }

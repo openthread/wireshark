@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,10 +18,7 @@
 #define CMPP_DELIVER_REPORT_LEN 71
 
 /* These are not registered with IANA */
-#define CMPP_SP_LONG_PORT    7890
-#define CMPP_SP_SHORT_PORT   7900
-#define CMPP_ISMG_LONG_PORT  7930
-#define CMPP_ISMG_SHORT_PORT 9168
+#define CMPP_PORT_RANGE "7890,7900,7930,9168"
 
 void proto_register_cmpp(void);
 void proto_reg_handoff_cmpp(void);
@@ -251,13 +236,12 @@ static gint ett_deliver_report = -1;
 
 /* Helper functions */
 
-static char*
+static const guint8*
 cmpp_octet_string(proto_tree *tree, tvbuff_t *tvb, gint field, gint offset, gint length)
 {
-	char *display;
+	const guint8 *display;
 
-	display = (char *)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_ASCII);
-	proto_tree_add_string(tree, field, tvb, offset, length, display);
+	proto_tree_add_item_ret_string(tree, field, tvb, offset, length, ENC_ASCII, wmem_packet_scope(), &display);
 	return display;
 }
 
@@ -978,10 +962,7 @@ proto_reg_handoff_cmpp(void)
 	dissector_handle_t cmpp_handle;
 
 	cmpp_handle = create_dissector_handle(dissect_cmpp, proto_cmpp);
-	dissector_add_uint("tcp.port", CMPP_SP_LONG_PORT, cmpp_handle);
-	dissector_add_uint("tcp.port", CMPP_SP_SHORT_PORT, cmpp_handle);
-	dissector_add_uint("tcp.port", CMPP_ISMG_LONG_PORT, cmpp_handle);
-	dissector_add_uint("tcp.port", CMPP_ISMG_SHORT_PORT, cmpp_handle);
+	dissector_add_uint_range_with_preference("tcp.port", CMPP_PORT_RANGE, cmpp_handle);
 }
 
 /*

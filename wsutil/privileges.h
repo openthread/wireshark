@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2006 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PRIVILEGES_H__
@@ -70,15 +58,6 @@ WS_DLL_PUBLIC gchar *get_cur_username(void);
  * or "UNKNOWN" on failure.
  */
 WS_DLL_PUBLIC gchar *get_cur_groupname(void);
-
-#ifdef _WIN32
-/**
- * Check to see if npf.sys is running.
- * @return TRUE if npf.sys is running, FALSE if it's not or if there was
- * an error checking its status.
- */
-WS_DLL_PUBLIC gboolean npf_sys_is_running();
-#endif
 
 #ifdef __cplusplus
 }

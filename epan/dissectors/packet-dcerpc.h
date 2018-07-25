@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PACKET_DCERPC_H__
@@ -100,12 +88,18 @@ typedef struct _e_dce_dg_common_hdr_t {
     guint8 serial_lo;
 } e_dce_dg_common_hdr_t;
 
+struct _dcerpc_auth_subdissector_fns;
+
 typedef struct _dcerpc_auth_info {
-  guint8 auth_pad_len;
-  guint8 auth_level;
   guint8 auth_type;
+  guint8 auth_level;
+  guint32 auth_context_id;
+  guint8 auth_pad_len;
   guint32 auth_size;
-  tvbuff_t *auth_data;
+  struct _dcerpc_auth_subdissector_fns *auth_fns;
+  tvbuff_t *auth_tvb;
+  proto_item *auth_item;
+  proto_tree *auth_tree;
 } dcerpc_auth_info;
 
 typedef struct dcerpcstat_tap_data
@@ -204,6 +198,10 @@ typedef struct _dcerpc_info {
 guint16 dcerpc_tvb_get_ntohs (tvbuff_t *tvb, gint offset, guint8 *drep);
 guint32 dcerpc_tvb_get_ntohl (tvbuff_t *tvb, gint offset, guint8 *drep);
 void dcerpc_tvb_get_uuid (tvbuff_t *tvb, gint offset, guint8 *drep, e_guid_t *uuid);
+WS_DLL_PUBLIC
+int dissect_dcerpc_char (tvbuff_t *tvb, gint offset, packet_info *pinfo,
+                         proto_tree *tree, guint8 *drep,
+                         int hfindex, guint8 *pdata);
 WS_DLL_PUBLIC
 int dissect_dcerpc_uint8 (tvbuff_t *tvb, gint offset, packet_info *pinfo,
                           proto_tree *tree, guint8 *drep,

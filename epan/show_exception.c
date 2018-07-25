@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2000 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,6 +18,7 @@
 #include <epan/prefs.h>
 #include <epan/prefs-int.h>
 #include <epan/show_exception.h>
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 static int proto_short = -1;
 static int proto_malformed = -1;
@@ -99,7 +88,7 @@ show_exception(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 			pref_t *display_pref = prefs_find_preference(frame_module, "disable_packet_size_limited_in_summary");
 			if (display_pref)
 			{
-				if (*display_pref->varp.boolp)
+				if (prefs_get_bool_value(display_pref, pref_current))
 					display_info = FALSE;
 			}
 		}
@@ -125,6 +114,14 @@ show_exception(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		 * (any case where it's caused by something else is a bug). */
 		break;
 
+	case ContainedBoundsError:
+		col_append_fstr(pinfo->cinfo, COL_INFO, "[Malformed Packet: length of contained item exceeds length of containing item]");
+		item = proto_tree_add_protocol_format(tree, proto_malformed,
+		    tvb, 0, 0, "[Malformed Packet: %s: length of contained item exceeds length of containing item]",
+		    pinfo->current_proto);
+		expert_add_info(pinfo, item, &ei_malformed);
+		break;
+
 	case ReportedBoundsError:
 		show_reported_bounds_error(tvb, pinfo, tree);
 		break;
@@ -140,7 +137,7 @@ show_exception(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 		    pinfo->current_proto,
 		    exception_message == NULL ?
 		        dissector_error_nomsg : exception_message);
-		g_warning("Dissector bug, protocol %s, in packet %u: %s",
+		ws_g_warning("Dissector bug, protocol %s, in packet %u: %s",
 		    pinfo->current_proto, pinfo->num,
 		    exception_message == NULL ?
 		        dissector_error_nomsg : exception_message);

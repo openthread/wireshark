@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -73,7 +61,7 @@ static int hf_h450_ros_returnResultProblem = -1;  /* ReturnResultProblem */
 static int hf_h450_ros_returnErrorProblem = -1;   /* ReturnErrorProblem */
 
 /*--- End of included file: packet-h450-ros-hf.c ---*/
-#line 44 "./asn1/h450-ros/packet-h450-ros-template.c"
+#line 32 "./asn1/h450-ros/packet-h450-ros-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -89,7 +77,7 @@ static gint ett_h450_ros_Reject = -1;
 static gint ett_h450_ros_T_problem = -1;
 
 /*--- End of included file: packet-h450-ros-ett.c ---*/
-#line 47 "./asn1/h450-ros/packet-h450-ros-template.c"
+#line 35 "./asn1/h450-ros/packet-h450-ros-template.c"
 
 static expert_field ei_ros_undecoded = EI_INIT;
 
@@ -235,7 +223,7 @@ dissect_h450_ros_Invoke(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_,
     else if (actx->rose_ctx->d.code == 1)
       descr = wmem_strdup_printf(wmem_packet_scope(), "INV: %s", actx->rose_ctx->d.code_global);
   } else {
-    descr = wmem_strdup_printf(wmem_packet_scope(), "INV:");
+    descr = wmem_strdup(wmem_packet_scope(), "INV:");
   }
 
   if (actx->rose_ctx->apdu_depth >= 0)
@@ -246,7 +234,7 @@ dissect_h450_ros_Invoke(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_,
     g_strlcat(actx->rose_ctx->fillin_ptr, descr, actx->rose_ctx->fillin_buf_size);
 
   if (!arg_next_tvb) {  /* empty argument */
-    arg_next_tvb = tvb_new_subset(tvb, (actx->encoding==ASN1_ENC_PER)?offset>>3:offset, 0, 0);
+    arg_next_tvb = tvb_new_subset_length_caplen(tvb, (actx->encoding==ASN1_ENC_PER)?offset>>3:offset, 0, 0);
   }
 
   call_dissector_with_data((arg_handle)?arg_handle:data_handle, arg_next_tvb, actx->pinfo, tree, actx->rose_ctx);
@@ -318,7 +306,7 @@ dissect_h450_ros_ReturnResult(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *act
     else if (actx->rose_ctx->d.code == 1)
       descr = wmem_strdup_printf(wmem_packet_scope(), "RES: %s", actx->rose_ctx->d.code_global);
   } else {
-    descr = wmem_strdup_printf(wmem_packet_scope(), "RES:");
+    descr = wmem_strdup(wmem_packet_scope(), "RES:");
   }
 
   if (actx->rose_ctx->apdu_depth >= 0)
@@ -330,7 +318,7 @@ dissect_h450_ros_ReturnResult(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *act
 
   if (actx->rose_ctx->d.code != -1) {
     if (!res_next_tvb) {  /* empty result */
-      res_next_tvb = tvb_new_subset(tvb, (actx->encoding==ASN1_ENC_PER)?offset>>3:offset, 0, 0);
+      res_next_tvb = tvb_new_subset_length_caplen(tvb, (actx->encoding==ASN1_ENC_PER)?offset>>3:offset, 0, 0);
     }
 
     call_dissector_with_data((res_handle)?res_handle:data_handle, res_next_tvb, actx->pinfo, tree, actx->rose_ctx);
@@ -388,7 +376,7 @@ dissect_h450_ros_ReturnError(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx
     else if (actx->rose_ctx->d.code == 1)
       descr = wmem_strdup_printf(wmem_packet_scope(), "ERR: %s", actx->rose_ctx->d.code_global);
   } else {
-    descr = wmem_strdup_printf(wmem_packet_scope(), "ERR:");
+    descr = wmem_strdup(wmem_packet_scope(), "ERR:");
   }
 
   if (actx->rose_ctx->apdu_depth >= 0)
@@ -399,7 +387,7 @@ dissect_h450_ros_ReturnError(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx
     g_strlcat(actx->rose_ctx->fillin_ptr, descr, actx->rose_ctx->fillin_buf_size);
 
   if (!err_next_tvb) {  /* empty error */
-    err_next_tvb = tvb_new_subset(tvb, (actx->encoding==ASN1_ENC_PER)?offset>>3:offset, 0, 0);
+    err_next_tvb = tvb_new_subset_length_caplen(tvb, (actx->encoding==ASN1_ENC_PER)?offset>>3:offset, 0, 0);
   }
 
   call_dissector_with_data((err_handle)?err_handle:data_handle, err_next_tvb, actx->pinfo, tree, actx->rose_ctx);
@@ -585,7 +573,7 @@ dissect_h450_ros_ROS(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, pr
 
 
 /*--- End of included file: packet-h450-ros-fn.c ---*/
-#line 79 "./asn1/h450-ros/packet-h450-ros-template.c"
+#line 67 "./asn1/h450-ros/packet-h450-ros-template.c"
 
 /*--- proto_register_h450_ros -----------------------------------------------*/
 void proto_register_h450_ros(void) {
@@ -677,7 +665,7 @@ void proto_register_h450_ros(void) {
         "ReturnErrorProblem", HFILL }},
 
 /*--- End of included file: packet-h450-ros-hfarr.c ---*/
-#line 86 "./asn1/h450-ros/packet-h450-ros-template.c"
+#line 74 "./asn1/h450-ros/packet-h450-ros-template.c"
   };
 
   /* List of subtrees */
@@ -695,7 +683,7 @@ void proto_register_h450_ros(void) {
     &ett_h450_ros_T_problem,
 
 /*--- End of included file: packet-h450-ros-ettarr.c ---*/
-#line 91 "./asn1/h450-ros/packet-h450-ros-template.c"
+#line 79 "./asn1/h450-ros/packet-h450-ros-template.c"
   };
 
   static ei_register_info ei[] = {

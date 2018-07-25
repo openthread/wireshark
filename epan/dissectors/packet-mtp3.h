@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef __PACKET_MTP3_H__
 #define __PACKET_MTP3_H__
@@ -78,11 +66,10 @@ typedef struct _mtp3_tap_rec_t {
 extern "C" {
 #endif /* __cplusplus */
 
-WS_DLL_PUBLIC void     mtp3_addr_to_str_buf(const mtp3_addr_pc_t *addr_pc_p, gchar *buf, int buf_len);
-extern void     mtp3_pc_to_str_buf(const guint32 pc, gchar *buf, int buf_len);
 extern gchar*   mtp3_pc_to_str(const guint32 pc);
 extern gboolean mtp3_pc_structured(void);
 extern guint32  mtp3_pc_hash(const mtp3_addr_pc_t *addr_pc_p);
+extern int mtp3_addr_len(void);
 
 #ifdef __PROTO_H__
 /* epan/to_str.c includes this file, but it does not include proto.h so
@@ -92,9 +79,9 @@ extern guint32  mtp3_pc_hash(const mtp3_addr_pc_t *addr_pc_p);
  */
 extern void dissect_mtp3_3byte_pc(tvbuff_t *tvb, guint offset,
 				  proto_tree *tree, gint ett_pc,
-				  int hf_pc, int hf_pc_network,
+				  int hf_pc_string, int hf_pc_network,
 				  int hf_pc_cluster, int hf_pc_member,
-				  int hf_dpc, int pc);
+				  int hf_dpc, int hf_pc);
 #endif
 
 /*

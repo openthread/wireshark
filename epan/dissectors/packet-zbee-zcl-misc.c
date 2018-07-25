@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*  Include Files */
@@ -242,7 +230,7 @@ void proto_register_zbee_zcl_thermostat(void);
 void proto_reg_handoff_zbee_zcl_thermostat(void);
 
 /* Attribute Dissector Helpers */
-static void dissect_zcl_thermostat_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+static void dissect_zcl_thermostat_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 static int  dissect_zcl_thermostat_schedule(proto_tree *tree, tvbuff_t *tvb, guint offset);
 static void dissect_zcl_thermostat_schedule_days(proto_tree *tree, tvbuff_t *tvb, guint offset);
@@ -334,13 +322,13 @@ dissect_zcl_thermostat_schedule(proto_tree *tree, tvbuff_t *tvb, guint offset)
         offset += 2;
 
         if (mode_sequence & ZBEE_ZCL_CMD_THERMOSTAT_SCHEDULE_MODE_SEQUENCE_HEAT) {
-            float setpoint = (gint16)tvb_get_letohs(tvb, offset);
+            float setpoint = tvb_get_letohis(tvb, offset);
             proto_tree_add_float(tree, hf_zbee_zcl_thermostat_schedule_heat,
                     tvb, offset, 2, (setpoint / 100.0f));
             offset += 2;
         }
         if (mode_sequence & ZBEE_ZCL_CMD_THERMOSTAT_SCHEDULE_MODE_SEQUENCE_COOL) {
-            float setpoint = (gint16)tvb_get_letohs(tvb, offset);
+            float setpoint = tvb_get_letohis(tvb, offset);
             proto_tree_add_float(tree, hf_zbee_zcl_thermostat_schedule_cool,
                     tvb, offset, 2, (setpoint / 100.0f));
             offset += 2;
@@ -381,7 +369,7 @@ dissect_zbee_zcl_thermostat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             zcl->tran_seqno);
 
         /* Add the command ID. */
-        proto_tree_add_item(tree, hf_zbee_zcl_thermostat_srv_rx_cmd_id, tvb, offset, 1, cmd_id);
+        proto_tree_add_item(tree, hf_zbee_zcl_thermostat_srv_rx_cmd_id, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         offset++;
 
         /* Handle the command dissection. */
@@ -391,7 +379,7 @@ dissect_zbee_zcl_thermostat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 proto_tree_add_item(tree, hf_zbee_zcl_thermostat_setpoint_mode,
                     tvb, offset, 1, ENC_NA);
                 offset++;
-                amount = (gint8)tvb_get_guint8(tvb, offset);
+                amount = tvb_get_gint8(tvb, offset);
                 proto_tree_add_float(tree, hf_zbee_zcl_thermostat_setpoint_amount,
                     tvb, offset, 1, (amount / 100.0f));
                 offset++;
@@ -422,7 +410,7 @@ dissect_zbee_zcl_thermostat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             zcl->tran_seqno);
 
         /* Add the command ID. */
-        proto_tree_add_item(tree, hf_zbee_zcl_thermostat_srv_tx_cmd_id, tvb, offset, 1, cmd_id);
+        proto_tree_add_item(tree, hf_zbee_zcl_thermostat_srv_tx_cmd_id, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         offset++;
 
         /* Handle the command dissection. */
@@ -450,14 +438,15 @@ dissect_zbee_zcl_thermostat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
  *@param offset pointer to buffer offset
  *@param attr_id attribute identifier
  *@param data_type attribute data type
+ *@param client_attr ZCL client
 */
 static void
-dissect_zcl_thermostat_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type)
+dissect_zcl_thermostat_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr)
 {
     /* Dissect attribute data type and data */
     switch (attr_id) {
         default:
-            dissect_zcl_attr_data(tvb, tree, offset, data_type);
+            dissect_zcl_attr_data(tvb, tree, offset, data_type, client_attr);
             break;
     }
 } /*dissect_zcl_thermostat_attr_data*/
@@ -577,15 +566,12 @@ proto_register_zbee_zcl_thermostat(void)
 void
 proto_reg_handoff_zbee_zcl_thermostat(void)
 {
-    dissector_handle_t thermostat_handle;
-
-    /* Register our dissector with the ZigBee application dissectors. */
-    thermostat_handle = find_dissector(ZBEE_PROTOABBREV_ZCL_THERMOSTAT);
-    dissector_add_uint("zbee.zcl.cluster", ZBEE_ZCL_CID_THERMOSTAT, thermostat_handle);
-
-    zbee_zcl_init_cluster(  proto_zbee_zcl_thermostat,
+    zbee_zcl_init_cluster(  ZBEE_PROTOABBREV_ZCL_THERMOSTAT,
+                            proto_zbee_zcl_thermostat,
                             ett_zbee_zcl_thermostat,
                             ZBEE_ZCL_CID_THERMOSTAT,
+                            ZBEE_MFG_CODE_NONE,
+                            hf_zbee_zcl_thermostat_attr_id,
                             hf_zbee_zcl_thermostat_attr_id,
                             hf_zbee_zcl_thermostat_srv_rx_cmd_id,
                             hf_zbee_zcl_thermostat_srv_tx_cmd_id,
@@ -704,6 +690,7 @@ static int hf_zbee_zcl_ias_zone_type = -1;
 static int hf_zbee_zcl_ias_zone_status = -1;
 static int hf_zbee_zcl_ias_zone_delay = -1;
 static int hf_zbee_zcl_ias_zone_ext_status = -1;
+static int hf_zbee_zcl_ias_zone_manufacturer_code = -1;
 static int hf_zbee_zcl_ias_zone_status_ac_mains = -1;
 static int hf_zbee_zcl_ias_zone_status_alarm1 = -1;
 static int hf_zbee_zcl_ias_zone_status_alarm2 = -1;
@@ -761,7 +748,7 @@ void proto_reg_handoff_zbee_zcl_ias_zone(void);
 static int dissect_zbee_zcl_ias_zone   (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 
 /* Attribute Dissector Helpers */
-static void dissect_zcl_ias_zone_attr_data  (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+static void dissect_zcl_ias_zone_attr_data  (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 /* ZoneStatus bitmask helper */
 static void dissect_zcl_ias_zone_status     (proto_tree *tree, tvbuff_t *tvb, guint offset);
@@ -788,7 +775,7 @@ dissect_zcl_ias_zone_status(proto_tree *tree, tvbuff_t *tvb, guint offset)
         NULL
     };
 
-    proto_tree_add_bitmask(tree, tvb, offset, hf_zbee_zcl_ias_zone_status, ett_zbee_zcl_ias_zone_status, ias_zone_statuses, ENC_NA);
+    proto_tree_add_bitmask(tree, tvb, offset, hf_zbee_zcl_ias_zone_status, ett_zbee_zcl_ias_zone_status, ias_zone_statuses, ENC_LITTLE_ENDIAN);
 
 } /* dissect_zcl_ias_zone_status */
 
@@ -821,7 +808,7 @@ dissect_zbee_zcl_ias_zone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
             zcl->tran_seqno);
 
         /* Add the command ID. */
-        proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_srv_rx_cmd_id, tvb, offset, 1, cmd_id);
+        proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_srv_rx_cmd_id, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         offset++;
 
         /* Handle the command dissection. */
@@ -843,7 +830,7 @@ dissect_zbee_zcl_ias_zone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
             zcl->tran_seqno);
 
         /* Add the command ID. */
-        proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_srv_tx_cmd_id, tvb, offset, 1, cmd_id);
+        proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_srv_tx_cmd_id, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         offset++;
 
         /* Handle the command dissection. */
@@ -859,8 +846,16 @@ dissect_zbee_zcl_ias_zone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
                 offset += 1;
                 proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_delay, tvb, offset, 2,
                     ENC_LITTLE_ENDIAN);
+                break;
 
             case ZBEE_ZCL_CMD_ID_IAS_ZONE_ENROLL_REQUEST:
+                proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_type, tvb, offset, 2,
+                    ENC_LITTLE_ENDIAN);
+                offset += 2;
+                proto_tree_add_item(tree, hf_zbee_zcl_ias_zone_manufacturer_code,
+                    tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                break;
+
             default:
                 break;
         } /* switch */
@@ -877,9 +872,10 @@ dissect_zbee_zcl_ias_zone(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
  *@param offset pointer to buffer offset
  *@param attr_id attribute identifier
  *@param data_type attribute data type
+ *@param client_attr ZCL client
 */
 static void
-dissect_zcl_ias_zone_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type)
+dissect_zcl_ias_zone_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr)
 {
     /* Dissect attribute data type and data */
     switch (attr_id) {
@@ -900,7 +896,7 @@ dissect_zcl_ias_zone_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, g
 
         case ZBEE_ZCL_ATTR_ID_IAS_CIE_ADDRESS:
         default:
-            dissect_zcl_attr_data(tvb, tree, offset, data_type);
+            dissect_zcl_attr_data(tvb, tree, offset, data_type, client_attr);
             break;
     }
 } /*dissect_zcl_ias_zone_attr_data*/
@@ -912,15 +908,12 @@ dissect_zcl_ias_zone_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, g
 void
 proto_reg_handoff_zbee_zcl_ias_zone(void)
 {
-    dissector_handle_t zone_handle;
-
-    /* Register our dissector with the ZigBee application dissectors. */
-    zone_handle = find_dissector(ZBEE_PROTOABBREV_ZCL_IAS_ZONE);
-    dissector_add_uint("zbee.zcl.cluster", ZBEE_ZCL_CID_IAS_ZONE, zone_handle);
-
-    zbee_zcl_init_cluster(  proto_zbee_zcl_ias_zone,
+    zbee_zcl_init_cluster(  ZBEE_PROTOABBREV_ZCL_IAS_ZONE,
+                            proto_zbee_zcl_ias_zone,
                             ett_zbee_zcl_ias_zone,
                             ZBEE_ZCL_CID_IAS_ZONE,
+                            ZBEE_MFG_CODE_NONE,
+                            hf_zbee_zcl_ias_zone_attr_id,
                             hf_zbee_zcl_ias_zone_attr_id,
                             hf_zbee_zcl_ias_zone_srv_rx_cmd_id,
                             hf_zbee_zcl_ias_zone_srv_tx_cmd_id,
@@ -962,6 +955,10 @@ proto_register_zbee_zcl_ias_zone(void)
 
         { &hf_zbee_zcl_ias_zone_type,
             { "ZoneType", "zbee_zcl_ias.zone.type", FT_UINT16, BASE_HEX, VALS(zbee_ias_type_names), 0x0, NULL, HFILL }},
+
+        { &hf_zbee_zcl_ias_zone_manufacturer_code,
+            { "ManufacturerCode", "zbee_zcl_ias.zone.manufacturer_code", FT_UINT16, BASE_HEX, VALS(zbee_mfr_code_names),
+            0x0, NULL, HFILL } },
 
         { &hf_zbee_zcl_ias_zone_status,
             { "ZoneStatus", "zbee_zcl_ias.zone.status", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __ADDRESS_TYPES_H__
@@ -31,6 +19,7 @@ extern "C" {
 
 typedef int (*AddrValueToString)(const address* addr, gchar *buf, int buf_len);
 typedef int (*AddrValueToStringLen)(const address* addr);
+typedef guint (*AddrValueToByte)(const address* addr, guint8 *buf, guint buf_len);
 typedef int (*AddrFixedLen)(void);
 typedef const char* (*AddrColFilterString)(const address* addr, gboolean src);
 typedef int (*AddrNameResolutionLen)(void);
@@ -41,8 +30,10 @@ typedef struct _address_type_t address_type_t;
 
 WS_DLL_PUBLIC int address_type_dissector_register(const char* name, const char* pretty_name,
                                     AddrValueToString to_str_func, AddrValueToStringLen str_len_func,
-                                    AddrColFilterString col_filter_str_func, AddrFixedLen fixed_len_func,
+                                    AddrValueToByte to_bytes_func, AddrColFilterString col_filter_str_func, AddrFixedLen fixed_len_func,
                                     AddrNameResolutionToString name_res_str_func, AddrNameResolutionLen name_res_len_func);
+
+WS_DLL_PUBLIC int address_type_get_by_name(const char* name);
 
 void address_types_initialize(void);
 

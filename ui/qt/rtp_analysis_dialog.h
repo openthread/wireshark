@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef RTP_ANALYSIS_DIALOG_H
@@ -29,10 +17,12 @@
 #include "epan/address.h"
 
 #include "ui/rtp_stream.h"
+#include "ui/tap-rtp-common.h"
 #include "ui/tap-rtp-analysis.h"
 
 #include <QAbstractButton>
 #include <QMenu>
+#include <QFile>
 
 #include "wireshark_dialog.h"
 
@@ -48,11 +38,14 @@ class RtpAnalysisDialog : public WiresharkDialog
     Q_OBJECT
 
 public:
-    explicit RtpAnalysisDialog(QWidget &parent, CaptureFile &cf, struct _rtp_stream_info *stream_fwd = 0, struct _rtp_stream_info *stream_rev = 0);
+    explicit RtpAnalysisDialog(QWidget &parent, CaptureFile &cf, rtpstream_info_t *stream_fwd = 0, rtpstream_info_t *stream_rev = 0);
     ~RtpAnalysisDialog();
 
 signals:
     void goToPacket(int packet_num);
+
+protected:
+    virtual void captureFileClosing();
 
 protected slots:
     virtual void updateWidgets();
@@ -66,9 +59,15 @@ private slots:
     void on_rJitterCheckBox_toggled(bool checked);
     void on_rDiffCheckBox_toggled(bool checked);
     void on_rDeltaCheckBox_toggled(bool checked);
-    void on_actionSaveAudio_triggered();
-    void on_actionSaveForwardAudio_triggered();
-    void on_actionSaveReverseAudio_triggered();
+    void on_actionSaveAudioUnsync_triggered();
+    void on_actionSaveForwardAudioUnsync_triggered();
+    void on_actionSaveReverseAudioUnsync_triggered();
+    void on_actionSaveAudioSyncStream_triggered();
+    void on_actionSaveForwardAudioSyncStream_triggered();
+    void on_actionSaveReverseAudioSyncStream_triggered();
+    void on_actionSaveAudioSyncFile_triggered();
+    void on_actionSaveForwardAudioSyncFile_triggered();
+    void on_actionSaveReverseAudioSyncFile_triggered();
     void on_actionSaveCsv_triggered();
     void on_actionSaveForwardCsv_triggered();
     void on_actionSaveReverseCsv_triggered();
@@ -81,31 +80,12 @@ private slots:
 private:
     Ui::RtpAnalysisDialog *ui;
     enum StreamDirection { dir_both_, dir_forward_, dir_reverse_ };
-
-    // XXX These are copied to and from rtp_stream_info_t structs. Should
-    // we just have a pair of those instead?
-    address src_fwd_;
-    guint32 port_src_fwd_;
-    address dst_fwd_;
-    guint32 port_dst_fwd_;
-    guint32 ssrc_fwd_;
-    guint32 packet_count_fwd_;
-    guint32 setup_frame_number_fwd_;
-    nstime_t start_rel_time_fwd_;
-
-    address src_rev_;
-    guint32 port_src_rev_;
-    address dst_rev_;
-    guint32 port_dst_rev_;
-    guint32 ssrc_rev_;
-    guint32 packet_count_rev_;
-    guint32 setup_frame_number_rev_;
-    nstime_t start_rel_time_rev_;
+    enum SyncType { sync_unsync_, sync_sync_stream_, sync_sync_file_ };
 
     int num_streams_;
 
-    tap_rtp_stat_t fwd_statinfo_;
-    tap_rtp_stat_t rev_statinfo_;
+    rtpstream_info_t fwd_statinfo_;
+    rtpstream_info_t rev_statinfo_;
 
     QPushButton *player_button_;
 
@@ -126,6 +106,7 @@ private:
 
     rtpstream_tapinfo_t tapinfo_;
     QString err_str_;
+    tap_rtp_error_type_t save_payload_error_;
 
     QMenu stream_ctx_menu_;
     QMenu graph_ctx_menu_;
@@ -145,7 +126,13 @@ private:
 
     void showPlayer();
 
-    void saveAudio(StreamDirection direction);
+    size_t convert_payload_to_samples(unsigned int payload_type, QTemporaryFile *tempfile, guint8 *pd_out, size_t expected_nchars);
+    gboolean saveAudioAUSilence(size_t total_len, QFile *save_file, gboolean *stop_flag);
+    gboolean saveAudioAUUnidir(tap_rtp_stat_t &statinfo, QTemporaryFile *tempfile, QFile *save_file, size_t header_end, gboolean *stop_flag, gboolean interleave, size_t prefix_silence);
+    gboolean saveAudioAUBidir(tap_rtp_stat_t &fwd_statinfo, tap_rtp_stat_t &rev_statinfo, QTemporaryFile *fwd_tempfile, QTemporaryFile *rev_tempfile, QFile *save_file, size_t header_end, gboolean *stop_flag, size_t prefix_silence_fwd, size_t prefix_silence_rev);
+    gboolean saveAudioAU(StreamDirection direction, QFile *save_file, gboolean *stop_flag, RtpAnalysisDialog::SyncType sync);
+    gboolean saveAudioRAW(StreamDirection direction, QFile *save_file, gboolean *stop_flag);
+    void saveAudio(StreamDirection direction, RtpAnalysisDialog::SyncType sync);
     void saveCsv(StreamDirection direction);
 
     guint32 processNode(proto_node *ptree_node, header_field_info *hfinformation, const gchar* proto_field, bool *ok);

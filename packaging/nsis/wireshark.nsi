@@ -36,7 +36,7 @@ ${StrRep}
 ; ============================================================================
 
 ; The file to write
-OutFile "${PROGRAM_NAME}-${WIRESHARK_TARGET_PLATFORM}-${VERSION}.exe"
+OutFile "${OUTFILE_DIR}\${PROGRAM_NAME}-${WIRESHARK_TARGET_PLATFORM}-${VERSION}.exe"
 ; Installer icon
 Icon "${TOP_SRC_DIR}\image\wiresharkinst.ico"
 
@@ -49,15 +49,16 @@ Icon "${TOP_SRC_DIR}\image\wiresharkinst.ico"
 ; made for. This is the current (December 2003) latest version: V2.0b4
 ; If you are using a different version, it's not predictable what will happen.
 
-!include "MUI.nsh"
+!include "MUI2.nsh"
+!include "InstallOptions.nsh"
 ;!addplugindir ".\Plugins"
 
 !define MUI_ICON "${TOP_SRC_DIR}\image\wiresharkinst.ico"
-BrandingText "Wireshark Installer (tm)"
+BrandingText "Wireshark${U+00ae} Installer"
 
 !define MUI_COMPONENTSPAGE_SMALLDESC
 !define MUI_FINISHPAGE_NOAUTOCLOSE
-!define MUI_WELCOMEPAGE_TEXT "This wizard will guide you through the installation of ${PROGRAM_NAME}.\r\n\r\nBefore starting the installation, make sure ${PROGRAM_NAME} is not running.\r\n\r\nClick 'Next' to continue."
+!define MUI_WELCOMEPAGE_TEXT "This wizard will guide you through the installation of ${PROGRAM_NAME}.$\r$\n$\r$\nBefore starting the installation, make sure ${PROGRAM_NAME} is not running.$\r$\n$\r$\nClick 'Next' to continue."
 ;!define MUI_FINISHPAGE_LINK "Install WinPcap to be able to capture packets from a network."
 ;!define MUI_FINISHPAGE_LINK_LOCATION "https://www.winpcap.org"
 
@@ -68,7 +69,7 @@ BrandingText "Wireshark Installer (tm)"
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\NEWS.txt"
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Show News"
 !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${PROGRAM_NAME_PATH_QT}"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${PROGRAM_NAME_PATH}"
 !define MUI_FINISHPAGE_RUN_NOTCHECKED
 
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW myShowCallback
@@ -80,7 +81,9 @@ BrandingText "Wireshark Installer (tm)"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${STAGING_DIR}\COPYING.txt"
 !insertmacro MUI_PAGE_COMPONENTS
-Page custom DisplayAdditionalTasksPage
+!ifdef QT_DIR
+Page custom DisplayAdditionalTasksPage LeaveAdditionalTasksPage
+!endif
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom DisplayWinPcapPage
 Page custom DisplayUSBPcapPage
@@ -100,10 +103,19 @@ Page custom DisplayUSBPcapPage
   ;Things that need to be extracted on first (keep these lines before any File command!)
   ;Only useful for BZIP2 compression
 
-  ReserveFile "AdditionalTasksPage.ini"
+  ; Old Modern 1 UI: http://nsis.sourceforge.net/Docs/Modern%20UI/Readme.html
+  ; To do: Upgrade to the Modern 2 UI:
+  ;ReserveFile "AdditionalTasksPage.ini"
   ReserveFile "WinPcapPage.ini"
   ReserveFile "USBPcapPage.ini"
-  !insertmacro MUI_RESERVEFILE_INSTALLOPTIONS
+  ReserveFile /plugin InstallOptions.dll
+
+  ; Modern UI 2 / nsDialog pages.
+  ; http://nsis.sourceforge.net/Docs/Modern%20UI%202/Readme.html
+  ; http://nsis.sourceforge.net/Docs/nsDialogs/Readme.html
+  !ifdef QT_DIR
+  !include "AdditionalTasksPage.nsdinc"
+  !endif
 
 ; ============================================================================
 ; Section macros
@@ -183,32 +195,46 @@ ShowInstDetails show
 Var EXTENSION
 ; https://msdn.microsoft.com/en-us/library/windows/desktop/cc144148.aspx
 Function Associate
-    Push $R0
-!insertmacro PushFileExtensions
+  Push $R0
+  !insertmacro PushFileExtensions
 
-    Pop $EXTENSION
+  Pop $EXTENSION
 
-    ${DoUntil} $EXTENSION == ${FILE_EXTENSION_MARKER}
-        ReadRegStr $R0 HKCR $EXTENSION ""
-        StrCmp $R0 "" Associate.doRegister
-        Goto Associate.end
+  ${DoUntil} $EXTENSION == ${FILE_EXTENSION_MARKER}
+    ReadRegStr $R0 HKCR $EXTENSION ""
+    StrCmp $R0 "" Associate.doRegister
+    Goto Associate.end
 
 Associate.doRegister:
-        ;The extension is not associated to any program, we can do the link
-        WriteRegStr HKCR $EXTENSION "" ${WIRESHARK_ASSOC}
-        DetailPrint "Registered file type: $EXTENSION"
+    ;The extension is not associated to any program, we can do the link
+    WriteRegStr HKCR $EXTENSION "" ${WIRESHARK_ASSOC}
+    DetailPrint "Registered file type: $EXTENSION"
 
 Associate.end:
-        Pop $EXTENSION
-    ${Loop}
+    Pop $EXTENSION
+  ${Loop}
 
-    Pop $R0
+  Pop $R0
 FunctionEnd
 
+; Control states
+Var START_MENU_STATE
+Var DESKTOP_ICON_STATE
+Var QUICK_LAUNCH_STATE
+Var FILE_ASSOCIATE_STATE
+
+; NSIS
 Var OLD_UNINSTALLER
 Var OLD_INSTDIR
 Var OLD_DISPLAYNAME
 Var TMP_UNINSTALLER
+
+; WiX
+Var REGISTRY_BITS
+Var TMP_PRODUCT_GUID
+Var WIX_DISPLAYNAME
+Var WIX_DISPLAYVERSION
+Var WIX_UNINSTALLSTRING
 
 ; ============================================================================
 ; 64-bit support
@@ -230,6 +256,11 @@ Function .onInit
     ; Get the Windows version
     ${GetWindowsVersion} $R0
 
+    ; This should match the following:
+    ; - The NTDDI_VERSION and _WIN32_WINNT parts of cmakeconfig.h.in
+    ; - The <compatibility><application> section in image\wireshark.exe.manifest.in
+    ; - The VersionNT parts of packaging\wix\Prerequisites.wxi
+
     ; Uncomment to test.
     ; MessageBox MB_OK "You're running Windows $R0."
 
@@ -241,6 +272,8 @@ Function .onInit
     StrCmp $R0 '2000' lbl_winversion_unsupported_2000
     StrCmp $R0 'XP' lbl_winversion_unsupported_xp_2003
     StrCmp $R0 '2003' lbl_winversion_unsupported_xp_2003
+    StrCmp $R0 'Vista' lbl_winversion_unsupported_vista_2008
+    StrCmp $R0 '2008' lbl_winversion_unsupported_vista_2008
     Goto lbl_winversion_supported
 
 lbl_winversion_unsupported:
@@ -267,37 +300,68 @@ lbl_winversion_unsupported_xp_2003:
         /SD IDOK
     Quit
 
+lbl_winversion_unsupported_vista_2008:
+    MessageBox MB_OK \
+        "Windows $R0 is no longer supported.$\nPlease install ${PROGRAM_NAME} 2.2 instead." \
+        /SD IDOK
+    Quit
+
 lbl_winversion_supported:
 !insertmacro IsWiresharkRunning
+
+  ; Default control values.
+  StrCpy $START_MENU_STATE ${BST_CHECKED}
+  StrCpy $DESKTOP_ICON_STATE ${BST_UNCHECKED}
+  StrCpy $QUICK_LAUNCH_STATE ${BST_CHECKED}
+  StrCpy $FILE_ASSOCIATE_STATE ${BST_CHECKED}
 
   ; Copied from http://nsis.sourceforge.net/Auto-uninstall_old_before_installing_new
   ReadRegStr $OLD_UNINSTALLER HKLM \
     "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
     "UninstallString"
-  StrCmp $OLD_UNINSTALLER "" done
+  StrCmp $OLD_UNINSTALLER "" check_wix
 
   ReadRegStr $OLD_INSTDIR HKLM \
     "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME}.exe" \
     "Path"
-  StrCmp $OLD_INSTDIR "" done
+  StrCmp $OLD_INSTDIR "" check_wix
 
   ReadRegStr $OLD_DISPLAYNAME HKLM \
     "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
     "DisplayName"
   StrCmp $OLD_DISPLAYNAME "" done
 
+  ; We're reinstalling. Flip our control states according to what the
+  ; user chose before.
+  ; (we use the "all users" start menu, so select it first)
+  SetShellVarContext all
+  ; MessageBox MB_OK|MB_ICONINFORMATION "oninit 1 sm $START_MENU_STATE di $DESKTOP_ICON_STATE ql $QUICK_LAUNCH_STATE"
+  ${IfNot} ${FileExists} $SMPROGRAMS\${PROGRAM_NAME}.lnk
+    StrCpy $START_MENU_STATE ${BST_UNCHECKED}
+  ${Endif}
+  ${If} ${FileExists} $DESKTOP\${PROGRAM_NAME}.lnk
+    StrCpy $DESKTOP_ICON_STATE ${BST_CHECKED}
+  ${Endif}
+  ${IfNot} ${FileExists} $QUICKLAUNCH\${PROGRAM_NAME}.lnk
+    StrCpy $QUICK_LAUNCH_STATE ${BST_UNCHECKED}
+  ${Endif}
+  ; Leave FILE_ASSOCIATE_STATE checked.
+  ; MessageBox MB_OK|MB_ICONINFORMATION "oninit 2 sm $START_MENU_STATE $SMPROGRAMS\${PROGRAM_NAME}\${PROGRAM_NAME}.lnk \
+  ;   $\ndi $DESKTOP_ICON_STATE $DESKTOP\${PROGRAM_NAME}.lnk \
+  ;   $\nql $QUICK_LAUNCH_STATE $QUICKLAUNCH\${PROGRAM_NAME}.lnk"
+
   MessageBox MB_YESNOCANCEL|MB_ICONQUESTION \
     "$OLD_DISPLAYNAME is already installed.\
      $\n$\nWould you like to uninstall it first?" \
       /SD IDYES \
-      IDYES prep_uninstaller \
+      IDYES prep_nsis_uninstaller \
       IDNO done
   Abort
 
 ; Copy the uninstaller to $TEMP and run it.
 ; The uninstaller normally does this by itself, but doesn't wait around
 ; for the executable to finish, which means ExecWait won't work correctly.
-prep_uninstaller:
+prep_nsis_uninstaller:
   ClearErrors
   StrCpy $TMP_UNINSTALLER "$TEMP\${PROGRAM_NAME}_uninstaller.exe"
   ; ...because we surround UninstallString in quotes.
@@ -309,26 +373,93 @@ prep_uninstaller:
 
   Delete "$TMP_UNINSTALLER"
 
+; Look for a WiX-installed package.
+
+check_wix:
+  StrCpy $REGISTRY_BITS 64
+  SetRegView 64
+  check_wix_restart:
+    StrCpy $0 0
+  wix_reg_enum_loop:
+    EnumRegKey $TMP_PRODUCT_GUID HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" $0
+    StrCmp $TMP_PRODUCT_GUID "" wix_enum_reg_done
+    IntOp $0 $0 + 1
+    ReadRegStr $WIX_DISPLAYNAME HKLM \
+      "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
+      "DisplayName"
+    ; MessageBox MB_OK|MB_ICONINFORMATION "Reading HKLM SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$1 DisplayName = $2"
+    ; Look for "Wireshark".
+    StrCmp $WIX_DISPLAYNAME "${PROGRAM_NAME}" wix_found wix_reg_enum_loop
+
+    wix_found:
+      ReadRegStr $WIX_DISPLAYVERSION HKLM \
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
+        "DisplayVersion"
+      ReadRegStr $WIX_UNINSTALLSTRING HKLM \
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$TMP_PRODUCT_GUID" \
+        "UninstallString"
+      StrCmp $WIX_UNINSTALLSTRING "" done
+      MessageBox MB_YESNOCANCEL|MB_ICONQUESTION \
+        "$WIX_DISPLAYNAME $WIX_DISPLAYVERSION (msi) is already installed.\
+         $\n$\nWould you like to uninstall it first?" \
+          /SD IDYES \
+          IDYES prep_wix_uninstaller \
+          IDNO done
+      Abort
+
+      ; Run the WiX-provided UninstallString.
+      prep_wix_uninstaller:
+        ClearErrors
+        ExecWait "$WIX_UNINSTALLSTRING"
+
+      Goto done
+
+  wix_enum_reg_done:
+    ; MessageBox MB_OK|MB_ICONINFORMATION "Checked $0 $REGISTRY_BITS bit keys"
+    IntCmp $REGISTRY_BITS 32 done
+    StrCpy $REGISTRY_BITS 32
+    SetRegView 32
+    Goto check_wix_restart
+
 done:
+
+  ; Command line parameters
+  ${GetParameters} $R0
+
+  ${GetOptions} $R0 "/desktopicon=" $R1
+  ${If} $R1 == "yes"
+    StrCpy $DESKTOP_ICON_STATE ${BST_CHECKED}
+  ${ElseIf} $R1 == "no"
+    StrCpy $DESKTOP_ICON_STATE ${BST_UNCHECKED}
+  ${Endif}
+
+  ${GetOptions} $R0 "/quicklaunchicon=" $R1
+  ${If} $R1 == "yes"
+    StrCpy $QUICK_LAUNCH_STATE ${BST_CHECKED}
+  ${ElseIf} $R1 == "no"
+    StrCpy $QUICK_LAUNCH_STATE ${BST_UNCHECKED}
+  ${Endif}
+
   ;Extract InstallOptions INI files
-  !insertmacro MUI_INSTALLOPTIONS_EXTRACT "AdditionalTasksPage.ini"
-  !insertmacro MUI_INSTALLOPTIONS_EXTRACT "WinpcapPage.ini"
-  !insertmacro MUI_INSTALLOPTIONS_EXTRACT "USBPcapPage.ini"
+  ;!insertmacro INSTALLOPTIONS_EXTRACT "AdditionalTasksPage.ini"
+  !insertmacro INSTALLOPTIONS_EXTRACT "WinpcapPage.ini"
+  !insertmacro INSTALLOPTIONS_EXTRACT "USBPcapPage.ini"
 FunctionEnd
 
+!ifdef QT_DIR
 Function DisplayAdditionalTasksPage
-  !insertmacro MUI_HEADER_TEXT "Select Additional Tasks" "Which additional tasks should be done?"
-  !insertmacro MUI_INSTALLOPTIONS_DISPLAY "AdditionalTasksPage.ini"
+  Call fnc_AdditionalTasksPage_Show
 FunctionEnd
+!endif
 
 Function DisplayWinPcapPage
-  !insertmacro MUI_HEADER_TEXT "Install WinPcap?" "WinPcap is required to capture live network data. Should WinPcap be installed?"
-  !insertmacro MUI_INSTALLOPTIONS_DISPLAY "WinPcapPage.ini"
+  !insertmacro MUI_HEADER_TEXT "Packet Capture" "Wireshark requires either Npcap or WinPcap to capture live network data."
+  !insertmacro INSTALLOPTIONS_DISPLAY "WinPcapPage.ini"
 FunctionEnd
 
 Function DisplayUSBPcapPage
-  !insertmacro MUI_HEADER_TEXT "Install USBPcap?" "USBPcap is required to capture USB traffic. Should USBPcap be installed?"
-  !insertmacro MUI_INSTALLOPTIONS_DISPLAY "USBPcapPage.ini"
+  !insertmacro MUI_HEADER_TEXT "USB Capture" "USBPcap is required to capture USB traffic. Should USBPcap be installed (experimental)?"
+  !insertmacro INSTALLOPTIONS_DISPLAY "USBPcapPage.ini"
 FunctionEnd
 
 ; ============================================================================
@@ -338,10 +469,6 @@ FunctionEnd
 Var WINPCAP_UNINSTALL ;declare variable for holding the value of a registry key
 Var USBPCAP_UNINSTALL ;declare variable for holding the value of a registry key
 ;Var WIRESHARK_UNINSTALL ;declare variable for holding the value of a registry key
-
-!ifdef VCREDIST_EXE
-Var VCREDIST_FLAGS ; silent vs passive, norestart
-!endif
 
 Section "-Required"
 ;-------------------------------------------
@@ -353,10 +480,8 @@ SetShellVarContext all
 
 SetOutPath $INSTDIR
 File "${STAGING_DIR}\${UNINSTALLER_NAME}"
-File "${STAGING_DIR}\wiretap-${WTAP_VERSION}.dll"
-!ifdef ENABLE_LIBWIRESHARK
+File "${STAGING_DIR}\libwiretap.dll"
 File "${STAGING_DIR}\libwireshark.dll"
-!endif
 File "${STAGING_DIR}\libwscodecs.dll"
 File "${STAGING_DIR}\libwsutil.dll"
 
@@ -368,6 +493,7 @@ File "${STAGING_DIR}\README.txt"
 File "${STAGING_DIR}\README.windows.txt"
 File "${STAGING_DIR}\AUTHORS-SHORT"
 File "${STAGING_DIR}\manuf"
+File "${STAGING_DIR}\wka"
 File "${STAGING_DIR}\services"
 File "${STAGING_DIR}\pdml2html.xsl"
 File "${STAGING_DIR}\ws.css"
@@ -376,46 +502,23 @@ File "${STAGING_DIR}\wireshark-filter.html"
 File "${STAGING_DIR}\dumpcap.exe"
 File "${STAGING_DIR}\dumpcap.html"
 File "${STAGING_DIR}\extcap.html"
-File "${STAGING_DIR}\ipmap.html"
 
 ; C-runtime redistributable
-!ifdef VCREDIST_EXE
-; vcredist_x64.exe - copy and execute the redistributable installer
+; vcredist_x64.exe or vc_redist_x86.exe - copy and execute the redistributable installer
 File "${VCREDIST_EXE}"
 ; If the user already has the redistributable installed they will see a
 ; Big Ugly Dialog by default, asking if they want to uninstall or repair.
 ; Ideally we should add a checkbox for this somewhere. In the meantime,
-; just do a "passive+norestart" install for MSVC 2010 and later and a
-; "silent" install otherwise.
+; just do a "quiet" install.
 
-; http://blogs.msdn.com/b/astebner/archive/2010/10/20/10078468.aspx
-; http://allthingsconfigmgr.wordpress.com/2013/12/17/visual-c-redistributables-made-simple/
-; "!if ${MSVC_VER_REQUIRED} >= 1600" doesn't work.
-!searchparse /noerrors ${MSVC_VER_REQUIRED} "1400" VCREDIST_FLAGS_Q "1500" VCREDIST_FLAGS_Q "1600" VCREDIST_FLAGS_Q_NORESTART
-!ifdef VCREDIST_FLAGS_Q
-StrCpy $VCREDIST_FLAGS "/q"
-!else ; VCREDIST_FLAGS_Q
-!ifdef VCREDIST_FLAGS_Q_NORESTART
-StrCpy $VCREDIST_FLAGS "/q /norestart"
-!else ; VCREDIST_FLAGS_Q_NORESTART
-StrCpy $VCREDIST_FLAGS "/quiet /norestart"
-!endif ; VCREDIST_FLAGS_Q_NORESTART
-!endif ; VCREDIST_FLAGS_Q
-
-ExecWait '"$INSTDIR\vcredist_${TARGET_MACHINE}.exe" $VCREDIST_FLAGS' $0
+; http://asawicki.info/news_1597_installing_visual_c_redistributable_package_from_command_line.html
+ExecWait '"$INSTDIR\vcredist_${TARGET_MACHINE}.exe" /install /quiet /norestart' $0
 DetailPrint "vcredist_${TARGET_MACHINE} returned $0"
 IntCmp $0 3010 redistReboot redistNoReboot
 redistReboot:
 SetRebootFlag true
 redistNoReboot:
 Delete "$INSTDIR\vcredist_${TARGET_MACHINE}.exe"
-!else
-!ifdef MSVCR_DLL
-; msvcr*.dll (MSVC V7 or V7.1) - simply copy the dll file
-!echo "IF YOU GET AN ERROR HERE, check the MSVC_VARIANT setting in config.nmake: MSVC2005 vs. MSVC2005EE."
-File "${MSVCR_DLL}"
-!endif ; MSVCR_DLL
-!endif ; VCREDIST_EXE
 
 
 ; global config files - don't overwrite if already existing
@@ -427,6 +530,9 @@ File "${STAGING_DIR}\colorfilters"
 ;dont_overwrite_colorfilters:
 ;IfFileExists dfilters dont_overwrite_dfilters
 File "${STAGING_DIR}\dfilters"
+;dont_overwrite_dfilters:
+;IfFileExists enterprises.tsv dont_overwrite_enterprises_tsv
+File "${STAGING_DIR}\enterprises.tsv"
 ;dont_overwrite_dfilters:
 ;IfFileExists smi_modules dont_overwrite_smi_modules
 File "${STAGING_DIR}\smi_modules"
@@ -441,6 +547,7 @@ SetOutPath $INSTDIR\diameter
 File "${STAGING_DIR}\diameter\AlcatelLucent.xml"
 File "${STAGING_DIR}\diameter\chargecontrol.xml"
 File "${STAGING_DIR}\diameter\Cisco.xml"
+File "${STAGING_DIR}\diameter\CiscoSystems.xml"
 File "${STAGING_DIR}\diameter\Custom.xml"
 File "${STAGING_DIR}\diameter\dictionary.dtd"
 File "${STAGING_DIR}\diameter\dictionary.xml"
@@ -448,6 +555,9 @@ File "${STAGING_DIR}\diameter\eap.xml"
 File "${STAGING_DIR}\diameter\Ericsson.xml"
 File "${STAGING_DIR}\diameter\etsie2e4.xml"
 File "${STAGING_DIR}\diameter\HP.xml"
+File "${STAGING_DIR}\diameter\Huawei.xml"
+File "${STAGING_DIR}\diameter\Inovar.xml"
+File "${STAGING_DIR}\diameter\Juniper.xml"
 File "${STAGING_DIR}\diameter\mobileipv4.xml"
 File "${STAGING_DIR}\diameter\mobileipv6.xml"
 File "${STAGING_DIR}\diameter\nasreq.xml"
@@ -460,6 +570,7 @@ File "${STAGING_DIR}\diameter\sunping.xml"
 File "${STAGING_DIR}\diameter\TGPP.xml"
 File "${STAGING_DIR}\diameter\TGPP2.xml"
 File "${STAGING_DIR}\diameter\Vodafone.xml"
+File "${STAGING_DIR}\diameter\VerizonWireless.xml"
 !include "custom_diameter_xmls.txt"
 SetOutPath $INSTDIR
 
@@ -476,37 +587,37 @@ File "${STAGING_DIR}\radius\dictionary.3gpp"
 File "${STAGING_DIR}\radius\dictionary.3gpp2"
 File "${STAGING_DIR}\radius\dictionary.acc"
 File "${STAGING_DIR}\radius\dictionary.acme"
-File "${STAGING_DIR}\radius\dictionary.airespace"
 File "${STAGING_DIR}\radius\dictionary.actelis"
 File "${STAGING_DIR}\radius\dictionary.aerohive"
+File "${STAGING_DIR}\radius\dictionary.airespace"
 File "${STAGING_DIR}\radius\dictionary.alcatel"
+File "${STAGING_DIR}\radius\dictionary.alcatel-lucent.aaa"
 File "${STAGING_DIR}\radius\dictionary.alcatel.esam"
 File "${STAGING_DIR}\radius\dictionary.alcatel.sr"
-File "${STAGING_DIR}\radius\dictionary.alcatel-lucent.aaa"
 File "${STAGING_DIR}\radius\dictionary.alteon"
 File "${STAGING_DIR}\radius\dictionary.altiga"
 File "${STAGING_DIR}\radius\dictionary.alvarion"
 File "${STAGING_DIR}\radius\dictionary.alvarion.wimax.v2_2"
 File "${STAGING_DIR}\radius\dictionary.apc"
 File "${STAGING_DIR}\radius\dictionary.aptis"
-File "${STAGING_DIR}\radius\dictionary.aruba"
 File "${STAGING_DIR}\radius\dictionary.arbor"
+File "${STAGING_DIR}\radius\dictionary.aruba"
 File "${STAGING_DIR}\radius\dictionary.ascend"
 File "${STAGING_DIR}\radius\dictionary.asn"
 File "${STAGING_DIR}\radius\dictionary.audiocodes"
 File "${STAGING_DIR}\radius\dictionary.avaya"
 File "${STAGING_DIR}\radius\dictionary.azaire"
 File "${STAGING_DIR}\radius\dictionary.bay"
-File "${STAGING_DIR}\radius\dictionary.bluecoat"
 File "${STAGING_DIR}\radius\dictionary.bintec"
+File "${STAGING_DIR}\radius\dictionary.bluecoat"
+File "${STAGING_DIR}\radius\dictionary.bristol"
 File "${STAGING_DIR}\radius\dictionary.broadsoft"
 File "${STAGING_DIR}\radius\dictionary.brocade"
 File "${STAGING_DIR}\radius\dictionary.bskyb"
-File "${STAGING_DIR}\radius\dictionary.bristol"
 File "${STAGING_DIR}\radius\dictionary.bt"
-File "${STAGING_DIR}\radius\dictionary.camiant"
 File "${STAGING_DIR}\radius\dictionary.cablelabs"
 File "${STAGING_DIR}\radius\dictionary.cabletron"
+File "${STAGING_DIR}\radius\dictionary.camiant"
 File "${STAGING_DIR}\radius\dictionary.chillispot"
 File "${STAGING_DIR}\radius\dictionary.cisco"
 File "${STAGING_DIR}\radius\dictionary.cisco.asa"
@@ -515,15 +626,17 @@ File "${STAGING_DIR}\radius\dictionary.cisco.vpn3000"
 File "${STAGING_DIR}\radius\dictionary.cisco.vpn5000"
 File "${STAGING_DIR}\radius\dictionary.citrix"
 File "${STAGING_DIR}\radius\dictionary.clavister"
+File "${STAGING_DIR}\radius\dictionary.cnergee"
 File "${STAGING_DIR}\radius\dictionary.colubris"
 File "${STAGING_DIR}\radius\dictionary.columbia_university"
-File "${STAGING_DIR}\radius\dictionary.compatible"
 File "${STAGING_DIR}\radius\dictionary.compat"
+File "${STAGING_DIR}\radius\dictionary.compatible"
 File "${STAGING_DIR}\radius\dictionary.cosine"
 File "${STAGING_DIR}\radius\dictionary.dante"
+File "${STAGING_DIR}\radius\dictionary.dellemc"
 File "${STAGING_DIR}\radius\dictionary.dhcp"
-File "${STAGING_DIR}\radius\dictionary.dlink"
 File "${STAGING_DIR}\radius\dictionary.digium"
+File "${STAGING_DIR}\radius\dictionary.dlink"
 File "${STAGING_DIR}\radius\dictionary.dragonwave"
 File "${STAGING_DIR}\radius\dictionary.efficientip"
 File "${STAGING_DIR}\radius\dictionary.eltex"
@@ -532,7 +645,6 @@ File "${STAGING_DIR}\radius\dictionary.equallogic"
 File "${STAGING_DIR}\radius\dictionary.ericsson"
 File "${STAGING_DIR}\radius\dictionary.ericsson.ab"
 File "${STAGING_DIR}\radius\dictionary.ericsson.packet.core.networks"
-File "${STAGING_DIR}\radius\dictionary.erx"
 File "${STAGING_DIR}\radius\dictionary.extreme"
 File "${STAGING_DIR}\radius\dictionary.f5"
 File "${STAGING_DIR}\radius\dictionary.fdxtended"
@@ -557,8 +669,8 @@ File "${STAGING_DIR}\radius\dictionary.issanni"
 File "${STAGING_DIR}\radius\dictionary.itk"
 File "${STAGING_DIR}\radius\dictionary.jradius"
 File "${STAGING_DIR}\radius\dictionary.juniper"
-File "${STAGING_DIR}\radius\dictionary.kineto"
 File "${STAGING_DIR}\radius\dictionary.karlnet"
+File "${STAGING_DIR}\radius\dictionary.kineto"
 File "${STAGING_DIR}\radius\dictionary.lancom"
 File "${STAGING_DIR}\radius\dictionary.livingston"
 File "${STAGING_DIR}\radius\dictionary.localweb"
@@ -567,6 +679,7 @@ File "${STAGING_DIR}\radius\dictionary.manzara"
 File "${STAGING_DIR}\radius\dictionary.meinberg"
 File "${STAGING_DIR}\radius\dictionary.merit"
 File "${STAGING_DIR}\radius\dictionary.meru"
+File "${STAGING_DIR}\radius\dictionary.microsemi"
 File "${STAGING_DIR}\radius\dictionary.microsoft"
 File "${STAGING_DIR}\radius\dictionary.mikrotik"
 File "${STAGING_DIR}\radius\dictionary.motorola"
@@ -623,11 +736,13 @@ File "${STAGING_DIR}\radius\dictionary.rfc7055"
 File "${STAGING_DIR}\radius\dictionary.rfc7155"
 File "${STAGING_DIR}\radius\dictionary.rfc7268"
 File "${STAGING_DIR}\radius\dictionary.rfc7499"
+File "${STAGING_DIR}\radius\dictionary.rfc7930"
 File "${STAGING_DIR}\radius\dictionary.riverbed"
 File "${STAGING_DIR}\radius\dictionary.riverstone"
 File "${STAGING_DIR}\radius\dictionary.roaringpenguin"
 File "${STAGING_DIR}\radius\dictionary.ruckus"
 File "${STAGING_DIR}\radius\dictionary.ruggedcom"
+File "${STAGING_DIR}\radius\dictionary.sangoma"
 File "${STAGING_DIR}\radius\dictionary.sg"
 File "${STAGING_DIR}\radius\dictionary.shasta"
 File "${STAGING_DIR}\radius\dictionary.shiva"
@@ -648,6 +763,7 @@ File "${STAGING_DIR}\radius\dictionary.trapeze"
 File "${STAGING_DIR}\radius\dictionary.travelping"
 File "${STAGING_DIR}\radius\dictionary.tropos"
 File "${STAGING_DIR}\radius\dictionary.ukerna"
+File "${STAGING_DIR}\radius\dictionary.unisphere"
 File "${STAGING_DIR}\radius\dictionary.unix"
 File "${STAGING_DIR}\radius\dictionary.usr"
 File "${STAGING_DIR}\radius\dictionary.utstarcom"
@@ -688,6 +804,9 @@ File "${STAGING_DIR}\dtds\xcap-error.dtd"
 File "${STAGING_DIR}\dtds\watcherinfo.dtd"
 SetOutPath $INSTDIR
 
+; Create the extcap directory
+CreateDirectory $INSTDIR\extcap
+
 ; Install the TPNCP DAT file in the "tpncp" subdirectory
 ; of the installation directory.
 SetOutPath $INSTDIR\tpncp
@@ -717,7 +836,9 @@ File "${STAGING_DIR}\help\faq.txt"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}"
 
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "Comments" "${DISPLAY_NAME}"
-WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "DisplayIcon" "$INSTDIR\${PROGRAM_NAME_PATH_GTK},0"
+!ifdef QT_DIR
+WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "DisplayIcon" "$INSTDIR\${PROGRAM_NAME_PATH},0"
+!endif
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "DisplayName" "${DISPLAY_NAME}"
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "DisplayVersion" "${VERSION}"
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "HelpLink" "https://ask.wireshark.org/"
@@ -734,87 +855,21 @@ WriteRegDWORD HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "VersionMinor" ${VERSION_MI
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "UninstallString" '"$INSTDIR\${UNINSTALLER_NAME}"'
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "QuietUninstallString" '"$INSTDIR\${UNINSTALLER_NAME}" /S'
 
-; Write an entry for ShellExecute
-WriteRegStr HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME_PATH_GTK}" "" '$INSTDIR\${PROGRAM_NAME_PATH_GTK}'
-WriteRegStr HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME_PATH_GTK}" "Path" '$INSTDIR'
-!ifdef QT_DIR
-WriteRegStr HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME_PATH_QT}" "" '$INSTDIR\${PROGRAM_NAME_PATH_QT}'
-WriteRegStr HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME_PATH_QT}" "Path" '$INSTDIR'
-!endif
-
-; Create start menu entries (depending on additional tasks page)
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "State"
-StrCmp $0 "0" SecRequired_skip_StartMenu
-SetOutPath $PROFILE
-;CreateDirectory "$SMPROGRAMS\${PROGRAM_NAME}"
 ; To quote "http://download.microsoft.com/download/0/4/6/046bbd36-0812-4c22-a870-41911c6487a6/WindowsUserExperience.pdf"
 ; "Do not include Readme, Help, or Uninstall entries on the Programs menu."
 Delete "$SMPROGRAMS\${PROGRAM_NAME}\Wireshark Web Site.lnk"
-;WriteINIStr "$SMPROGRAMS\${PROGRAM_NAME}\Wireshark Web Site.url" "InternetShortcut" "URL" "https://www.wireshark.org/"
-CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME_GTK}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_GTK}" "" "$INSTDIR\${PROGRAM_NAME_PATH_GTK}" 0 "" "" "${PROGRAM_FULL_NAME_GTK}"
-;CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME}\Wireshark Manual.lnk" "$INSTDIR\wireshark.html"
-;CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME}\Display Filters Manual.lnk" "$INSTDIR\wireshark-filter.html"
-;CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME}\Wireshark Program Directory.lnk" "$INSTDIR"
-SecRequired_skip_StartMenu:
 
-; is command line option "/desktopicon" set?
-${GetParameters} $R0
-${GetOptions} $R0 "/desktopicon=" $R1
-StrCmp $R1 "no" SecRequired_skip_DesktopIcon
-StrCmp $R1 "yes" SecRequired_install_DesktopIcon
-
-; Create desktop icon (depending on additional tasks page and command line option)
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "State"
-StrCmp $0 "0" SecRequired_skip_DesktopIcon
-SecRequired_install_DesktopIcon:
-CreateShortCut "$DESKTOP\${PROGRAM_NAME_GTK}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_GTK}" "" "$INSTDIR\${PROGRAM_NAME_PATH_GTK}" 0 "" "" "${PROGRAM_FULL_NAME_GTK}"
-SecRequired_skip_DesktopIcon:
-
-; is command line option "/quicklaunchicon" set?
-${GetParameters} $R0
-${GetOptions} $R0 "/quicklaunchicon=" $R1
-StrCmp $R1 "no" SecRequired_skip_QuickLaunchIcon
-StrCmp $R1 "yes" SecRequired_install_QuickLaunchIcon
-
-; Create quick launch icon (depending on additional tasks page and command line option)
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "State"
-StrCmp $0 "0" SecRequired_skip_QuickLaunchIcon
-SecRequired_install_QuickLaunchIcon:
-CreateShortCut "$QUICKLAUNCH\${PROGRAM_NAME_GTK}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_GTK}" "" "$INSTDIR\${PROGRAM_NAME_PATH_GTK}" 0 "" "" "${PROGRAM_FULL_NAME_GTK}"
-SecRequired_skip_QuickLaunchIcon:
-
-; Create File Extensions (depending on additional tasks page)
-; None Associate
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 11" "State"
-StrCmp $0 "1" SecRequired_skip_FileExtensions
-; GTK+ Associate
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 10" "State"
-StrCmp $0 "1" SecRequired_GTK_FileExtensions
-; Qt Associate
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 9" "State"
-StrCmp $0 "1" SecRequired_QT_FileExtensions
-
-SecRequired_GTK_FileExtensions:
+; Create file extensions if the Associated Tasks page check box
+; is checked.
+${If} $FILE_ASSOCIATE_STATE == ${BST_CHECKED}
 WriteRegStr HKCR ${WIRESHARK_ASSOC} "" "Wireshark capture file"
-WriteRegStr HKCR "${WIRESHARK_ASSOC}\Shell\open\command" "" '"$INSTDIR\${PROGRAM_NAME_PATH_GTK}" "%1"'
-WriteRegStr HKCR "${WIRESHARK_ASSOC}\DefaultIcon" "" '"$INSTDIR\${PROGRAM_NAME_PATH_GTK}",1'
-Goto SecRequired_Associate_FileExtensions
-
-SecRequired_QT_FileExtensions:
-WriteRegStr HKCR ${WIRESHARK_ASSOC} "" "Wireshark capture file"
-WriteRegStr HKCR "${WIRESHARK_ASSOC}\Shell\open\command" "" '"$INSTDIR\${PROGRAM_NAME_PATH_QT}" "%1"'
-WriteRegStr HKCR "${WIRESHARK_ASSOC}\DefaultIcon" "" '"$INSTDIR\${PROGRAM_NAME_PATH_QT}",1'
-Goto SecRequired_Associate_FileExtensions
-
-
-SecRequired_Associate_FileExtensions:
+WriteRegStr HKCR "${WIRESHARK_ASSOC}\Shell\open\command" "" '"$INSTDIR\${PROGRAM_NAME_PATH}" "%1"'
+WriteRegStr HKCR "${WIRESHARK_ASSOC}\DefaultIcon" "" '"$INSTDIR\${PROGRAM_NAME_PATH}",1'
 ; We refresh the icon cache down in -Finally.
 Call Associate
-; if somethings added here, add it also to the uninstall section and the AdditionalTask page
-
-SecRequired_skip_FileExtensions:
-
-
+; If you add something here be sure to sync it with the uninstall section and the
+; AdditionalTasks page
+${Endif}
 
 ; if running as a silent installer, don't try to install winpcap
 IfSilent SecRequired_skip_Winpcap
@@ -841,8 +896,8 @@ IfSilent SecRequired_skip_USBPcap
 ReadINIStr $0 "$PLUGINSDIR\USBPcapPage.ini" "Field 4" "State"
 StrCmp $0 "0" SecRequired_skip_USBPcap
 SetOutPath $INSTDIR
-File "${WIRESHARK_LIB_DIR}\USBPcapSetup-${USBPCAP_DISPLAY_VERSION}-1.exe"
-ExecWait '"$INSTDIR\USBPcapSetup-${USBPCAP_DISPLAY_VERSION}-1.exe"' $0
+File "${WIRESHARK_LIB_DIR}\USBPcapSetup-${USBPCAP_DISPLAY_VERSION}.exe"
+ExecWait '"$INSTDIR\USBPcapSetup-${USBPCAP_DISPLAY_VERSION}.exe"' $0
 DetailPrint "USBPcap installer returned $0"
 ${If} $0 == "0"
     ${If} ${RunningX64}
@@ -854,7 +909,6 @@ ${If} $0 == "0"
         ${EnableX64FSRedirection}
         SetRegView 32
     ${EndIf}
-    CreateDirectory $INSTDIR\extcap
     ${StrRep} $0 '$USBPCAP_UNINSTALL' 'Uninstall.exe' 'USBPcapCMD.exe'
     ${StrRep} $1 '$0' '"' ''
     CopyFiles  /SILENT $1 $INSTDIR\extcap
@@ -877,9 +931,12 @@ SectionEnd ; "Required"
 !ifdef QT_DIR
 Section "${PROGRAM_NAME}" SecWiresharkQt
 ;-------------------------------------------
-; by default, Wireshark is installed but file is always associate with Wireshark GTK+
+; by default, Wireshark.exe is installed
 SetOutPath $INSTDIR
-File "${QT_DIR}\${PROGRAM_NAME_PATH_QT}"
+File "${QT_DIR}\${PROGRAM_NAME_PATH}"
+; Write an entry for ShellExecute
+WriteRegStr HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME_PATH}" "" '$INSTDIR\${PROGRAM_NAME_PATH}'
+WriteRegStr HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME_PATH}" "Path" '$INSTDIR'
 !include qt-dll-manifest.nsh
 ${!defineifexist} TRANSLATIONS_FOLDER "${QT_DIR}\translations"
 !ifdef TRANSLATIONS_FOLDER
@@ -889,44 +946,19 @@ ${!defineifexist} TRANSLATIONS_FOLDER "${QT_DIR}\translations"
   File "${QT_DIR}\*.qm"
 !endif
 
-Push $0
-;SectionGetFlags ${SecWiresharkQt} $0
-;IntOp  $0 $0 & 1
-;CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME_QT}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" "" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" 0 "" "" "${PROGRAM_FULL_NAME_QT}"
+; Is the Start Menu check box checked?
+${If} $START_MENU_STATE == ${BST_CHECKED}
+  CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH}" "" "$INSTDIR\${PROGRAM_NAME_PATH}" 0 "" "" "${PROGRAM_FULL_NAME}"
+${Endif}
 
-; Create start menu entries (depending on additional tasks page)
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 2" "State"
-StrCmp $0 "0" SecRequired_skip_StartMenuQt
-CreateShortCut "$SMPROGRAMS\${PROGRAM_NAME_QT}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" "" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" 0 "" "" "${PROGRAM_FULL_NAME_QT}"
-SecRequired_skip_StartMenuQt:
+${If} $DESKTOP_ICON_STATE == ${BST_CHECKED}
+  CreateShortCut "$DESKTOP\${PROGRAM_NAME}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH}" "" "$INSTDIR\${PROGRAM_NAME_PATH}" 0 "" "" "${PROGRAM_FULL_NAME}"
+${Endif}
 
-; is command line option "/desktopicon" set?
-${GetParameters} $R0
-${GetOptions} $R0 "/desktopicon=" $R1
-StrCmp $R1 "no" SecRequired_skip_DesktopIconQt
-StrCmp $R1 "yes" SecRequired_install_DesktopIconQt
+${If} $QUICK_LAUNCH_STATE == ${BST_CHECKED}
+  CreateShortCut "$QUICKLAUNCH\${PROGRAM_NAME}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH}" "" "$INSTDIR\${PROGRAM_NAME_PATH}" 0 "" "" "${PROGRAM_FULL_NAME}"
+${Endif}
 
-; Create desktop icon (depending on additional tasks page and command line option)
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "State"
-StrCmp $0 "0" SecRequired_skip_DesktopIconQt
-SecRequired_install_DesktopIconQt:
-CreateShortCut "$DESKTOP\${PROGRAM_NAME_QT}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" "" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" 0 "" "" "${PROGRAM_FULL_NAME_QT}"
-SecRequired_skip_DesktopIconQt:
-
-; is command line option "/quicklaunchicon" set?
-${GetParameters} $R0
-${GetOptions} $R0 "/quicklaunchicon=" $R1
-StrCmp $R1 "no" SecRequired_skip_QuickLaunchIconQt
-StrCmp $R1 "yes" SecRequired_install_QuickLaunchIconQt
-
-; Create quick launch icon (depending on additional tasks page and command line option)
-ReadINIStr $0 "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 4" "State"
-StrCmp $0 "0" SecRequired_skip_QuickLaunchIconQt
-SecRequired_install_QuickLaunchIconQt:
-CreateShortCut "$QUICKLAUNCH\${PROGRAM_NAME_QT}.lnk" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" "" "$INSTDIR\${PROGRAM_NAME_PATH_QT}" 0 "" "" "${PROGRAM_FULL_NAME_QT}"
-SecRequired_skip_QuickLaunchIconQt:
-
-Pop $0
 SectionEnd ; "SecWiresharkQt"
 !endif
 
@@ -938,48 +970,52 @@ File "${STAGING_DIR}\tshark.exe"
 File "${STAGING_DIR}\tshark.html"
 SectionEnd
 
-
-!ifdef GTK_DIR
-Section "${PROGRAM_NAME} 1" SecWiresharkGtk
-;-------------------------------------------
-SetOutPath $INSTDIR
-File "${STAGING_DIR}\${PROGRAM_NAME_PATH_GTK}"
-
-!include gtk-dll-manifest.nsh
-
-SectionEnd ; "SecWiresharkGtk"
-!endif
-
-
 SectionGroup "Plugins & Extensions" SecPluginsGroup
 
 Section "Dissector Plugins" SecPlugins
 ;-------------------------------------------
-SetOutPath '$INSTDIR\plugins\${VERSION}'
-File "${STAGING_DIR}\plugins\docsis.dll"
-File "${STAGING_DIR}\plugins\ethercat.dll"
-File "${STAGING_DIR}\plugins\gryphon.dll"
-File "${STAGING_DIR}\plugins\irda.dll"
-File "${STAGING_DIR}\plugins\m2m.dll"
-File "${STAGING_DIR}\plugins\opcua.dll"
-File "${STAGING_DIR}\plugins\profinet.dll"
-File "${STAGING_DIR}\plugins\unistim.dll"
-File "${STAGING_DIR}\plugins\wimax.dll"
-File "${STAGING_DIR}\plugins\wimaxasncp.dll"
-File "${STAGING_DIR}\plugins\wimaxmacphy.dll"
+SetOutPath '$INSTDIR\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan'
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\ethercat.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\gryphon.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\irda.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\opcua.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\profinet.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\unistim.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\wimax.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\wimaxasncp.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\wimaxmacphy.dll"
 !include "custom_plugins.txt"
 SectionEnd
 
 Section "Tree Statistics Plugin" SecStatsTree
 ;-------------------------------------------
-SetOutPath '$INSTDIR\plugins\${VERSION}'
-File "${STAGING_DIR}\plugins\stats_tree.dll"
+SetOutPath '$INSTDIR\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan'
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\stats_tree.dll"
 SectionEnd
 
 Section "Mate - Meta Analysis and Tracing Engine" SecMate
 ;-------------------------------------------
-SetOutPath '$INSTDIR\plugins\${VERSION}'
-File "${STAGING_DIR}\plugins\mate.dll"
+SetOutPath '$INSTDIR\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan'
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\mate.dll"
+SectionEnd
+
+
+Section "TRANSUM - network and application performance analysis" SecTransum
+;-------------------------------------------
+SetOutPath '$INSTDIR\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan'
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\transum.dll"
+SectionEnd
+
+Section "File type plugins - capture file support" SecWiretap
+;-------------------------------------------
+SetOutPath '$INSTDIR\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\wiretap'
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\wiretap\usbdump.dll"
+SectionEnd
+
+Section "Codec plugins" SecCodec
+;-------------------------------------------
+SetOutPath '$INSTDIR\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\codecs'
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\codecs\l16mono.dll"
 SectionEnd
 
 Section "Configuration Profiles" SecProfiles
@@ -1037,6 +1073,12 @@ SetOutPath $INSTDIR
 File "${STAGING_DIR}\reordercap.exe"
 SectionEnd
 
+Section "DFTest" SecDFTest
+;-------------------------------------------
+SetOutPath $INSTDIR
+File "${STAGING_DIR}\dftest.exe"
+SectionEnd
+
 Section "Capinfos" SecCapinfos
 ;-------------------------------------------
 SetOutPath $INSTDIR
@@ -1051,6 +1093,16 @@ File "${STAGING_DIR}\rawshark.exe"
 File "${STAGING_DIR}\rawshark.html"
 SectionEnd
 
+!ifdef MMDBRESOLVE_EXE
+Section "MMDBResolve" SecMMDBResolve
+;-------------------------------------------
+SetOutPath $INSTDIR
+File "${STAGING_DIR}\mmdbresolve.html"
+SetOutPath $INSTDIR
+File "${STAGING_DIR}\mmdbresolve.exe"
+SectionEnd
+!endif
+
 Section /o "Androiddump" SecAndroiddumpinfos
 ;-------------------------------------------
 SetOutPath $INSTDIR
@@ -1059,14 +1111,23 @@ SetOutPath $INSTDIR\extcap
 File "${STAGING_DIR}\extcap\androiddump.exe"
 SectionEnd
 
-;WIP: uncomment this section when sshdump on windows will be ready to go
-;Section /o "Sshdump" SecSshdumpinfos
+Section /o "SSHdump" SecSSHdumpinfos
 ;-------------------------------------------
-;SetOutPath $INSTDIR
-;File "${STAGING_DIR}\sshdump.html"
-;SetOutPath $INSTDIR\extcap
-;File "${STAGING_DIR}\extcap\sshdump.exe"
-;SectionEnd
+SetOutPath $INSTDIR
+File "${STAGING_DIR}\sshdump.html"
+File "${STAGING_DIR}\ciscodump.html"
+SetOutPath $INSTDIR\extcap
+File "${STAGING_DIR}\extcap\sshdump.exe"
+File "${STAGING_DIR}\extcap\ciscodump.exe"
+SectionEnd
+
+Section /o "UDPdump" SecUDPdumpinfos
+;-------------------------------------------
+SetOutPath $INSTDIR
+File "${STAGING_DIR}\udpdump.html"
+SetOutPath $INSTDIR\extcap
+File "${STAGING_DIR}\extcap\udpdump.exe"
+SectionEnd
 
 Section /o "Randpktdump" SecRandpktdumpinfos
 ;-------------------------------------------
@@ -1105,15 +1166,14 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SecWiresharkQt} "The main network protocol analyzer application."
 !endif
   !insertmacro MUI_DESCRIPTION_TEXT ${SecTShark} "Text based network protocol analyzer."
-!ifdef GTK_DIR
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecWiresharkGtk} "The classic user interface."
-!endif
 
   !insertmacro MUI_DESCRIPTION_TEXT ${SecPluginsGroup} "Plugins and extensions for both ${PROGRAM_NAME} and TShark."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugins} "Additional protocol dissectors."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStatsTree} "Extended statistics."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMate} "Plugin - Meta Analysis and Tracing Engine (Experimental)."
-
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecTransum} "TRANSUM plugin - network and application performance analysis."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecWiretap} "Additional capture file support."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecCodec} "Additional codec support."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecProfiles} "Configuration profiles"
 
 !ifdef SMI_DIR
@@ -1122,15 +1182,17 @@ SectionEnd
 
   !insertmacro MUI_DESCRIPTION_TEXT ${SecToolsGroup} "Additional command line based tools."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAndroiddumpinfos} "Provide capture interfaces from Android devices"
-;WIP: uncomment this section when sshdump on windows will be ready to go
-;!insertmacro MUI_DESCRIPTION_TEXT ${SecSshdumpinfos} "Provide remote capture through SSH"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecSSHdumpinfos} "Provide remote capture through SSH"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecUDPdumpinfos} "Provide capture interface that gets UDP packets from network devices"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecRandpktdumpinfos} "Provide random packet generator"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecEditCap} "Copy packets to a new file, optionally trimmming packets, omitting them, or saving to a different format."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecText2Pcap} "Read an ASCII hex dump and write the data into a libpcap-style capture file."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMergecap} "Combine multiple saved capture files into a single output file"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecReordercap} "Copy packets to a new file, sorted by time."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecCapinfos} "Pring information about capture files."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecDFTest} "Shows display filter byte-code, for debugging dfilter routines"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecCapinfos} "Print information about capture files."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecRawshark} "Raw packet filter."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecMMDBResolve} "MaxMind Database resolution tool"
 
 !ifdef USER_GUIDE_DIR
   !insertmacro MUI_DESCRIPTION_TEXT ${SecUsersGuide} "Install an offline copy of the User's Guide."
@@ -1141,91 +1203,44 @@ SectionEnd
 ; Callback functions
 ; ============================================================================
 !ifdef QT_DIR
-; Disable File extensions and icon if Wireshark (Qt / GTK+) isn't selected
-Function .onSelChange
-    Push $0
-    Goto onSelChange.checkqt
 
-;Check Wireshark Qt and after check GTK+
-onSelChange.checkqt:
-    SectionGetFlags ${SecWiresharkQt} $0
-    IntOp  $0 $0 & ${SF_SELECTED}
-    IntCmp $0 0 onSelChange.unselectqt
-    IntCmp $0 ${SF_SELECTED} onSelChange.selectqt
-    Goto onSelChange.checkqt
+Var QT_SELECTED
 
-onSelChange.unselectqt:
-    ; Qt Icon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 2" "Flags" "DISABLED"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 2" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "Flags" "DISABLED"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 4" "Flags" "DISABLED"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 4" "State" 0
-    ; Qt Association
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 9" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 9" "Flags" "DISABLED"
-    ; Select "None Association"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 11" "State" 1
-    Goto onSelChange.checkgtk
+; Called from fnc_AdditionalTasksPage_Create via DisplayAdditionalTasksPage.
+Function InitAdditionalTasksPage
+  ; We've created the Additional tasks page. Update our control states
+  ; before they are shown.
+  ; We set XXX_STATE -> XxxCheckBox here and go the other direction below.
+  ${NSD_SetState} $hCtl_AdditionalTasksPage_StartMenuCheckBox $START_MENU_STATE
+  ${NSD_SetState} $hCtl_AdditionalTasksPage_DesktopIconCheckBox $DESKTOP_ICON_STATE
+  ${NSD_SetState} $hCtl_AdditionalTasksPage_QuickLaunchCheckBox $QUICK_LAUNCH_STATE
+  ${NSD_SetState} $hCtl_AdditionalTasksPage_AssociateExtensionsCheckBox $FILE_ASSOCIATE_STATE
 
-onSelChange.selectqt:
-    ; Qt Icon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 2" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 2" "State" 1
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 4" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 4" "State" 1
-    ;Qt Association
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 9" "State" 1
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 9" "Flags" ""
-    ; Force None and GTK+ Association to no selected
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 11" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 10" "State" 0
-    Goto onSelChange.checkgtk
+  StrCpy $QT_SELECTED 0
+  ${If} ${SectionIsSelected} ${SecWiresharkQt}
+    StrCpy $QT_SELECTED 1
+  ${Endif}
+  EnableWindow $hCtl_AdditionalTasksPage_CreateShortcutsLabel $QT_SELECTED
+  EnableWindow $hCtl_AdditionalTasksPage_StartMenuCheckBox $QT_SELECTED
+  EnableWindow $hCtl_AdditionalTasksPage_DesktopIconCheckBox $QT_SELECTED
+  EnableWindow $hCtl_AdditionalTasksPage_QuickLaunchCheckBox $QT_SELECTED
 
-;Check Wireshark GTK+
-onSelChange.checkgtk:
-!ifdef GTK_DIR
-    SectionGetFlags ${SecWiresharkGtk} $0
-    IntOp  $0 $0 & ${SF_SELECTED}
-    IntCmp $0 0 onSelChange.unselectgtk
-    IntCmp $0 ${SF_SELECTED} onSelChange.selectgtk
-!endif
-    Goto onSelChange.end
-
-!ifdef GTK_DIR
-onSelChange.unselectgtk:
-    ;GTK+ Icon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "Flags" "DISABLED"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "Flags" "DISABLED"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "Flags" "DISABLED"
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "State" 0
-    ;GTK+ Association
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 10" "Flags" "DISABLED"
-    Goto onSelChange.end
-
-onSelChange.selectgtk:
-    ;GTK+ Icon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "State" 1
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "State" 1
-    ;GTK+ Association
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 10" "Flags" ""
-    Goto onSelChange.end
-!endif
-
-onSelChange.end:
-    Pop $0
+  EnableWindow $hCtl_AdditionalTasksPage_ExtensionsLabel $QT_SELECTED
+  EnableWindow $hCtl_AdditionalTasksPage_AssociateExtensionsCheckBox $QT_SELECTED
+  EnableWindow $hCtl_AdditionalTasksPage_FileExtensionsLabel $QT_SELECTED
 FunctionEnd
-!endif
 
+Function LeaveAdditionalTasksPage
+  ; We're leaving the Additional tasks page. Get our control states
+  ; before they're destroyed.
+  ; We set XxxCheckBox -> XXX_STATE here and go the other direction above.
+  ${NSD_GetState} $hCtl_AdditionalTasksPage_StartMenuCheckBox $START_MENU_STATE
+  ${NSD_GetState} $hCtl_AdditionalTasksPage_DesktopIconCheckBox $DESKTOP_ICON_STATE
+  ${NSD_GetState} $hCtl_AdditionalTasksPage_QuickLaunchCheckBox $QUICK_LAUNCH_STATE
+  ${NSD_GetState} $hCtl_AdditionalTasksPage_AssociateExtensionsCheckBox $FILE_ASSOCIATE_STATE
+FunctionEnd
+
+!endif ; QT_DIR
 
 !include "VersionCompare.nsh"
 
@@ -1236,19 +1251,6 @@ Var USBPCAP_NAME ; DisplayName from USBPcap installation
 
 Function myShowCallback
 
-!ifdef GTK_DIR
-    ; If GTK+ is available enable icon and associate from additional tasks
-    ; GTK+ Icon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "State" 1
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "State" 0
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "Flags" ""
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "State" 1
-    ;Qt Association
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 10" "Flags" ""
-!endif
-
     ClearErrors
     ; detect if WinPcap should be installed
     WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 4" "Text" "Install WinPcap ${PCAP_DISPLAY_VERSION}"
@@ -1257,7 +1259,7 @@ Function myShowCallback
     ; check also if Npcap is installed
     ReadRegStr $NPCAP_NAME HKEY_LOCAL_MACHINE "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\NpcapInst" "DisplayName"
     IfErrors 0 lbl_npcap_installed
-    WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 2" "Text" "WinPcap is currently not installed"
+    WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 2" "Text" "Neither of these are installed"
     WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 2" "Flags" "DISABLED"
     WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 5" "Text" "(Use Add/Remove Programs first to uninstall any undetected old WinPcap versions)"
     Goto lbl_winpcap_done
@@ -1290,8 +1292,8 @@ lbl_npcap_installed:
     ${If} $0 == "0"
         ; Npcap is installed without WinPcap API-compatible mode; WinPcap can be installed
         WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 2" "Text" "$NPCAP_NAME is currently installed without WinPcap API-compatible mode"
-        WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 4" "State" "1"
-        WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 5" "Text" "(Use Add/Remove Programs first to uninstall any undetected old WinPcap versions)"
+        WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 4" "State" "0"
+        WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 5" "Text" "If you still wish to install WinPcap ${PCAP_DISPLAY_VERSION}, please check this option."
     ${Else}
         ; Npcap is installed with WinPcap API-compatible mode; WinPcap must not be installed
         WriteINIStr "$PLUGINSDIR\WinPcapPage.ini" "Field 2" "Text" "$NPCAP_NAME"
@@ -1335,56 +1337,6 @@ lbl_usbpcap_installed:
     Goto lbl_usbpcap_done
 
 lbl_usbpcap_done:
-
-    ; if Wireshark was previously installed, unselect previously not installed icons etc.
-    ; detect if Wireshark is already installed ->
-    ReadRegStr $0 HKEY_LOCAL_MACHINE "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Wireshark" "UninstallString"
-    IfErrors lbl_wireshark_notinstalled ;if RegKey is unavailable, Wireshark is not installed
-
-    ; only select Start Menu Group, if previously installed
-    ; (we use the "all users" start menu, so select it first)
-    SetShellVarContext all
-
-    ;Set State=1 to Desktop icon (no enable by default)
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "State" "1"
-!ifdef QT_DIR
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "State" "1"
-!endif
-    IfFileExists "$SMPROGRAMS\${PROGRAM_NAME}\${PROGRAM_NAME}.lnk" lbl_have_gtk_startmenu
-    IfFileExists "$SMPROGRAMS\${PROGRAM_NAME}.lnk" lbl_have_gtk_startmenu
-    IfFileExists "$SMPROGRAMS\${PROGRAM_NAME_GTK}.lnk" lbl_have_gtk_startmenu
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 5" "State" "0"
-lbl_have_gtk_startmenu:
-
-    ; only select Desktop Icon, if previously installed
-    IfFileExists "$DESKTOP\${PROGRAM_NAME}.lnk" lbl_have_gtk_desktopicon
-    IfFileExists "$DESKTOP\${PROGRAM_NAME_GTK}.lnk" lbl_have_gtk_desktopicon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 6" "State" "0"
-lbl_have_gtk_desktopicon:
-
-    ; only select Quick Launch Icon, if previously installed
-    IfFileExists "$QUICKLAUNCH\${PROGRAM_NAME}.lnk" lbl_have_gtk_quicklaunchicon
-    IfFileExists "$QUICKLAUNCH\${PROGRAM_NAME_GTK}.lnk" lbl_have_gtk_quicklaunchicon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 7" "State" "0"
-lbl_have_gtk_quicklaunchicon:
-
-!ifdef QT_DIR
-    IfFileExists "$SMPROGRAMS\${PROGRAM_NAME_QT}.lnk" lbl_have_qt_startmenu
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 2" "State" "0"
-lbl_have_qt_startmenu:
-
-    ; only select Desktop Icon, if previously installed
-    IfFileExists "$DESKTOP\${PROGRAM_NAME_QT}.lnk" lbl_have_qt_desktopicon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 3" "State" "0"
-lbl_have_qt_desktopicon:
-
-    ; only select Quick Launch Icon, if previously installed
-    IfFileExists "$QUICKLAUNCH\${PROGRAM_NAME_QT}.lnk" lbl_have_qt_quicklaunchicon
-    WriteINIStr "$PLUGINSDIR\AdditionalTasksPage.ini" "Field 4" "State" "0"
-lbl_have_qt_quicklaunchicon:
-!endif
-
-lbl_wireshark_notinstalled:
 
 FunctionEnd
 

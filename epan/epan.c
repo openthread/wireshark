@@ -4,19 +4,7 @@
  *
  * Copyright (c) 2001 by Gerald Combs <gerald@wireshark.org>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -24,6 +12,7 @@
 #include <stdarg.h>
 
 #include <wsutil/wsgcrypt.h>
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 #ifdef HAVE_LIBGNUTLS
 #include <gnutls/gnutls.h>
@@ -31,17 +20,20 @@
 
 #include <glib.h>
 
-#include <wsutil/report_err.h>
+#include <version_info.h>
+#include <wsutil/report_message.h>
 
 #include <epan/exceptions.h>
 
-#include "epan-int.h"
 #include "epan.h"
+#include "epan/frame_data.h"
+
 #include "dfilter/dfilter.h"
 #include "epan_dissect.h"
 
+#include <wsutil/nstime.h>
+
 #include "conversation.h"
-#include "circuit.h"
 #include "except.h"
 #include "packet.h"
 #include "prefs.h"
@@ -53,6 +45,22 @@
 #include "expert.h"
 #include "print.h"
 #include "capture_dissectors.h"
+#include "exported_pdu.h"
+#include "export_object.h"
+#include "stat_tap_ui.h"
+#include "follow.h"
+#include "disabled_protos.h"
+#include "decode_as.h"
+#include "dissector_filters.h"
+#include "conversation_table.h"
+#include "reassemble.h"
+#include "srt_table.h"
+#include "stats_tree.h"
+#include <dtd.h>
+
+#ifdef HAVE_PLUGINS
+#include <wsutil/plugins.h>
+#endif
 
 #ifdef HAVE_LUA
 #include <lua.h>
@@ -67,28 +75,105 @@
 #include <ares_version.h>
 #endif
 
+#ifdef HAVE_NGHTTP2
+#include <nghttp2/nghttp2ver.h>
+#endif
+
+#ifdef HAVE_LIBXML2
+#include <libxml/xmlversion.h>
+#include <libxml/parser.h>
+#endif
+
+#ifndef _WIN32
+#include <signal.h>
+#endif
+
+static GSList *epan_register_all_procotols = NULL;
+static GSList *epan_register_all_handoffs = NULL;
+
 static wmem_allocator_t *pinfo_pool_cache = NULL;
+
+#ifdef HAVE_PLUGINS
+plugins_t *libwireshark_plugins = NULL;
+static GSList *epan_plugins = NULL;
+#endif
 
 const gchar*
 epan_get_version(void) {
 	return VERSION;
 }
 
-/*
- * Register all the plugin types that are part of libwireshark, namely
- * dissector and tap plugins.
- *
- * Must be called before init_plugins(), which must be called before
- * any registration routines are called.
- */
 void
-epan_register_plugin_types(void)
+epan_get_version_number(int *major, int *minor, int *micro)
 {
-#ifdef HAVE_PLUGINS
-	register_dissector_plugin_type();
-	register_tap_plugin_type();
-#endif
+	get_ws_version_number(major, minor, micro);
 }
+
+#if defined(_WIN32)
+// Libgcrypt prints all log messages to stderr by default. This is noisier
+// than we would like on Windows. In particular slow_gatherer tends to print
+//     "NOTE: you should run 'diskperf -y' to enable the disk statistics"
+// which we don't care about.
+static void
+quiet_gcrypt_logger (void *dummy _U_, int level, const char *format, va_list args)
+{
+	GLogLevelFlags log_level = G_LOG_LEVEL_WARNING;
+
+	switch (level) {
+	case GCRY_LOG_CONT: // Continuation. Ignore for now.
+	case GCRY_LOG_DEBUG:
+	case GCRY_LOG_INFO:
+	default:
+		return;
+	case GCRY_LOG_WARN:
+	case GCRY_LOG_BUG:
+		log_level = G_LOG_LEVEL_WARNING;
+		break;
+	case GCRY_LOG_ERROR:
+		log_level = G_LOG_LEVEL_ERROR;
+		break;
+	case GCRY_LOG_FATAL:
+		log_level = G_LOG_LEVEL_CRITICAL;
+		break;
+	}
+	g_logv(NULL, log_level, format, args);
+}
+#endif // _WIN32
+
+#ifdef HAVE_PLUGINS
+static void
+epan_plugin_init(gpointer data, gpointer user_data _U_)
+{
+	((epan_plugin *)data)->init();
+}
+
+static void
+epan_plugin_dissect_init(gpointer data, gpointer user_data)
+{
+	((epan_plugin *)data)->dissect_init((epan_dissect_t *)user_data);
+}
+
+static void
+epan_plugin_dissect_cleanup(gpointer data, gpointer user_data)
+{
+	((epan_plugin *)data)->dissect_cleanup((epan_dissect_t *)user_data);
+}
+
+static void
+epan_plugin_cleanup(gpointer data, gpointer user_data _U_)
+{
+	((epan_plugin *)data)->cleanup();
+}
+
+void epan_register_plugin(const epan_plugin *plug)
+{
+	epan_plugins = g_slist_prepend(epan_plugins, (epan_plugin *)plug);
+	if (plug->register_all_protocols)
+		epan_register_all_procotols = g_slist_prepend(epan_register_all_procotols, plug->register_all_protocols);
+	if (plug->register_all_handoffs)
+		epan_register_all_handoffs = g_slist_prepend(epan_register_all_handoffs, plug->register_all_handoffs);
+}
+#endif
 
 gboolean
 epan_init(void (*register_all_protocols_func)(register_cb cb, gpointer client_data),
@@ -98,6 +183,13 @@ epan_init(void (*register_all_protocols_func)(register_cb cb, gpointer client_da
 {
 	volatile gboolean status = TRUE;
 
+	/*
+	 * proto_init -> register_all_protocols -> g_async_queue_new which
+	 * requires threads to be initialized. This happens automatically with
+	 * GLib 2.32, before that g_thread_init must be called. But only since
+	 * GLib 2.24, multiple invocations are allowed. Check for an earlier
+	 * invocation just in case.
+	 */
 	/* initialize memory allocation subsystem */
 	wmem_init();
 
@@ -108,28 +200,51 @@ epan_init(void (*register_all_protocols_func)(register_cb cb, gpointer client_da
 	addr_resolv_init();
 
 	except_init();
-#ifdef HAVE_LIBGCRYPT
+
+#ifdef HAVE_PLUGINS
+	libwireshark_plugins = plugins_init(WS_PLUGIN_EPAN);
+#endif
+
 	/* initialize libgcrypt (beware, it won't be thread-safe) */
 	gcry_check_version(NULL);
+#if defined(_WIN32)
+	gcry_set_log_handler (quiet_gcrypt_logger, NULL);
+#endif
 	gcry_control (GCRYCTL_DISABLE_SECMEM, 0);
 	gcry_control (GCRYCTL_INITIALIZATION_FINISHED, 0);
-#endif
 #ifdef HAVE_LIBGNUTLS
 	gnutls_global_init();
 #endif
+#ifdef HAVE_LIBXML2
+	xmlInitParser();
+	LIBXML_TEST_VERSION;
+#endif
+
+#ifndef _WIN32
+	// We might receive a SIGPIPE due to maxmind_db.
+	signal(SIGPIPE, SIG_IGN);
+#endif
+
 	TRY {
 		tap_init();
 		prefs_init();
 		expert_init();
 		packet_init();
+		conversation_init();
 		capture_dissector_init();
-		proto_init(register_all_protocols_func, register_all_handoffs_func,
-		    cb, client_data);
+		reassembly_tables_init();
+#ifdef HAVE_PLUGINS
+		g_slist_foreach(epan_plugins, epan_plugin_init, NULL);
+#endif
+		epan_register_all_procotols = g_slist_prepend(epan_register_all_procotols, register_all_protocols_func);
+		epan_register_all_handoffs = g_slist_prepend(epan_register_all_handoffs, register_all_handoffs_func);
+		proto_init(epan_register_all_procotols, epan_register_all_handoffs, cb, client_data);
 		packet_cache_proto_handles();
 		dfilter_init();
 		final_registration_all_protocols();
 		print_cache_field_handles();
 		expert_packet_init();
+		export_pdu_init();
 #ifdef HAVE_LUA
 		wslua_init(cb, client_data);
 #endif
@@ -156,23 +271,80 @@ epan_init(void (*register_all_protocols_func)(register_cb cb, gpointer client_da
 	return status;
 }
 
+/*
+ * Load all settings, from the current profile, that affect libwireshark.
+ */
+e_prefs *
+epan_load_settings(void)
+{
+	e_prefs *prefs_p;
+
+	/* load the decode as entries of the current profile */
+	load_decode_as_entries();
+
+	prefs_p = read_prefs();
+
+	/*
+	 * Read the files that enable and disable protocols and heuristic
+	 * dissectors.
+	 */
+	read_enabled_and_disabled_lists();
+
+	return prefs_p;
+}
+
 void
 epan_cleanup(void)
 {
+#ifdef HAVE_PLUGINS
+	g_slist_foreach(epan_plugins, epan_plugin_cleanup, NULL);
+	g_slist_free(epan_plugins);
+	epan_plugins = NULL;
+#endif
+	g_slist_free(epan_register_all_procotols);
+	epan_register_all_procotols = NULL;
+	g_slist_free(epan_register_all_handoffs);
+	epan_register_all_handoffs = NULL;
+
 	dfilter_cleanup();
-	proto_cleanup();
-	prefs_cleanup();
+	decode_clear_all();
+
+	/*
+	 * Note: packet_cleanup() will call registered shutdown routines which
+	 * may be used to deregister dynamically registered protocol fields,
+	 * and prefs_cleanup() will call uat_clear() which also may be used to
+	 * deregister dynamically registered protocol fields. This must be done
+	 * before proto_cleanup() to avoid inconsistency and memory leaks.
+	 */
 	packet_cleanup();
+	prefs_cleanup();
+	proto_cleanup();
+
+	conversation_filters_cleanup();
+	reassembly_table_cleanup();
+	tap_cleanup();
 	expert_cleanup();
 	capture_dissector_cleanup();
+	export_pdu_cleanup();
+	cleanup_enabled_and_disabled_lists();
+	stats_tree_cleanup();
+	dtd_location(NULL);
 #ifdef HAVE_LUA
 	wslua_cleanup();
 #endif
 #ifdef HAVE_LIBGNUTLS
 	gnutls_global_deinit();
 #endif
+#ifdef HAVE_LIBXML2
+	xmlCleanupParser();
+#endif
 	except_deinit();
 	addr_resolv_cleanup();
+
+#ifdef HAVE_PLUGINS
+	plugins_cleanup(libwireshark_plugins);
+	libwireshark_plugins = NULL;
+#endif
 
 	if (pinfo_pool_cache != NULL) {
 		wmem_destroy_allocator(pinfo_pool_cache);
@@ -182,10 +354,19 @@ epan_cleanup(void)
 	wmem_cleanup();
 }
 
+struct epan_session {
+	struct packet_provider_data *prov;	/* packet provider data for this session */
+	struct packet_provider_funcs funcs;	/* functions using that data */
+};
+
 epan_t *
-epan_new(void)
+epan_new(struct packet_provider_data *prov,
+    const struct packet_provider_funcs *funcs)
 {
-	epan_t *session = g_slice_new(epan_t);
+	epan_t *session = g_slice_new0(epan_t);
+
+	session->prov = prov;
+	session->funcs = *funcs;
 
 	/* XXX, it should take session as param */
 	init_dissection();
@@ -196,8 +377,8 @@ epan_new(void)
 const char *
 epan_get_user_comment(const epan_t *session, const frame_data *fd)
 {
-	if (session->get_user_comment)
-		return session->get_user_comment(session->data, fd);
+	if (session->funcs.get_user_comment)
+		return session->funcs.get_user_comment(session->prov, fd);
 
 	return NULL;
 }
@@ -205,8 +386,17 @@ epan_get_user_comment(const epan_t *session, const frame_data *fd)
 const char *
 epan_get_interface_name(const epan_t *session, guint32 interface_id)
 {
-	if (session->get_interface_name)
-		return session->get_interface_name(session->data, interface_id);
+	if (session->funcs.get_interface_name)
+		return session->funcs.get_interface_name(session->prov, interface_id);
+
+	return NULL;
+}
+
+const char *
+epan_get_interface_description(const epan_t *session, guint32 interface_id)
+{
+	if (session->funcs.get_interface_description)
+		return session->funcs.get_interface_description(session->prov, interface_id);
 
 	return NULL;
 }
@@ -216,11 +406,11 @@ epan_get_frame_ts(const epan_t *session, guint32 frame_num)
 {
 	const nstime_t *abs_ts = NULL;
 
-	if (session->get_frame_ts)
-		abs_ts = session->get_frame_ts(session->data, frame_num);
+	if (session && session->funcs.get_frame_ts)
+		abs_ts = session->funcs.get_frame_ts(session->prov, frame_num);
 
 	if (!abs_ts)
-		g_warning("!!! couldn't get frame ts for %u !!!\n", frame_num);
+		ws_g_warning("!!! couldn't get frame ts for %u !!!\n", frame_num);
 
 	return abs_ts;
 }
@@ -239,25 +429,7 @@ epan_free(epan_t *session)
 void
 epan_conversation_init(void)
 {
-	conversation_init();
-}
-
-void
-epan_conversation_cleanup(void)
-{
-	conversation_cleanup();
-}
-
-void
-epan_circuit_init(void)
-{
-	circuit_init();
-}
-
-void
-epan_circuit_cleanup(void)
-{
-	circuit_cleanup();
+	conversation_epan_reset();
 }
 
 /* Overrides proto_tree_visible i epan_dissect_init to make all fields visible.
@@ -275,7 +447,7 @@ epan_set_always_visible(gboolean force)
 		always_visible_refcount--;
 }
 
-epan_dissect_t*
+void
 epan_dissect_init(epan_dissect_t *edt, epan_t *session, const gboolean create_proto_tree, const gboolean proto_tree_visible)
 {
 	g_assert(edt);
@@ -301,7 +473,9 @@ epan_dissect_init(epan_dissect_t *edt, epan_t *session, const gboolean create_pr
 
 	edt->tvb = NULL;
 
-	return edt;
+#ifdef HAVE_PLUGINS
+	g_slist_foreach(epan_plugins, epan_plugin_dissect_init, edt);
+#endif
 }
 
 void
@@ -341,7 +515,8 @@ epan_dissect_new(epan_t *session, const gboolean create_proto_tree, const gboole
 
 	edt = g_new0(epan_dissect_t, 1);
 
-	return epan_dissect_init(edt, session, create_proto_tree, proto_tree_visible);
+	epan_dissect_init(edt, session, create_proto_tree, proto_tree_visible);
+	return edt;
 }
 
 void
@@ -353,14 +528,14 @@ epan_dissect_fake_protocols(epan_dissect_t *edt, const gboolean fake_protocols)
 
 void
 epan_dissect_run(epan_dissect_t *edt, int file_type_subtype,
-	struct wtap_pkthdr *phdr, tvbuff_t *tvb, frame_data *fd,
+	wtap_rec *rec, tvbuff_t *tvb, frame_data *fd,
 	column_info *cinfo)
 {
 #ifdef HAVE_LUA
 	wslua_prime_dfilter(edt); /* done before entering wmem scope */
 #endif
 	wmem_enter_packet_scope();
-	dissect_record(edt, file_type_subtype, phdr, tvb, fd, cinfo);
+	dissect_record(edt, file_type_subtype, rec, tvb, fd, cinfo);
 
 	/* free all memory allocated */
 	wmem_leave_packet_scope();
@@ -368,12 +543,12 @@ epan_dissect_run(epan_dissect_t *edt, int file_type_subtype,
 
 void
 epan_dissect_run_with_taps(epan_dissect_t *edt, int file_type_subtype,
-	struct wtap_pkthdr *phdr, tvbuff_t *tvb, frame_data *fd,
+	wtap_rec *rec, tvbuff_t *tvb, frame_data *fd,
 	column_info *cinfo)
 {
 	wmem_enter_packet_scope();
 	tap_queue_init(edt);
-	dissect_record(edt, file_type_subtype, phdr, tvb, fd, cinfo);
+	dissect_record(edt, file_type_subtype, rec, tvb, fd, cinfo);
 	tap_push_tapped_queue(edt);
 
 	/* free all memory allocated */
@@ -381,26 +556,26 @@ epan_dissect_run_with_taps(epan_dissect_t *edt, int file_type_subtype,
 }
 
 void
-epan_dissect_file_run(epan_dissect_t *edt, struct wtap_pkthdr *phdr,
+epan_dissect_file_run(epan_dissect_t *edt, wtap_rec *rec,
 	tvbuff_t *tvb, frame_data *fd, column_info *cinfo)
 {
 #ifdef HAVE_LUA
 	wslua_prime_dfilter(edt); /* done before entering wmem scope */
 #endif
 	wmem_enter_packet_scope();
-	dissect_file(edt, phdr, tvb, fd, cinfo);
+	dissect_file(edt, rec, tvb, fd, cinfo);
 
 	/* free all memory allocated */
 	wmem_leave_packet_scope();
 }
 
 void
-epan_dissect_file_run_with_taps(epan_dissect_t *edt, struct wtap_pkthdr *phdr,
+epan_dissect_file_run_with_taps(epan_dissect_t *edt, wtap_rec *rec,
 	tvbuff_t *tvb, frame_data *fd, column_info *cinfo)
 {
 	wmem_enter_packet_scope();
 	tap_queue_init(edt);
-	dissect_file(edt, phdr, tvb, fd, cinfo);
+	dissect_file(edt, rec, tvb, fd, cinfo);
 	tap_push_tapped_queue(edt);
 
 	/* free all memory allocated */
@@ -411,6 +586,10 @@ void
 epan_dissect_cleanup(epan_dissect_t* edt)
 {
 	g_assert(edt);
+
+#ifdef HAVE_PLUGINS
+	g_slist_foreach(epan_plugins, epan_plugin_dissect_cleanup, edt);
+#endif
 
 	g_slist_free(edt->pi.proto_data);
 	g_slist_free(edt->pi.dependent_frames);
@@ -444,15 +623,26 @@ epan_dissect_free(epan_dissect_t* edt)
 }
 
 void
-epan_dissect_prime_dfilter(epan_dissect_t *edt, const dfilter_t* dfcode)
+epan_dissect_prime_with_dfilter(epan_dissect_t *edt, const dfilter_t* dfcode)
 {
 	dfilter_prime_proto_tree(dfcode, edt->tree);
 }
 
 void
-epan_dissect_prime_hfid(epan_dissect_t *edt, int hfid)
+epan_dissect_prime_with_hfid(epan_dissect_t *edt, int hfid)
 {
-	proto_tree_prime_hfid(edt->tree, hfid);
+	proto_tree_prime_with_hfid(edt->tree, hfid);
+}
+
+void
+epan_dissect_prime_with_hfid_array(epan_dissect_t *edt, GArray *hfids)
+{
+	guint i;
+
+	for (i = 0; i < hfids->len; i++) {
+		proto_tree_prime_with_hfid(edt->tree,
+		    g_array_index(hfids, int, i));
+	}
 }
 
 /* ----------------------- */
@@ -517,7 +707,7 @@ epan_get_compiled_version_info(GString *str)
 	g_string_append(str, ", ");
 #ifdef HAVE_LUA
 	g_string_append(str, "with ");
-	g_string_append(str, LUA_VERSION);
+	g_string_append(str, LUA_RELEASE);
 #else
 	g_string_append(str, "without Lua");
 #endif /* HAVE_LUA */
@@ -532,11 +722,7 @@ epan_get_compiled_version_info(GString *str)
 
 	/* Gcrypt */
 	g_string_append(str, ", ");
-#ifdef HAVE_LIBGCRYPT
 	g_string_append(str, "with Gcrypt " GCRYPT_VERSION);
-#else
-	g_string_append(str, "without Gcrypt");
-#endif /* HAVE_LIBGCRYPT */
 
 	/* Kerberos */
 	/* XXX - I don't see how to get the version number, at least for KfW */
@@ -552,13 +738,45 @@ epan_get_compiled_version_info(GString *str)
 	g_string_append(str, "without Kerberos");
 #endif /* HAVE_KERBEROS */
 
-	/* GeoIP */
+	/* MaxMindDB */
 	g_string_append(str, ", ");
-#ifdef HAVE_GEOIP
-	g_string_append(str, "with GeoIP");
+#ifdef HAVE_MAXMINDDB
+	g_string_append(str, "with MaxMind DB resolver");
 #else
-	g_string_append(str, "without GeoIP");
-#endif /* HAVE_GEOIP */
+	g_string_append(str, "without MaxMind DB resolver");
+#endif /* HAVE_MAXMINDDB */
+
+	/* nghttp2 */
+	g_string_append(str, ", ");
+#ifdef HAVE_NGHTTP2
+	g_string_append(str, "with nghttp2 " NGHTTP2_VERSION);
+#else
+	g_string_append(str, "without nghttp2");
+#endif /* HAVE_NGHTTP2 */
+
+	/* LZ4 */
+	g_string_append(str, ", ");
+#ifdef HAVE_LZ4
+	g_string_append(str, "with LZ4");
+#else
+	g_string_append(str, "without LZ4");
+#endif /* HAVE_LZ4 */
+
+	/* Snappy */
+	g_string_append(str, ", ");
+#ifdef HAVE_SNAPPY
+	g_string_append(str, "with Snappy");
+#else
+	g_string_append(str, "without Snappy");
+#endif /* HAVE_SNAPPY */
+
+	/* libxml2 */
+	g_string_append(str, ", ");
+#ifdef HAVE_LIBXML2
+	g_string_append(str, "with libxml2 " LIBXML_DOTTED_VERSION);
+#else
+	g_string_append(str, "without libxml2");
+#endif /* HAVE_LIBXML2 */
 
 }
 
@@ -566,11 +784,7 @@ epan_get_compiled_version_info(GString *str)
  * Get runtime information for libraries used by libwireshark.
  */
 void
-epan_get_runtime_version_info(GString *str
-#if !defined(HAVE_LIBGNUTLS) && !defined(HAVE_LIBGCRYPT)
-_U_
-#endif
-)
+epan_get_runtime_version_info(GString *str)
 {
 	/* GnuTLS */
 #ifdef HAVE_LIBGNUTLS
@@ -578,9 +792,7 @@ _U_
 #endif /* HAVE_LIBGNUTLS */
 
 	/* Gcrypt */
-#ifdef HAVE_LIBGCRYPT
 	g_string_append_printf(str, ", with Gcrypt %s", gcry_check_version(NULL));
-#endif /* HAVE_LIBGCRYPT */
 }
 
 /*

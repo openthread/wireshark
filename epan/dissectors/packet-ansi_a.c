@@ -22,19 +22,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1405,7 +1393,7 @@ typedef struct ansi_a_shared_data_t
 
     address             rtp_src_addr;
     guint32             rtp_ipv4_addr;
-    struct e_in6_addr   rtp_ipv6_addr;
+    ws_in6_addr   rtp_ipv6_addr;
     guint16             rtp_port;
 
     gboolean            meid_configured;
@@ -3583,7 +3571,7 @@ elem_clg_party_ascii_num(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gu
     proto_tree_add_string_format(tree, hf_ansi_a_clg_party_ascii_num, tvb, curr_offset, len - (curr_offset - offset),
         (gchar *) poctets,
         "Digits: %s",
-        (gchar *) format_text(poctets, len - (curr_offset - offset)));
+        (gchar *) format_text(wmem_packet_scope(), poctets, len - (curr_offset - offset)));
 
     proto_item_append_text(data_p->elem_item, " - (%s)", poctets);
 
@@ -5629,7 +5617,7 @@ elem_rev_ms_info_recs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint
                 proto_tree_add_string_format(subtree, hf_ansi_a_cld_party_ascii_num, tvb, curr_offset, oct_len,
                     (gchar *) poctets,
                     "Digits: %s",
-                    (gchar *) format_text(poctets, oct_len));
+                    (gchar *) format_text(wmem_packet_scope(), poctets, oct_len));
 
                 curr_offset += oct_len;
                 break;
@@ -6096,7 +6084,7 @@ elem_cld_party_ascii_num(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gu
     proto_tree_add_string_format(tree, hf_ansi_a_cld_party_ascii_num, tvb, curr_offset, len - (curr_offset - offset),
         (gchar *) poctets,
         "Digits: %s",
-        (gchar *) format_text(poctets, len - (curr_offset - offset)));
+        (gchar *) format_text(wmem_packet_scope(), poctets, len - (curr_offset - offset)));
 
     proto_item_append_text(data_p->elem_item, " - (%s)", poctets);
 
@@ -6739,8 +6727,7 @@ elem_a2p_bearer_format(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guin
          * sampling rates are based on the specific vocoder RFCs
          * (example subset RFC4788, RFC5188, RFC6884)
          */
-        if (((oct & 0x0f) >= 10) &&
-            ((oct & 0x0f) <= 15))
+        if (((oct & 0x0f) >= 10))
         {
             sample_rate = 16000;
         }
@@ -6845,7 +6832,7 @@ elem_a2p_bearer_format(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guin
             rtp_dyn_payload_used = TRUE;
 
             first_assigned_found = TRUE;
-            rtp_add_address(pinfo, &data_p->rtp_src_addr, data_p->rtp_port, 0, "IOS5",
+            rtp_add_address(pinfo, PT_UDP, &data_p->rtp_src_addr, data_p->rtp_port, 0, "IOS5",
                 pinfo->num, FALSE, rtp_dyn_payload);
         }
 
@@ -7511,7 +7498,7 @@ elem_v(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, elem_idx_t idx, guin
             "Missing Mandatory element (0x%02x) %s%s, rest of dissection is suspect", \
                 ansi_a_elem_1_strings[elem_idx].value, \
                 ansi_a_elem_1_strings[elem_idx].strptr, \
-                (elem_name_addition == NULL) || (elem_name_addition[0] == '\0') ? "" : elem_name_addition \
+                elem_name_addition \
             ); \
     } \
     if (curr_len <= 0) return; \
@@ -7541,7 +7528,7 @@ elem_v(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, elem_idx_t idx, guin
             "Missing Mandatory element (0x%02x) %s%s, rest of dissection is suspect", \
                 ansi_a_elem_1_strings[elem_idx].value, \
                 ansi_a_elem_1_strings[elem_idx].strptr, \
-                (elem_name_addition == NULL) || (elem_name_addition[0] == '\0') ? "" : elem_name_addition \
+                elem_name_addition \
             ); \
     } \
     if (curr_len <= 0) return; \
@@ -10586,14 +10573,14 @@ typedef enum
 static stat_tap_table_item dtap_stat_fields[] = {{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "IEI", "0x%02x  "}, {TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Message Name", "%-50s"},
     {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}};
 
-static void ansi_a_dtap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void ansi_a_dtap_stat_init(stat_tap_table_ui* new_stat)
 {
     int num_fields = sizeof(dtap_stat_fields)/sizeof(stat_tap_table_item);
-    stat_tap_table* table = new_stat_tap_init_table("ANSI A-I/F DTAP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+    stat_tap_table* table = stat_tap_init_table("ANSI A-I/F DTAP Statistics", num_fields, 0, NULL);
     int i = 0;
     stat_tap_table_item_type items[sizeof(dtap_stat_fields)/sizeof(stat_tap_table_item)];
 
-    new_stat_tap_add_table(new_stat, table);
+    stat_tap_add_table(new_stat, table);
 
     /* Add a fow for each value type */
     while (ansi_a_dtap_strings[i].strptr)
@@ -10605,7 +10592,7 @@ static void ansi_a_dtap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_
         items[COUNT_COLUMN].type = TABLE_ITEM_UINT;
         items[COUNT_COLUMN].value.uint_value = 0;
 
-        new_stat_tap_init_table_row(table, i, num_fields, items);
+        stat_tap_init_table_row(table, i, num_fields, items);
         i++;
     }
 }
@@ -10613,7 +10600,7 @@ static void ansi_a_dtap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_
 static gboolean
 ansi_a_dtap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const void *data)
 {
-    new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+    stat_data_t* stat_data = (stat_data_t*)tapdata;
     const ansi_a_tap_rec_t      *data_p = (const ansi_a_tap_rec_t *)data;
     stat_tap_table_item_type* dtap_data;
     stat_tap_table* table;
@@ -10626,9 +10613,9 @@ ansi_a_dtap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *e
 
         table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
 
-        dtap_data = new_stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
+        dtap_data = stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
         dtap_data->value.uint_value++;
-        new_stat_tap_set_field_data(table, data_p->message_type, COUNT_COLUMN, dtap_data);
+        stat_tap_set_field_data(table, data_p->message_type, COUNT_COLUMN, dtap_data);
 
         return TRUE;
     }
@@ -10644,9 +10631,9 @@ ansi_a_stat_reset(stat_tap_table* table)
 
     for (element = 0; element < table->num_elements; element++)
     {
-        item_data = new_stat_tap_get_field_data(table, element, COUNT_COLUMN);
+        item_data = stat_tap_get_field_data(table, element, COUNT_COLUMN);
         item_data->value.uint_value = 0;
-        new_stat_tap_set_field_data(table, element, COUNT_COLUMN, item_data);
+        stat_tap_set_field_data(table, element, COUNT_COLUMN, item_data);
     }
 
 }
@@ -10654,14 +10641,14 @@ ansi_a_stat_reset(stat_tap_table* table)
 static stat_tap_table_item bsmap_stat_fields[] = {{TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "IEI", "0x%02x  "}, {TABLE_ITEM_STRING, TAP_ALIGN_LEFT, "Message Name", "%-50s"},
     {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}};
 
-static void ansi_a_bsmap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void ansi_a_bsmap_stat_init(stat_tap_table_ui* new_stat)
 {
     int num_fields = sizeof(bsmap_stat_fields)/sizeof(stat_tap_table_item);
-    stat_tap_table* table = new_stat_tap_init_table("ANSI A-I/F BSMAP Statistics", num_fields, 0, NULL, gui_callback, gui_data);
+    stat_tap_table* table = stat_tap_init_table("ANSI A-I/F BSMAP Statistics", num_fields, 0, NULL);
     int i = 0;
     stat_tap_table_item_type items[sizeof(bsmap_stat_fields)/sizeof(stat_tap_table_item)];
 
-    new_stat_tap_add_table(new_stat, table);
+    stat_tap_add_table(new_stat, table);
 
     /* Add a fow for each value type */
     while (ansi_a_bsmap_strings[i].strptr)
@@ -10673,7 +10660,7 @@ static void ansi_a_bsmap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui
         items[COUNT_COLUMN].type = TABLE_ITEM_UINT;
         items[COUNT_COLUMN].value.uint_value = 0;
 
-        new_stat_tap_init_table_row(table, i, num_fields, items);
+        stat_tap_init_table_row(table, i, num_fields, items);
         i++;
     }
 }
@@ -10681,7 +10668,7 @@ static void ansi_a_bsmap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui
 static gboolean
 ansi_a_bsmap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const void *data)
 {
-    new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+    stat_data_t* stat_data = (stat_data_t*)tapdata;
     const ansi_a_tap_rec_t      *data_p = (const ansi_a_tap_rec_t *)data;
     stat_tap_table_item_type* dtap_data;
     stat_tap_table* table;
@@ -10694,9 +10681,9 @@ ansi_a_bsmap_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *
 
         table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
 
-        dtap_data = new_stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
+        dtap_data = stat_tap_get_field_data(table, data_p->message_type, COUNT_COLUMN);
         dtap_data->value.uint_value++;
-        new_stat_tap_set_field_data(table, data_p->message_type, COUNT_COLUMN, dtap_data);
+        stat_tap_set_field_data(table, data_p->message_type, COUNT_COLUMN, dtap_data);
 
         return TRUE;
     }
@@ -12749,8 +12736,7 @@ proto_register_ansi_a(void)
 #define MAX_NUM_BSMAP_MSG       MAX(ANSI_A_IOS401_BSMAP_NUM_MSG, ANSI_A_IOS501_BSMAP_NUM_MSG)
 #define MAX_NUM_ELEM_1          MAX(MAX_IOS401_NUM_ELEM_1, MAX_IOS501_NUM_ELEM_1)
 #define NUM_INDIVIDUAL_ELEMS    24
-    gint **ett;
-    gint ett_len = (NUM_INDIVIDUAL_ELEMS+MAX_NUM_DTAP_MSG+MAX_NUM_BSMAP_MSG+MAX_NUM_ELEM_1+NUM_FWD_MS_INFO_REC+NUM_REV_MS_INFO_REC) * sizeof(gint *);
+    gint *ett[NUM_INDIVIDUAL_ELEMS+MAX_NUM_DTAP_MSG+MAX_NUM_BSMAP_MSG+MAX_NUM_ELEM_1+NUM_FWD_MS_INFO_REC+NUM_REV_MS_INFO_REC];
 
     static stat_tap_table_ui dtap_stat_table = {
         REGISTER_STAT_GROUP_TELEPHONY_ANSI,
@@ -12764,7 +12750,8 @@ proto_register_ansi_a(void)
         NULL,
         sizeof(dtap_stat_fields)/sizeof(stat_tap_table_item), dtap_stat_fields,
         0, NULL,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui bsmap_stat_table = {
@@ -12779,17 +12766,9 @@ proto_register_ansi_a(void)
         NULL,
         sizeof(bsmap_stat_fields)/sizeof(stat_tap_table_item), bsmap_stat_fields,
         0, NULL,
-        NULL
+        NULL,
+        0
     };
-
-    /*
-     * XXX - at least one version of the HP C compiler apparently doesn't
-     * recognize constant expressions using the "?" operator as being
-     * constant expressions, so you can't use the expression that
-     * initializes "ett_let" as an array size.  Therefore, we dynamically
-     * allocate the array instead.
-     */
-    ett = (gint **) g_malloc(ett_len);
 
     memset((void *) ett_dtap_msg, -1, sizeof(ett_dtap_msg));
     memset((void *) ett_bsmap_msg, -1, sizeof(ett_bsmap_msg));
@@ -12864,17 +12843,17 @@ proto_register_ansi_a(void)
 
     is637_dissector_table =
         register_dissector_table("ansi_a.sms", "IS-637-A (SMS)",
-        proto_a_bsmap, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+        proto_a_bsmap, FT_UINT8, BASE_DEC);
 
     is683_dissector_table =
         register_dissector_table("ansi_a.ota", "IS-683-A (OTA)",
-        proto_a_bsmap, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+        proto_a_bsmap, FT_UINT8, BASE_DEC);
 
     is801_dissector_table =
         register_dissector_table("ansi_a.pld", "IS-801 (PLD)",
-        proto_a_bsmap, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+        proto_a_bsmap, FT_UINT8, BASE_DEC);
 
-    proto_register_subtree_array(ett, ett_len / (int) sizeof(gint *));
+    proto_register_subtree_array(ett, array_length(ett));
 
     ansi_a_tap = register_tap("ansi_a");
 
@@ -12896,8 +12875,6 @@ proto_register_ansi_a(void)
         "Show mobile ID and service option in the INFO column",
         "Whether the mobile ID and service options are displayed in the INFO column",
         &global_a_info_display);
-
-    g_free(ett);
 
     register_stat_tap_table_ui(&dtap_stat_table);
     register_stat_tap_table_ui(&bsmap_stat_table);

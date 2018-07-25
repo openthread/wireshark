@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -51,6 +39,8 @@ static int hf_mpeg_pmt_stream_es_info_length = -1;
 
 static gint ett_mpeg_pmt = -1;
 static gint ett_mpeg_pmt_stream = -1;
+
+static dissector_handle_t mpeg_pmt_handle;
 
 #define MPEG_PMT_RESERVED1_MASK                   0xC0
 #define MPEG_PMT_VERSION_NUMBER_MASK              0x3E
@@ -108,6 +98,8 @@ static const value_string mpeg_pmt_stream_type_vals[] = {
     { 0x1B, "AVC video stream as defined in ITU-T Rec. H.264 | ISO/IEC 14496-10 Video" },
     { 0x24, "ITU-T Rec. H.265 and ISO/IEC 23008-2 (Ultra HD video) in a packetized stream" },
     { 0x7F, "IPMP stream" },
+    { 0x81, "ATSC A/52 Audio" },
+    { 0x86, "SCTE-35 Splice Information" },
     { 0xA1, "ETV-AM BIF Data Stream" },
     { 0xC0, "ETV-AM EISS Signaling" },
     { 0x00, NULL }
@@ -284,17 +276,13 @@ proto_register_mpeg_pmt(void)
     proto_register_field_array(proto_mpeg_pmt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    register_dissector("mpeg_pmt", dissect_mpeg_pmt, proto_mpeg_pmt);
+    mpeg_pmt_handle = register_dissector("mpeg_pmt", dissect_mpeg_pmt, proto_mpeg_pmt);
 }
 
 
 void
 proto_reg_handoff_mpeg_pmt(void)
 {
-    dissector_handle_t mpeg_pmt_handle;
-
-    mpeg_pmt_handle = find_dissector("mpeg_pmt");
-
     dissector_add_uint("mpeg_sect.tid", MPEG_PMT_TID, mpeg_pmt_handle);
 }
 

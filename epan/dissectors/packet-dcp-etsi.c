@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Protocol info
  * Ref: ETSI DCP (ETSI TS 102 821)
@@ -125,22 +113,6 @@ static const fragment_items dcp_frag_items = {
   "Message fragments"
 };
 
-/** initialise the DCP protocol. Details follow
- *  here.
- */
-static void
-dcp_init_protocol(void)
-{
-  reassembly_table_init (&dcp_reassembly_table,
-                         &addresses_reassembly_table_functions);
-}
-
-static void
-dcp_cleanup_protocol(void)
-{
-  reassembly_table_destroy(&dcp_reassembly_table);
-}
-
 
 /** Dissect a DCP packet. Details follow
  *  here.
@@ -153,7 +125,8 @@ static gboolean
 dissect_dcp_etsi (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * data _U_)
 {
   guint8 *sync;
-  proto_tree *dcp_tree = NULL;
+  proto_tree *dcp_tree;
+  proto_item *ti;
   guint16 word;
 
   /* 6.1 AF packet structure
@@ -196,11 +169,8 @@ dissect_dcp_etsi (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void *
   col_set_str (pinfo->cinfo, COL_PROTOCOL, "DCP (ETSI)");
     /*col_append_fstr (pinfo->cinfo, COL_INFO, " tvb %d", tvb_length(tvb));*/
 
-  if(tree) {
-    proto_item *ti = NULL;
-    ti = proto_tree_add_item (tree, proto_dcp_etsi, tvb, 0, -1, ENC_NA);
-    dcp_tree = proto_item_add_subtree (ti, ett_edcp);
-  }
+  ti = proto_tree_add_item (tree, proto_dcp_etsi, tvb, 0, -1, ENC_NA);
+  dcp_tree = proto_item_add_subtree (ti, ett_edcp);
 
   sync = tvb_get_string_enc(wmem_packet_scope(), tvb, 0, 2, ENC_ASCII);
   dissector_try_string(dcp_dissector_table, (char*)sync, tvb, pinfo, dcp_tree, NULL);
@@ -345,21 +315,18 @@ dissect_pft_fec_detailed(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
     tvbuff_t *dtvb = NULL;
     const guint8 *input = tvb_get_ptr(new_tvb, 0, -1);
     guint32 reassembled_size = tvb_captured_length(new_tvb);
-    guint8 *deinterleaved = (guint8*) g_malloc (reassembled_size);
-    guint8 *output = (guint8*) g_malloc (decoded_size);
+    guint8 *deinterleaved = (guint8*) wmem_alloc(pinfo->pool, reassembled_size);
+    guint8 *output = (guint8*) wmem_alloc(pinfo->pool, decoded_size);
     rs_deinterleave(input, deinterleaved, plen, fcount);
 
     dtvb = tvb_new_child_real_data(tvb, deinterleaved, reassembled_size, reassembled_size);
     add_new_data_source(pinfo, dtvb, "Deinterleaved");
-    tvb_set_free_cb(dtvb, g_free);
 
     decoded = rs_correct_data(deinterleaved, output, c_max, rsk, rsz);
-    if(tree)
-      proto_tree_add_boolean (tree, hf_edcp_rs_ok, tvb, offset, 2, decoded);
+    proto_tree_add_boolean (tree, hf_edcp_rs_ok, tvb, offset, 2, decoded);
 
     new_tvb = tvb_new_child_real_data(dtvb, output, decoded_size, decoded_size);
     add_new_data_source(pinfo, new_tvb, "RS Error Corrected Data");
-    tvb_set_free_cb(new_tvb, g_free);
   }
   return new_tvb;
 }
@@ -439,7 +406,7 @@ dissect_pft_fragmented(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree,
  *  \param[in,out] tree The structure containing the details which will be displayed, filtered, etc.
  */
 static int
-dissect_pft(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_)
+dissect_pft(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data)
 {
   guint16 plen;
   gint offset = 0;
@@ -575,7 +542,7 @@ dissect_af (tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _
   pt = tvb_get_guint8 (tvb, offset);
   proto_tree_add_item (af_tree, hf_edcp_pt, tvb, offset, 1, ENC_ASCII|ENC_NA);
   offset += 1;
-  next_tvb = tvb_new_subset (tvb, offset, payload_len, -1);
+  next_tvb = tvb_new_subset_length_caplen (tvb, offset, payload_len, payload_len);
   offset += payload_len;
   ci = proto_tree_add_item (af_tree, hf_edcp_crc, tvb, offset, 2, ENC_BIG_ENDIAN);
   if (ver & 0x80) { /* crc valid */
@@ -605,9 +572,7 @@ dissect_tpl(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _
 {
   proto_tree *tpl_tree;
   guint offset=0;
-  char *prot=NULL;
   proto_item *ti;
-  guint16 maj, min;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "DCP-TPL");
 
@@ -615,31 +580,25 @@ dissect_tpl(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _
   tpl_tree = proto_item_add_subtree (ti, ett_tpl);
 
   while(offset<tvb_reported_length(tvb)) {
+    tvbuff_t *next_tvb;
     guint32 bits;
     guint32 bytes;
-    char *tag = (char*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 4, ENC_ASCII); offset += 4;
-    bits = tvb_get_ntohl(tvb, offset); offset += 4;
+    char *tag = (char*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 4, ENC_ASCII);
+    bits = tvb_get_ntohl(tvb, offset+4);
     bytes = bits / 8;
     if(bits % 8)
       bytes++;
 
-    if(strcmp(tag, "*ptr")==0) {
-        prot = (char*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 4, ENC_ASCII);
-        maj = tvb_get_ntohs(tvb, offset+4);
-        min = tvb_get_ntohs(tvb, offset+6);
-        proto_tree_add_bytes_format(tpl_tree, hf_tpl_tlv, tvb,
-              offset-8, bytes+8, tvb_get_ptr(tvb, offset, bytes),
-              "%s %s rev %d.%d", tag, prot, maj, min);
-    } else {
-        proto_tree_add_bytes_format(tpl_tree, hf_tpl_tlv, tvb,
-              offset-8, bytes+8, tvb_get_ptr(tvb, offset, bytes),
-              "%s (%u bits)", tag, bits);
-    }
+    proto_tree_add_bytes_format(tpl_tree, hf_tpl_tlv, tvb,
+            offset, 8+bytes, NULL,
+            "%s (%u bits)", tag, bits);
 
-    offset += bytes;
+    next_tvb = tvb_new_subset_length_caplen (tvb, offset+8, bytes, bytes);
+    dissector_try_string(tpl_dissector_table, tag, next_tvb, pinfo, tree, NULL);
+
+    offset += (8+bytes);
   }
 
-  dissector_try_string(tpl_dissector_table, prot, tvb, pinfo, tree->parent, NULL);
   return tvb_captured_length(tvb);
 }
 
@@ -892,16 +851,15 @@ proto_register_dcp_etsi (void)
 
   /* subdissector code */
   dcp_dissector_table = register_dissector_table("dcp-etsi.sync",
-            "DCP Sync", proto_dcp_etsi, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "DCP Sync", proto_dcp_etsi, FT_STRING, BASE_NONE);
   af_dissector_table = register_dissector_table("dcp-af.pt",
-            "DCP-AF Payload Type", proto_dcp_etsi, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "DCP-AF Payload Type", proto_dcp_etsi, FT_UINT8, BASE_DEC);
 
   tpl_dissector_table = register_dissector_table("dcp-tpl.ptr",
-            "DCP-TPL Protocol Type & Revision", proto_dcp_etsi, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "DCP-TPL Protocol Type & Revision", proto_dcp_etsi, FT_STRING, BASE_NONE);
 
-  register_init_routine(dcp_init_protocol);
-  register_cleanup_routine(dcp_cleanup_protocol);
-
+  reassembly_table_register (&dcp_reassembly_table,
+                         &addresses_reassembly_table_functions);
 }
 
 /*

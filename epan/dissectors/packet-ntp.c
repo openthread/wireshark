@@ -8,19 +8,7 @@
  *
  * Copied from packet-tftp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -260,26 +248,36 @@ static const value_string ext_op_types[] = {
 #define NTPCTRL_MORE_MASK 0x20
 #define NTPCTRL_OP_MASK 0x1f
 
-#define NTPCTRL_OP_UNSPEC 0
-#define NTPCTRL_OP_READSTAT 1
-#define NTPCTRL_OP_READVAR 2
-#define NTPCTRL_OP_WRITEVAR 3
-#define NTPCTRL_OP_READCLOCK 4
-#define NTPCTRL_OP_WRITECLOCK 5
-#define NTPCTRL_OP_SETTRAP 6
-#define NTPCTRL_OP_ASYNCMSG 7
-#define NTPCTRL_OP_UNSETTRAP 31
+#define NTPCTRL_OP_UNSPEC 0		/* unspeciffied */
+#define NTPCTRL_OP_READSTAT 1		/* read status */
+#define NTPCTRL_OP_READVAR 2		/* read variables */
+#define NTPCTRL_OP_WRITEVAR 3		/* write variables */
+#define NTPCTRL_OP_READCLOCK 4		/* read clock variables */
+#define NTPCTRL_OP_WRITECLOCK 5		/* write clock variables */
+#define NTPCTRL_OP_SETTRAP 6		/* set trap address */
+#define NTPCTRL_OP_ASYNCMSG 7		/* asynchronous message */
+#define NTPCTRL_OP_CONFIGURE 8		/* runtime configuration */
+#define NTPCTRL_OP_SAVECONFIG 9		/* save config to file */
+#define NTPCTRL_OP_READ_MRU 10		/* retrieve MRU (mrulist) */
+#define NTPCTRL_OP_READ_ORDLIST_A 11	/* ordered list req. auth. */
+#define NTPCTRL_OP_REQ_NONCE 12		/* request a client nonce */
+#define NTPCTRL_OP_UNSETTRAP 31		/* unset trap */
 
 static const value_string ctrl_op_types[] = {
-	{ NTPCTRL_OP_UNSPEC,		"UNSPEC" },
-	{ NTPCTRL_OP_READSTAT,		"READSTAT" },
-	{ NTPCTRL_OP_READVAR,		"READVAR" },
-	{ NTPCTRL_OP_WRITEVAR,		"WRITEVAR" },
-	{ NTPCTRL_OP_READCLOCK,		"READCLOCK" },
-	{ NTPCTRL_OP_WRITECLOCK,	"WRITECLOCK" },
-	{ NTPCTRL_OP_SETTRAP,		"SETTRAP" },
-	{ NTPCTRL_OP_ASYNCMSG,		"ASYNCMSG" },
-	{ NTPCTRL_OP_UNSETTRAP,		"UNSETTRAP" },
+	{ NTPCTRL_OP_UNSPEC,		"reserved" },
+	{ NTPCTRL_OP_READSTAT,		"read status" },
+	{ NTPCTRL_OP_READVAR,		"read variables" },
+	{ NTPCTRL_OP_WRITEVAR,		"write variables" },
+	{ NTPCTRL_OP_READCLOCK,		"read clock variables" },
+	{ NTPCTRL_OP_WRITECLOCK,	"write clock variables" },
+	{ NTPCTRL_OP_SETTRAP,		"set trap address/port" },
+	{ NTPCTRL_OP_ASYNCMSG,		"asynchronous message" },
+	{ NTPCTRL_OP_CONFIGURE,		"runtime configuration" },
+	{ NTPCTRL_OP_SAVECONFIG,	"save config to file" },
+	{ NTPCTRL_OP_READ_MRU,		"retrieve MRU (mrulist)" },
+	{ NTPCTRL_OP_READ_ORDLIST_A,	"retrieve ordered list" },
+	{ NTPCTRL_OP_REQ_NONCE,		"request a client nonce" },
+	{ NTPCTRL_OP_UNSETTRAP,		"unset trap address/port" },
 	{ 0,		NULL}
 };
 
@@ -304,13 +302,21 @@ static const value_string ctrl_sys_status_clksource_types[] = {
 
 static const value_string ctrl_sys_status_event_types[] = {
 	{ 0,		"unspecified" },
-	{ 1,		"system restart" },
-	{ 2,		"system or hardware fault" },
-	{ 3,		"system new status word (leap bits or synchronization change)" },
-	{ 4,		"system new synchronization source or stratum (sys.peer or sys.stratum change)" },
-	{ 5,		"system clock reset (offset correction exceeds CLOCK.MAX)" },
-	{ 6,		"system invalid time or date (see NTP spec.)" },
-	{ 7,		"system clock exception (see system clock status word)" },
+	{ 1,		"frequency correction (drift) file not available" },
+	{ 2,		"frequency correction started (frequency stepped)" },
+	{ 3,		"spike detected and ignored, starting stepout timer" },
+	{ 4,		"frequency training started" },
+	{ 5,		"clock synchronized" },
+	{ 6,		"system restart" },
+	{ 7,		"panic stop (required step greater than panic threshold)" },
+	{ 8,		"no system peer" },
+	{ 9,		"leap second insertion/deletion armed" },
+	{ 10,		"leap second disarmed" },
+	{ 11,		"leap second inserted or deleted" },
+	{ 12,		"clock stepped (stepout timer expired)" },
+	{ 13,		"kernel loop discipline status changed" },
+	{ 14,		"leapseconds table loaded from file" },
+	{ 15,		"leapseconds table outdated, updated file needed" },
 	{ 0,		NULL}
 };
 
@@ -319,13 +325,13 @@ static const value_string ctrl_sys_status_event_types[] = {
 #define NTPCTRL_PEERSTATUS_AUTHENABLE_MASK	0x4000
 #define NTPCTRL_PEERSTATUS_AUTHENTIC_MASK	0x2000
 #define NTPCTRL_PEERSTATUS_REACH_MASK		0x1000
-#define NTPCTRL_PEERSTATUS_RESERVED_MASK	0x0800
-#define NTPCTRL_PEERSTATUS_SEL_MASK			0x0700
+#define NTPCTRL_PEERSTATUS_BCAST_MASK		0x0800
+#define NTPCTRL_PEERSTATUS_SEL_MASK		0x0700
 #define NTPCTRL_PEERSTATUS_COUNT_MASK		0x00F0
 #define NTPCTRL_PEERSTATUS_CODE_MASK		0x000F
 
 static const true_false_string tfs_ctrl_peer_status_config = {"configured (peer.config)", "not configured (peer.config)" };
-static const true_false_string tfs_ctrl_peer_status_authenable = { "authentication enabled (peer.authenable", "authentication disabled (peer.authenable" };
+static const true_false_string tfs_ctrl_peer_status_authenable = { "authentication enabled (peer.authenable)", "authentication disabled (peer.authenable)" };
 static const true_false_string tfs_ctrl_peer_status_authentic = { "authentication okay (peer.authentic)", "authentication not okay (peer.authentic)" };
 static const true_false_string tfs_ctrl_peer_status_reach = {"reachability okay (peer.reach != 0)", "reachability not okay (peer.reach != 0)" };
 
@@ -343,11 +349,22 @@ static const value_string ctrl_peer_status_selection_types[] = {
 
 static const value_string ctrl_peer_status_event_types[] = {
 	{ 0,		"unspecified" },
-	{ 1,		"peer IP error" },
-	{ 2,		"peer authentication failure (peer.authentic bit was one now zero)" },
+	{ 1,		"association mobilized" },
+	{ 2,		"association demobilized" },
 	{ 3,		"peer unreachable (peer.reach was nonzero now zero)" },
 	{ 4,		"peer reachable (peer.reach was zero now nonzero)" },
-	{ 5,		"peer clock exception (see peer clock status word)" },
+	{ 5,		"association restarted or timed out" },
+	{ 6,		"no server found (ntpdate mode)" },
+	{ 7,		"rate exceeded (kiss code RATE)" },
+	{ 8,		"access denied (kiss code DENY)" },
+	{ 9,		"leap armed from server LI code" },
+	{ 10,		"become system peer" },
+	{ 11,		"reference clock event (see clock status word)" },
+	{ 12,		"authentication failure" },
+	{ 13,		"popcorn spike suppressor" },
+	{ 14,		"entering interleave mode" },
+	{ 15,		"interleave error (recovered)" },
+	{ 16,		"leapsecond values update from server" },
 	{ 0,		NULL}
 };
 
@@ -495,6 +512,7 @@ static int hf_ntp_rec = -1;
 static int hf_ntp_xmt = -1;
 static int hf_ntp_keyid = -1;
 static int hf_ntp_mac = -1;
+static int hf_ntp_padding = -1;
 static int hf_ntp_key_type = -1;
 static int hf_ntp_key_index = -1;
 static int hf_ntp_key_signature = -1;
@@ -542,6 +560,10 @@ static int hf_ntpctrl_count = -1;
 static int hf_ntpctrl_data = -1;
 static int hf_ntpctrl_item = -1;
 static int hf_ntpctrl_trapmsg = -1;
+static int hf_ntpctrl_ordlist = -1;
+static int hf_ntpctrl_configuration = -1;
+static int hf_ntpctrl_mru = -1;
+static int hf_ntpctrl_nonce = -1;
 
 static int hf_ntppriv_flags_r = -1;
 static int hf_ntppriv_flags_more = -1;
@@ -657,7 +679,6 @@ tvb_mip6_fmt_ts(tvbuff_t *tvb, gint offset)
 	time_t		 temptime;
 	struct tm	*bd;
 	double		 fractime;
-	char		*buff;
 
 	tempstmp = tvb_get_ntoh48(tvb, offset);
 	tempfrac = tvb_get_ntohs(tvb, offset+6);
@@ -673,16 +694,13 @@ tvb_mip6_fmt_ts(tvbuff_t *tvb, gint offset)
 	}
 
 	fractime = bd->tm_sec + tempfrac / NTP_FLOAT_DENOM;
-	buff = (char *)wmem_alloc(wmem_packet_scope(), NTP_TS_SIZE);
-	g_snprintf(buff, NTP_TS_SIZE,
-		 "%s %2d, %d %02d:%02d:%07.4f UTC",
+	return wmem_strdup_printf(wmem_packet_scope(), "%s %2d, %d %02d:%02d:%07.4f UTC",
 		 mon_names[bd->tm_mon],
 		 bd->tm_mday,
 		 bd->tm_year + 1900,
 		 bd->tm_hour,
 		 bd->tm_min,
 		 fractime);
-	return buff;
 }
 /* tvb_ntp_fmt_ts - converts NTP timestamp to human readable string.
  * TVB and an offset (IN).
@@ -953,23 +971,17 @@ dissect_ntp_std(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ntp_tree)
 	 * the total roundtrip delay to the primary reference source,
 	 * in seconds with fraction point between bits 15 and 16.
 	 */
-	rootdelay = ((gint16)tvb_get_ntohs(tvb, 4)) +
+	rootdelay = tvb_get_ntohis(tvb, 4) +
 			(tvb_get_ntohs(tvb, 6) / 65536.0);
-	proto_tree_add_double_format_value(ntp_tree, hf_ntp_rootdelay, tvb, 4, 4,
-				   rootdelay,
-				   "%9.4f sec",
-				   rootdelay);
+	proto_tree_add_double(ntp_tree, hf_ntp_rootdelay, tvb, 4, 4, rootdelay);
 
 	/* Root Dispersion, 32-bit unsigned fixed-point number indicating
 	 * the nominal error relative to the primary reference source, in
 	 * seconds with fraction point between bits 15 and 16.
 	 */
-	rootdispersion = ((gint16)tvb_get_ntohs(tvb, 8)) +
+	rootdispersion = tvb_get_ntohis(tvb, 8) +
 				(tvb_get_ntohs(tvb, 10) / 65536.0);
-	proto_tree_add_double_format_value(ntp_tree, hf_ntp_rootdispersion, tvb, 8, 4,
-				   rootdispersion,
-				   "%9.4f sec",
-				   rootdispersion);
+	proto_tree_add_double(ntp_tree, hf_ntp_rootdispersion, tvb, 8, 4, rootdispersion);
 
 	/* Now, there is a problem with secondary servers.  Standards
 	 * asks from stratum-2 - stratum-15 servers to set this to the
@@ -1056,7 +1068,8 @@ dissect_ntp_ctrl(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ntp_tree)
 	guint16		 associd;
 	guint16		 datalen;
 	guint16		 data_offset;
-	int			 length_remaining;
+	gint		 length_remaining;
+	gboolean	 auth_diss = FALSE;
 
 	tvbparse_t	*tt;
 	tvbparse_elem_t *element;
@@ -1191,6 +1204,7 @@ dissect_ntp_ctrl(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ntp_tree)
 			 * then data part could be the same as if opcode is NTPCTRL_OP_READVAR
 			 * --> so, no "break" here!
 			 */
+			/* FALL THROUGH */
 		case NTPCTRL_OP_READVAR:
 		case NTPCTRL_OP_WRITEVAR:
 		case NTPCTRL_OP_READCLOCK:
@@ -1203,18 +1217,45 @@ dissect_ntp_ctrl(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ntp_tree)
 		case NTPCTRL_OP_ASYNCMSG:
 			proto_tree_add_item(data_tree, hf_ntpctrl_trapmsg, tvb, data_offset, datalen, ENC_ASCII|ENC_NA);
 			break;
+		case NTPCTRL_OP_CONFIGURE:
+		case NTPCTRL_OP_SAVECONFIG:
+			proto_tree_add_item(data_tree, hf_ntpctrl_configuration, tvb, data_offset, datalen, ENC_ASCII|ENC_NA);
+			auth_diss = TRUE;
+			break;
+		case NTPCTRL_OP_READ_MRU:
+			proto_tree_add_item(data_tree, hf_ntpctrl_mru, tvb, data_offset, datalen, ENC_ASCII|ENC_NA);
+			auth_diss = TRUE;
+			break;
+		case NTPCTRL_OP_READ_ORDLIST_A:
+			proto_tree_add_item(data_tree, hf_ntpctrl_ordlist, tvb, data_offset, datalen, ENC_ASCII|ENC_NA);
+			auth_diss = TRUE;
+			break;
+		case NTPCTRL_OP_REQ_NONCE:
+			proto_tree_add_item(data_tree, hf_ntpctrl_nonce, tvb, data_offset, datalen, ENC_ASCII|ENC_NA);
+			auth_diss = TRUE;
+			break;
 		/* these opcodes doesn't carry any data: NTPCTRL_OP_SETTRAP, NTPCTRL_OP_UNSETTRAP, NTPCTRL_OP_UNSPEC */
 		}
 	}
 
 	data_offset = 12+datalen;
-	length_remaining = tvb_reported_length_remaining(tvb, data_offset);
 
 	/* Check if there is authentication */
-	if ((flags2 & NTPCTRL_R_MASK) == 0)
+	if (((flags2 & NTPCTRL_R_MASK) == 0) || auth_diss == TRUE)
 	{
-		if (length_remaining > 0)
+		gint padding_length;
+
+		length_remaining = tvb_reported_length_remaining(tvb, data_offset);
+		/* Check padding presence */
+		padding_length = (data_offset & 7) ? 8 - (data_offset & 7) : 0;
+		if (length_remaining > padding_length)
 		{
+			if (padding_length)
+			{
+				proto_tree_add_item(ntp_tree, hf_ntp_padding, tvb, data_offset, padding_length, ENC_NA);
+				data_offset += padding_length;
+				length_remaining -= padding_length;
+			}
 			auth_tree = proto_tree_add_subtree(ntp_tree, tvb, data_offset, -1, ett_ntp_authenticator, NULL, "Authenticator");
 			switch (length_remaining)
 			{
@@ -1247,7 +1288,7 @@ static void
 init_parser(void)
 {
 	/* specify what counts as character */
-	tvbparse_wanted_t *want_identifier = tvbparse_chars(-1, 1, 0,
+	tvbparse_wanted_t *want_identifier_str = tvbparse_chars(-1, 1, 0,
 		"abcdefghijklmnopqrstuvwxyz-_ABCDEFGHIJKLMNOPQRSTUVWXYZ.0123456789", NULL, NULL, NULL);
 	/* this is the equal sign used in assignments */
 	tvbparse_wanted_t *want_equalsign = tvbparse_char(-1, "=", NULL, NULL, NULL);
@@ -1259,9 +1300,14 @@ init_parser(void)
 		NULL);
 	tvbparse_wanted_t *want_comma = tvbparse_until(-1, NULL, NULL, NULL,
 		tvbparse_char(-1, ",", NULL, NULL, NULL), TP_UNTIL_SPEND);
+	/* the following specifies an identifier */
+	tvbparse_wanted_t *want_identifier = tvbparse_set_seq(-1, NULL, NULL, NULL,
+		want_identifier_str,
+		tvbparse_some(-1, 0, 1, NULL, NULL, NULL, want_comma),
+		NULL);
 	/* the following specifies an assignment of the form identifier=value */
 	tvbparse_wanted_t *want_assignment = tvbparse_set_seq(-1, NULL, NULL, NULL,
-		want_identifier,
+		want_identifier_str,
 		want_equalsign,
 		tvbparse_some(-1, 0, 1, NULL, NULL, NULL, want_value),
 		tvbparse_some(-1, 0, 1, NULL, NULL, NULL, want_comma),
@@ -1428,11 +1474,11 @@ proto_register_ntp(void)
 			"Peer Clock Precision", "ntp.precision", FT_INT8, BASE_DEC,
 			NULL, 0, "The precision of the system clock", HFILL }},
 		{ &hf_ntp_rootdelay, {
-			"Root Delay", "ntp.rootdelay", FT_DOUBLE, BASE_NONE,
-			NULL, 0, "Total round-trip delay to the reference clock", HFILL }},
+			"Root Delay", "ntp.rootdelay", FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING,
+			&units_second_seconds, 0, "Total round-trip delay to the reference clock", HFILL }},
 		{ &hf_ntp_rootdispersion, {
-			"Root Dispersion", "ntp.rootdispersion", FT_DOUBLE, BASE_NONE,
-			NULL, 0, "Total dispersion to the reference clock", HFILL }},
+			"Root Dispersion", "ntp.rootdispersion", FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING,
+			&units_second_seconds, 0, "Total dispersion to the reference clock", HFILL }},
 		{ &hf_ntp_refid, {
 			"Reference ID", "ntp.refid", FT_BYTES, BASE_NONE,
 			NULL, 0, "Particular server or reference clock being used", HFILL }},
@@ -1453,6 +1499,9 @@ proto_register_ntp(void)
 			NULL, 0, NULL, HFILL }},
 		{ &hf_ntp_mac, {
 			"Message Authentication Code", "ntp.mac", FT_BYTES, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
+		{ &hf_ntp_padding, {
+			"Padding", "ntp.padding", FT_BYTES, BASE_NONE,
 			NULL, 0, NULL, HFILL }},
 		{ &hf_ntp_key_type, {
 			"Key type", "ntp.key_type", FT_UINT8, BASE_DEC,
@@ -1556,8 +1605,8 @@ proto_register_ntp(void)
 			"Peer Status", "ntp.ctrl.peer_status.reach", FT_BOOLEAN, 16,
 			TFS(&tfs_ctrl_peer_status_reach), NTPCTRL_PEERSTATUS_REACH_MASK, NULL, HFILL }},
 		{ &hf_ntpctrl_peer_status_b4, {
-			"Peer Status: reserved", "ntp.ctrl.peer_status.reserved", FT_UINT16, BASE_DEC,
-			NULL, NTPCTRL_PEERSTATUS_RESERVED_MASK, NULL, HFILL }},
+			"Peer Status broadcast association", "ntp.ctrl.peer_status.bcast", FT_BOOLEAN, 16,
+			TFS(&tfs_set_notset), NTPCTRL_PEERSTATUS_BCAST_MASK, NULL, HFILL }},
 		{ &hf_ntpctrl_peer_status_selection, {
 			"Peer Selection", "ntp.ctrl.peer_status.selection", FT_UINT16, BASE_DEC,
 			VALS(ctrl_peer_status_selection_types), NTPCTRL_PEERSTATUS_SEL_MASK, NULL, HFILL }},
@@ -1590,6 +1639,18 @@ proto_register_ntp(void)
 			NULL, 0, NULL, HFILL }},
 		{ &hf_ntpctrl_trapmsg, {
 			"Trap message", "ntp.ctrl.trapmsg", FT_STRING, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
+		{ &hf_ntpctrl_configuration, {
+			"Configuration", "ntp.ctrl.configuration", FT_STRING, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
+		{ &hf_ntpctrl_mru, {
+			"MRU", "ntp.ctrl.mru", FT_STRING, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
+		{ &hf_ntpctrl_ordlist, {
+			"Ordered List", "ntp.ctrl.ordlist", FT_STRING, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
+		{ &hf_ntpctrl_nonce, {
+			"Nonce", "ntp.ctrl.nonce", FT_STRING, BASE_NONE,
 			NULL, 0, NULL, HFILL }},
 
 		{ &hf_ntppriv_flags_r, {
@@ -1704,8 +1765,8 @@ proto_reg_handoff_ntp(void)
 	dissector_handle_t ntp_handle;
 
 	ntp_handle = create_dissector_handle(dissect_ntp, proto_ntp);
-	dissector_add_uint("udp.port", UDP_PORT_NTP, ntp_handle);
-	dissector_add_uint("tcp.port", TCP_PORT_NTP, ntp_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_NTP, ntp_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_NTP, ntp_handle);
 }
 
 /*

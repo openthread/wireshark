@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,6 +16,7 @@
 #include <epan/packet.h>
 #include <epan/addr_resolv.h>
 #include <epan/oui.h>
+#include <epan/addr_resolv.h>
 
 #include <wsutil/str_util.h>
 
@@ -75,6 +64,8 @@ static gint hf_ecp_vdp_vlan = -1;
 static gint ett_ecp = -1;
 static gint ett_end_of_vdpdu = -1;
 static gint ett_802_1qbg_capabilities_flags = -1;
+
+static dissector_handle_t ecp_handle;
 
 static const value_string ecp_pid_vals[] = {
 	{ 0x0000,	"ECP draft 0" },
@@ -186,7 +177,7 @@ dissect_vdp_fi_macvid(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, g
 
 /* Dissect Organizationally Defined TLVs */
 static gint32
-dissect_vdp_org_specific_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint32 offset)
+dissect_vdp_org_specific_tlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset)
 {
 	guint16 tempLen;
 	guint16 len;
@@ -206,12 +197,9 @@ dissect_vdp_org_specific_tlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
 	tempOffset += 2;
 
 	oui = tvb_get_ntoh24(tvb, (tempOffset));
-	/* maintain previous OUI names.  If not included, look in manuf database for OUI */
-	ouiStr = val_to_str_const(oui, oui_vals, "Unknown");
-	if (strcmp(ouiStr, "Unknown")==0) {
-		ouiStr = uint_get_manuf_name_if_known(oui);
-		if(ouiStr==NULL) ouiStr="Unknown";
-	}
+	/* Look in manuf database for OUI */
+	ouiStr = uint_get_manuf_name_if_known(oui);
+	if(ouiStr==NULL) ouiStr="Unknown";
 
 	tempOffset += 3;
 
@@ -383,8 +371,8 @@ void proto_register_ecp_oui(void)
 		},
 #if 0
 		{ &hf_ecp_vdp_oui,
-			{ "Organization Unique Code",	"ecp.vdp.oui", FT_UINT24, BASE_HEX,
-			VALS(oui_vals), 0x0, NULL, HFILL }
+			{ "Organization Unique Code",	"ecp.vdp.oui", FT_UINT24, BASE_OUI,
+			NULL, 0x0, NULL, HFILL }
 		},
 #endif
 		{ &hf_ecp_vdp_mode,
@@ -438,14 +426,11 @@ void proto_register_ecp_oui(void)
 	ieee802a_add_oui(OUI_IEEE_802_1QBG, "ieee802a.ecp_pid",
 		"IEEE802a ECP PID", &hf_reg, proto_ecp);
 
-	register_dissector("ecp", dissect_ecp, proto_ecp);
+	ecp_handle = register_dissector("ecp", dissect_ecp, proto_ecp);
 }
 
 void proto_reg_handoff_ecp(void)
 {
-	static dissector_handle_t ecp_handle;
-
-	ecp_handle = find_dissector("ecp");
 	dissector_add_uint("ieee802a.ecp_pid", 0x0000, ecp_handle);
 }
 

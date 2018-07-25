@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,73 +20,44 @@
 #include "sbc/sbc_private.h"
 #endif
 
+#ifdef HAVE_SPANDSP
+#include "G722/G722decode.h"
+#include "G726/G726decode.h"
+#endif
+
+#ifdef HAVE_BCG729
+#include "G729/G729decode.h"
+#endif
+
 #ifdef HAVE_PLUGINS
 
-#include <gmodule.h>
 
-#include <wsutil/plugins.h>
-
-/*
- * List of codec plugins.
- */
-typedef struct {
-    void (*register_codec_module)(void);  /* routine to call to register a codec */
-} codec_plugin;
-
-static GSList *codec_plugins = NULL;
-
-/*
- * Callback for each plugin found.
- */
-static gboolean
-check_for_codec_plugin(GModule *handle)
-{
-    gpointer gp;
-    void (*register_codec_module)(void);
-    codec_plugin *plugin;
-
-    /*
-     * Do we have a register_codec_module routine?
-     */
-    if (!g_module_symbol(handle, "register_codec_module", &gp)) {
-        /* No, so this isn't a codec plugin. */
-        return FALSE;
-    }
-
-    /*
-     * Yes - this plugin includes one or more codecs.
-     */
-    register_codec_module = (void (*)(void))gp;
-
-    /*
-     * Add this one to the list of codec plugins.
-     */
-    plugin = (codec_plugin *)g_malloc(sizeof (codec_plugin));
-    plugin->register_codec_module = register_codec_module;
-    codec_plugins = g_slist_append(codec_plugins, plugin);
-    return TRUE;
-}
+static plugins_t *libwscodecs_plugins;
+static GSList *codecs_plugins = NULL;
 
 void
-codec_register_plugin_types(void)
+codecs_register_plugin(const codecs_plugin *plug)
 {
-    add_plugin_type("codec", check_for_codec_plugin);
+    codecs_plugins = g_slist_prepend(codecs_plugins, (codecs_plugin *)plug);
 }
 
 static void
-register_codec_plugin(gpointer data, gpointer user_data _U_)
+call_plugin_register_codec_module(gpointer data, gpointer user_data _U_)
 {
-    codec_plugin *plugin = (codec_plugin *)data;
+    codecs_plugin *plug = (codecs_plugin *)data;
 
-    (plugin->register_codec_module)();
+    if (plug->register_codec_module) {
+        plug->register_codec_module();
+    }
 }
+#endif /* HAVE_PLUGINS */
 
 
 /*
  * For all codec plugins, call their register routines.
  */
 void
-register_all_codecs(void)
+codecs_init(void)
 {
     register_codec("g711U", codec_g711u_init, codec_g711u_release,
             codec_g711u_get_channels, codec_g711u_get_frequency, codec_g711u_decode);
@@ -107,17 +66,49 @@ register_all_codecs(void)
 #ifdef HAVE_SPANDSP
     register_codec("g722", codec_g722_init, codec_g722_release,
             codec_g722_get_channels, codec_g722_get_frequency, codec_g722_decode);
-    register_codec("g726", codec_g726_init, codec_g726_release,
+    register_codec("G726-16", codec_g726_16_init, codec_g726_release,
             codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("G726-24", codec_g726_24_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("G726-32", codec_g726_32_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("G726-40", codec_g726_40_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("AAL2-G726-16", codec_aal2_g726_16_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("AAL2-G726-24", codec_aal2_g726_24_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("AAL2-G726-32", codec_aal2_g726_32_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+    register_codec("AAL2-G726-40", codec_aal2_g726_40_init, codec_g726_release,
+            codec_g726_get_channels, codec_g726_get_frequency, codec_g726_decode);
+#endif
+#ifdef HAVE_BCG729
+    register_codec("g729", codec_g729_init, codec_g729_release,
+            codec_g729_get_channels, codec_g729_get_frequency, codec_g729_decode);
 #endif
 #ifdef HAVE_SBC
     register_codec("SBC", codec_sbc_init, codec_sbc_release,
             codec_sbc_get_channels, codec_sbc_get_frequency, codec_sbc_decode);
 #endif
 
-    g_slist_foreach(codec_plugins, register_codec_plugin, NULL);
-}
+#ifdef HAVE_PLUGINS
+    libwscodecs_plugins = plugins_init(WS_PLUGIN_CODEC);
+    g_slist_foreach(codecs_plugins, call_plugin_register_codec_module, NULL);
 #endif /* HAVE_PLUGINS */
+}
+
+void
+codecs_cleanup(void)
+{
+#ifdef HAVE_PLUGINS
+    g_slist_free(codecs_plugins);
+    codecs_plugins = NULL;
+    plugins_cleanup(libwscodecs_plugins);
+    libwscodecs_plugins = NULL;
+#endif
+}
+
 
 struct codec_handle {
     const char *name;
@@ -211,6 +202,33 @@ size_t codec_decode(codec_handle_t codec, void *context, const void *input, size
 {
     if (!codec) return 0;
     return (codec->decode_fn)(context, input, inputSizeBytes, output, outputSizeBytes);
+}
+
+/**
+ * Get compile-time information for libraries used by libwscodecs.
+ */
+void codec_get_compiled_version_info(GString *str)
+{
+    /* SBC */
+#ifdef HAVE_SBC
+    g_string_append(str, ", with SBC");
+#else
+    g_string_append(str, ", without SBC");
+#endif
+
+    /* SpanDSP (G.722, G.726) */
+#ifdef HAVE_SPANDSP
+    g_string_append(str, ", with SpanDSP");
+#else
+    g_string_append(str, ", without SpanDSP");
+#endif
+
+    /* BCG729 (G.729) */
+#ifdef HAVE_BCG729
+    g_string_append(str, ", with bcg729");
+#else
+    g_string_append(str, ", without bcg729");
+#endif
 }
 
 /*

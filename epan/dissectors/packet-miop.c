@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -80,6 +68,8 @@ static gint ett_miop = -1;
 
 static expert_field ei_miop_version_not_supported = EI_INIT;
 static expert_field ei_miop_unique_id_len_exceed_max_value = EI_INIT;
+
+static dissector_handle_t miop_handle;
 
 #define MIOP_MAGIC   0x4d494f50 /* "MIOP" */
 
@@ -306,17 +296,14 @@ void proto_register_miop (void) {
   expert_miop = expert_register_protocol(proto_miop);
   expert_register_field_array(expert_miop, ei, array_length(ei));
 
-  register_dissector("miop", dissect_miop, proto_miop);
+  miop_handle = register_dissector("miop", dissect_miop, proto_miop);
 
 }
 
 
 void proto_reg_handoff_miop (void) {
 
-  dissector_handle_t miop_handle;
-
-  miop_handle = find_dissector("miop");
-  dissector_add_for_decode_as("udp.port", miop_handle);
+  dissector_add_for_decode_as_with_preference("udp.port", miop_handle);
 
   heur_dissector_add("udp", dissect_miop_heur, "MIOP over UDP", "miop_udp", proto_miop, HEURISTIC_ENABLE);
 

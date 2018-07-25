@@ -9,33 +9,7 @@
  * Copyright (c) 2006 CACE Technologies, Davis (California)
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the project nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE PROJECT OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
+ * SPDX-License-Identifier: (BSD-3-Clause OR GPL-2.0-only)
  *
  *
  * Dustin Johnson - Dustin@Dustinj.us, Dustin.Johnson@cacetech.com
@@ -58,7 +32,10 @@
 
 /*
  * Per-Packet Information (PPI) header.
- * See the PPI Packet Header documentation at http://www.cacetech.com/documents
+ * See the PPI Packet Header documentation at
+ *
+ *     https://wayback.archive.org/web/20120525190041/https://www.cacetech.com/documents/PPI%20Header%20format%201.0.10.pdf
+ *
  * for details.
  */
 
@@ -593,7 +570,7 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     }
     ptvcursor_add(csr, hf_80211_common_fhss_pattern, 1, ENC_LITTLE_ENDIAN);
 
-    dbm_value = (gint8) tvb_get_guint8(tvb, ptvcursor_current_offset(csr));
+    dbm_value = tvb_get_gint8(tvb, ptvcursor_current_offset(csr));
     if (dbm_value != -128 && dbm_value != 0) {
         /*
          * XXX - the spec says -128 is invalid, presumably meaning "use
@@ -607,7 +584,7 @@ dissect_80211_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int of
     }
     ptvcursor_add_invalid_check(csr, hf_80211_common_dbm_antsignal, 1, 0x80); /* -128 */
 
-    dbm_value = (gint8) tvb_get_guint8(tvb, ptvcursor_current_offset(csr));
+    dbm_value = tvb_get_gint8(tvb, ptvcursor_current_offset(csr));
     if (dbm_value != -128 && dbm_value != 0) {
         /*
          * XXX - the spec says -128 is invalid, presumably meaning "use
@@ -647,8 +624,10 @@ dissect_80211n_mac(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int 
 
     flags = tvb_get_letohl(tvb, ptvcursor_current_offset(csr));
     *n_mac_flags = flags;
+    phdr->phy_info.info_11n.has_bandwidth = TRUE;
     phdr->phy_info.info_11n.has_short_gi = TRUE;
     phdr->phy_info.info_11n.has_greenfield = TRUE;
+    phdr->phy_info.info_11n.bandwidth = ((flags & DOT11N_FLAG_HT40) != 0);
     phdr->phy_info.info_11n.short_gi = ((flags & DOT11N_FLAG_SHORT_GI) != 0);
     phdr->phy_info.info_11n.greenfield = ((flags & DOT11N_FLAG_GREENFIELD) != 0);
     if (DOT11N_IS_AGGREGATE(flags)) {
@@ -942,7 +921,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             else /* we found a suitable dissector */
             {
                 /* skip over the ppi_fieldheader, and pass it off to the dedicated GPS dissetor */
-                next_tvb = tvb_new_subset(tvb, offset + 4, data_len - 4 , -1);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset + 4, data_len - 4 , -1);
                 call_dissector(ppi_gps_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
@@ -955,7 +934,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             else /* we found a suitable dissector */
             {
                 /* skip over the ppi_fieldheader, and pass it off to the dedicated VECTOR dissetor */
-                next_tvb = tvb_new_subset(tvb, offset + 4, data_len - 4 , -1);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset + 4, data_len - 4 , -1);
                 call_dissector(ppi_vector_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
@@ -968,7 +947,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             else /* we found a suitable dissector */
             {
                 /* skip over the ppi_fieldheader, and pass it off to the dedicated SENSOR dissetor */
-                next_tvb = tvb_new_subset(tvb, offset + 4, data_len - 4 , -1);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset + 4, data_len - 4 , -1);
                 call_dissector(ppi_sensor_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
@@ -981,7 +960,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             else /* we found a suitable dissector */
             {
                 /* skip over the ppi_fieldheader, and pass it off to the dedicated ANTENNA dissetor */
-                next_tvb = tvb_new_subset(tvb, offset + 4, data_len - 4 , -1);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset + 4, data_len - 4 , -1);
                 call_dissector(ppi_antenna_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
@@ -994,7 +973,7 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             else /* we found a suitable dissector */
             {
                 /* skip over the ppi_fieldheader, and pass it off to the dedicated FNET dissetor */
-                next_tvb = tvb_new_subset(tvb, offset + 4, data_len - 4 , -1);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset + 4, data_len - 4 , -1);
                 call_dissector(ppi_fnet_handle, next_tvb, pinfo, ppi_tree);
             }
             break;
@@ -1127,19 +1106,6 @@ dissect_ppi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 }
 
 /* Establish our beachead */
-
-static void
-ampdu_reassemble_init(void)
-{
-    reassembly_table_init(&ampdu_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-ampdu_reassemble_cleanup(void)
-{
-    reassembly_table_destroy(&ampdu_reassembly_table);
-}
 
 void
 proto_register_ppi(void)
@@ -1483,8 +1449,8 @@ proto_register_ppi(void)
     ppi_handle = register_dissector("ppi", dissect_ppi, proto_ppi);
     register_capture_dissector_table("ppi", "PPI");
 
-    register_init_routine(ampdu_reassemble_init);
-    register_cleanup_routine(ampdu_reassemble_cleanup);
+    reassembly_table_register(&ampdu_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
     /* Configuration options */
     ppi_module = prefs_register_protocol(proto_ppi, NULL);
@@ -1497,6 +1463,8 @@ proto_register_ppi(void)
 void
 proto_reg_handoff_ppi(void)
 {
+    capture_dissector_handle_t ppi_cap_handle;
+
     ieee80211_radio_handle = find_dissector_add_dependency("wlan_radio", proto_ppi);
     pcap_pktdata_handle = find_dissector_add_dependency("pcap_pktdata", proto_ppi);
     ppi_gps_handle = find_dissector_add_dependency("ppi_gps", proto_ppi);
@@ -1506,7 +1474,8 @@ proto_reg_handoff_ppi(void)
     ppi_fnet_handle = find_dissector_add_dependency("ppi_fnet", proto_ppi);
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_PPI, ppi_handle);
-    register_capture_dissector("wtap_encap", WTAP_ENCAP_PPI, capture_ppi, proto_ppi);
+    ppi_cap_handle = create_capture_dissector_handle(capture_ppi, proto_ppi);
+    capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_PPI, ppi_cap_handle);
 }
 
 /*

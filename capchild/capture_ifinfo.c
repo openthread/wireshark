@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,9 +22,7 @@
 
 #include "capchild/capture_session.h"
 #include "capchild/capture_sync.h"
-#ifdef HAVE_EXTCAP
 #include "extcap.h"
-#endif
 #include "log.h"
 
 #include <caputils/capture_ifinfo.h>
@@ -54,12 +40,12 @@ static GList * append_remote_list(GList *iflist)
 
     for (rlist = g_list_nth(remote_interface_list, 0); rlist != NULL; rlist = g_list_next(rlist)) {
         if_info = (if_info_t *)rlist->data;
-        temp = g_malloc0(sizeof(if_info_t));
+        temp = (if_info_t*) g_malloc0(sizeof(if_info_t));
         temp->name = g_strdup(if_info->name);
         temp->friendly_name = g_strdup(if_info->friendly_name);
         temp->vendor_description = g_strdup(if_info->vendor_description);
         for (list = g_slist_nth(if_info->addrs, 0); list != NULL; list = g_slist_next(list)) {
-            temp_addr = g_malloc0(sizeof(if_addr_t));
+            temp_addr = (if_addr_t *) g_malloc0(sizeof(if_addr_t));
             if_addr = (if_addr_t *)list->data;
             if (if_addr) {
                 temp_addr->ifat_type = if_addr->ifat_type;
@@ -107,20 +93,31 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface List ...");
 
     *err = 0;
+    if (err_str) {
+        *err_str = NULL;
+    }
 
     /* Try to get our interface list */
     ret = sync_interface_list_open(&data, &primary_msg, &secondary_msg, update_cb);
     if (ret != 0) {
-        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface List failed, error %d, %s (%s)!",
-              *err, primary_msg ? primary_msg : "no message",
-              secondary_msg ? secondary_msg : "no secondary message");
-        if (err_str) {
-            *err_str = primary_msg;
-        } else {
-            g_free(primary_msg);
+        /* Add the extcap interfaces that can exist, even if no native interfaces have been found */
+        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Loading External Capture Interface List ...");
+        if_list = append_extcap_interface_list(if_list, err_str);
+        /* err_str is ignored, as the error for the interface loading list will take precedence */
+        if ( g_list_length(if_list) == 0 ) {
+
+            g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface List failed. Error %d, %s (%s)",
+                  *err, primary_msg ? primary_msg : "no message",
+                  secondary_msg ? secondary_msg : "no secondary message");
+            if (err_str) {
+                *err_str = primary_msg;
+            } else {
+                g_free(primary_msg);
+            }
+            g_free(secondary_msg);
+            *err = CANT_GET_INTERFACE_LIST;
+
         }
-        g_free(secondary_msg);
-        *err = CANT_GET_INTERFACE_LIST;
         return if_list;
     }
 
@@ -133,7 +130,6 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
     g_free(data);
 
     for (i = 0; raw_list[i] != NULL; i++) {
-#ifdef HAVE_EXTCAP
         if_parts = g_strsplit(raw_list[i], "\t", 7);
         if (if_parts[0] == NULL || if_parts[1] == NULL || if_parts[2] == NULL ||
                 if_parts[3] == NULL || if_parts[4] == NULL || if_parts[5] == NULL ||
@@ -141,14 +137,6 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
             g_strfreev(if_parts);
             continue;
         }
-#else
-        if_parts = g_strsplit(raw_list[i], "\t", 6);
-        if (if_parts[0] == NULL || if_parts[1] == NULL || if_parts[2] == NULL ||
-                if_parts[3] == NULL || if_parts[4] == NULL || if_parts[5] == NULL) {
-            g_strfreev(if_parts);
-            continue;
-        }
-#endif
 
         /* Number followed by the name, e.g "1. eth0" */
         name = strchr(if_parts[0], ' ');
@@ -171,7 +159,7 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
             if_addr = g_new0(if_addr_t,1);
             if (ws_inet_pton4(addr_parts[j], &if_addr->addr.ip4_addr)) {
                 if_addr->ifat_type = IF_AT_IPv4;
-            } else if (ws_inet_pton6(addr_parts[j], (struct e_in6_addr *)&if_addr->addr.ip6_addr)) {
+            } else if (ws_inet_pton6(addr_parts[j], (ws_in6_addr *)&if_addr->addr.ip6_addr)) {
                 if_addr->ifat_type = IF_AT_IPv6;
             } else {
                 g_free(if_addr);
@@ -183,9 +171,7 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
         }
         if (strcmp(if_parts[5], "loopback") == 0)
             if_info->loopback = TRUE;
-#ifdef HAVE_EXTCAP
         if_info->extcap = g_strdup(if_parts[6]);
-#endif
         g_strfreev(if_parts);
         g_strfreev(addr_parts);
         if_list = g_list_append(if_list, if_info);
@@ -198,11 +184,9 @@ capture_interface_list(int *err, char **err_str, void (*update_cb)(void))
     }
 #endif
 
-#ifdef HAVE_EXTCAP
     /* Add the extcap interfaces after the native and remote interfaces */
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Loading External Capture Interface List ...");
     if_list = append_extcap_interface_list(if_list, err_str);
-#endif
 
     return if_list;
 }
@@ -215,15 +199,13 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
                             char **err_str, void (*update_cb)(void))
 {
     if_capabilities_t *caps;
-    GList              *linktype_list = NULL;
+    GList              *linktype_list = NULL, *timestamp_list = NULL;
     int                 err, i;
     gchar              *data, *primary_msg, *secondary_msg;
-    gchar             **raw_list, **lt_parts;
-    data_link_info_t   *data_link_info;
+    gchar             **raw_list;
 
     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities ...");
 
-#ifdef HAVE_EXTCAP
     /* see if the interface is from extcap */
     caps = extcap_get_if_dlts(ifname, err_str);
     if (caps != NULL)
@@ -232,13 +214,12 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
     /* return if the extcap interface generated an error */
     if (err_str != NULL && *err_str != NULL)
         return NULL;
-#endif /* HAVE_EXTCAP */
 
     /* Try to get our interface list */
     err = sync_if_capabilities_open(ifname, monitor_mode, auth_string, &data,
                                     &primary_msg, &secondary_msg, update_cb);
     if (err != 0) {
-        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities failed, error %d, %s (%s)!",
+        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities failed. Error %d, %s (%s)",
               err, primary_msg ? primary_msg : "no message",
               secondary_msg ? secondary_msg : "no secondary message");
         if (err_str) {
@@ -262,7 +243,7 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
      * First line is 0 if monitor mode isn't supported, 1 if it is.
      */
     if (raw_list[0] == NULL || *raw_list[0] == '\0') {
-        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities returned no information!");
+        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities returned no information.");
         if (err_str) {
             *err_str = g_strdup("Dumpcap returned no interface capability information");
         }
@@ -285,7 +266,7 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
         break;
 
     default:
-        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities returned bad information!");
+        g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_MESSAGE, "Capture Interface Capabilities returned bad information.");
         if (err_str) {
             *err_str = g_strdup_printf("Dumpcap returned \"%s\" for monitor-mode capability",
                                        raw_list[0]);
@@ -296,11 +277,12 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
     }
 
     /*
-     * The rest are link-layer types.
+     * The following are link-layer types.
      */
-    for (i = 1; raw_list[i] != NULL; i++) {
+    for (i = 1; raw_list[i] != NULL && *raw_list[i] != '\0'; i++) {
+        data_link_info_t *data_link_info;
         /* ...and what if the interface name has a tab in it, Mr. Clever Programmer? */
-        lt_parts = g_strsplit(raw_list[i], "\t", 3);
+        char **lt_parts = g_strsplit(raw_list[i], "\t", 3);
         if (lt_parts[0] == NULL || lt_parts[1] == NULL || lt_parts[2] == NULL) {
             g_strfreev(lt_parts);
             continue;
@@ -317,6 +299,25 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
 
         linktype_list = g_list_append(linktype_list, data_link_info);
     }
+
+    if (raw_list[i]) { /* Oh, timestamp types! */
+        for (i++; raw_list[i] != NULL && *raw_list[i] != '\0'; i++) {
+            timestamp_info_t *timestamp_info;
+            char **tt_parts = g_strsplit(raw_list[i], "\t", 2);
+            if (tt_parts[0] == NULL || tt_parts[1] == NULL) {
+                g_strfreev(tt_parts);
+                continue;
+            }
+
+            timestamp_info = g_new(timestamp_info_t,1);
+            timestamp_info->name = g_strdup(tt_parts[0]);
+            timestamp_info->description = g_strdup(tt_parts[1]);
+            g_strfreev(tt_parts);
+
+            timestamp_list = g_list_append(timestamp_list, timestamp_info);
+        }
+    }
+
     g_strfreev(raw_list);
 
     /* Check to see if we built a list */
@@ -327,7 +328,11 @@ capture_get_if_capabilities(const gchar *ifname, gboolean monitor_mode,
         g_free(caps);
         return NULL;
     }
+
     caps->data_link_types = linktype_list;
+    /* Might be NULL. Not all systems report timestamp types */
+    caps->timestamp_types = timestamp_list;
+
     return caps;
 }
 
@@ -337,12 +342,12 @@ void add_interface_to_remote_list(if_info_t *if_info)
     GSList *list;
     if_addr_t *if_addr, *temp_addr;
 
-    if_info_t *temp = g_malloc0(sizeof(if_info_t));
+    if_info_t *temp = (if_info_t*) g_malloc0(sizeof(if_info_t));
     temp->name = g_strdup(if_info->name);
     temp->friendly_name = g_strdup(if_info->friendly_name);
     temp->vendor_description = g_strdup(if_info->vendor_description);
     for (list = g_slist_nth(if_info->addrs, 0); list != NULL; list = g_slist_next(list)) {
-        temp_addr = g_malloc0(sizeof(if_addr_t));
+        temp_addr = (if_addr_t *)g_malloc0(sizeof(if_addr_t));
         if_addr = (if_addr_t *)list->data;
         if (if_addr) {
             temp_addr->ifat_type = if_addr->ifat_type;

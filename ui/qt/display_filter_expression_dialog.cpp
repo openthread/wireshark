@@ -4,20 +4,10 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
+#include <algorithm>
 
 #include "display_filter_expression_dialog.h"
 #include <ui_display_filter_expression_dialog.h>
@@ -29,8 +19,10 @@
 
 #include <wsutil/utf8_entities.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "wireshark_application.h"
+
+#include <ui/qt/utils/variant_pointer.h>
 
 #include <QPushButton>
 #include <QDialogButtonBox>
@@ -55,10 +47,9 @@ enum {
     ge_op_,
     le_op_,
     contains_op_,
-    matches_op_
+    matches_op_,
+    in_op_
 };
-
-Q_DECLARE_METATYPE(header_field_info *)
 
 DisplayFilterExpressionDialog::DisplayFilterExpressionDialog(QWidget *parent) :
     GeometryStateDialog(parent),
@@ -68,9 +59,12 @@ DisplayFilterExpressionDialog::DisplayFilterExpressionDialog(QWidget *parent) :
 {
     ui->setupUi(this);
     if (parent) loadGeometry(parent->width() * 2 / 3, parent->height());
+    setAttribute(Qt::WA_DeleteOnClose, true);
 
     setWindowTitle(wsApp->windowTitleString(tr("Display Filter Expression")));
     setWindowIcon(wsApp->normalIcon());
+
+    proto_initialize_all_prefixes();
 
     ui->fieldTreeWidget->setToolTip(ui->fieldLabel->toolTip());
     ui->searchLineEdit->setToolTip(ui->searchLabel->toolTip());
@@ -78,37 +72,6 @@ DisplayFilterExpressionDialog::DisplayFilterExpressionDialog(QWidget *parent) :
     ui->valueLineEdit->setToolTip(ui->valueLabel->toolTip());
     ui->enumListWidget->setToolTip(ui->enumLabel->toolTip());
     ui->rangeLineEdit->setToolTip(ui->rangeLabel->toolTip());
-
-    // Field tree
-    ui->fieldTreeWidget->setUpdatesEnabled(false);
-    void *proto_cookie;
-    for (int proto_id = proto_get_first_protocol(&proto_cookie); proto_id != -1; proto_id = proto_get_next_protocol(&proto_cookie)) {
-        protocol_t *protocol = find_protocol_by_id(proto_id);
-        if (!proto_is_protocol_enabled(protocol)) continue;
-
-        QTreeWidgetItem *proto_ti = new QTreeWidgetItem(proto_type_);
-        QString label = QString("%1 " UTF8_MIDDLE_DOT " %3")
-                .arg(proto_get_protocol_short_name(protocol))
-                .arg(proto_get_protocol_long_name(protocol));
-        proto_ti->setText(0, label);
-        proto_ti->setData(0, Qt::UserRole, qVariantFromValue(proto_id));
-
-        QList<QTreeWidgetItem *> fti_list;
-        void *field_cookie;
-        for (header_field_info *hfinfo = proto_get_first_protocol_field(proto_id, &field_cookie); hfinfo; hfinfo = proto_get_next_protocol_field(proto_id, &field_cookie)) {
-            if (hfinfo->same_name_prev_id != -1) continue; // Ignore duplicate names.
-
-            QTreeWidgetItem *field_ti = new QTreeWidgetItem(field_type_);
-            label = QString("%1 " UTF8_MIDDLE_DOT " %3").arg(hfinfo->abbrev).arg(hfinfo->name);
-            field_ti->setText(0, label);
-            field_ti->setData(0, Qt::UserRole, qVariantFromValue(hfinfo));
-            fti_list << field_ti;
-        }
-        proto_ti->addChildren(fti_list);
-        ui->fieldTreeWidget->addTopLevelItem(proto_ti);
-    }
-    ui->fieldTreeWidget->sortByColumn(0, Qt::AscendingOrder);
-    ui->fieldTreeWidget->setUpdatesEnabled(true);
 
     // Relation list
     new QListWidgetItem("is present", ui->relationListWidget, present_op_);
@@ -120,6 +83,7 @@ DisplayFilterExpressionDialog::DisplayFilterExpressionDialog(QWidget *parent) :
     new QListWidgetItem("<=", ui->relationListWidget, le_op_);
     new QListWidgetItem("contains", ui->relationListWidget, contains_op_);
     new QListWidgetItem("matches", ui->relationListWidget, matches_op_);
+    new QListWidgetItem("in", ui->relationListWidget, in_op_);
 
     value_label_pfx_ = ui->valueLabel->text();
 
@@ -128,14 +92,67 @@ DisplayFilterExpressionDialog::DisplayFilterExpressionDialog(QWidget *parent) :
 
     // Trigger updateWidgets
     ui->fieldTreeWidget->selectionModel()->clear();
-//    if (ui->fieldTreeWidget->topLevelItemCount() > 0) {
-//        ui->fieldTreeWidget->topLevelItem(0)->setSelected(true);
-//    }
+
+    QTimer::singleShot(0, this, SLOT(fillTree()));
 }
 
 DisplayFilterExpressionDialog::~DisplayFilterExpressionDialog()
 {
     delete ui;
+}
+
+// Nearly identical to SupportedProtocolsDialog::fillTree.
+void DisplayFilterExpressionDialog::fillTree()
+{
+    void *proto_cookie;
+    QList <QTreeWidgetItem *> proto_list;
+
+    for (int proto_id = proto_get_first_protocol(&proto_cookie); proto_id != -1;
+         proto_id = proto_get_next_protocol(&proto_cookie)) {
+        protocol_t *protocol = find_protocol_by_id(proto_id);
+        if (!proto_is_protocol_enabled(protocol)) continue;
+
+        QTreeWidgetItem *proto_ti = new QTreeWidgetItem(proto_type_);
+        QString label = QString("%1 " UTF8_MIDDLE_DOT " %3")
+                .arg(proto_get_protocol_short_name(protocol))
+                .arg(proto_get_protocol_long_name(protocol));
+        proto_ti->setText(0, label);
+        proto_ti->setData(0, Qt::UserRole, QVariant::fromValue(proto_id));
+        proto_list << proto_ti;
+    }
+
+    wsApp->processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers, 1);
+
+    ui->fieldTreeWidget->invisibleRootItem()->addChildren(proto_list);
+    ui->fieldTreeWidget->sortByColumn(0, Qt::AscendingOrder);
+
+    int field_count = 0;
+    foreach (QTreeWidgetItem *proto_ti, proto_list) {
+        void *field_cookie;
+        int proto_id = proto_ti->data(0, Qt::UserRole).toInt();
+
+        QList <QTreeWidgetItem *> field_list;
+        for (header_field_info *hfinfo = proto_get_first_protocol_field(proto_id, &field_cookie); hfinfo != NULL;
+             hfinfo = proto_get_next_protocol_field(proto_id, &field_cookie)) {
+            if (hfinfo->same_name_prev_id != -1) continue; // Ignore duplicate names.
+
+            QTreeWidgetItem *field_ti = new QTreeWidgetItem(field_type_);
+            QString label = QString("%1 " UTF8_MIDDLE_DOT " %3").arg(hfinfo->abbrev).arg(hfinfo->name);
+            field_ti->setText(0, label);
+            field_ti->setData(0, Qt::UserRole, VariantPointer<header_field_info>::asQVariant(hfinfo));
+            field_list << field_ti;
+
+            field_count++;
+            if (field_count % 10000 == 0) {
+                wsApp->processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers, 1);
+            }
+        }
+        std::sort(field_list.begin(), field_list.end());
+        proto_ti->addChildren(field_list);
+    }
+
+    wsApp->processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers, 1);
+    ui->fieldTreeWidget->sortByColumn(0, Qt::AscendingOrder);
 }
 
 void DisplayFilterExpressionDialog::updateWidgets()
@@ -148,10 +165,11 @@ void DisplayFilterExpressionDialog::updateWidgets()
 
     bool value_enable = false;
     bool enum_enable = false;
+    bool enum_multi_enable = false;
     bool range_enable = false;
 
     QString filter;
-    if (field_ && rel_enable) {
+    if (field_) {
         filter = field_;
         QListWidgetItem *rli = ui->relationListWidget->currentItem();
         if (rli && rli->type() != present_op_) {
@@ -163,10 +181,15 @@ void DisplayFilterExpressionDialog::updateWidgets()
             filter.append(QString(" %1").arg(rli->text()));
         }
         if (value_enable && !ui->valueLineEdit->text().isEmpty()) {
-            if (ftype_ == FT_STRING) {
-                filter.append(QString(" \"%1\"").arg(ui->valueLineEdit->text()));
+            if (rli && rli->type() == in_op_) {
+                filter.append(QString(" {%1}").arg(ui->valueLineEdit->text()));
+                enum_multi_enable = enum_enable;
             } else {
-                filter.append(QString(" %1").arg(ui->valueLineEdit->text()));
+                if (ftype_ == FT_STRING) {
+                    filter.append(QString(" \"%1\"").arg(ui->valueLineEdit->text()));
+                } else {
+                    filter.append(QString(" %1").arg(ui->valueLineEdit->text()));
+                }
             }
         }
     }
@@ -176,6 +199,8 @@ void DisplayFilterExpressionDialog::updateWidgets()
 
     ui->enumLabel->setEnabled(enum_enable);
     ui->enumListWidget->setEnabled(enum_enable);
+    ui->enumListWidget->setSelectionMode(enum_multi_enable ?
+        QAbstractItemView::ExtendedSelection : QAbstractItemView::SingleSelection);
 
     ui->rangeLabel->setEnabled(range_enable);
     ui->rangeLineEdit->setEnabled(range_enable);
@@ -268,7 +293,7 @@ void DisplayFilterExpressionDialog::on_fieldTreeWidget_itemSelectionChanged()
         ftype_ = FT_PROTOCOL;
         field_ = proto_get_protocol_filter_name(cur_fti->data(0, Qt::UserRole).toInt());
     } else if (cur_fti && cur_fti->type() == field_type_) {
-        header_field_info *hfinfo = cur_fti->data(0, Qt::UserRole).value<header_field_info*>();
+        header_field_info *hfinfo = VariantPointer<header_field_info>::asPtr(cur_fti->data(0, Qt::UserRole));
         if (hfinfo) {
             ftype_ = hfinfo->type;
             field_ = hfinfo->abbrev;
@@ -311,7 +336,7 @@ void DisplayFilterExpressionDialog::on_fieldTreeWidget_itemSelectionChanged()
                     } else { // Plain old value_string / VALS
                         const value_string *vals = (const value_string *)hfinfo->strings;
                         if (hfinfo->display & BASE_EXT_STRING)
-                            vals = VALUE_STRING_EXT_VS_P((value_string_ext *)vals);
+                            vals = VALUE_STRING_EXT_VS_P((const value_string_ext *)vals);
                         fillEnumIntValues(vals, base);
                     }
                 }
@@ -331,6 +356,7 @@ void DisplayFilterExpressionDialog::on_fieldTreeWidget_itemSelectionChanged()
         QListWidgetItem *li = ui->relationListWidget->item(i);
         switch (li->type()) {
         case eq_op_:
+        case in_op_:
             li->setHidden(!ftype_can_eq(ftype_) && !(ftype_can_slice(ftype_) && ftype_can_eq(FT_BYTES)));
             break;
         case ne_op_:
@@ -383,15 +409,23 @@ void DisplayFilterExpressionDialog::on_relationListWidget_itemSelectionChanged()
 
 void DisplayFilterExpressionDialog::on_enumListWidget_itemSelectionChanged()
 {
-    if (ui->enumListWidget->selectedItems().count() > 0) {
-        QListWidgetItem *eli = ui->enumListWidget->selectedItems()[0];
-        ui->valueLineEdit->setText(eli->data(Qt::UserRole).toString());
+    QStringList values;
+    QList<QListWidgetItem *> items = ui->enumListWidget->selectedItems();
+    QList<QListWidgetItem *>::const_iterator it = items.constBegin();
+    while (it != items.constEnd())
+    {
+        values << (*it)->data(Qt::UserRole).toString();
+        ++it;
     }
+
+    ui->valueLineEdit->setText(values.join(" "));
+
     updateWidgets();
 }
 
 void DisplayFilterExpressionDialog::on_searchLineEdit_textChanged(const QString &search_re)
 {
+    ui->fieldTreeWidget->setUpdatesEnabled(false);
     QTreeWidgetItemIterator it(ui->fieldTreeWidget);
     QRegExp regex(search_re, Qt::CaseInsensitive);
     while (*it) {
@@ -405,6 +439,7 @@ void DisplayFilterExpressionDialog::on_searchLineEdit_textChanged(const QString 
         (*it)->setHidden(hidden);
         ++it;
     }
+    ui->fieldTreeWidget->setUpdatesEnabled(true);
 }
 
 void DisplayFilterExpressionDialog::on_buttonBox_accepted()

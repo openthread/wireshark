@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,8 +18,7 @@
 void proto_reg_handoff_adwin(void);
 void proto_register_adwin(void);
 
-/* This is registered to a different protocol */
-#define ADWIN_COMM_PORT 6543
+#define ADWIN_COMM_PORT 6543 /* Not IANA registered */
 
 /* lengths of valid packet structures */
 #define UDPH1_OLD_LENGTH              52
@@ -442,7 +429,6 @@ static value_string_ext packet_type_mapping_ext = VALUE_STRING_EXT_INIT(packet_t
 /* Initialize the protocol and registered fields */
 static int proto_adwin                = -1;
 
-static unsigned int global_adwin_udp_port = ADWIN_COMM_PORT;
 static int global_adwin_dissect_data  = 1;
 
 static int hf_adwin_address           = -1;
@@ -1103,17 +1089,12 @@ dissect_adwin(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "ADwin");
 	col_clear(pinfo->cinfo, COL_INFO);
 
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_adwin, tvb, 0, -1, ENC_NA);
-		adwin_tree = proto_item_add_subtree(ti, ett_adwin);
+	ti = proto_tree_add_item(tree, proto_adwin, tvb, 0, -1, ENC_NA);
+	adwin_tree = proto_item_add_subtree(ti, ett_adwin);
 
-		ti2 = proto_tree_add_item(adwin_tree, proto_adwin, tvb, 0, -1, ENC_NA);
-		adwin_debug_tree = proto_item_add_subtree(ti2, ett_adwin_debug);
-		proto_item_set_text(ti2, "ADwin Debug information");
-	} else {
-		adwin_tree = NULL;
-		adwin_debug_tree = NULL;
-	}
+	ti2 = proto_tree_add_item(adwin_tree, proto_adwin, tvb, 0, -1, ENC_NA);
+	adwin_debug_tree = proto_item_add_subtree(ti2, ett_adwin_debug);
+	proto_item_set_text(ti2, "ADwin Debug information");
 
 	switch (length) {
 	case UDPH1_OLD_LENGTH:
@@ -1162,19 +1143,10 @@ dissect_adwin(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 void
 proto_reg_handoff_adwin(void)
 {
-	static int adwin_prefs_initialized = FALSE;
-	static dissector_handle_t adwin_handle;
-	static unsigned int udp_port;
+	dissector_handle_t adwin_handle;
 
-	if (! adwin_prefs_initialized) {
-		adwin_handle = create_dissector_handle(dissect_adwin, proto_adwin);
-		adwin_prefs_initialized = TRUE;
-	} else {
-		dissector_delete_uint("udp.port", udp_port, adwin_handle);
-	}
-
-	udp_port = global_adwin_udp_port;
-	dissector_add_uint("udp.port", global_adwin_udp_port, adwin_handle);
+	adwin_handle = create_dissector_handle(dissect_adwin, proto_adwin);
+	dissector_add_uint_with_preference("udp.port", ADWIN_COMM_PORT, adwin_handle);
 }
 
 void
@@ -1439,14 +1411,8 @@ proto_register_adwin(void)
 	proto_register_field_array(proto_adwin, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	/* Register our configuration options for ADwin, particularly
-	   our port */
-	adwin_module = prefs_register_protocol(proto_adwin, proto_reg_handoff_adwin);
-
-	prefs_register_uint_preference(adwin_module, "udp.port", "ADwin UDP Port",
-				       "Set the UDP port for ADwin packets (if other"
-				       " than the default of 6543)",
-				       10, &global_adwin_udp_port);
+	/* Register our configuration options for ADwin */
+	adwin_module = prefs_register_protocol(proto_adwin, NULL);
 
 	prefs_register_bool_preference(adwin_module, "dissect_data",
 				       "Dissect Data sections",

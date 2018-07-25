@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *
  * References to source files point in general to the glusterfs sources.
@@ -55,14 +43,16 @@ static gint hf_gluster_hndsk_spec = -1;		/* GETSPEC Reply */
 static gint hf_gluster_hndsk_key = -1;		/* GETSPEC Call */
 static gint hf_gluster_hndsk_event_op = -1;	/* EVENT NOTIFY call */
 static gint hf_gluster_hndsk_uid = -1;		/* LOCK VERSION*/
+static gint hf_gluster_hndsk_op_errstr = -1;	/* GETVOLUMEINFO */
 static gint hf_gluster_hndsk_lk_ver= -1;
 static gint hf_gluster_hndsk_flags = -1;
 
 /* Initialize the subtree pointers */
 static gint ett_gluster_cbk = -1;
+static gint ett_gluster_cbk_flags = -1;
 static gint ett_gluster_hndsk = -1;
 
-/* CBK_CACHE_INVALIDATION */
+/* upcall, used for cache-invalidation etc. */
 static gint hf_gluster_cbk_gfid = -1;
 static gint hf_gluster_cbk_upcall_event_type = -1;
 static gint hf_gluster_cbk_ci_flags = -1;
@@ -72,10 +62,24 @@ static gint hf_gluster_cbk_ci_parent_stat = -1;
 static gint hf_gluster_cbk_ci_oldparent_stat = -1;
 static gint hf_gluster_cbk_xdata = -1;
 
+/* flags for upcall */
+static gint hg_gluster_cbk_upcall_flag_nlink = -1;
+static gint hg_gluster_cbk_upcall_flag_mode = -1;
+static gint hg_gluster_cbk_upcall_flag_own = -1;
+static gint hg_gluster_cbk_upcall_flag_size = -1;
+static gint hg_gluster_cbk_upcall_flag_times = -1;
+static gint hg_gluster_cbk_upcall_flag_atime = -1;
+static gint hg_gluster_cbk_upcall_flag_perm = -1;
+static gint hg_gluster_cbk_upcall_flag_rename = -1;
+static gint hg_gluster_cbk_upcall_flag_forget = -1;
+static gint hg_gluster_cbk_upcall_flag_parent_times = -1;
+static gint hg_gluster_cbk_upcall_flag_xattr = -1;
+static gint hg_gluster_cbk_upcall_flag_xattr_rm = -1;
+
 /* procedures for GLUSTER_HNDSK_PROGRAM */
 static int
 gluster_hndsk_setvolume_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
@@ -93,7 +97,7 @@ gluster_hndsk_setvolume_call(tvbuff_t *tvb,
 
 static int
 gluster_hndsk_2_setvolume_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
@@ -111,7 +115,7 @@ gluster_hndsk_2_setvolume_call(tvbuff_t *tvb,
 
 static int
 gluster_hndsk_2_getspec_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
@@ -140,7 +144,7 @@ gluster_hndsk_2_getspec_call(tvbuff_t *tvb,
 
 static int
 gluster_hndsk_2_set_lk_ver_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
@@ -177,12 +181,60 @@ gluster_hndsk_2_event_notify_call(tvbuff_t *tvb,
 
 static int
 gluster_hndsk_2_event_notify_reply(tvbuff_t *tvb,
-					packet_info *pinfo, proto_tree *tree, void* data _U_)
+					packet_info *pinfo, proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
 	offset = gluster_rpc_dissect_dict(tree, tvb, hf_gluster_hndsk_dict,
 								offset);
+	return offset;
+}
+
+static int
+gluster_hndsk_2_get_volume_info_call(tvbuff_t *tvb, packet_info *pinfo _U_,
+                                     proto_tree *tree, void* data _U_)
+{
+	return gluster_rpc_dissect_dict(tree, tvb, hf_gluster_hndsk_dict, 0);
+}
+
+static int
+gluster_hndsk_2_get_volume_info_reply(tvbuff_t *tvb, packet_info *pinfo,
+                                      proto_tree *tree, void* data)
+{
+	int offset = 0;
+	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
+	offset = dissect_rpc_string(tvb, tree, hf_gluster_hndsk_op_errstr, offset,
+				    NULL);
+	offset = gluster_rpc_dissect_dict(tree, tvb, hf_gluster_hndsk_dict,
+					  offset);
+	return offset;
+}
+
+static int
+glusterfs_rpc_dissect_upcall_flags(proto_tree *tree, tvbuff_t *tvb, int offset)
+{
+	static const int *flag_bits[] = {
+		&hg_gluster_cbk_upcall_flag_nlink,
+		&hg_gluster_cbk_upcall_flag_mode,
+		&hg_gluster_cbk_upcall_flag_own,
+		&hg_gluster_cbk_upcall_flag_size,
+		&hg_gluster_cbk_upcall_flag_times,
+		&hg_gluster_cbk_upcall_flag_atime,
+		&hg_gluster_cbk_upcall_flag_perm,
+		&hg_gluster_cbk_upcall_flag_rename,
+		&hg_gluster_cbk_upcall_flag_forget,
+		&hg_gluster_cbk_upcall_flag_parent_times,
+		&hg_gluster_cbk_upcall_flag_xattr,
+		&hg_gluster_cbk_upcall_flag_xattr_rm,
+		NULL
+	};
+
+	if (tree)
+		proto_tree_add_bitmask(tree, tvb, offset,
+			hf_gluster_cbk_ci_flags, ett_gluster_cbk_flags,
+			flag_bits, ENC_BIG_ENDIAN);
+
+	offset += 4;
 	return offset;
 }
 
@@ -195,7 +247,7 @@ gluster_cbk_cache_invalidation_call(tvbuff_t *tvb,
 
 	offset = dissect_rpc_string(tvb, tree, hf_gluster_cbk_gfid, offset, NULL);
 	offset = dissect_rpc_uint32(tvb, tree, hf_gluster_cbk_upcall_event_type, offset);
-	offset = dissect_rpc_uint32(tvb, tree, hf_gluster_cbk_ci_flags, offset);
+	offset = glusterfs_rpc_dissect_upcall_flags(tree, tvb, offset);
 	offset = dissect_rpc_uint32(tvb, tree, hf_gluster_cbk_ci_expire_time_attr, offset);
 	offset = glusterfs_rpc_dissect_gf_iatt(tree, tvb,
 					hf_gluster_cbk_ci_stat, offset);
@@ -209,7 +261,7 @@ gluster_cbk_cache_invalidation_call(tvbuff_t *tvb,
 
 static int
 gluster_hndsk_dissect_common_reply(tvbuff_t *tvb,
-					packet_info *pinfo, proto_tree *tree, void* data _U_)
+					packet_info *pinfo, proto_tree *tree, void* data)
 {
 	return gluster_dissect_common_reply(tvb, 0, pinfo, tree, data);
 }
@@ -257,6 +309,11 @@ static const vsff gluster_hndsk_2_proc[] = {
 		gluster_hndsk_2_event_notify_call,
 		gluster_hndsk_2_event_notify_reply
 	},
+	{
+		GF_HNDSK_GET_VOLUME_INFO, "GETVOLUMEINFO",
+		gluster_hndsk_2_get_volume_info_call,
+		gluster_hndsk_2_get_volume_info_reply
+	},
 	{ 0, NULL, NULL, NULL }
 };
 
@@ -274,6 +331,7 @@ static const value_string gluster_hndsk_proc_vals[] = {
 	{ GF_HNDSK_PING,         "PING" },
 	{ GF_HNDSK_SET_LK_VER,   "LOCK VERSION" },
 	{ GF_HNDSK_EVENT_NOTIFY, "EVENTNOTIFY" },
+	{ GF_HNDSK_GET_VOLUME_INFO, "GETVOLUMEINFO" },
 	{ 0, NULL }
 };
 
@@ -317,6 +375,11 @@ proto_register_gluster_hndsk(void)
 		{ &hf_gluster_hndsk_flags,
 			{ "Flags", "glusterfs.hndsk.flags", FT_UINT32, BASE_OCT,
 				NULL, 0, NULL, HFILL }
+		},
+		/* For handshake getvolumeinfo */
+		{ &hf_gluster_hndsk_op_errstr,
+			{ "Op Errstr", "glusterfs.hndsk.getvolumeinfo.op_errstr", FT_STRING,
+				BASE_NONE, NULL, 0, NULL, HFILL }
 		}
 	};
 
@@ -398,7 +461,7 @@ proto_register_gluster_cbk(void)
 		},
 		{ &hf_gluster_cbk_ci_expire_time_attr,
 			{ "Expire Time Attr", "glusterfs.cbk.cache_invalidation.expire_time_attr",
-				FT_UINT32, BASE_OCT, NULL, 0, NULL, HFILL }
+				FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }
 		},
 		{ &hf_gluster_cbk_ci_stat,
 			{ "Stat", "glusterfs.cbk.cache_invalidation.stat", FT_NONE, BASE_NONE, NULL,
@@ -416,11 +479,74 @@ proto_register_gluster_cbk(void)
 			{ "Xdata", "glusterfs.cbk.xdata", FT_STRING, BASE_NONE,
 				NULL, 0, NULL, HFILL }
 		},
+
+		/* upcall flags from libglusterfs/src/upcall-utils.h */
+		{ &hg_gluster_cbk_upcall_flag_nlink,
+			{ "NLINK", "glusterfs.cbk.cache_invalidation.flag.nlink",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000001,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_mode,
+			{ "MODE", "glusterfs.cbk.cache_invalidation.flag.mode",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000002,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_own,
+			{ "OWN", "glusterfs.cbk.cache_invalidation.flag.own",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000004,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_size,
+			{ "SIZE", "glusterfs.cbk.cache_invalidation.flag.size",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000008,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_times,
+			{ "TIMES", "glusterfs.cbk.cache_invalidation.flag.times",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000010,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_atime,
+			{ "ATIME", "glusterfs.cbk.cache_invalidation.flag.atime",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000020,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_perm,
+			{ "PERM", "glusterfs.cbk.cache_invalidation.flag.perm",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000040,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_rename,
+			{ "RENAME", "glusterfs.cbk.cache_invalidation.flag.rename",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000080,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_forget,
+			{ "FORGET", "glusterfs.cbk.cache_invalidation.flag.forget",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000100,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_parent_times,
+			{ "PARENT_TIMES", "glusterfs.cbk.cache_invalidation.flag.parent_times",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000200,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_xattr,
+			{ "XATTR", "glusterfs.cbk.cache_invalidation.flag.xattr",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000400,
+				NULL, HFILL }
+		},
+		{ &hg_gluster_cbk_upcall_flag_xattr_rm,
+			{ "XATTR_RM", "glusterfs.cbk.cache_invalidation.flag.xattr_rm",
+				FT_BOOLEAN, 32, TFS(&tfs_set_notset), 0x00000800,
+				NULL, HFILL }
+		},
 	};
 
 	/* Setup protocol subtree array */
 	static gint *ett[] = {
-		&ett_gluster_cbk
+		&ett_gluster_cbk,
+		&ett_gluster_cbk_flags
 	};
 
 	/* Register the protocol name and description */

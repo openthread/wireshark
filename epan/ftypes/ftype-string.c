@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -66,11 +54,11 @@ string_repr_len(fvalue_t *fv, ftrepr_t rtype, int field_display _U_)
 }
 
 static void
-string_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *buf)
+string_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *buf, unsigned int size)
 {
 	switch (rtype) {
 		case FTREPR_DISPLAY:
-			strcpy(buf, fv->value.string);
+			g_strlcpy(buf, fv->value.string, size);
 			return;
 
 		case FTREPR_DFILTER:
@@ -240,24 +228,8 @@ ftype_register_string(void)
 		string_to_repr,			/* val_to_string_repr */
 		string_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		string_fvalue_set_string,       /* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_string = string_fvalue_set_string },	/* union set_value */
+		{ .get_value_ptr = value_get },	/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -284,24 +256,8 @@ ftype_register_string(void)
 		string_to_repr,			/* val_to_string_repr */
 		string_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		string_fvalue_set_string,       /* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_string = string_fvalue_set_string },	/* union set_value */
+		{ .get_value_ptr = value_get },	/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -328,24 +284,8 @@ ftype_register_string(void)
 		string_to_repr,			/* val_to_string_repr */
 		string_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		string_fvalue_set_string,       /* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_string = string_fvalue_set_string },	/* union set_value */
+		{ .get_value_ptr = value_get },	/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -372,24 +312,8 @@ ftype_register_string(void)
 		string_to_repr,			/* val_to_string_repr */
 		string_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		string_fvalue_set_string,       /* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_string = string_fvalue_set_string },	/* union set_value */
+		{ .get_value_ptr = value_get },	/* union get_value */
 
 		cmp_eq,
 		cmp_ne,

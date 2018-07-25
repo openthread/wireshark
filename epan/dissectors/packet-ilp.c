@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * ref OMA-TS-ILP-V2_0_1-20121205-A
  * http://www.openmobilealliance.org
@@ -52,11 +40,13 @@ void proto_register_ilp(void);
 
 static dissector_handle_t rrlp_handle;
 static dissector_handle_t lpp_handle;
+static dissector_handle_t ilp_handle;
+
 
 /* IANA Registered Ports
  * oma-ilp         7276/tcp    OMA Internal Location
  */
-static guint gbl_ilp_port = 7276;
+#define ILP_TCP_PORT    7276
 
 /* Initialize the protocol and registered fields */
 static int proto_ilp = -1;
@@ -452,7 +442,7 @@ static int hf_ilp_GANSSSignals_signal7 = -1;
 static int hf_ilp_GANSSSignals_signal8 = -1;
 
 /*--- End of included file: packet-ilp-hf.c ---*/
-#line 62 "./asn1/ilp/packet-ilp-template.c"
+#line 52 "./asn1/ilp/packet-ilp-template.c"
 static int hf_ilp_mobile_directory_number = -1;
 
 /* Initialize the subtree pointers */
@@ -598,7 +588,7 @@ static gint ett_ilp_T_lPPPayload = -1;
 static gint ett_ilp_T_tia801Payload = -1;
 
 /*--- End of included file: packet-ilp-ett.c ---*/
-#line 68 "./asn1/ilp/packet-ilp-template.c"
+#line 58 "./asn1/ilp/packet-ilp-template.c"
 
 /* Include constants */
 
@@ -615,7 +605,7 @@ static gint ett_ilp_T_tia801Payload = -1;
 #define maxPosSize                     1024
 
 /*--- End of included file: packet-ilp-val.h ---*/
-#line 71 "./asn1/ilp/packet-ilp-template.c"
+#line 61 "./asn1/ilp/packet-ilp-template.c"
 
 
 
@@ -4145,7 +4135,7 @@ static int dissect_ILP_PDU_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_
 
 
 /*--- End of included file: packet-ilp-fn.c ---*/
-#line 74 "./asn1/ilp/packet-ilp-template.c"
+#line 64 "./asn1/ilp/packet-ilp-template.c"
 
 
 static guint
@@ -5696,7 +5686,7 @@ void proto_register_ilp(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-ilp-hfarr.c ---*/
-#line 100 "./asn1/ilp/packet-ilp-template.c"
+#line 90 "./asn1/ilp/packet-ilp-template.c"
     { &hf_ilp_mobile_directory_number,
       { "Mobile Directory Number", "ilp.mobile_directory_number",
         FT_STRING, BASE_NONE, NULL, 0,
@@ -5847,7 +5837,7 @@ void proto_register_ilp(void) {
     &ett_ilp_T_tia801Payload,
 
 /*--- End of included file: packet-ilp-ettarr.c ---*/
-#line 111 "./asn1/ilp/packet-ilp-template.c"
+#line 101 "./asn1/ilp/packet-ilp-template.c"
   };
 
   module_t *ilp_module;
@@ -5855,27 +5845,19 @@ void proto_register_ilp(void) {
 
   /* Register protocol */
   proto_ilp = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  register_dissector("ilp", dissect_ilp_tcp, proto_ilp);
+  ilp_handle = register_dissector("ilp", dissect_ilp_tcp, proto_ilp);
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_ilp, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  ilp_module = prefs_register_protocol(proto_ilp,proto_reg_handoff_ilp);
+  ilp_module = prefs_register_protocol(proto_ilp, NULL);
 
   prefs_register_bool_preference(ilp_module, "desegment_ilp_messages",
         "Reassemble ILP messages spanning multiple TCP segments",
         "Whether the ILP dissector should reassemble messages spanning multiple TCP segments."
         " To use this option, you must also enable \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
         &ilp_desegment);
-
-  /* Register a configuration option for port */
-  prefs_register_uint_preference(ilp_module, "tcp.port",
-                                 "ILP TCP Port",
-                                 "Set the TCP port for ILP messages(IANA registered port is 7276)",
-                                 10,
-                                 &gbl_ilp_port);
-
 }
 
 
@@ -5883,20 +5865,9 @@ void proto_register_ilp(void) {
 void
 proto_reg_handoff_ilp(void)
 {
-  static gboolean initialized = FALSE;
-  static dissector_handle_t ilp_handle;
-  static guint local_ilp_port;
+  dissector_add_string("media_type","application/oma-supl-ilp", ilp_handle);
+  rrlp_handle = find_dissector_add_dependency("rrlp", proto_ilp);
+  lpp_handle = find_dissector_add_dependency("lpp", proto_ilp);
 
-  if (!initialized) {
-    ilp_handle = find_dissector_add_dependency("ilp", proto_ilp);
-    dissector_add_string("media_type","application/oma-supl-ilp", ilp_handle);
-    rrlp_handle = find_dissector_add_dependency("rrlp", proto_ilp);
-    lpp_handle = find_dissector_add_dependency("lpp", proto_ilp);
-    initialized = TRUE;
-  } else {
-    dissector_delete_uint("tcp.port", local_ilp_port, ilp_handle);
-  }
-
-  local_ilp_port = gbl_ilp_port;
-  dissector_add_uint("tcp.port", gbl_ilp_port, ilp_handle);
+  dissector_add_uint_with_preference("tcp.port", ILP_TCP_PORT, ilp_handle);
 }

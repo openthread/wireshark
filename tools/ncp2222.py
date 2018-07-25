@@ -2968,7 +2968,7 @@ NDSRequestFlags                 = bitfield16("nds_request_flags", "NDS Request F
         bf_boolean16(0x0800, "nds_request_flags_dn_ref", "Down Referral"),
 ])
 NDSStatus                       = uint32("nds_status", "NDS Status")
-NetBIOSBroadcastWasPropogated   = uint32("netbios_broadcast_was_propogated", "NetBIOS Broadcast Was Propogated")
+NetBIOSBroadcastWasPropagated   = uint32("netbios_broadcast_was_propagated", "NetBIOS Broadcast Was Propagated")
 NetIDNumber                     = uint32("net_id_number", "Net ID Number")
 NetIDNumber.Display("BASE_HEX")
 NetAddress                      = nbytes32("address", "Address")
@@ -5866,19 +5866,7 @@ def produce_code():
  * Portions Copyright (c) Gilbert Ramirez 2000-2002
  * Portions Copyright (c) Novell, Inc. 2000-2005
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -5902,8 +5890,6 @@ def produce_code():
 
 /* Function declarations for functions used in proto_register_ncp2222() */
 void proto_register_ncp2222(void);
-static void ncp_init_protocol(void);
-static void ncp_postseq_cleanup(void);
 
 /* Endianness macros */
 #define NO_ENDIANNESS   0
@@ -8527,7 +8513,14 @@ proto_register_ncp2222(void)
     expert_ncp = expert_register_protocol(proto_ncp);
     expert_register_field_array(expert_ncp, ei, array_length(ei));
     register_init_routine(&ncp_init_protocol);
-    register_postseq_cleanup_routine(&ncp_postseq_cleanup);""")
+    /* fragment */
+    reassembly_table_register(&nds_reassembly_table,
+                          &addresses_reassembly_table_functions);
+
+    ncp_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), ncp_hash, ncp_equal);
+    ncp_req_eid_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), ncp_eid_hash, ncp_eid_equal);
+
+    """)
 
     # End of proto_register_ncp2222()
     print("}")
@@ -11332,7 +11325,7 @@ def define_ncp2222():
             rec( 56, 2, IncomingPacketDiscardedNoDGroup ),
             rec( 58, 2, OutgoingPacketDiscardedNoTurboBuffer ),
             rec( 60, 2, IPXNotMyNetwork ),
-            rec( 62, 4, NetBIOSBroadcastWasPropogated ),
+            rec( 62, 4, NetBIOSBroadcastWasPropagated ),
             rec( 66, 4, TotalOtherPackets ),
             rec( 70, 4, TotalRoutedPackets ),
      ])

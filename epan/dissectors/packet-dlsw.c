@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* DLSw dissector ( RFC 1434, RFC 1795, RFC 2166) */
@@ -394,7 +382,7 @@ dissect_dlsw_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
   switch (mtype)
   {
     case CAP_EXCHANGE:
-      dissect_dlsw_capex(tvb_new_subset(tvb, hlen, mlen, -1), pinfo, dlsw_data_tree, ti2);
+      dissect_dlsw_capex(tvb_new_subset_length_caplen(tvb, hlen, mlen, -1), pinfo, dlsw_data_tree, ti2);
       break;
     case IFCM:
     case INFOFRAME:
@@ -686,10 +674,10 @@ proto_reg_handoff_dlsw(void)
   dissector_handle_t dlsw_udp_handle, dlsw_tcp_handle;
 
   dlsw_udp_handle = create_dissector_handle(dissect_dlsw_udp, proto_dlsw);
-  dissector_add_uint("udp.port", UDP_PORT_DLSW, dlsw_udp_handle);
+  dissector_add_uint_with_preference("udp.port", UDP_PORT_DLSW, dlsw_udp_handle);
 
   dlsw_tcp_handle = create_dissector_handle(dissect_dlsw_tcp, proto_dlsw);
-  dissector_add_uint("tcp.port", TCP_PORT_DLSW, dlsw_tcp_handle);
+  dissector_add_uint_with_preference("tcp.port", TCP_PORT_DLSW, dlsw_tcp_handle);
 }
 
 /*

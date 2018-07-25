@@ -10,24 +10,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/prefs.h>
+#include <epan/expert.h>
 #include <epan/in_cksum.h>
 
 #define CATTP_SHORTNAME "CAT-TP"
@@ -87,6 +76,7 @@ static int hf_cattp_seq = -1;
 static int hf_cattp_ack = -1;
 static int hf_cattp_windowsize = -1;
 static int hf_cattp_checksum = -1;
+static int hf_cattp_checksum_status = -1;
 static int hf_cattp_identification = -1;
 static int hf_cattp_iccid = -1;
 static int hf_cattp_idlen = -1;
@@ -95,6 +85,8 @@ static int hf_cattp_maxsdu = -1;
 static int hf_cattp_rc = -1;
 static int hf_cattp_eaklen = -1;
 static int hf_cattp_eaks = -1;
+
+static expert_field ei_cattp_checksum = EI_INIT;
 
 /* Preference to control whether to check the CATTP checksum */
 static gboolean cattp_check_checksum = TRUE;
@@ -111,6 +103,8 @@ static const value_string cattp_reset_reason[] = {
     { 7, "RFU" },
     { 0, NULL }
 };
+
+static const unit_name_string units_pdu = { "PDU", "PDUs" };
 
 /* Forward declartion due to use of heuristic dissection preference. */
 void proto_reg_handoff_cattp(void);
@@ -177,8 +171,7 @@ dissect_cattp_eakpdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *cattp_tree, 
     guint8      eak_count;
 
     eak_count = (hlen - offset) >> 1;
-    eaki = proto_tree_add_uint_format_value(cattp_tree, hf_cattp_eaklen, tvb, offset, eak_count * 2,
-                                            eak_count, "%u PDUs", eak_count);
+    eaki = proto_tree_add_uint(cattp_tree, hf_cattp_eaklen, tvb, offset, eak_count * 2, eak_count);
 
     if (eak_count > 0) {
         proto_item *eak_tree;
@@ -218,12 +211,11 @@ dissect_cattp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     const char *pdutype = "[Unknown PDU]";
     proto_item *ti, *cattp_tree;
     guint32     offset;
-    gushort     computed_chksum;
     vec_t       cksum_vec[1];
     int         header_offset;
     guint       cksum_data_len;
     guint8      flags, first_byte, hlen, ver;
-    guint16     plen, chksum, ackno, seqno, wsize, sport, dport;
+    guint16     plen, ackno, seqno, wsize, sport, dport;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, CATTP_SHORTNAME);
 
@@ -294,28 +286,17 @@ dissect_cattp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     /* Parse and verify checksum */
     header_offset  = 0;
     cksum_data_len = hlen + plen;
-    chksum = tvb_get_ntohs(tvb, offset);
     if (!cattp_check_checksum) {
         /* We have turned checksum checking off; we do NOT checksum it. */
-        proto_tree_add_uint_format_value(cattp_tree, hf_cattp_checksum, tvb, offset, 2,
-                                         chksum, "0x%X [validation disabled]", chksum);
+        proto_tree_add_checksum(cattp_tree, tvb, offset, hf_cattp_checksum, hf_cattp_checksum_status, &ei_cattp_checksum,
+                                pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     } else {
         /* We haven't turned checksum checking off; checksum it. */
 
         /* Unlike TCP, CATTP does not make use of a pseudo-header for checksum */
         SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, header_offset, cksum_data_len);
-        computed_chksum = in_cksum(cksum_vec, 1);
-
-        if (computed_chksum == 0) {
-            /* Checksum is valid */
-            proto_tree_add_uint_format_value(cattp_tree, hf_cattp_checksum, tvb, offset, 2,
-                                             chksum, "0x%X [validated]", chksum);
-        } else {
-            /* Checksum is invalid. Let's compute the expected checksum, based on the data we have */
-            proto_tree_add_uint_format_value(cattp_tree, hf_cattp_checksum, tvb, offset, 2, chksum,
-                                             "0x%X [incorrect, correct: 0x%X]", chksum,
-                                             in_cksum_shouldbe(chksum, computed_chksum));
-        }
+        proto_tree_add_checksum(cattp_tree, tvb, offset, hf_cattp_checksum, hf_cattp_checksum_status, &ei_cattp_checksum,
+                                pinfo, in_cksum(cksum_vec, 1), ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
     } /* End of checksum code */
     offset += 2;
 
@@ -478,6 +459,13 @@ proto_register_cattp(void)
             }
         },
         {
+            &hf_cattp_checksum_status,
+            {
+                "Checksum Status", "cattp.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+                NULL, HFILL
+            }
+        },
+        {
             &hf_cattp_identification,
             {
                 "Identification", "cattp.identification", FT_BYTES, BASE_NONE, NULL, 0x0,
@@ -529,7 +517,7 @@ proto_register_cattp(void)
         {
             &hf_cattp_eaklen,
             {
-                "Extended Acknowledgement Numbers", "cattp.eaks", FT_UINT16, BASE_DEC, NULL, 0x0,
+                "Extended Acknowledgement Numbers", "cattp.eaks", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_pdu, 0x0,
                 NULL, HFILL
             }
         }
@@ -543,7 +531,12 @@ proto_register_cattp(void)
         &ett_cattp_eaks
     };
 
+    static ei_register_info ei[] = {
+        { &ei_cattp_checksum, { "cattp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+    };
+
     module_t *cattp_module;
+    expert_module_t* expert_cattp;
 
     proto_cattp = proto_register_protocol (
                       "ETSI Card Application Toolkit Transport Protocol",    /* name */
@@ -553,8 +546,10 @@ proto_register_cattp(void)
 
     proto_register_field_array(proto_cattp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_cattp = expert_register_protocol(proto_cattp);
+    expert_register_field_array(expert_cattp, ei, array_length(ei));
 
-    cattp_module = prefs_register_protocol(proto_cattp, proto_reg_handoff_cattp);
+    cattp_module = prefs_register_protocol(proto_cattp, NULL);
     prefs_register_bool_preference(cattp_module, "checksum",
                                    "Validate checksum of all messages",
                                    "Whether the checksum of all messages should be validated or not",
@@ -567,18 +562,13 @@ proto_register_cattp(void)
 void
 proto_reg_handoff_cattp(void)
 {
-    static gboolean initialized = FALSE;
+    dissector_handle_t cattp_handle;
 
-    if (!initialized) {
-        dissector_handle_t cattp_handle;
+    /* Create dissector handle */
+    cattp_handle = create_dissector_handle(dissect_cattp, proto_cattp);
 
-        /* Create dissector handle */
-        cattp_handle = create_dissector_handle(dissect_cattp, proto_cattp);
-
-        heur_dissector_add("udp", dissect_cattp_heur, "CAT-TP over UDP", "cattp_udp", proto_cattp, HEURISTIC_ENABLE);
-        dissector_add_for_decode_as("udp.port", cattp_handle);
-        initialized = TRUE;
-    }
+    heur_dissector_add("udp", dissect_cattp_heur, "CAT-TP over UDP", "cattp_udp", proto_cattp, HEURISTIC_ENABLE);
+    dissector_add_for_decode_as_with_preference("udp.port", cattp_handle);
 }
 
 /*

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -95,6 +83,7 @@ static int hf_llcgprs_tom_rl 	  = -1;
 static int hf_llcgprs_tom_pd 	  = -1;
 static int hf_llcgprs_tom_header  = -1;
 static int hf_llcgprs_tom_data 	  = -1;
+static int hf_llcgprs_dummy_ui 	  = -1;
 
 /* Unnumbered Commands and Responses (U Frames) */
 #define U_DM	0x01
@@ -125,6 +114,7 @@ static gint ett_llcgprs_sframe = -1;
 static expert_field ei_llcgprs_no_info_field = EI_INIT;
 
 static dissector_handle_t sndcp_xid_handle;
+static dissector_handle_t gprs_llc_handle;
 
 static gboolean ignore_cipher_bit = FALSE;
 
@@ -450,6 +440,8 @@ llc_gprs_dissect_xid(tvbuff_t *tvb, packet_info *pinfo, proto_item *llcgprs_tree
 	}
 }
 
+/* shortest dummy UI command as per TS 44.064 Section 6.4.2.2 */
+static const guint8 dummy_ui_cmd[] = { 0x43, 0xc0, 0x01, 0x2b, 0x2b, 0x2b };
 
 static int
 dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
@@ -472,6 +464,12 @@ dissect_llcgprs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 	guint info_len;
 	proto_tree *uinfo_tree = NULL;
 	gboolean ciphered_ui_frame = FALSE;
+
+	if (!tvb_memeql(tvb, 0, dummy_ui_cmd, sizeof(dummy_ui_cmd))) {
+		proto_tree_add_boolean(tree, hf_llcgprs_dummy_ui, tvb, offset,
+					tvb_captured_length(tvb), TRUE);
+		return tvb_captured_length(tvb);
+	}
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "GPRS-LLC");
 
@@ -1304,6 +1302,10 @@ proto_register_llcgprs(void)
 		{ &hf_llcgprs_tom_data,
 		  { "TOM Message Capsule Byte", "llcgprs.tomdata", FT_UINT8, BASE_HEX,
 		    NULL, 0xFF, "tdb", HFILL }},
+
+		{ &hf_llcgprs_dummy_ui,
+		  { "Dummy UI Command", "llcgprs.dummy_ui", FT_BOOLEAN, BASE_NONE,
+		    NULL, 0x00, NULL, HFILL }},
 	};
 
 /* Setup protocol subtree array */
@@ -1325,14 +1327,14 @@ proto_register_llcgprs(void)
 /* Register the protocol name and description */
 	proto_llcgprs = proto_register_protocol("Logical Link Control GPRS",
 	    "GPRS-LLC", "llcgprs");
-	llcgprs_subdissector_table = register_dissector_table("llcgprs.sapi", "GPRS LLC SAPI", proto_llcgprs, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	llcgprs_subdissector_table = register_dissector_table("llcgprs.sapi", "GPRS LLC SAPI", proto_llcgprs, FT_UINT8, BASE_HEX);
 
 /* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_llcgprs, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 	expert_llcgprs = expert_register_protocol(proto_llcgprs);
 	expert_register_field_array(expert_llcgprs, ei, array_length(ei));
-	register_dissector("llcgprs", dissect_llcgprs, proto_llcgprs);
+	gprs_llc_handle = register_dissector("llcgprs", dissect_llcgprs, proto_llcgprs);
 
 	llcgprs_module = prefs_register_protocol ( proto_llcgprs, NULL );
 	prefs_register_bool_preference ( llcgprs_module, "autodetect_cipher_bit",
@@ -1345,10 +1347,7 @@ proto_register_llcgprs(void)
 void
 proto_reg_handoff_llcgprs(void)
 {
-	dissector_handle_t gprs_llc_handle;
-
 	/* make sure that the top level can call this dissector */
-	gprs_llc_handle = find_dissector("llcgprs");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_GPRS_LLC, gprs_llc_handle);
 
 	sndcp_xid_handle  = find_dissector_add_dependency("sndcpxid", proto_llcgprs);

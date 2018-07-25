@@ -3,29 +3,29 @@
 # This module looks for some usual Unix commands.
 #
 
+include(FindChocolatey)
 include(FindCygwin)
 
-if(ENABLE_PDF_GUIDES)
-    find_package(FOP)
-    if(${FOP_EXECUTABLE} STREQUAL "FOP_EXECUTABLE-NOTFOUND")
-        message(FATAL_ERROR "fop wasn't found, but is necessary for building PDFs." )
-    endif()
-endif()
-
-if(ENABLE_CHM_GUIDES)
-    find_package(SED)
-endif()
-
+# Strawberry Perl ships with xsltproc but no DocBook XML files, which
+# is detrimental to our interests. Search for the Chocolatey and Cygwin
+# versions first, and un-find xsltproc if needed.
 find_program(XSLTPROC_EXECUTABLE
   NAMES
     xsltproc
-  PATHS
+  HINTS
+    ${CHOCOLATEY_BIN_PATH}
     ${CYGWIN_INSTALL_PATH}/bin
-    /bin
-    /usr/bin
+  PATHS
     /usr/local/bin
     /sbin
 )
+
+string(TOLOWER ${XSLTPROC_EXECUTABLE} _xe_lower)
+if(${_xe_lower} MATCHES "strawberry")
+	set(_ignore_reason "Strawberry xsltproc found at ${XSLTPROC_EXECUTABLE}. Ignoring.")
+	message(STATUS ${_ignore_reason})
+	set(XSLTPROC_EXECUTABLE XSLTPROC_EXECUTABLE-NOTFOUND CACHE FILEPATH ${_ignore_reason} FORCE)
+endif()
 
 # Handle the QUIETLY and REQUIRED arguments and set XSLTPROC_FOUND to TRUE if
 # all listed variables are TRUE
@@ -48,7 +48,6 @@ if (WIN32 AND NOT "${CYGWIN_INSTALL_PATH}" STREQUAL "" AND ${XSLTPROC_EXECUTABLE
         NAMES cygpath
         PATHS ${CYGWIN_INSTALL_PATH}/bin
     )
-    # XXX Duplicate of TO_A2X_COMPATIBLE_PATH
     MACRO( TO_XSLTPROC_COMPATIBLE_PATH _cmake_path _result )
         execute_process(
             COMMAND ${CYGPATH_EXECUTABLE} -u ${_cmake_path}
@@ -68,6 +67,34 @@ else()
     set ( _xsltproc_path "${CMAKE_CURRENT_SOURCE_DIR}:${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_CURRENT_BINARY_DIR}/wsluarm_src")
 endif()
 
+# Workaround for parallel build issue with msbuild.
+# https://gitlab.kitware.com/cmake/cmake/issues/16767
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
+  # msbuild (as used by the Visual Studio generators) must not depend on the XML
+  # file (otherwise the XML file will be generated multiple times, possibly in
+  # parallel, breaking the build). Workaround: add one dependency to generate
+  # the XML file when outdated, depend on the -stamp file to ensure that the
+  # target is rebuilt when the XML file is regenerated.
+  function(get_docbook_xml_depends varname _dbk_source)
+    set(${varname}
+      "generate_${_dbk_source}"
+      "${CMAKE_CURRENT_BINARY_DIR}/${_dbk_source}-stamp"
+      PARENT_SCOPE
+    )
+  endfunction()
+else()
+  # Unix Makefiles, Ninja, etc: first dependency enforces that the XML file is
+  # rebuilt when outdated, the second dependency ensures that the target is
+  # rebuilt when the XML file has changed.
+  function(get_docbook_xml_depends varname _dbk_source)
+    set(${varname}
+      "generate_${_dbk_source}"
+      "${_dbk_source}"
+      PARENT_SCOPE
+    )
+  endfunction()
+endif()
+
 # Translate XML to HTML
 #XML2HTML(
 #        wsug or wsdg
@@ -79,27 +106,28 @@ MACRO(XML2HTML _target_dep _dir_pfx _mode _dbk_source _gfx_sources)
     # We depend on the docbook target to avoid parallel builds.
     SET(_dbk_dep ${_target_dep}_docbook)
 
+    # We can pass chunker.xxx parameters to customize the chunked output.
+    # We have to use a custom layer to customize the single-page output.
+    # Set the output encoding for both to UTF-8. Indent the single-page
+    # output because we sometimes need to copy and paste the release
+    # note contents.
     IF(${_mode} STREQUAL "chunked")
         SET(_basedir ${_dir_pfx}_html_chunked)
-        SET(_STYLESHEET "http://docbook.sourceforge.net/release/xsl/current/html/chunk.xsl")
-        SET(_modeparams --noout)
+        SET(_stylesheet "http://docbook.sourceforge.net/release/xsl/current/html/chunk.xsl")
+        SET(_modeparams --stringparam chunker.output.encoding UTF-8)
     ELSE() # single-page
         SET(_basedir ${_dir_pfx}_html)
-        SET(_STYLESHEET "http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl")
+        SET(_stylesheet custom_layer_single_html.xsl)
         SET(_modeparams --output ${_basedir}/index.html)
     ENDIF()
 
     SET(_out_dir ${CMAKE_CURRENT_BINARY_DIR}/${_basedir})
     SET(_output ${_basedir}/index.html)
+    get_docbook_xml_depends(_dbk_xml_deps "${_dbk_source}")
 
     FOREACH(_tmpgfx ${${_gfx_sources}})
         set(_gfx_deps ${CMAKE_CURRENT_SOURCE_DIR}/${_tmpgfx})
     ENDFOREACH()
-
-#    GET_FILENAME_COMPONENT(_GFXDIR ${_gfx} ABSOLUTE)
-#    GET_FILENAME_COMPONENT(_GFXDIR ${_GFXDIR} PATH)
-#    GET_FILENAME_COMPONENT(_OUTDIR ${_output} PATH)
-#    SET(_OUTDIR ${CMAKE_CURRENT_BINARY_DIR}/${_OUTDIR})
 
     SET(_gfx_dir ${_dir_pfx}_graphics)
     ADD_CUSTOM_COMMAND(
@@ -116,19 +144,20 @@ MACRO(XML2HTML _target_dep _dir_pfx _mode _dbk_source _gfx_sources)
         COMMAND ${CMAKE_COMMAND}
            -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/${_gfx_dir}/toolbar ${_out_dir}/${_gfx_dir}/toolbar
         COMMAND ${CMAKE_COMMAND}
-            -E copy ${CMAKE_CURRENT_SOURCE_DIR}/ws.css ${_out_dir}
+            -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/ws.css ${_out_dir}
         COMMAND ${XSLTPROC_EXECUTABLE}
             --path "${_xsltproc_path}"
             --stringparam base.dir ${_basedir}/
             ${_common_xsltproc_args}
             --stringparam admon.graphics.path ${_gfx_dir}/
             ${_modeparams}
-            ${_STYLESHEET}
+            --noout ${_stylesheet}
             ${_dbk_source}
         DEPENDS
-            generate_${_dbk_source}
+            ${_dbk_xml_deps}
             ${_dbk_dep}
             ${_gfx_deps}
+            custom_layer_single_html.xsl
     )
     IF(NOT WIN32)
         ADD_CUSTOM_COMMAND(
@@ -141,55 +170,20 @@ MACRO(XML2HTML _target_dep _dir_pfx _mode _dbk_source _gfx_sources)
     ENDIF()
 ENDMACRO(XML2HTML)
 
-# Translate XML to FO to PDF
-#XML2PDF(
-#       user-guide-a4.fo or user-guide-us.fo
-#       WSUG_SOURCE
-#       custom_layer_pdf.xsl
-#       A4 or letter
-#)
-MACRO(XML2PDF _target_dep _output _dbk_source _stylesheet _paper)
-    # We depend on the docbook target to avoid parallel builds.
-    SET(_dbk_dep ${_target_dep}_docbook)
-    ADD_CUSTOM_COMMAND(
-        OUTPUT
-            ${_output}
-            ${_output}.fo
-        COMMAND ${XSLTPROC_EXECUTABLE}
-            --path "${_xsltproc_path}"
-            --stringparam paper.type ${_paper}
-            --stringparam img.src.path ${CMAKE_CURRENT_SOURCE_DIR}/
-            --stringparam use.id.as.filename 1
-            --stringparam admon.graphics 1
-            --stringparam admon.graphics.path ${CMAKE_CURRENT_SOURCE_DIR}/common_graphics/
-            --stringparam admon.graphics.extension .svg
-            --nonet
-            --output ${_output}.fo
-            ${_stylesheet}
-            ${_dbk_source}
-        COMMAND ${FOP_EXECUTABLE}
-            ${_output}.fo
-            ${_output}
-        DEPENDS
-            generate_${_dbk_source}
-            ${_dbk_dep}
-            ${_stylesheet}
-    )
-ENDMACRO(XML2PDF)
-
 # Translate XML to HHP
 #XML2HHP(
 #       wsug or wsdg
 #       user-guide.xml or developer-guide.xml
 #)
-MACRO(XML2HHP _target_dep _guide _docbooksource)
+MACRO(XML2HHP _target_dep _guide _dbk_source)
     # We depend on the docbook target to avoid parallel builds.
     SET(_dbk_dep ${_target_dep}_docbook)
-    GET_FILENAME_COMPONENT( _source_base_name ${_docbooksource} NAME_WE )
+    GET_FILENAME_COMPONENT( _source_base_name ${_dbk_source} NAME_WE )
     set( _output_chm ${_source_base_name}.chm )
     set( _output_hhp ${_source_base_name}.hhp )
     set( _output_toc_hhc ${_source_base_name}-toc.hhc )
     set( _docbook_plain_title ${_source_base_name}-plain-title.xml )
+    get_docbook_xml_depends(_dbk_xml_deps "${_dbk_source}")
 
     SET(_gfxdir ${_guide}_graphics)
     SET(_basedir ${_guide}_chm)
@@ -202,9 +196,9 @@ MACRO(XML2HHP _target_dep _guide _docbooksource)
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/${_gfxdir} ${_basedir}/${_gfxdir}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/common_graphics ${_basedir}/${_gfxdir}
         # HTML Help doesn't render decimal character entities in the title.
-        COMMAND ${SED_EXECUTABLE}
+        COMMAND ${PERL_EXECUTABLE} -p
             -e "s|er&#8217;s Guide</title>|er's Guide</title>|"
-            < ${_docbooksource}
+            < ${_dbk_source}
             > ${_docbook_plain_title}
         COMMAND ${XSLTPROC_EXECUTABLE}
             --path "${_xsltproc_path}"
@@ -217,7 +211,7 @@ MACRO(XML2HHP _target_dep _guide _docbooksource)
             --nonet custom_layer_chm.xsl
             ${_docbook_plain_title}
         DEPENDS
-            generate_${_docbooksource}
+            ${_dbk_xml_deps}
             ${_dbk_dep}
             # AsciiDoc uses UTF-8 by default, which is unsupported by HTML
             # Help. We may want to render an ISO-8859-1 version, or get rid

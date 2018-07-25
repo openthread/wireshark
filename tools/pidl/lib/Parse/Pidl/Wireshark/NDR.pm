@@ -61,7 +61,7 @@ sub field2name($)
 
 	$field =~ s/^(_)*//g;		# Remove any starting underscores
 	$field =~ s/_/ /g;		# Replace underscores with spaces
-	$field =~ s/(\w+)/\u\L$1/g;	# Capitalise each word
+	$field =~ s/(\w+)/\u$1/g;	# Capitalise each word
 
 	return $field;
 }
@@ -200,6 +200,8 @@ sub Bitmap($$$$)
 {
 	my ($self,$e,$name,$ifname) = @_;
 	my $dissectorname = "$ifname\_dissect\_bitmap\_".StripPrefixes($name, $self->{conformance}->{strip_prefixes});
+	my $element_count = 0;
+	my $total_ev = 0;
 
 	$self->register_ett("ett_$ifname\_$name");
 
@@ -210,9 +212,29 @@ sub Bitmap($$$$)
 	$self->pidl_code("$dissectorname(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)");
 	$self->pidl_code("{");
 	$self->indent;
-	$self->pidl_code("proto_item *item = NULL;");
-	$self->pidl_code("proto_tree *tree = NULL;");
-	$self->pidl_code("");
+	foreach (@{$e->{ELEMENTS}}) {
+		next unless (/([^ ]*) (.*)/);
+		$element_count++;
+	}
+	if ($element_count > 0) {
+		$self->pidl_code("proto_item *item;");
+		$self->pidl_code("static const int * $ifname\_$name\_fields[] = {");
+		$self->indent;
+		foreach (@{$e->{ELEMENTS}}) {
+			next unless (/([^ ]*) (.*)/);
+			my ($en,$ev) = ($1,$2);
+			my $hf_bitname = "hf_$ifname\_$name\_$1";
+
+			$ev =~ s/[()\s]//g;
+			if (hex($ev) != 0) {
+				$total_ev += hex($ev);
+				$self->pidl_code("&$hf_bitname,");
+			}
+		}
+		$self->pidl_code("NULL");
+		$self->deindent;
+		$self->pidl_code("};");
+	}
 
 	$self->pidl_code("g$e->{BASE_TYPE} flags;");
 	if ($e->{ALIGN} > 1) {
@@ -221,18 +243,23 @@ sub Bitmap($$$$)
 
 	$self->pidl_code("");
 
-	$self->pidl_code("if (parent_tree) {");
-	$self->indent;
-	$self->pidl_code("item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, $e->{ALIGN}, DREP_ENC_INTEGER(drep));");
-	$self->pidl_code("tree = proto_item_add_subtree(item,ett_$ifname\_$name);");
-	$self->deindent;
-	$self->pidl_code("}\n");
+	if ($element_count > 0) {
+		$self->pidl_code("item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,");
+		$self->pidl_code("\t\t\tett_$ifname\_$name, $ifname\_$name\_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);");
+		$self->pidl_code("");
 
-	$self->pidl_code("offset = dissect_ndr_$e->{BASE_TYPE}(tvb, offset, pinfo, tree, di, drep, -1, &flags);");
+		$self->pidl_code("offset = dissect_ndr_$e->{BASE_TYPE}(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);");
+		$self->pidl_code("");
 
-	$self->pidl_code("proto_item_append_text(item, \": \");\n");
-	$self->pidl_code("if (!flags)");
-	$self->pidl_code("\tproto_item_append_text(item, \"(No values set)\");\n");
+		$self->pidl_code("if (!flags)");
+		$self->pidl_code("\tproto_item_append_text(item, \": (No values set)\");\n");
+	} else {
+		$self->pidl_code("proto_tree_add_item(parent_tree, hf_index, tvb, offset, $e->{ALIGN}, DREP_ENC_INTEGER(drep));");
+		$self->pidl_code("");
+
+		$self->pidl_code("offset = dissect_ndr_$e->{BASE_TYPE}(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);");
+		$self->pidl_code("");
+	}
 
 	foreach (@{$e->{ELEMENTS}}) {
 		next unless (/([^ ]*) (.*)/);
@@ -242,32 +269,30 @@ sub Bitmap($$$$)
 
 		$self->{hf_used}->{$hf_bitname} = 1;
 
-		$self->register_hf_field($hf_bitname, field2name($en), $filtername, "FT_BOOLEAN", $e->{ALIGN} * 8, "TFS(&$name\_$en\_tfs)", $ev, "");
+		$ev =~ s/[()\s]//g;
+		if (hex($ev) != 0) {
+			$self->register_hf_field($hf_bitname, field2name($en), $filtername, "FT_BOOLEAN", $e->{ALIGN} * 8, "TFS(&$name\_$en\_tfs)", "( $ev )", "");
 
-		$self->pidl_def("static const true_false_string $name\_$en\_tfs = {");
-		if (defined($self->{conformance}->{tfs}->{$hf_bitname})) {
-			$self->pidl_def("   $self->{conformance}->{tfs}->{$hf_bitname}->{TRUE_STRING},");
-			$self->pidl_def("   $self->{conformance}->{tfs}->{$hf_bitname}->{FALSE_STRING},");
-			$self->{conformance}->{tfs}->{$hf_bitname}->{USED} = 1;
-		} else {
-			$self->pidl_def("   \"$en is SET\",");
-			$self->pidl_def("   \"$en is NOT SET\",");
+			$self->pidl_def("static const true_false_string $name\_$en\_tfs = {");
+			if (defined($self->{conformance}->{tfs}->{$hf_bitname})) {
+				$self->pidl_def("   $self->{conformance}->{tfs}->{$hf_bitname}->{TRUE_STRING},");
+				$self->pidl_def("   $self->{conformance}->{tfs}->{$hf_bitname}->{FALSE_STRING},");
+				$self->{conformance}->{tfs}->{$hf_bitname}->{USED} = 1;
+			} else {
+				$self->pidl_def("   \"$en is SET\",");
+				$self->pidl_def("   \"$en is NOT SET\",");
+			}
+			$self->pidl_def("};");
 		}
-		$self->pidl_def("};");
-
-		$self->pidl_code("proto_tree_add_boolean(tree, $hf_bitname, tvb, offset-$e->{ALIGN}, $e->{ALIGN}, flags);");
-		$self->pidl_code("if (flags&$ev){");
-		$self->pidl_code("\tproto_item_append_text(item, \"$en\");");
-		$self->pidl_code("\tif (flags & (~$ev))");
-		$self->pidl_code("\t\tproto_item_append_text(item, \", \");");
-		$self->pidl_code("}");
-		$self->pidl_code("flags&=(~$ev);");
-		$self->pidl_code("");
 	}
 
-	$self->pidl_code("if (flags) {");
-	$self->pidl_code("\tproto_item_append_text(item, \"Unknown bitmap value 0x%x\", flags);");
-	$self->pidl_code("}\n");
+	if ($element_count > 0) {
+		my $total_ev_hex = sprintf("0x%08x", $total_ev);
+		$self->pidl_code("if (flags & (~$total_ev_hex)) {");
+		$self->pidl_code("\tflags &= (~$total_ev_hex);");
+		$self->pidl_code("\tproto_item_append_text(item, \"Unknown bitmap value 0x%x\", flags);");
+		$self->pidl_code("}\n");
+	}
 	$self->pidl_code("return offset;");
 	$self->deindent;
 	$self->pidl_code("}\n");
@@ -395,7 +420,7 @@ sub ElementLevel($$$$$$$$)
 		# continue to dissect handmarshalled stuff with pidl
 		$self->pidl_code("di->call_data->flags &= ~DCERPC_IS_NDR64;");
 
-		$self->pidl_code("subtvb = tvb_new_subset(tvb, offset, (const gint)size, -1);");
+		$self->pidl_code("subtvb = tvb_new_subset_length_caplen(tvb, offset, (const gint)size, -1);");
 		if ($param ne 0) {
 			$self->pidl_code("$myname\_(subtvb, 0, pinfo, tree, di, drep, $param);");
 		} else {
@@ -571,7 +596,7 @@ sub Function($$$)
 	$self->pidl_code("{");
 	$self->indent;
 	if ( not defined($fn->{RETURN_TYPE})) {
-	} elsif ($fn->{RETURN_TYPE} eq "NTSTATUS" or $fn->{RETURN_TYPE} eq "WERROR")
+	} elsif ($fn->{RETURN_TYPE} eq "NTSTATUS" or $fn->{RETURN_TYPE} eq "WERROR" or $fn->{RETURN_TYPE} eq "HRESULT")
 	{
 		$self->pidl_code("guint32 status;\n");
 	} elsif (my $type = getType($fn->{RETURN_TYPE})) {
@@ -607,6 +632,11 @@ sub Function($$$)
 		$self->pidl_code("\tcol_append_fstr(pinfo->cinfo, COL_INFO, \", Error: %s\", val_to_str(status, WERR_errors, \"Unknown DOS error 0x%08x\"));\n");
 
 		$return_types{$ifname}->{"werror"} = ["WERROR", "Windows Error"];
+	} elsif ($fn->{RETURN_TYPE} eq "HRESULT") {
+		$self->pidl_code("offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, hf\_$ifname\_hresult, &status);\n");
+		$self->pidl_code("if (status != 0)");
+		$self->pidl_code("\tcol_append_fstr(pinfo->cinfo, COL_INFO, \", Error: %s\", val_to_str(status, HRES_errors, \"Unknown HRES error 0x%08x\"));\n");
+		$return_types{$ifname}->{"hresult"} = ["HRESULT", "HRES Windows Error"];
 	} elsif (my $type = getType($fn->{RETURN_TYPE})) {
 		if ($type->{DATA}->{TYPE} eq "ENUM") {
 			my $return_type = "g".Parse::Pidl::Typelist::enum_type_fn($type->{DATA});
@@ -1100,6 +1130,8 @@ sub Initialize($$)
 		"offset = PIDL_dissect_uint32(tvb, offset, pinfo, tree, di, drep, \@HF\@, \@PARAM\@);","FT_UINT32", "BASE_DEC", 0, "VALS(WERR_errors)", 4);
 	$self->register_type("NTSTATUS",
 		"offset = PIDL_dissect_uint32(tvb, offset, pinfo, tree, di, drep, \@HF\@, \@PARAM\@);","FT_UINT32", "BASE_DEC", 0, "VALS(NT_errors)", 4);
+	$self->register_type("HRESULT",
+		"offset = PIDL_dissect_uint32(tvb, offset, pinfo, tree, di, drep, \@HF\@, \@PARAM\@);","FT_UINT32", "BASE_DEC", 0, "VALS(HRES_errors)", 4);
 	$self->register_type("ipv6address", "proto_tree_add_item(tree, \@HF\@, tvb, offset, 16, ENC_NA); offset += 16;", "FT_IPv6", "BASE_NONE", 0, "NULL", 16);
 	$self->register_type("ipv4address", "proto_tree_add_item(tree, \@HF\@, tvb, offset, 4, ENC_BIG_ENDIAN); offset += 4;", "FT_IPv4", "BASE_NONE", 0, "NULL", 4);
 
@@ -1297,9 +1329,8 @@ sub DumpHfList($)
 
 	foreach (sort {$a->{INDEX} cmp $b->{INDEX}} values %{$self->{conformance}->{header_fields}})
 	{
-		$res .= "\t{ &$_->{INDEX},
-		{ ".make_str($_->{NAME}).", ".make_str($_->{FILTER}).", $_->{FT_TYPE}, $_->{BASE_TYPE}, $_->{VALSSTRING}, $_->{MASK}, ".make_str_or_null($_->{BLURB}).", HFILL }},
-";
+		$res .= "\t{ &$_->{INDEX},\n".
+		"\t  { ".make_str($_->{NAME}).", ".make_str($_->{FILTER}).", $_->{FT_TYPE}, $_->{BASE_TYPE}, $_->{VALSSTRING}, $_->{MASK}, ".make_str_or_null($_->{BLURB}).", HFILL }},\n";
 	}
 
 	return $res."\t};\n";

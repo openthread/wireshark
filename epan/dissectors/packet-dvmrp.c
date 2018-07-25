@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
 
@@ -53,6 +41,7 @@
 
 #include <epan/packet.h>
 #include <epan/prefs.h>
+#include <epan/expert.h>
 #include "packet-igmp.h"
 
 void proto_register_dvmrp(void);
@@ -63,7 +52,7 @@ static int hf_version = -1;
 static int hf_type = -1;
 static int hf_code_v1 = -1;
 static int hf_checksum = -1;
-static int hf_checksum_bad = -1;
+static int hf_checksum_status = -1;
 static int hf_reserved = -1;
 static int hf_commands = -1;
 static int hf_command = -1;
@@ -108,6 +97,8 @@ static int ett_commands = -1;
 static int ett_capabilities = -1;
 static int ett_flags = -1;
 static int ett_route = -1;
+
+static expert_field ei_checksum = EI_INIT;
 
 static int strict_v3 = FALSE;
 
@@ -336,7 +327,7 @@ dissect_dvmrp_v3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, int
 				"Unknown Type:0x%02x"));
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* skip unused byte */
@@ -525,7 +516,7 @@ dissect_dvmrp_v1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, int
 				"Unknown Type:0x%02x"));
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* decode all the v1 commands */
@@ -720,9 +711,9 @@ proto_register_dvmrp(void)
 			{ "Checksum", "dvmrp.checksum", FT_UINT16, BASE_HEX,
 			  NULL, 0, "DVMRP Checksum", HFILL }},
 
-		{ &hf_checksum_bad,
-			{ "Bad Checksum", "dvmrp.checksum_bad", FT_BOOLEAN, BASE_NONE,
-			  NULL, 0x0, "Bad DVMRP Checksum", HFILL }},
+		{ &hf_checksum_status,
+			{ "Checksum Status", "dvmrp.checksum.status", FT_UINT8, BASE_NONE,
+			  VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 
 		{ &hf_reserved,
 			{ "Reserved", "dvmrp.reserved", FT_UINT16, BASE_HEX,
@@ -883,11 +874,20 @@ proto_register_dvmrp(void)
 		&ett_flags,
 		&ett_route
 	};
+
+	static ei_register_info ei[] = {
+		{ &ei_checksum, { "dvmrp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+	};
+
+	expert_module_t* expert_dvmrp;
+
 	module_t *module_dvmrp;
 
 	proto_dvmrp = proto_register_protocol("Distance Vector Multicast Routing Protocol", "DVMRP", "dvmrp");
 	proto_register_field_array(proto_dvmrp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+	expert_dvmrp = expert_register_protocol(proto_dvmrp);
+	expert_register_field_array(expert_dvmrp, ei, array_length(ei));
 
 	module_dvmrp = prefs_register_protocol(proto_dvmrp, NULL);
 

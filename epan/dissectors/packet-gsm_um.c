@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -200,7 +188,7 @@ dissect_gsm_um(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 				len_left = tvb_reported_length(tvb);
 				len_byte = tvb_get_guint8(tvb, 0);
 				pseudo_len = len_byte >> 2;
-				next_tvb = tvb_new_subset(tvb, 1, MIN(len_left, pseudo_len), -1);
+				next_tvb = tvb_new_subset_length_caplen(tvb, 1, MIN(len_left, pseudo_len), -1);
 
 				if (tree) {
 					proto_tree_add_uint(gsm_um_tree, hf_gsm_um_l2_pseudo_len, tvb, 0, 1,

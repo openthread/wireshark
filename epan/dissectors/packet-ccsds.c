@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -95,7 +83,8 @@ static gint ett_ccsds_checkword = -1;
 static expert_field ei_ccsds_length_error = EI_INIT;
 static expert_field ei_ccsds_checkword = EI_INIT;
 
-/* Dissectot table */
+static dissector_handle_t ccsds_handle;
+/* Dissector table */
 static dissector_table_t ccsds_dissector_table;
 
 static const enum_val_t dissect_checkword[] = {
@@ -704,7 +693,7 @@ proto_register_ccsds(void)
     expert_ccsds = expert_register_protocol(proto_ccsds);
     expert_register_field_array(expert_ccsds, ei, array_length(ei));
 
-    register_dissector ( "ccsds", dissect_ccsds, proto_ccsds );
+    ccsds_handle = register_dissector ( "ccsds", dissect_ccsds, proto_ccsds );
 
     /* Register preferences module */
     ccsds_module = prefs_register_protocol(proto_ccsds, NULL);
@@ -715,14 +704,14 @@ proto_register_ccsds(void)
         &global_dissect_checkword, dissect_checkword, FALSE);
 
     /* Dissector table for sub-dissetors */
-    ccsds_dissector_table = register_dissector_table("ccsds.apid", "CCSDS apid", proto_ccsds, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    ccsds_dissector_table = register_dissector_table("ccsds.apid", "CCSDS apid", proto_ccsds, FT_UINT16, BASE_DEC);
 }
 
 
 void
 proto_reg_handoff_ccsds(void)
 {
-    dissector_add_for_decode_as ( "udp.port", find_dissector("ccsds") );
+    dissector_add_for_decode_as_with_preference( "udp.port", ccsds_handle);
 }
 
 /*

@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -136,7 +124,7 @@ static int hf_crmf_attributes = -1;               /* Attributes */
 static int hf_crmf_Attributes_item = -1;          /* Attribute */
 
 /*--- End of included file: packet-crmf-hf.c ---*/
-#line 47 "./asn1/crmf/packet-crmf-template.c"
+#line 35 "./asn1/crmf/packet-crmf-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -170,7 +158,7 @@ static gint ett_crmf_PrivateKeyInfo = -1;
 static gint ett_crmf_Attributes = -1;
 
 /*--- End of included file: packet-crmf-ett.c ---*/
-#line 50 "./asn1/crmf/packet-crmf-template.c"
+#line 38 "./asn1/crmf/packet-crmf-template.c"
 
 /*--- Included file: packet-crmf-fn.c ---*/
 #line 1 "./asn1/crmf/packet-crmf-fn.c"
@@ -903,7 +891,7 @@ static int dissect_EncKeyWithID_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, p
 
 
 /*--- End of included file: packet-crmf-fn.c ---*/
-#line 51 "./asn1/crmf/packet-crmf-template.c"
+#line 39 "./asn1/crmf/packet-crmf-template.c"
 
 
 /*--- proto_register_crmf ----------------------------------------------*/
@@ -1240,7 +1228,7 @@ void proto_register_crmf(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-crmf-hfarr.c ---*/
-#line 63 "./asn1/crmf/packet-crmf-template.c"
+#line 51 "./asn1/crmf/packet-crmf-template.c"
   };
 
   /* List of subtrees */
@@ -1276,7 +1264,7 @@ void proto_register_crmf(void) {
     &ett_crmf_Attributes,
 
 /*--- End of included file: packet-crmf-ettarr.c ---*/
-#line 68 "./asn1/crmf/packet-crmf-template.c"
+#line 56 "./asn1/crmf/packet-crmf-template.c"
   };
 
   /* Register protocol */
@@ -1310,6 +1298,6 @@ void proto_reg_handoff_crmf(void) {
 
 
 /*--- End of included file: packet-crmf-dis-tab.c ---*/
-#line 86 "./asn1/crmf/packet-crmf-template.c"
+#line 74 "./asn1/crmf/packet-crmf-template.c"
 }
 

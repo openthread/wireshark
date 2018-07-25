@@ -9,19 +9,7 @@
  *
  * Copied from packet-vrrp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -200,6 +188,7 @@ static expert_field ei_hsrp_unknown_tlv = EI_INIT;
 
 #define UDP_PORT_HSRP   1985
 #define UDP_PORT_HSRP2_V6   2029
+#define UDP_PORT_HSRP_RANGE   "1985,2029"
 #define HSRP_DST_IP_ADDR 0xE0000002
 #define HSRP2_DST_IP_ADDR 0xE0000066
 
@@ -493,7 +482,7 @@ dissect_hsrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                                 proto_tree *group_state_tlv;
 
                                 if (tree) {
-                                        ti = proto_tree_add_uint_format_value(hsrp_tree, hf_hsrp2_group_state_tlv, tvb, offset, 2, type,
+                                        ti = proto_tree_add_uint_format_value(hsrp_tree, hf_hsrp2_group_state_tlv, tvb, offset, 2+len, type,
                                         "Type=%d Len=%d", type, len);
                                 }
                                 offset+=2;
@@ -562,7 +551,7 @@ dissect_hsrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                                 if (tree) {
                                         proto_tree *interface_state_tlv;
                                         ti = proto_tree_add_uint_format_value(hsrp_tree, hf_hsrp2_interface_state_tlv, tvb, offset, 1, type,
-                                        "Type=%d Len=%d", type, len);
+                                        "Type=%d Len=%d", type, 2+len);
                                         offset+=2;
 
                                         /* Making Interface State TLV subtree */
@@ -574,11 +563,14 @@ dissect_hsrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                                 }
                         } else if (type == 3 && len == 8) {
                                 /* Text Authentication TLV */
+                                /* FIXME: Is the length of the authentication string really restricted to 8 bytes
+                                 *        or is it maybe padded to multiples of 4 or 8 bytes?
+                                 */
                                 if (tree) {
                                         proto_tree *text_auth_tlv;
                                         gchar auth_buf[8 + 1];
 
-                                        ti = proto_tree_add_uint_format_value(hsrp_tree, hf_hsrp2_text_auth_tlv, tvb, offset, 1, type,
+                                        ti = proto_tree_add_uint_format_value(hsrp_tree, hf_hsrp2_text_auth_tlv, tvb, offset, 2+len, type,
                                         "Type=%d Len=%d", type, len);
                                         offset+=2;
 
@@ -835,14 +827,12 @@ void proto_register_hsrp(void)
                 { &ei_hsrp_unknown_tlv, { "hsrp.unknown_tlv", PI_UNDECODED, PI_WARN, "Unknown TLV sequence (HSRPv1)", EXPFILL }},
         };
 
-        proto_hsrp = proto_register_protocol("Cisco Hot Standby Router Protocol",
-            "HSRP", "hsrp");
+        proto_hsrp = proto_register_protocol("Cisco Hot Standby Router Protocol", "HSRP", "hsrp");
+
         proto_register_field_array(proto_hsrp, hf, array_length(hf));
         proto_register_subtree_array(ett, array_length(ett));
         expert_hsrp = expert_register_protocol(proto_hsrp);
         expert_register_field_array(expert_hsrp, ei, array_length(ei));
-
-        return;
 }
 
 void
@@ -851,8 +841,7 @@ proto_reg_handoff_hsrp(void)
         dissector_handle_t hsrp_handle;
 
         hsrp_handle = create_dissector_handle(dissect_hsrp, proto_hsrp);
-        dissector_add_uint("udp.port", UDP_PORT_HSRP, hsrp_handle);
-        dissector_add_uint("udp.port", UDP_PORT_HSRP2_V6, hsrp_handle);
+        dissector_add_uint_range_with_preference("udp.port", UDP_PORT_HSRP_RANGE, hsrp_handle);
 }
 
 /*

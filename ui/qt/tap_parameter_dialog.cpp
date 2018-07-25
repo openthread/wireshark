@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -40,22 +28,25 @@
 
 #include "epan/stat_tap_ui.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include "ui/packet_range.h"
+#include "ui/win32/file_dlg_win32.h"
+#endif // Q_OS_WIN
+
 #include "ui/last_open_dir.h"
 #include <wsutil/utf8_entities.h>
 
 #include "wsutil/file_util.h"
 
 #include "progress_frame.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "wireshark_application.h"
 
 #include <QClipboard>
 #include <QContextMenuEvent>
 #include <QMessageBox>
 #include <QFileDialog>
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-// Qt::escape
-#include <QTextDocument>
-#endif
 
 // The GTK+ counterpart uses tap_param_dlg, which we don't use. If we
 // need tap parameters we should probably create a TapParameterDialog
@@ -132,7 +123,7 @@ void TapParameterDialog::registerDialog(const QString title, const char *cfg_abb
     QString cfg_str = cfg_abbr;
     cfg_str_to_creator_[cfg_str] = creator;
 
-    QAction *tpd_action = new QAction(title, NULL);
+    QAction *tpd_action = new QAction(title, wsApp);
     tpd_action->setObjectName(action_name_);
     tpd_action->setData(cfg_str);
     wsApp->addDynamicMenuGroupItem(group, tpd_action);
@@ -254,19 +245,19 @@ QByteArray TapParameterDialog::getTreeAsString(st_format_type format)
     switch (format) {
     case ST_FORMAT_PLAIN:
     {
+        // Iterating over trees.
         QTreeWidgetItemIterator width_it(it);
         QString plain_header;
         while (*width_it) {
-            QList<QVariant> tid = treeItemData((*width_it));
-            int col = 0;
-            foreach (QVariant var, tid) {
+            // Iterating over items within this tree.
+            for (int col=0; col < ui->statsTreeWidget->columnCount(); col++) {
                 if (col_widths.size() <= col) {
                     col_widths.append(ui->statsTreeWidget->headerItem()->text(col).length());
                 }
+                QVariant var = ui->statsTreeWidget->headerItem()->data(col, Qt::DisplayRole);
                 if (var.type() == QVariant::String) {
                     col_widths[col] = qMax(col_widths[col], itemDataToPlain(var).length());
                 }
-                col++;
             }
             ++width_it;
         }
@@ -279,7 +270,7 @@ QByteArray TapParameterDialog::getTreeAsString(st_format_type format)
         QByteArray top_separator;
         top_separator.fill('=', plain_header.length());
         top_separator.append('\n');
-        QString file_header = QString("%1 - %2:\n").arg(windowSubtitle(), cap_file_.fileName());
+        QString file_header = QString("%1 - %2:\n").arg(windowSubtitle(), cap_file_.fileDisplayName());
         footer.fill('-', plain_header.length());
         footer.append('\n');
         plain_header.append('\n');
@@ -306,22 +297,12 @@ QByteArray TapParameterDialog::getTreeAsString(st_format_type format)
     {
         // XXX What's a useful format? This mostly conforms to DocBook.
         ba.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        QString title;
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-        title = Qt::escape(windowSubtitle());
-#else
-        title = QString(windowSubtitle()).toHtmlEscaped();
-#endif
+        QString title = html_escape(windowSubtitle());
         QString xml_header = QString("<table>\n<title>%1</title>\n").arg(title);
         ba.append(xml_header.toUtf8());
         ba.append("<thead>\n<row>\n");
         for (int col = 0; col < ui->statsTreeWidget->columnCount(); col++) {
-            title = ui->statsTreeWidget->headerItem()->text(col);
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-            title = Qt::escape(title);
-#else
-            title = title.toHtmlEscaped();
-#endif
+            title = html_escape(ui->statsTreeWidget->headerItem()->text(col));
             title = QString("  <entry>%1</entry>\n").arg(title);
             ba.append(title.toUtf8());
         }
@@ -334,7 +315,7 @@ QByteArray TapParameterDialog::getTreeAsString(st_format_type format)
     {
         QString yaml_header;
         ba.append("---\n");
-        yaml_header = QString("Description: \"%1\"\nFile: \"%2\"\nItems:\n").arg(windowSubtitle()).arg(cap_file_.fileName());
+        yaml_header = QString("Description: \"%1\"\nFile: \"%2\"\nItems:\n").arg(windowSubtitle()).arg(cap_file_.fileDisplayName());
         ba.append(yaml_header.toUtf8());
         break;
     }
@@ -385,12 +366,7 @@ QByteArray TapParameterDialog::getTreeAsString(st_format_type format)
         {
             line = "<row>\n";
             foreach (QVariant var, tid) {
-                QString entry;
-    #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-                entry = Qt::escape(var.toString());
-    #else
-                entry = var.toString().toHtmlEscaped();
-    #endif
+                QString entry = html_escape(var.toString());
                 line.append(QString("  <entry>%1</entry>\n").arg(entry));
             }
             line.append("</row>\n");
@@ -549,6 +525,9 @@ void TapParameterDialog::on_actionSaveAs_triggered()
     bool success = false;
     int last_errno;
 
+#ifdef Q_OS_WIN
+    HANDLE da_ctx = set_thread_per_monitor_v2_awareness();
+#endif
     QFileDialog SaveAsDialog(this, wsApp->windowTitleString(tr("Save Statistics As" UTF8_HORIZONTAL_ELLIPSIS)),
                                                             get_last_open_dir());
     SaveAsDialog.setNameFilter(tr("Plain text file (*.txt);;"
@@ -557,7 +536,11 @@ void TapParameterDialog::on_actionSaveAs_triggered()
                                     "YAML document (*.yaml)"));
     SaveAsDialog.selectNameFilter(tr("Plain text file (*.txt)"));
     SaveAsDialog.setAcceptMode(QFileDialog::AcceptSave);
-    if (!SaveAsDialog.exec()) {
+    int result = SaveAsDialog.exec();
+#ifdef Q_OS_WIN
+    revert_thread_per_monitor_v2_awareness(da_ctx);
+#endif
+    if (!result) {
         return;
     }
     selectedFilter= SaveAsDialog.selectedNameFilter();

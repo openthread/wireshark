@@ -12,12 +12,28 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="QTreeWidget" name="uatTreeWidget">
+    <widget class="TabnavTreeView" name="uatTreeView">
      <column>
       <property name="text">
        <string notr="true">1</string>
       </property>
      </column>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="hintLabel">
+     <property name="styleSheet">
+       <string notr="true">QLabel { color: red; }</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="textFormat">
+       <set>Qt::RichText</set>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
     </widget>
    </item>
    <item>
@@ -31,7 +47,7 @@
         <string/>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/plus-8.png</normaloff>:/stock/plus-8.png</iconset>
        </property>
       </widget>
@@ -42,7 +58,7 @@
         <string>Remove this entry.</string>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/minus-8.png</normaloff>:/stock/minus-8.png</iconset>
        </property>
       </widget>
@@ -56,23 +72,53 @@
         <string/>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/copy-8.png</normaloff>:/stock/copy-8.png</iconset>
        </property>
       </widget>
      </item>
      <item>
-      <spacer name="horizontalSpacer">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
+      <widget class="QToolButton" name="moveUpToolButton">
+       <property name="toolTip">
+        <string>Move entry up.</string>
        </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
+       <property name="text">
+        <string/>
        </property>
-      </spacer>
+       <property name="icon">
+        <iconset resource="../../image/stock_icons.qrc">
+         <normaloff>:/stock/arrow_up.png</normaloff>:/stock/arrow_up.png</iconset>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="moveDownToolButton">
+       <property name="toolTip">
+        <string>Move entry down.</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+       <property name="icon">
+        <iconset resource="../../image/stock_icons.qrc">
+         <normaloff>:/stock/arrow_down.png</normaloff>:/stock/arrow_down.png</iconset>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="clearToolButton">
+       <property name="toolTip">
+        <string>Clear all entries.</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+        <property name="icon">
+          <iconset resource="../../image/stock_icons.qrc">
+            <normaloff>:/stock/delete_list.png</normaloff>:/stock/delete_list.png
+          </iconset>
+        </property>
+      </widget>
      </item>
      <item>
       <widget class="ElidedLabel" name="pathLabel">
@@ -96,16 +142,6 @@
     </layout>
    </item>
    <item>
-    <widget class="QLabel" name="hintLabel">
-     <property name="text">
-      <string/>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
@@ -121,11 +157,16 @@
   <customwidget>
    <class>ElidedLabel</class>
    <extends>QLabel</extends>
-   <header>elided_label.h</header>
+   <header>widgets/elided_label.h</header>
+  </customwidget>
+  <customwidget>
+   <class>TabnavTreeView</class>
+   <extends>QTreeView</extends>
+   <header>widgets/tabnav_tree_view.h</header>
   </customwidget>
  </customwidgets>
  <resources>
-  <include location="../../image/toolbar.qrc"/>
+  <include location="../../image/stock_icons.qrc"/>
  </resources>
  <connections>
   <connection>

@@ -6,30 +6,19 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include "epan/packet.h"
 #include "epan/prefs.h"
+#include "epan/expert.h"
 #if 0
 #include <epan/tap.h>
 #endif
 #include <epan/addr_resolv.h>
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 
 #include "packet-uaudp.h"
 
@@ -54,12 +43,17 @@ static int hf_uasip_qos_8021_vlid   = -1;
 static int hf_uasip_qos_8021_pri    = -1;
 static int hf_uasip_expseq          = -1;
 static int hf_uasip_sntseq          = -1;
+static int hf_uasip_type            = -1;
+static int hf_uasip_length          = -1;
+
 static gint ett_uasip               = -1;
+static gint ett_uasip_tlv           = -1;
+
+static expert_field ei_uasip_tlv_length = EI_INIT;
 
 static guint8      proxy_ipaddr[4];
 static const char *pref_proxy_ipaddr_s = NULL;
 
-static gboolean uasip_enabled = FALSE;
 static gboolean use_proxy_ipaddr = FALSE;
 static gboolean noesip_enabled   = FALSE;
 
@@ -68,37 +62,12 @@ static dissector_handle_t uasip_handle;
 static dissector_handle_t ua_sys_to_term_handle;
 static dissector_handle_t ua_term_to_sys_handle;
 
-static void rTLV(proto_tree *tree, int *V, tvbuff_t *tvb, gint offset, gint8 L)
-{
-    switch (L)
-    {
-        case 1:
-            proto_tree_add_uint(tree, *V, tvb, offset, L+2, tvb_get_guint8(tvb, offset+2));
-        break;
-
-        case 2:
-            proto_tree_add_uint(tree, *V, tvb, offset, L+2, tvb_get_ntohs(tvb, offset+2));
-        break;
-
-        case 3:
-            proto_tree_add_uint(tree, *V, tvb, offset, L+2, tvb_get_ntoh24(tvb, offset+2));
-        break;
-
-        case 4:
-            proto_tree_add_uint(tree, *V, tvb, offset, L+2, tvb_get_ntohl(tvb, offset+2));
-        break;
-
-        default:
-        break;
-    }
-}
-
-
 static void _dissect_uasip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, e_ua_direction direction)
 {
-    proto_item *uasip_item;
-    proto_tree *uasip_tree;
+    proto_item *uasip_item, *tlv_item, *tlv_len_item;
+    proto_tree *uasip_tree, *connect_tree;
     guint8      opcode;
+    guint32     type, length;
     gint        offset = 0;
 
     if (noesip_enabled)
@@ -129,63 +98,129 @@ static void _dissect_uasip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     {
         case UAUDP_CONNECT:
         {
-            if (!tree)
-                break;
-            while(tvb_offset_exists(tvb, offset))
+            while(tvb_reported_length_remaining(tvb, offset) > 0)
             {
-                guint8 T = tvb_get_guint8(tvb, offset+0);
-                guint8 L = tvb_get_guint8(tvb, offset+1);
+                type = tvb_get_guint8(tvb, offset+0);
+                connect_tree = proto_tree_add_subtree(uasip_tree, tvb, offset, 0, ett_uasip_tlv, &tlv_item,
+                                                      val_to_str_ext(type, &uaudp_connect_vals_ext, "Unknown %d"));
+                proto_tree_add_uint(connect_tree, hf_uasip_type, tvb, offset, 1, type);
+                offset++;
+                tlv_len_item = proto_tree_add_item_ret_uint(connect_tree, hf_uasip_length, tvb, offset, 1, ENC_NA, &length);
+                proto_item_set_len(tlv_item, length+2);
+                offset++;
 
-                switch(T)
+                switch(type)
                 {
                     case UAUDP_CONNECT_VERSION:
-                        rTLV(uasip_tree, &hf_uasip_version, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_version, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_WINDOW_SIZE:
-                        rTLV(uasip_tree, &hf_uasip_window_size, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_window_size, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_MTU:
-                        rTLV(uasip_tree, &hf_uasip_mtu, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_mtu, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_UDP_LOST:
-                        rTLV(uasip_tree, &hf_uasip_udp_lost, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_udp_lost, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_UDP_LOST_REINIT:
-                        rTLV(uasip_tree, &hf_uasip_udp_lost_reinit, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_udp_lost_reinit, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_KEEPALIVE:
-                        rTLV(uasip_tree, &hf_uasip_keepalive, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_keepalive, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_QOS_IP_TOS:
-                        rTLV(uasip_tree, &hf_uasip_qos_ip_tos, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_qos_ip_tos, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_QOS_8021_VLID:
-                        rTLV(uasip_tree, &hf_uasip_qos_8021_vlid, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_qos_8021_vlid, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     case UAUDP_CONNECT_QOS_8021_PRI:
-                        rTLV(uasip_tree, &hf_uasip_qos_8021_pri, tvb, offset, L);
+                        if ((length >= 1) && (length <= 4))
+                        {
+                            proto_tree_add_item(connect_tree, hf_uasip_qos_8021_pri, tvb, offset, length, ENC_BIG_ENDIAN);
+                        }
+                        else
+                        {
+                            expert_add_info_format(pinfo, tlv_len_item, &ei_uasip_tlv_length, "Invalid length %d", length);
+                        }
                     break;
 
                     default:
                     break;
                 }
-                offset += (2 + L);
+                offset += length;
             }
         }
         break;
 
         case UAUDP_NACK:
         {
-            proto_tree_add_uint(uasip_tree, hf_uasip_expseq, tvb, offset, 2, tvb_get_ntohs(tvb, offset));
-            ua_tap_info.expseq = tvb_get_ntohs(tvb, offset+0);
+            proto_tree_add_item_ret_uint(uasip_tree, hf_uasip_expseq, tvb, offset, 2, ENC_BIG_ENDIAN, &ua_tap_info.expseq);
 
             /*offset += 2;*/
 
@@ -204,12 +239,10 @@ static void _dissect_uasip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
         {
             int datalen;
 
-            proto_tree_add_uint(uasip_tree, hf_uasip_expseq, tvb, offset+0, 2, tvb_get_ntohs(tvb, offset+0));
-            proto_tree_add_uint(uasip_tree, hf_uasip_sntseq, tvb, offset+2, 2, tvb_get_ntohs(tvb, offset+2));
-            ua_tap_info.expseq = tvb_get_ntohs(tvb, offset+0);
-            ua_tap_info.sntseq = tvb_get_ntohs(tvb, offset+2);
+            proto_tree_add_item_ret_uint(uasip_tree, hf_uasip_expseq, tvb, offset+0, 2, ENC_BIG_ENDIAN, &ua_tap_info.expseq);
+            proto_tree_add_item_ret_uint(uasip_tree, hf_uasip_sntseq, tvb, offset+2, 2, ENC_BIG_ENDIAN, &ua_tap_info.sntseq);
             offset += 4;
-            datalen  = (tvb_reported_length(tvb) - offset);
+            datalen = tvb_reported_length_remaining(tvb, offset);
 
             if (noesip_enabled)
             {
@@ -437,21 +470,55 @@ void proto_register_uasip(void)
                 HFILL
             }
         },
+        {
+            &hf_uasip_type,
+            {
+                "Type",
+                "uasip.type",
+                FT_UINT8,
+                BASE_DEC|BASE_EXT_STRING,
+                &uaudp_connect_vals_ext,
+                0x0,
+                NULL,
+                HFILL
+            }
+        },
+        {
+            &hf_uasip_length,
+            {
+                "Length",
+                "uasip.length",
+                FT_UINT8,
+                BASE_DEC,
+                NULL,
+                0x0,
+                NULL,
+                HFILL
+            }
+        },
     };
 
     static gint *ett[] =
     {
         &ett_uasip,
+        &ett_uasip_tlv,
     };
+
+    static ei_register_info ei[] = {
+        { &ei_uasip_tlv_length, { "uasip.tlv_length_invalid", PI_PROTOCOL, PI_WARN, "Invalid length", EXPFILL }},
+    };
+    expert_module_t* expert_uasip;
 
     proto_uasip = proto_register_protocol("UA/SIP Protocol", "UASIP", "uasip");
     uasip_handle = register_dissector("uasip", dissect_uasip, proto_uasip);
 
     proto_register_field_array(proto_uasip, hf_uasip, array_length(hf_uasip));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_uasip = expert_register_protocol(proto_uasip);
+    expert_register_field_array(expert_uasip, ei, array_length(ei));
 
     uasip_module = prefs_register_protocol(proto_uasip, proto_reg_handoff_uasip);
-    prefs_register_bool_preference(uasip_module, "aplication_octet_stream", "Try to decode application/octet-stream as UASIP", "UA SIP Protocol enabled", &uasip_enabled);
+    prefs_register_obsolete_preference(uasip_module, "aplication_octet_stream");
     prefs_register_bool_preference(uasip_module, "noesip", "Try to decode SIP NOE", "NOE SIP Protocol", &noesip_enabled);
     prefs_register_string_preference(uasip_module, "proxy_ipaddr", "Proxy IP Address",
                                      "IPv4 address of the proxy (Invalid values will be ignored)",
@@ -475,11 +542,8 @@ void proto_reg_handoff_uasip(void)
     use_proxy_ipaddr = FALSE;
     memset(proxy_ipaddr, 0, sizeof(proxy_ipaddr));
 
-    if(uasip_enabled){
-        dissector_add_string("media_type", "application/octet-stream", uasip_handle);
-    }else{
-        dissector_delete_string("media_type", "application/octet-stream", uasip_handle);
-    }
+    /* Enable decoding "Internet media type" as UASIP */
+    dissector_add_for_decode_as("media_type", uasip_handle);
 
     if (strcmp(pref_proxy_ipaddr_s, "") != 0) {
         if (str_to_ip(pref_proxy_ipaddr_s, proxy_ipaddr)) {

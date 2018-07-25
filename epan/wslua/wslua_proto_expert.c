@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -35,7 +23,7 @@
 /* WSLUA_CONTINUE_MODULE Proto */
 
 
-WSLUA_CLASS_DEFINE(ProtoExpert,FAIL_ON_NULL("null ProtoExpert"),NOP);
+WSLUA_CLASS_DEFINE(ProtoExpert,FAIL_ON_NULL("null ProtoExpert"));
     /* A Protocol expert info field, to be used when adding items to the dissection tree.
 
        @since 1.11.3
@@ -82,6 +70,11 @@ WSLUA_CONSTRUCTOR ProtoExpert_new(lua_State* L) {
         return 0;
     }
 
+    if (!text[0]) {
+        luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_TEXT, "Empty text");
+        return 0;
+    }
+
     switch (group) {
     case PI_CHECKSUM:
     case PI_SEQUENCE:
@@ -95,6 +88,7 @@ WSLUA_CONSTRUCTOR ProtoExpert_new(lua_State* L) {
     case PI_SECURITY:
     case PI_COMMENTS_GROUP:
     case PI_DECRYPTION:
+    case PI_DEPRECATED:
         break;
     default:
         luaL_argerror(L, WSLUA_ARG_ProtoExpert_new_GROUP, "Group must be one of expert.group.*");

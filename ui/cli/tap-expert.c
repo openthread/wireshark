@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -234,10 +222,8 @@ static void expert_stat_init(const char *opt_arg, void *userdata _U_)
         }
     }
 
-
     /* Create top-level struct */
-    hs = g_new(expert_tapdata_t, 1);
-    memset(hs, 0,  sizeof(expert_tapdata_t));
+    hs = g_new0(expert_tapdata_t, 1);
 
     /* Allocate chunk of strings */
     hs->text = g_string_chunk_new(100);
@@ -255,7 +241,8 @@ static void expert_stat_init(const char *opt_arg, void *userdata _U_)
                                          filter, 0,
                                          expert_stat_reset,
                                          expert_stat_packet,
-                                         expert_stat_draw);
+                                         expert_stat_draw,
+                                         NULL);
     if (error_string) {
         printf("Expert tap error (%s)!\n", error_string->str);
         g_string_free(error_string, TRUE);

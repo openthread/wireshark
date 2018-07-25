@@ -8,19 +8,7 @@
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,7 +21,6 @@
 #include "packet-dcerpc.h"
 
 void proto_register_smb_browse(void);
-void proto_reg_handoff_smb_browse(void);
 
 static int proto_smb_browse = -1;
 static int hf_command = -1;
@@ -566,7 +553,7 @@ dissect_mailslot_browse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tr
 		proto_tree_add_uint_format_value(tree, hf_periodicity, tvb, offset, 4,
 		    periodicity,
 		    "%s",
-		    time_msecs_to_str(wmem_packet_scope(), periodicity));
+		    signed_time_msecs_to_str(wmem_packet_scope(), periodicity));
 		offset += 4;
 
 		/* server name */
@@ -663,7 +650,7 @@ dissect_mailslot_browse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tr
 		proto_tree_add_uint_format_value(tree, hf_server_uptime,
 		    tvb, offset, 4, uptime,
 		    "%s",
-		    time_msecs_to_str(wmem_packet_scope(), uptime));
+		    signed_time_msecs_to_str(wmem_packet_scope(), uptime));
 		offset += 4;
 
 		/* next 4 bytes must be zero */
@@ -810,7 +797,7 @@ dissect_mailslot_lanman(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tr
 		proto_tree_add_uint_format_value(tree, hf_periodicity, tvb, offset, 2,
 		    periodicity,
 		    "%s",
-		    time_msecs_to_str(wmem_packet_scope(), periodicity));
+		    signed_time_msecs_to_str(wmem_packet_scope(), periodicity));
 		offset += 2;
 
 		/* server name */

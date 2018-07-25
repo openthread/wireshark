@@ -11,25 +11,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include "packet-ip.h"
+#include "packet-mpls.h"
 
 void proto_register_mpls_pm(void);
 void proto_reg_handoff_mpls_pm(void);
@@ -296,13 +285,8 @@ mpls_pm_dissect_timestamp(tvbuff_t *tvb, proto_tree *pm_tree,
                                     offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
                 break;
             case MPLS_PM_TSF_PTP:
-                {
-                    nstime_t ts;
-                    ts.secs = tvb_get_ntohl(tvb, offset);
-                    ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-                    proto_tree_add_time(pm_tree, hf_mpls_pm_timestamp1_q_ptp,
-                                        tvb, offset, 8, &ts);
-                }
+                proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp1_q_ptp, tvb,
+                                    offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp1_unk, tvb,
@@ -326,13 +310,8 @@ mpls_pm_dissect_timestamp(tvbuff_t *tvb, proto_tree *pm_tree,
                                     offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
                 break;
             case MPLS_PM_TSF_PTP:
-                {
-                    nstime_t ts;
-                    ts.secs = tvb_get_ntohl(tvb, offset);
-                    ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-                    proto_tree_add_time(pm_tree, hf_mpls_pm_timestamp2_q_ptp,
-                                        tvb, offset, 8, &ts);
-                }
+                proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp2_q_ptp, tvb,
+                                    offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp2_unk, tvb,
@@ -383,13 +362,8 @@ mpls_pm_dissect_timestamp(tvbuff_t *tvb, proto_tree *pm_tree,
                                     offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
                 break;
             case MPLS_PM_TSF_PTP:
-                {
-                    nstime_t ts;
-                    ts.secs = tvb_get_ntohl(tvb, offset);
-                    ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-                    proto_tree_add_time(pm_tree, hf_mpls_pm_timestamp1_r_ptp,
-                                        tvb, offset, 8, &ts);
-                }
+                proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp1_r_ptp, tvb,
+                                    offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp1_unk, tvb,
@@ -413,13 +387,8 @@ mpls_pm_dissect_timestamp(tvbuff_t *tvb, proto_tree *pm_tree,
                                     offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
                 break;
             case MPLS_PM_TSF_PTP:
-                {
-                    nstime_t ts;
-                    ts.secs = tvb_get_ntohl(tvb, offset);
-                    ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-                    proto_tree_add_time(pm_tree, hf_mpls_pm_timestamp2_r_ptp,
-                                        tvb, offset, 8, &ts);
-                }
+                proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp2_r_ptp, tvb,
+                                    offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp2_unk, tvb,
@@ -443,13 +412,8 @@ mpls_pm_dissect_timestamp(tvbuff_t *tvb, proto_tree *pm_tree,
                                     offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
                 break;
             case MPLS_PM_TSF_PTP:
-                {
-                    nstime_t ts;
-                    ts.secs = tvb_get_ntohl(tvb, offset);
-                    ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-                    proto_tree_add_time(pm_tree, hf_mpls_pm_timestamp3_r_ptp,
-                                        tvb, offset, 8, &ts);
-                }
+                proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp3_r_ptp, tvb,
+                                    offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp3_unk, tvb,
@@ -473,13 +437,8 @@ mpls_pm_dissect_timestamp(tvbuff_t *tvb, proto_tree *pm_tree,
                                     offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
                 break;
             case MPLS_PM_TSF_PTP:
-                {
-                    nstime_t ts;
-                    ts.secs = tvb_get_ntohl(tvb, offset);
-                    ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-                    proto_tree_add_time(pm_tree, hf_mpls_pm_timestamp4_r_ptp,
-                                        tvb, offset, 8, &ts);
-                }
+                proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp4_r_ptp, tvb,
+                                    offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(pm_tree, hf_mpls_pm_timestamp4_unk, tvb,
@@ -638,13 +597,8 @@ dissect_mpls_pm_loss(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                             offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
         break;
     case MPLS_PM_TSF_PTP:
-        {
-            nstime_t ts;
-            ts.secs = tvb_get_ntohl(tvb, offset);
-            ts.nsecs = tvb_get_ntohl(tvb, offset + 4);
-            proto_tree_add_time(pm_tree, hf_mpls_pm_origin_timestamp_ptp, tvb,
-                                offset, 8, &ts);
-        }
+        proto_tree_add_item(pm_tree, hf_mpls_pm_origin_timestamp_ptp, tvb,
+                            offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
         break;
     default:
         proto_tree_add_item(pm_tree, hf_mpls_pm_origin_timestamp_unk, tvb,
@@ -1526,17 +1480,16 @@ proto_reg_handoff_mpls_pm(void)
     dissector_handle_t mpls_pm_dlm_handle, mpls_pm_ilm_handle, mpls_pm_dm_handle,
                        mpls_pm_dlm_dm_handle, mpls_pm_ilm_dm_handle;
 
-    mpls_pm_dlm_handle    = create_dissector_handle( dissect_mpls_pm_dlm, proto_mpls_pm_dlm );
-    dissector_add_uint("pwach.channel_type", 0x000A, mpls_pm_dlm_handle); /* FF: MPLS PM, RFC 6374, DLM */
-    mpls_pm_ilm_handle    = create_dissector_handle( dissect_mpls_pm_ilm, proto_mpls_pm_ilm );
-    dissector_add_uint("pwach.channel_type", 0x000B, mpls_pm_ilm_handle); /* FF: MPLS PM, RFC 6374, ILM */
-    mpls_pm_dm_handle    = create_dissector_handle( dissect_mpls_pm_delay, proto_mpls_pm_dm );
-    dissector_add_uint("pwach.channel_type", 0x000C, mpls_pm_dm_handle); /* FF: MPLS PM, RFC 6374, DM */
-    mpls_pm_dlm_dm_handle    = create_dissector_handle( dissect_mpls_pm_dlm_dm, proto_mpls_pm_dlm_dm );
-    dissector_add_uint("pwach.channel_type", 0x000D, mpls_pm_dlm_dm_handle); /* FF: MPLS PM, RFC 6374, DLM+DM */
-    mpls_pm_ilm_dm_handle    = create_dissector_handle( dissect_mpls_pm_ilm_dm, proto_mpls_pm_ilm_dm );
-    dissector_add_uint("pwach.channel_type", 0x000E, mpls_pm_ilm_dm_handle); /* FF: MPLS PM, RFC 6374, ILM+DM */
-
+    mpls_pm_dlm_handle = create_dissector_handle( dissect_mpls_pm_dlm, proto_mpls_pm_dlm );
+    dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_DLM, mpls_pm_dlm_handle);
+    mpls_pm_ilm_handle = create_dissector_handle( dissect_mpls_pm_ilm, proto_mpls_pm_ilm );
+    dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_ILM, mpls_pm_ilm_handle);
+    mpls_pm_dm_handle = create_dissector_handle( dissect_mpls_pm_delay, proto_mpls_pm_dm );
+    dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_DM, mpls_pm_dm_handle);
+    mpls_pm_dlm_dm_handle = create_dissector_handle( dissect_mpls_pm_dlm_dm, proto_mpls_pm_dlm_dm );
+    dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_DLM_DM, mpls_pm_dlm_dm_handle);
+    mpls_pm_ilm_dm_handle = create_dissector_handle( dissect_mpls_pm_ilm_dm, proto_mpls_pm_ilm_dm );
+    dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_ILM_DM, mpls_pm_ilm_dm_handle);
 }
 
 /*

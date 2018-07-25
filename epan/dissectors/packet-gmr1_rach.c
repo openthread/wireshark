@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -228,7 +216,7 @@ dissect_gmr1_rach_kls1(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree
 		proto_tree_add_item(tree, hf_rach_est_cause,
 		                    tvb, offset, 1, ENC_BIG_ENDIAN);
 
-		col_append_fstr(pinfo->cinfo, COL_INFO, "%s",
+		col_append_str(pinfo->cinfo, COL_INFO,
 		                val_to_str(ec, rach_est_cause_vals, "Unknown (%u)"));
 	}
 
@@ -834,7 +822,7 @@ dissect_gmprs_rach_type2_kls2(tvbuff_t *tvb, int offset,
 		proto_tree_add_item(tree, hf_rach_gmprs_req_type,
 				    tvb, offset + 8, 1, ENC_BIG_ENDIAN);
 
-		col_append_fstr(pinfo->cinfo, COL_INFO, "%s",
+		col_append_str(pinfo->cinfo, COL_INFO,
 		                val_to_str(req_type, rach_gmprs_req_type_vals, "Unknown (%u)"));
 	}
 
@@ -895,11 +883,13 @@ dissect_gmr1_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 		} else if (ec == 7) {
 			desc = "GMR-1 GmPRS Channel Request Type 2 (RACH)";
 			ies |= RACH_IE_CLASS2_GMPRS_TYPE2;
+#if 0 /* Fix -Wduplicated-branches */
 		} else if (ec == 12) {
 			/* Position verification exists in both GMR-1 and GmPRS-1
 			 * I have no idea how to differentiate them ... but from
 			 * off-the-air data, it seems it used the GMR-1 format */
 			ies |= RACH_IE_CLASS2_GMR1;
+#endif
 		} else {
 			ies |= RACH_IE_CLASS2_GMR1;
 		}

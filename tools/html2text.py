@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 #
 # html2text.py - converts HTML to text
 #
@@ -6,19 +7,9 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+from __future__ import unicode_literals
 
 __author__      = "Peter Wu <peter@lekensteyn.nl>"
 __copyright__   = "Copyright 2015, Peter Wu"
@@ -59,6 +50,12 @@ class TextHTMLParser(HTMLParser):
         self.ordered_list_index = None
         # Indentation (for heading and paragraphs)
         self.indent_levels = [0, 0]
+        # Don't dump CSS, scripts, etc.
+        self.ignore_tags = ('head', 'style', 'script')
+        self.ignore_level = 0
+        # href footnotes.
+        self.footnotes = []
+        self.href = None
 
     def _wrap_text(self, text):
         """Wraps text, but additionally indent list items."""
@@ -67,7 +64,7 @@ class TextHTMLParser(HTMLParser):
             initial_indent += self.list_item_prefix
             indent += '    '
         kwargs = {
-            'width': 66,
+            'width': 72,
             'initial_indent': initial_indent,
             'subsequent_indent': indent
         }
@@ -96,7 +93,7 @@ class TextHTMLParser(HTMLParser):
         if tag == 'ol':
             self.ordered_list_index = 1
         if tag == 'ul':
-            self.list_item_prefix = '  * '
+            self.list_item_prefix = '  • '
         if tag == 'li' and self.ordered_list_index:
             self.list_item_prefix =  ' %d. ' % (self.ordered_list_index)
             self.ordered_list_index += 1
@@ -105,9 +102,20 @@ class TextHTMLParser(HTMLParser):
             self.indent_levels = [int(tag[1]) - 1, 0]
         if tag == 'p':
             self.indent_levels[1] = 1
+        if tag == 'a':
+            try:
+                href = [attr[1] for attr in attrs if attr[0] == 'href'][0]
+                if '://' in href: # Skip relative URLs and links.
+                    self.href = href
+            except IndexError:
+                self.href = None
+        if tag in self.ignore_tags:
+            self.ignore_level += 1
 
     def handle_data(self, data):
-        if self.skip_wrap:
+        if self.ignore_level > 0:
+            return
+        elif self.skip_wrap:
             block = data
         else:
             # For normal text, fold multiple whitespace and strip
@@ -133,6 +141,11 @@ class TextHTMLParser(HTMLParser):
             self.ordered_list_index = None
         if tag == 'pre':
             self.skip_wrap = False
+        if tag == 'a' and self.href:
+            self.footnotes.append(self.href)
+            self.text_block += '[{0}]'.format(len(self.footnotes))
+        if tag in self.ignore_tags:
+            self.ignore_level -= 1
 
     def handle_charref(self, name):
         self.handle_data(unichr(int(name)))
@@ -143,6 +156,20 @@ class TextHTMLParser(HTMLParser):
     def close(self):
         HTMLParser.close(self)
         self._commit_block()
+
+        if len(self.footnotes) > 0:
+            self.list_item_prefix = None
+            self.indent_levels = [1, 0]
+            self.text_block = 'References'
+            self._commit_block()
+            self.indent_levels = [1, 1]
+            footnote_num = 1
+            for href in self.footnotes:
+                self.text_block += '{0:>2}. {0}\n'.format(footnote_num, href)
+                footnote_num += 1
+                self._commit_block('\n')
+
+
         byte_output = self.output_buffer.encode('utf-8')
         if hasattr(sys.stdout, 'buffer'):
             sys.stdout.buffer.write(byte_output)

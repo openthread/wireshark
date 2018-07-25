@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "show_packet_bytes_dialog.h"
@@ -24,8 +12,10 @@
 
 #include "main_window.h"
 #include "wireshark_application.h"
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 
 #include "epan/charsets.h"
+
 #include "wsutil/base64.h"
 #include "wsutil/utf8_entities.h"
 
@@ -69,6 +59,7 @@ ShowPacketBytesDialog::ShowPacketBytesDialog(QWidget &parent, CaptureFile &cf) :
     ui->cbDecodeAs->addItem(tr("None"), DecodeAsNone);
     ui->cbDecodeAs->addItem(tr("Base64"), DecodeAsBASE64);
     ui->cbDecodeAs->addItem(tr("Compressed"), DecodeAsCompressed);
+    ui->cbDecodeAs->addItem(tr("Quoted-Printable"), DecodeAsQuotedPrintable);
     ui->cbDecodeAs->addItem(tr("ROT13"), DecodeAsROT13);
     ui->cbDecodeAs->blockSignals(false);
 
@@ -83,6 +74,7 @@ ShowPacketBytesDialog::ShowPacketBytesDialog(QWidget &parent, CaptureFile &cf) :
     ui->cbShowAs->addItem(tr("ISO 8859-1"), ShowAsISO8859_1);
     ui->cbShowAs->addItem(tr("Raw"), ShowAsRAW);
     ui->cbShowAs->addItem(tr("UTF-8"), ShowAsUTF8);
+    ui->cbShowAs->addItem(tr("UTF-16"), ShowAsUTF16);
     ui->cbShowAs->addItem(tr("YAML"), ShowAsYAML);
     ui->cbShowAs->setCurrentIndex(show_as_);
     ui->cbShowAs->blockSignals(false);
@@ -100,7 +92,6 @@ ShowPacketBytesDialog::ShowPacketBytesDialog(QWidget &parent, CaptureFile &cf) :
     connect(save_as_button_, SIGNAL(clicked()), this, SLOT(saveAs()));
 
     connect(ui->buttonBox, SIGNAL(helpRequested()), this, SLOT(helpButton()));
-    connect(&cap_file_, SIGNAL(captureFileClosing()), this, SLOT(captureFileClosing()));
 
     setStartAndEnd(0, finfo_->length);
     updateFieldBytes(true);
@@ -224,9 +215,9 @@ void ShowPacketBytesDialog::useRegexFind(bool use_regex)
 {
     use_regex_find_ = use_regex;
     if (use_regex_find_)
-        ui->lFind->setText("Regex Find:");
+        ui->lFind->setText(tr("Regex Find:"));
     else
-        ui->lFind->setText("Find:");
+        ui->lFind->setText(tr("Find:"));
 }
 
 void ShowPacketBytesDialog::findText(bool go_back)
@@ -294,6 +285,7 @@ void ShowPacketBytesDialog::copyBytes()
         break;
 
     case ShowAsUTF8:
+    case ShowAsUTF16:
         wsApp->clipboard()->setText(ui->tePacketBytes->toPlainText().toUtf8());
         break;
     }
@@ -301,7 +293,7 @@ void ShowPacketBytesDialog::copyBytes()
 
 void ShowPacketBytesDialog::saveAs()
 {
-    QString file_name = QFileDialog::getSaveFileName(this, wsApp->windowTitleString(tr("Save Selected Packet Bytes As" UTF8_HORIZONTAL_ELLIPSIS)));
+    QString file_name = WiresharkFileDialog::getSaveFileName(this, wsApp->windowTitleString(tr("Save Selected Packet Bytes As" UTF8_HORIZONTAL_ELLIPSIS)));
 
     if (file_name.isEmpty())
         return;
@@ -339,6 +331,7 @@ void ShowPacketBytesDialog::saveAs()
     }
 
     case ShowAsUTF8:
+    case ShowAsUTF16:
     {
         QTextStream out(&file);
         out << ui->tePacketBytes->toPlainText().toUtf8();
@@ -455,6 +448,31 @@ void ShowPacketBytesDialog::symbolizeBuffer(QByteArray &ba)
     ba.replace((char)0x7f, symbol); // DEL
 }
 
+QByteArray ShowPacketBytesDialog::decodeQuotedPrintable(const guint8 *bytes, int length)
+{
+    QByteArray ba;
+
+    for (int i = 0; i < length; i++) {
+        if (bytes[i] == '=' && i + 1 < length) {
+            if (bytes[i+1] == '\n') {
+                i++;     // Soft line break LF
+            } else if (bytes[i+1] == '\r' && i + 2 < length && bytes[i+2] == '\n') {
+                i += 2;  // Soft line break CRLF
+            } else if (g_ascii_isxdigit(bytes[i+1]) && i + 2 < length && g_ascii_isxdigit(bytes[i+2])) {
+                ba.append(QByteArray::fromHex(QByteArray((const char *)&bytes[i+1], 2)));
+                i += 2;  // Valid Quoted-Printable sequence
+            } else {
+                // Illegal Quoted-Printable, just add byte
+                ba.append(bytes[i]);
+            }
+        } else {
+            ba.append(bytes[i]);
+        }
+    }
+
+    return ba;
+}
+
 void ShowPacketBytesDialog::rot13(QByteArray &ba)
 {
     for (int i = 0; i < ba.length(); i++) {
@@ -469,6 +487,9 @@ void ShowPacketBytesDialog::updateFieldBytes(bool initialization)
     int start = finfo_->start + start_;
     int length = end_ - start_;
     const guint8 *bytes;
+
+    if (!finfo_->ds_tvb)
+        return;
 
     switch (decode_as_) {
 
@@ -499,6 +520,11 @@ void ShowPacketBytesDialog::updateFieldBytes(bool initialization)
         break;
     }
 
+    case DecodeAsQuotedPrintable:
+        bytes = tvb_get_ptr(finfo_->ds_tvb, start, -1);
+        field_bytes_ = decodeQuotedPrintable(bytes, length);
+        break;
+
     case DecodeAsROT13:
         bytes = tvb_get_ptr(finfo_->ds_tvb, start, -1);
         field_bytes_ = QByteArray((const char *)bytes, length);
@@ -506,14 +532,12 @@ void ShowPacketBytesDialog::updateFieldBytes(bool initialization)
         break;
     }
 
-    if (initialization || show_as_ == ShowAsImage) {
-        // Try loading as image
-        if (image_.loadFromData(field_bytes_) && initialization) {
-            show_as_ = ShowAsImage;
-            ui->cbShowAs->blockSignals(true);
-            ui->cbShowAs->setCurrentIndex(ShowAsImage);
-            ui->cbShowAs->blockSignals(false);
-        }
+    // Try loading as image at startup
+    if (initialization && image_.loadFromData(field_bytes_)) {
+        show_as_ = ShowAsImage;
+        ui->cbShowAs->blockSignals(true);
+        ui->cbShowAs->setCurrentIndex(ShowAsImage);
+        ui->cbShowAs->blockSignals(false);
     }
 
     updatePacketBytes();
@@ -654,14 +678,14 @@ void ShowPacketBytesDialog::updatePacketBytes(void)
         ui->leFind->setEnabled(false);
         ui->bFind->setEnabled(false);
 
-        if (!image_.isNull()) {
-            ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
+        ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
+        if (image_.loadFromData(field_bytes_)) {
             ui->tePacketBytes->textCursor().insertImage(image_);
-        } else {
-            print_button_->setEnabled(false);
-            copy_button_->setEnabled(false);
-            save_as_button_->setEnabled(false);
         }
+
+        print_button_->setEnabled(!image_.isNull());
+        copy_button_->setEnabled(!image_.isNull());
+        save_as_button_->setEnabled(!image_.isNull());
         break;
     }
 
@@ -681,6 +705,16 @@ void ShowPacketBytesDialog::updatePacketBytes(void)
         QString utf8 = QString::fromUtf8(field_bytes_.constData(), (int)field_bytes_.length());
         ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
         ui->tePacketBytes->setPlainText(utf8);
+        break;
+    }
+
+    case ShowAsUTF16:
+    {
+        // QString::fromUtf16 calls QUtf16::convertToUnicode, casting buffer
+        // back to a const char * and doubling nchars.
+        QString utf16 = QString::fromUtf16((const unsigned short *)field_bytes_.constData(), (int)field_bytes_.length() / 2);
+        ui->tePacketBytes->setLineWrapMode(QTextEdit::WidgetWidth);
+        ui->tePacketBytes->setPlainText(utf16);
         break;
     }
 

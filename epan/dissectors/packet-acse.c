@@ -24,19 +24,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -185,7 +173,7 @@ static int hf_acse_ACSE_requirements_higher_level_association = -1;
 static int hf_acse_ACSE_requirements_nested_association = -1;
 
 /*--- End of included file: packet-acse-hf.c ---*/
-#line 68 "./asn1/acse/packet-acse-template.c"
+#line 56 "./asn1/acse/packet-acse-template.c"
 static gint hf_acse_user_data = -1;
 
 /* Initialize the subtree pointers */
@@ -230,17 +218,17 @@ static gint ett_acse_Authentication_value_other = -1;
 static gint ett_acse_Authentication_value = -1;
 
 /*--- End of included file: packet-acse-ett.c ---*/
-#line 73 "./asn1/acse/packet-acse-template.c"
+#line 61 "./asn1/acse/packet-acse-template.c"
 
 static expert_field ei_acse_dissector_not_available = EI_INIT;
 static expert_field ei_acse_malformed = EI_INIT;
 static expert_field ei_acse_invalid_oid = EI_INIT;
 
+static dissector_handle_t acse_handle = NULL;
+
 /* indirect_reference, used to pick up the signalling so we know what
    kind of data is transferred in SES_DATA_TRANSFER_PDUs */
 static guint32 indir_ref=0;
-
-static proto_tree *top_tree=NULL;
 
 #if NOT_NEEDED
 /* to keep track of presentation context identifiers and protocol-oids */
@@ -249,7 +237,7 @@ typedef struct _acse_ctx_oid_t {
 	guint32 ctx_id;
 	char *oid;
 } acse_ctx_oid_t;
-static GHashTable *acse_ctx_oid_table = NULL;
+static wmem_map_t *acse_ctx_oid_table = NULL;
 
 static guint
 acse_ctx_oid_hash(gconstpointer k)
@@ -267,18 +255,6 @@ acse_ctx_oid_equal(gconstpointer k1, gconstpointer k2)
 }
 
 static void
-acse_init(void)
-{
-	if (acse_ctx_oid_table) {
-		g_hash_table_destroy(acse_ctx_oid_table);
-		acse_ctx_oid_table = NULL;
-	}
-	acse_ctx_oid_table = g_hash_table_new(acse_ctx_oid_hash,
-			acse_ctx_oid_equal);
-
-}
-
-static void
 register_ctx_id_and_oid(packet_info *pinfo _U_, guint32 idx, char *oid)
 {
 	acse_ctx_oid_t *aco, *tmpaco;
@@ -287,18 +263,18 @@ register_ctx_id_and_oid(packet_info *pinfo _U_, guint32 idx, char *oid)
 	aco->oid=wmem_strdup(wmem_file_scope(), oid);
 
 	/* if this ctx already exists, remove the old one first */
-	tmpaco=(acse_ctx_oid_t *)g_hash_table_lookup(acse_ctx_oid_table, aco);
+	tmpaco=(acse_ctx_oid_t *)wmem_map_lookup(acse_ctx_oid_table, aco);
 	if (tmpaco) {
-		g_hash_table_remove(acse_ctx_oid_table, tmpaco);
+		wmem_map_remove(acse_ctx_oid_table, tmpaco);
 	}
-	g_hash_table_insert(acse_ctx_oid_table, aco, aco);
+	wmem_map_insert(acse_ctx_oid_table, aco, aco);
 }
 static char *
 find_oid_by_ctx_id(packet_info *pinfo _U_, guint32 idx)
 {
 	acse_ctx_oid_t aco, *tmpaco;
 	aco.ctx_id=idx;
-	tmpaco=(acse_ctx_oid_t *)g_hash_table_lookup(acse_ctx_oid_table, &aco);
+	tmpaco=(acse_ctx_oid_t *)wmem_map_lookup(acse_ctx_oid_table, &aco);
 	if (tmpaco) {
 		return tmpaco->oid;
 	}
@@ -367,7 +343,7 @@ static int
 dissect_acse_T_single_ASN1_type(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
 #line 106 "./asn1/acse/acse.cnf"
   if (actx->external.direct_ref_present) {
-    offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, top_tree ? top_tree : tree, actx->private_data);
+    offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, actx->subtree.top_tree ? actx->subtree.top_tree : tree, actx->private_data);
   }
 
 
@@ -381,7 +357,7 @@ static int
 dissect_acse_T_octet_aligned(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
 #line 111 "./asn1/acse/acse.cnf"
   if (actx->external.direct_ref_present) {
-    offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, top_tree ? top_tree : tree, actx->private_data);
+    offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, actx->subtree.top_tree ? actx->subtree.top_tree : tree, actx->private_data);
   }
 
 
@@ -695,7 +671,7 @@ static int
 dissect_acse_T_other_mechanism_value(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
 #line 54 "./asn1/acse/acse.cnf"
   if (actx->external.direct_ref_present) {
-    offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, top_tree, actx->private_data);
+    offset=call_ber_oid_callback(actx->external.direct_reference, tvb, offset, actx->pinfo, actx->subtree.top_tree, actx->private_data);
   }
 
 
@@ -1697,7 +1673,7 @@ dissect_acse_AE_title(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _
 
 
 /*--- End of included file: packet-acse-fn.c ---*/
-#line 150 "./asn1/acse/packet-acse-template.c"
+#line 126 "./asn1/acse/packet-acse-template.c"
 
 
 /*
@@ -1730,15 +1706,14 @@ dissect_acse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 	session = ( (struct SESSION_DATA_STRUCTURE*)data);
 	if (session->spdu_type == 0) {
 		if (parent_tree) {
-			REPORT_DISSECTOR_BUG(
-				wmem_strdup_printf(wmem_packet_scope(), "Wrong spdu type %x from session dissector.",session->spdu_type));
+			REPORT_DISSECTOR_BUG("Wrong spdu type %x from session dissector.",session->spdu_type);
 			return 0;
 		}
 	}
 
 	asn1_ctx.private_data = session;
 	/* save parent_tree so subdissectors can create new top nodes */
-	top_tree=parent_tree;
+	asn1_ctx.subtree.top_tree = parent_tree;
 
 	/*  ACSE has only AARQ,AARE,RLRQ,RLRE,ABRT type of pdu */
 	/*  reject everything else                              */
@@ -1759,17 +1734,15 @@ dissect_acse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 				proto_tree_add_expert_format(parent_tree, pinfo, &ei_acse_invalid_oid, tvb, offset, -1,
 				    "Invalid OID: %s", ACSE_APDU_OID);
 			}
-         else {
-            call_ber_oid_callback(oid, tvb, offset, pinfo, parent_tree, NULL);
-         }
+		 else {
+			call_ber_oid_callback(oid, tvb, offset, pinfo, parent_tree, NULL);
+		 }
 		} else {
 			proto_tree_add_expert(parent_tree, pinfo, &ei_acse_dissector_not_available,
-                                    tvb, offset, -1);
+									tvb, offset, -1);
 		}
-		top_tree = NULL;
 		return 0;
 	default:
-		top_tree = NULL;
 		return 0;
 	}
 
@@ -1800,7 +1773,6 @@ dissect_acse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
 		}
 	}
 
-	top_tree = NULL;
 	return tvb_captured_length(tvb);
 }
 
@@ -2246,7 +2218,7 @@ void proto_register_acse(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-acse-hfarr.c ---*/
-#line 266 "./asn1/acse/packet-acse-template.c"
+#line 238 "./asn1/acse/packet-acse-template.c"
   };
 
   /* List of subtrees */
@@ -2292,7 +2264,7 @@ void proto_register_acse(void) {
     &ett_acse_Authentication_value,
 
 /*--- End of included file: packet-acse-ettarr.c ---*/
-#line 272 "./asn1/acse/packet-acse-template.c"
+#line 244 "./asn1/acse/packet-acse-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -2305,7 +2277,7 @@ void proto_register_acse(void) {
 
   /* Register protocol */
   proto_acse = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  register_dissector("acse", dissect_acse, proto_acse);
+  acse_handle = register_dissector("acse", dissect_acse, proto_acse);
 
   /* Register connectionless protocol */
   proto_clacse = proto_register_protocol(CLPNAME, CLPSNAME, CLPFNAME);
@@ -2316,14 +2288,17 @@ void proto_register_acse(void) {
   proto_register_subtree_array(ett, array_length(ett));
   expert_acse = expert_register_protocol(proto_acse);
   expert_register_field_array(expert_acse, ei, array_length(ei));
+
+#if NOT_NEEDED
+  acse_ctx_oid_table = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), acse_ctx_oid_hash,
+			acse_ctx_oid_equal);
+#endif
 }
 
 
 /*--- proto_reg_handoff_acse -------------------------------------------*/
 void proto_reg_handoff_acse(void) {
 /*#include "packet-acse-dis-tab.c"*/
-	dissector_handle_t acse_handle = find_dissector("acse");
-
 	oid_add_from_string("id-aCSE","2.2.3.1.1");
 	register_ber_oid_dissector_handle(ACSE_APDU_OID, acse_handle, proto_acse, "id-as-acse");
 

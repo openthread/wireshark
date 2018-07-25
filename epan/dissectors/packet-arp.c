@@ -8,19 +8,7 @@
  * By Deepti Ragha <dlragha@ncsu.edu>
  * Copyright 2012 Deepti Ragha
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,6 +21,7 @@
 #include <epan/etypes.h>
 #include <epan/arcnet_pids.h>
 #include <epan/ax25_pids.h>
+#include <epan/osi-utils.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/proto_data.h>
@@ -105,6 +94,8 @@ static dissector_handle_t arp_handle;
 static dissector_handle_t atmarp_handle;
 static dissector_handle_t ax25arp_handle;
 
+static capture_dissector_handle_t arp_cap_handle;
+
 /* Used for determining if frequency of ARP requests constitute a storm */
 #define STORM    1
 #define NO_STORM 2
@@ -123,7 +114,7 @@ static nstime_t time_at_start_of_count;
 
 /* Map of (IP address -> MAC address) to detect duplicate IP addresses
    Key is unsigned32 */
-static GHashTable *address_hash_table = NULL;
+static wmem_map_t *address_hash_table = NULL;
 
 typedef struct address_hash_value {
   guint8    mac[6];
@@ -132,7 +123,7 @@ typedef struct address_hash_value {
 } address_hash_value;
 
 /* Map of ((frame Num, IP address) -> MAC address) */
-static GHashTable *duplicate_result_hash_table = NULL;
+static wmem_map_t *duplicate_result_hash_table = NULL;
 
 typedef struct duplicate_result_key {
   guint32 frame_number;
@@ -504,6 +495,10 @@ const value_string arp_hrd_vals[] = {
   {ARPHDR_HW_EXP1,            "Experimental 1"             },
   {ARPHDR_HFI,                "HFI"                        },
   {ARPHDR_HW_EXP2,            "Experimental 2"             },
+  /* Virtual ARP types for non ARP hardware used in Linux cooked mode. */
+  {ARPHRD_LOOPBACK,           "Loopback"                   },
+  {ARPHRD_IPGRE,              "GRE over IP"                },
+  {ARPHRD_NETLINK,            "Netlink"                    },
   {0, NULL                  } };
 
 /* Offsets of fields within an ARP packet. */
@@ -546,19 +541,19 @@ dissect_atm_number(tvbuff_t *tvb, packet_info* pinfo, int offset, int tl, int hf
 }
 
 static const value_string atm_nsap_afi_vals[] = {
-    { 0x39,    "DCC ATM format"},
-    { 0xBD,    "DCC ATM group format"},
-    { 0x47,    "ICD ATM format"},
-    { 0xC5,    "ICD ATM group format"},
-    { 0x45,    "E.164 ATM format"},
-    { 0xC3,    "E.164 ATM group format"},
-    { 0,            NULL}
+    { NSAP_IDI_ISO_DCC_BIN,            "DCC ATM format"},
+    { NSAP_IDI_ISO_DCC_BIN_GROUP,      "DCC ATM group format"},
+    { NSAP_IDI_ISO_6523_ICD_BIN,       "ICD ATM format"},
+    { NSAP_IDI_ISO_6523_ICD_BIN_GROUP, "ICD ATM group format"},
+    { NSAP_IDI_E_164_BIN_FSD_NZ,       "E.164 ATM format"},
+    { NSAP_IDI_E_164_BIN_FSD_NZ_GROUP, "E.164 ATM group format"},
+    { 0,                               NULL}
 };
 
 /*
  * XXX - shouldn't there be a centralized routine for dissecting NSAPs?
  * See also "dissect_nsap()" in epan/dissectors/packet-isup.c and
- * "print_nsap_net_buf()" and "print_nsap_net()" in epan/osi=utils.c.
+ * "print_nsap_net()" in epan/osi-utils.c.
  */
 void
 dissect_atm_nsap(tvbuff_t *tvb, packet_info* pinfo, int offset, int len, proto_tree *tree)
@@ -570,27 +565,27 @@ dissect_atm_nsap(tvbuff_t *tvb, packet_info* pinfo, int offset, int len, proto_t
   ti = proto_tree_add_item(tree, hf_atmarp_src_atm_afi, tvb, offset, 1, ENC_BIG_ENDIAN);
   switch (afi) {
 
-    case 0x39:  /* DCC ATM format */
-    case 0xBD:  /* DCC ATM group format */
-      proto_tree_add_item(tree, (afi == 0xBD) ? hf_atmarp_src_atm_data_country_code_group : hf_atmarp_src_atm_data_country_code,
+    case NSAP_IDI_ISO_DCC_BIN:       /* DCC ATM format */
+    case NSAP_IDI_ISO_DCC_BIN_GROUP: /* DCC ATM group format */
+      proto_tree_add_item(tree, (afi == NSAP_IDI_ISO_DCC_BIN_GROUP) ? hf_atmarp_src_atm_data_country_code_group : hf_atmarp_src_atm_data_country_code,
                           tvb, offset + 1, 2, ENC_BIG_ENDIAN);
       proto_tree_add_item(tree, hf_atmarp_src_atm_high_order_dsp, tvb, offset + 3, 10, ENC_NA);
       proto_tree_add_item(tree, hf_atmarp_src_atm_end_system_identifier, tvb, offset + 13, 6, ENC_NA);
       proto_tree_add_item(tree, hf_atmarp_src_atm_selector, tvb, offset + 19, 1, ENC_BIG_ENDIAN);
       break;
 
-    case 0x47:  /* ICD ATM format */
-    case 0xC5:  /* ICD ATM group format */
-      proto_tree_add_item(tree, (afi == 0xC5) ? hf_atmarp_src_atm_international_code_designator_group : hf_atmarp_src_atm_international_code_designator,
+    case NSAP_IDI_ISO_6523_ICD_BIN:       /* ICD ATM format */
+    case NSAP_IDI_ISO_6523_ICD_BIN_GROUP: /* ICD ATM group format */
+      proto_tree_add_item(tree, (afi == NSAP_IDI_ISO_6523_ICD_BIN_GROUP) ? hf_atmarp_src_atm_international_code_designator_group : hf_atmarp_src_atm_international_code_designator,
                           tvb, offset + 1, 2, ENC_BIG_ENDIAN);
       proto_tree_add_item(tree, hf_atmarp_src_atm_high_order_dsp, tvb, offset + 3, 10, ENC_NA);
       proto_tree_add_item(tree, hf_atmarp_src_atm_end_system_identifier, tvb, offset + 13, 6, ENC_NA);
       proto_tree_add_item(tree, hf_atmarp_src_atm_selector, tvb, offset + 19, 1, ENC_BIG_ENDIAN);
       break;
 
-    case 0x45:  /* E.164 ATM format */
-    case 0xC3:  /* E.164 ATM group format */
-      proto_tree_add_item(tree, (afi == 0xC3) ? hf_atmarp_src_atm_e_164_isdn_group : hf_atmarp_src_atm_e_164_isdn,
+    case NSAP_IDI_E_164_BIN_FSD_NZ:       /* E.164 ATM format */
+    case NSAP_IDI_E_164_BIN_FSD_NZ_GROUP: /* E.164 ATM group format */
+      proto_tree_add_item(tree, (afi == NSAP_IDI_E_164_BIN_FSD_NZ_GROUP) ? hf_atmarp_src_atm_e_164_isdn_group : hf_atmarp_src_atm_e_164_isdn,
                           tvb, offset + 1, 8, ENC_NA);
       proto_tree_add_item(tree, hf_atmarp_src_atm_high_order_dsp, tvb, offset + 9, 4, ENC_NA);
       proto_tree_add_item(tree, hf_atmarp_src_atm_end_system_identifier, tvb, offset + 13, 6, ENC_NA);
@@ -651,7 +646,7 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
 
   /* Look up existing result */
   if (pinfo->fd->flags.visited) {
-      result = (address_hash_value *)g_hash_table_lookup(duplicate_result_hash_table,
+      result = (address_hash_value *)wmem_map_lookup(duplicate_result_hash_table,
                                    &result_key);
   }
   else {
@@ -659,7 +654,7 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
          store result */
 
       /* Look up current assignment of IP address */
-      value = (address_hash_value *)g_hash_table_lookup(address_hash_table, GUINT_TO_POINTER(ip));
+      value = (address_hash_value *)wmem_map_lookup(address_hash_table, GUINT_TO_POINTER(ip));
 
       /* If MAC matches table, just update details */
       if (value != NULL)
@@ -681,7 +676,7 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
             result = wmem_new(wmem_file_scope(), address_hash_value);
             memcpy(result, value, sizeof(address_hash_value));
 
-            g_hash_table_insert(duplicate_result_hash_table, persistent_key, result);
+            wmem_map_insert(duplicate_result_hash_table, persistent_key, result);
           }
         }
       }
@@ -694,7 +689,7 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
         value->time_of_entry = pinfo->abs_ts.secs;
 
         /* Add it */
-        g_hash_table_insert(address_hash_table, GUINT_TO_POINTER(ip), value);
+        wmem_map_insert(address_hash_table, GUINT_TO_POINTER(ip), value);
       }
   }
 
@@ -739,26 +734,6 @@ check_for_duplicate_addresses(packet_info *pinfo, proto_tree *tree,
 
   return (result != NULL);
 }
-
-
-
-/* Initializes the hash table each time a new
- * file is loaded or re-loaded in wireshark */
-static void
-arp_init_protocol(void)
-{
-  address_hash_table = g_hash_table_new(address_hash_func, address_equal_func);
-  duplicate_result_hash_table = g_hash_table_new(duplicate_result_hash_func,
-                                                 duplicate_result_equal_func);
-}
-
-static void
-arp_cleanup_protocol(void)
-{
-  g_hash_table_destroy(address_hash_table);
-  g_hash_table_destroy(duplicate_result_hash_table);
-}
-
 
 
 
@@ -1361,7 +1336,7 @@ dissect_ax25arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
   return tvb_captured_length(tvb);
 }
 
-gboolean
+static gboolean
 capture_arp(const guchar *pd _U_, int offset _U_, int len _U_, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
   capture_dissector_increment_count(cpinfo, proto_arp);
@@ -1494,7 +1469,7 @@ dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
        multicast address nor an all-zero address and if sender IP address
        isn't all zeroes. */
     ip = tvb_get_ipv4(tvb, spa_offset);
-    mac = tvb_get_ptr(tvb, sha_offset, 6);
+    mac = (const guint8*)tvb_memdup(wmem_packet_scope(), tvb, sha_offset, 6);
     if ((mac[0] & 0x01) == 0 && memcmp(mac, mac_allzero, 6) != 0 && ip != 0)
     {
       if (global_arp_register_network_address_binding)
@@ -1518,7 +1493,7 @@ dissect_arp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
 
     ip = tvb_get_ipv4(tvb, tpa_offset);
-    mac = tvb_get_ptr(tvb, tha_offset, 6);
+    mac = (const guint8*)tvb_memdup(wmem_packet_scope(), tvb, tha_offset, 6);
     if ((mac[0] & 0x01) == 0 && memcmp(mac, mac_allzero, 6) != 0 && ip != 0
         && ar_op != ARPOP_REQUEST)
     {
@@ -2021,8 +1996,11 @@ proto_register_arp(void)
 
   /* TODO: define a minimum time between sightings that is worth reporting? */
 
-  register_init_routine(&arp_init_protocol);
-  register_cleanup_routine(&arp_cleanup_protocol);
+  address_hash_table = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), address_hash_func, address_equal_func);
+  duplicate_result_hash_table = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), duplicate_result_hash_func,
+                                                 duplicate_result_equal_func);
+
+  arp_cap_handle = register_capture_dissector("arp", capture_arp, proto_arp);
 }
 
 void
@@ -2034,8 +2012,9 @@ proto_reg_handoff_arp(void)
   dissector_add_uint("arcnet.protocol_id", ARCNET_PROTO_ARP_1201, arp_handle);
   dissector_add_uint("arcnet.protocol_id", ARCNET_PROTO_RARP_1201, arp_handle);
   dissector_add_uint("ax25.pid", AX25_P_ARP, arp_handle);
-  register_capture_dissector("ethertype", ETHERTYPE_ARP, capture_arp, proto_arp);
-  register_capture_dissector("ax25.pid", AX25_P_ARP, capture_arp, proto_arp);
+  dissector_add_uint("gre.proto", ETHERTYPE_ARP, arp_handle);
+  capture_dissector_add_uint("ethertype", ETHERTYPE_ARP, arp_cap_handle);
+  capture_dissector_add_uint("ax25.pid", AX25_P_ARP, arp_cap_handle);
 }
 
 /*

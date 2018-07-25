@@ -4,37 +4,22 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "endpoint_dialog.h"
 
-#ifdef HAVE_GEOIP
-#include <GeoIP.h>
-#include <epan/geoip_db.h>
-#include <wsutil/pint.h>
-#endif
+#include <epan/maxmind_db.h>
 
 #include <epan/prefs.h>
 
 #include "ui/recent.h"
 #include "ui/traffic_table_ui.h"
 
+#include "wsutil/pint.h"
 #include "wsutil/str_util.h"
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "wireshark_application.h"
 
 #include <QCheckBox>
@@ -44,18 +29,10 @@
 #include <QPushButton>
 #include <QUrl>
 
-const QString table_name_ = QObject::tr("Endpoint");
+static const QString table_name_ = QObject::tr("Endpoint");
 EndpointDialog::EndpointDialog(QWidget &parent, CaptureFile &cf, int cli_proto_id, const char *filter) :
     TrafficTableDialog(parent, cf, filter, table_name_)
 {
-#ifdef HAVE_GEOIP
-    map_bt_ = buttonBox()->addButton(tr("Map"), QDialogButtonBox::ActionRole);
-    map_bt_->setToolTip(tr("Draw IPv4 or IPv6 endpoints on a map."));
-    connect(map_bt_, SIGNAL(clicked()), this, SLOT(createMap()));
-
-    connect(trafficTableTabWidget(), SIGNAL(currentChanged(int)), this, SLOT(tabChanged()));
-#endif
-
     addProgressFrame(&parent);
 
     QList<int> endp_protos;
@@ -71,7 +48,7 @@ EndpointDialog::EndpointDialog(QWidget &parent, CaptureFile &cf, int cli_proto_i
     }
 
     // Bring the command-line specified type to the front.
-    if (get_conversation_by_proto_id(cli_proto_id)) {
+    if ((cli_proto_id > 0) && (get_conversation_by_proto_id(cli_proto_id))) {
         endp_protos.removeAll(cli_proto_id);
         endp_protos.prepend(cli_proto_id);
     }
@@ -83,10 +60,13 @@ EndpointDialog::EndpointDialog(QWidget &parent, CaptureFile &cf, int cli_proto_i
 
     fillTypeMenu(endp_protos);
 
-#ifdef HAVE_GEOIP
-    tabChanged();
-#endif
-    itemSelectionChanged();
+    QPushButton *close_bt = buttonBox()->button(QDialogButtonBox::Close);
+    if (close_bt) {
+        close_bt->setDefault(true);
+    }
+
+    updateWidgets();
+//    currentTabChanged();
 
     cap_file_.delayedRetapPackets();
 }
@@ -116,8 +96,8 @@ void EndpointDialog::captureFileClosing()
     // on a live capture file.
     for (int i = 0; i < trafficTableTabWidget()->count(); i++) {
         EndpointTreeWidget *cur_tree = qobject_cast<EndpointTreeWidget *>(trafficTableTabWidget()->widget(i));
-        disconnect(cur_tree, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-                   this, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+        disconnect(cur_tree, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+                   this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     }
     displayFilterCheckBox()->setEnabled(false);
     enabledTypesPushButton()->setEnabled(false);
@@ -139,12 +119,10 @@ bool EndpointDialog::addTrafficTable(register_ct_t *table)
 
     trafficTableTabWidget()->addTab(endp_tree, table_name);
 
-    connect(endp_tree, SIGNAL(itemSelectionChanged()),
-            this, SLOT(itemSelectionChanged()));
     connect(endp_tree, SIGNAL(titleChanged(QWidget*,QString)),
             this, SLOT(setTabText(QWidget*,QString)));
-    connect(endp_tree, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(endp_tree, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     connect(nameResolutionCheckBox(), SIGNAL(toggled(bool)),
             endp_tree, SLOT(setNameResolutionEnabled(bool)));
 
@@ -164,37 +142,8 @@ bool EndpointDialog::addTrafficTable(register_ct_t *table)
                         EndpointTreeWidget::tapReset,
                         get_hostlist_packet_func(table),
                         EndpointTreeWidget::tapDraw);
-
-#ifdef HAVE_GEOIP
-    connect(endp_tree, SIGNAL(geoIPStatusChanged()), this, SLOT(tabChanged()));
-#endif
     return true;
 }
-
-#ifdef HAVE_GEOIP
-void EndpointDialog::tabChanged()
-{
-    EndpointTreeWidget *cur_tree = qobject_cast<EndpointTreeWidget *>(trafficTableTabWidget()->currentWidget());
-    map_bt_->setEnabled(cur_tree && cur_tree->hasGeoIPData());
-}
-
-void EndpointDialog::createMap()
-{
-    EndpointTreeWidget *cur_tree = qobject_cast<EndpointTreeWidget *>(trafficTableTabWidget()->currentWidget());
-    if (!cur_tree) {
-        return;
-    }
-
-    gchar *err_str;
-    gchar *map_path = create_endpoint_geoip_map(cur_tree->trafficTreeHash()->conv_array, &err_str);
-    if (!map_path) {
-        QMessageBox::warning(this, tr("Map file error"), err_str);
-        g_free(err_str);
-        return;
-    }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(gchar_free_to_qstring(map_path)));
-}
-#endif
 
 void EndpointDialog::on_buttonBox_helpRequested()
 {
@@ -209,100 +158,76 @@ void init_endpoint_table(struct register_ct* ct, const char *filter)
 // EndpointTreeWidgetItem
 // TrafficTableTreeWidgetItem / QTreeWidgetItem subclass that allows sorting
 
-const int ei_col_ = 0;
-const int pkts_col_ = 1;
-
-const char *geoip_none_ = "-";
+static const char *data_none_ = UTF8_EM_DASH;
 
 class EndpointTreeWidgetItem : public TrafficTableTreeWidgetItem
 {
 public:
-    EndpointTreeWidgetItem(QTreeWidget *tree) : TrafficTableTreeWidgetItem(tree)  {}
-    EndpointTreeWidgetItem(QTreeWidget *parent, const QStringList &strings)
-                   : TrafficTableTreeWidgetItem (parent, strings)  {}
+    EndpointTreeWidgetItem(GArray *conv_array, guint conv_idx, bool *resolve_names_ptr) :
+        TrafficTableTreeWidgetItem(NULL),
+        conv_array_(conv_array),
+        conv_idx_(conv_idx),
+        resolve_names_ptr_(resolve_names_ptr)
+    {}
 
-    // Set column text to its cooked representation.
-    void update(gboolean resolve_names) {
-        hostlist_talker_t *endp_item = data(ei_col_, Qt::UserRole).value<hostlist_talker_t *>();
-        bool ok;
-        quint64 cur_packets = data(pkts_col_, Qt::UserRole).toULongLong(&ok);
-        char *addr_str, *port_str;
-
-        if (!endp_item) {
-            return;
-        }
-
-        quint64 packets = endp_item->tx_frames + endp_item->rx_frames;
-        if (ok && cur_packets == packets) {
-            return;
-        }
-
-        addr_str = get_conversation_address(NULL, &endp_item->myaddress, resolve_names);
-        port_str = get_conversation_port(NULL, endp_item->port, endp_item->ptype, resolve_names);
-        setText(ENDP_COLUMN_ADDR, addr_str);
-        setText(ENDP_COLUMN_PORT, port_str);
-        wmem_free(NULL, addr_str);
-        wmem_free(NULL, port_str);
-
-        QString col_str;
-
-        col_str = QString("%L1").arg(packets);
-        setText(ENDP_COLUMN_PACKETS, col_str);
-        col_str = gchar_free_to_qstring(format_size(endp_item->tx_bytes + endp_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
-        setText(ENDP_COLUMN_BYTES, col_str);
-        col_str = QString("%L1").arg(endp_item->tx_frames);
-        setText(ENDP_COLUMN_PKT_AB, QString::number(endp_item->tx_frames));
-        col_str = gchar_free_to_qstring(format_size(endp_item->tx_bytes, format_size_unit_none|format_size_prefix_si));
-        setText(ENDP_COLUMN_BYTES_AB, col_str);
-        col_str = QString("%L1").arg(endp_item->rx_frames);
-        setText(ENDP_COLUMN_PKT_BA, QString::number(endp_item->rx_frames));
-        col_str = gchar_free_to_qstring(format_size(endp_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
-        setText(ENDP_COLUMN_BYTES_BA, col_str);
-        setData(pkts_col_, Qt::UserRole, qVariantFromValue(packets));
-
-#ifdef HAVE_GEOIP
-        /* Filled in from the GeoIP config, if any */
-        EndpointTreeWidget *ep_tree = qobject_cast<EndpointTreeWidget *>(treeWidget());
-        if (ep_tree) {
-            for (int col = ENDP_NUM_COLUMNS; col < ep_tree->columnCount(); col++) {
-                char *col_text = NULL;
-                foreach (unsigned db, ep_tree->columnToDb(col)) {
-                    if (endp_item->myaddress.type == AT_IPv4) {
-                        col_text = geoip_db_lookup_ipv4(db, pntoh32(endp_item->myaddress.data), NULL);
-                    } else if (endp_item->myaddress.type == AT_IPv6) {
-                        const struct e_in6_addr *addr = (const struct e_in6_addr *) endp_item->myaddress.data;
-                        col_text = geoip_db_lookup_ipv6(db, *addr, NULL);
-                    }
-                    if (col_text) {
-                        break;
-                    }
-                }
-                setText(col, col_text ? col_text : geoip_none_);
-                wmem_free(NULL, col_text);
-            }
-        }
-#endif
+    hostlist_talker_t *hostlistTalker() {
+        return &g_array_index(conv_array_, hostlist_talker_t, conv_idx_);
     }
 
+    virtual QVariant data(int column, int role) const {
+        if (role == Qt::DisplayRole) {
+            // Column text cooked representation.
+            hostlist_talker_t *endp_item = &g_array_index(conv_array_, hostlist_talker_t, conv_idx_);
+
+            bool resolve_names = false;
+            if (resolve_names_ptr_ && *resolve_names_ptr_) resolve_names = true;
+            switch (column) {
+            case ENDP_COLUMN_PACKETS:
+                return QString("%L1").arg(endp_item->tx_frames + endp_item->rx_frames);
+            case ENDP_COLUMN_BYTES:
+                return gchar_free_to_qstring(format_size(endp_item->tx_bytes + endp_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
+            case ENDP_COLUMN_PKT_AB:
+                return QString("%L1").arg(endp_item->tx_frames);
+            case ENDP_COLUMN_BYTES_AB:
+                return gchar_free_to_qstring(format_size(endp_item->tx_bytes, format_size_unit_none|format_size_prefix_si));
+            case ENDP_COLUMN_PKT_BA:
+                return QString("%L1").arg(endp_item->rx_frames);
+            case ENDP_COLUMN_BYTES_BA:
+                return gchar_free_to_qstring(format_size(endp_item->rx_bytes, format_size_unit_none|format_size_prefix_si));
+            default:
+                QVariant col_data = colData(column, resolve_names);
+                if (col_data.isValid()) return col_data;
+                return QVariant(data_none_);
+            }
+        }
+        return QTreeWidgetItem::data(column, role);
+    }
+
+    // Column text raw representation.
     // Return a string, qulonglong, double, or invalid QVariant representing the raw column data.
     QVariant colData(int col, bool resolve_names) const {
-        hostlist_talker_t *endp_item = data(ei_col_, Qt::UserRole).value<hostlist_talker_t *>();
+        hostlist_talker_t *endp_item = &g_array_index(conv_array_, hostlist_talker_t, conv_idx_);
 
-        if (!endp_item) {
-            return QVariant();
+        const mmdb_lookup_t *mmdb_lookup = NULL;
+        if (endp_item->myaddress.type == AT_IPv4) {
+            guint32 ip;
+            memcpy(&ip, endp_item->myaddress.data, 4);
+            mmdb_lookup = maxmind_db_lookup_ipv4(ip);
+        } else if (endp_item->myaddress.type == AT_IPv6) {
+            mmdb_lookup = maxmind_db_lookup_ipv6((ws_in6_addr *) endp_item->myaddress.data);
         }
 
         switch (col) {
         case ENDP_COLUMN_ADDR:
-            {
+        {
             char* addr_str = get_conversation_address(NULL, &endp_item->myaddress, resolve_names);
             QString q_addr_str(addr_str);
             wmem_free(NULL, addr_str);
             return q_addr_str;
-            }
+        }
         case ENDP_COLUMN_PORT:
             if (resolve_names) {
-                char* port_str = get_conversation_port(NULL, endp_item->port, endp_item->ptype, resolve_names);
+                char* port_str = get_conversation_port(NULL, endp_item->port, endp_item->etype, resolve_names);
                 QString q_port_str(port_str);
                 wmem_free(NULL, port_str);
                 return q_port_str;
@@ -321,44 +246,37 @@ public:
             return quint64(endp_item->rx_frames);
         case ENDP_COLUMN_BYTES_BA:
             return quint64(endp_item->rx_bytes);
-#ifdef HAVE_GEOIP
-        default:
-        {
-            bool ok;
-
-            double dval = text(col).toDouble(&ok);
-            if (ok) { // Assume lat / lon
-                return dval;
+        case ENDP_COLUMN_GEO_COUNTRY:
+            if (mmdb_lookup && mmdb_lookup->found && mmdb_lookup->country) {
+                return QVariant(mmdb_lookup->country);
             }
-
-            qulonglong ullval = text(col).toULongLong(&ok);
-            if (ok) { // Assume uint
-                return ullval;
+            return QVariant();
+        case ENDP_COLUMN_GEO_CITY:
+            if (mmdb_lookup && mmdb_lookup->found && mmdb_lookup->city) {
+                return QVariant(mmdb_lookup->city);
             }
-
-            qlonglong llval = text(col).toLongLong(&ok);
-            if (ok) { // Assume int
-                return llval;
+            return QVariant();
+        case ENDP_COLUMN_GEO_AS_NUM:
+            if (mmdb_lookup && mmdb_lookup->found && mmdb_lookup->as_number) {
+                return QVariant(mmdb_lookup->as_number);
             }
+            return QVariant();
+        case ENDP_COLUMN_GEO_AS_ORG:
+            if (mmdb_lookup && mmdb_lookup->found && mmdb_lookup->as_org) {
+                return QVariant(mmdb_lookup->as_org);
+            }
+            return QVariant();
 
-            return text(col);
-            break;
-        }
-#else
         default:
             return QVariant();
-#endif
         }
     }
 
     bool operator< (const QTreeWidgetItem &other) const
     {
-        hostlist_talker_t *endp_item = data(ei_col_, Qt::UserRole).value<hostlist_talker_t *>();
-        hostlist_talker_t *other_item = other.data(ei_col_, Qt::UserRole).value<hostlist_talker_t *>();
-
-        if (!endp_item || !other_item) {
-            return false;
-        }
+        const EndpointTreeWidgetItem *other_row = static_cast<const EndpointTreeWidgetItem *>(&other);
+        hostlist_talker_t *endp_item = &g_array_index(conv_array_, hostlist_talker_t, conv_idx_);
+        hostlist_talker_t *other_item = &g_array_index(other_row->conv_array_, hostlist_talker_t, other_row->conv_idx_);
 
         int sort_col = treeWidget()->sortColumn();
 
@@ -379,30 +297,32 @@ public:
             return endp_item->rx_frames < other_item->rx_frames;
         case ENDP_COLUMN_BYTES_BA:
             return endp_item->rx_bytes < other_item->rx_bytes;
-#ifdef HAVE_GEOIP
-        default:
+        case ENDP_COLUMN_GEO_COUNTRY:
+        case ENDP_COLUMN_GEO_CITY:
+        case ENDP_COLUMN_GEO_AS_ORG:
         {
-            double ei_val, oi_val;
-            bool ei_ok, oi_ok;
-            ei_val = text(sort_col).toDouble(&ei_ok);
-            oi_val = other.text(sort_col).toDouble(&oi_ok);
-
-            if (ei_ok && oi_ok) { // Assume lat / lon
-                return ei_val < oi_val;
-            } else {
-                // XXX Fall back to string comparison. We might want to try sorting naturally
-                // using QCollator instead.
-                return text(sort_col) < other.text(sort_col);
-            }
-            break;
+            QString this_str = data(sort_col, Qt::DisplayRole).toString();
+            QString other_str = other_row->data(sort_col, Qt::DisplayRole).toString();
+            return (this_str < other_str);
         }
-#else
+        case ENDP_COLUMN_GEO_AS_NUM:
+        {
+            // Valid values first, similar to strings above.
+            bool ok;
+            unsigned this_asn = colData(sort_col, false).toUInt(&ok);
+            if (!ok) this_asn = UINT_MAX;
+            unsigned other_asn = other_row->colData(sort_col, false).toUInt(&ok);
+            if (!ok) other_asn = UINT_MAX;
+            return (this_asn < other_asn);
+        }
         default:
             return false;
-#endif
         }
     }
-
+private:
+    GArray *conv_array_;
+    guint conv_idx_;
+    bool *resolve_names_ptr_;
 };
 
 //
@@ -411,39 +331,32 @@ public:
 //
 
 EndpointTreeWidget::EndpointTreeWidget(QWidget *parent, register_ct_t *table) :
-    TrafficTableTreeWidget(parent, table)
-#ifdef HAVE_GEOIP
-  , has_geoip_data_(false)
-#endif
+    TrafficTableTreeWidget(parent, table),
+    table_address_type_(AT_NONE)
 {
     setColumnCount(ENDP_NUM_COLUMNS);
+    setUniformRowHeights(true);
 
-    for (int i = 0; i < ENDP_NUM_COLUMNS; i++) {
-        headerItem()->setText(i, endp_column_titles[i]);
+    QString proto_filter_name = proto_get_protocol_filter_name(get_conversation_proto_id(table_));
+    if (proto_filter_name == "ip") {
+        table_address_type_ = AT_IPv4;
+    } else if (proto_filter_name == "ipv6") {
+        table_address_type_ = AT_IPv6;
     }
-
     if (get_conversation_hide_ports(table_)) {
         hideColumn(ENDP_COLUMN_PORT);
-    } else if (!strcmp(proto_get_protocol_filter_name(get_conversation_proto_id(table_)), "ncp")) {
+    } else if (proto_filter_name == "ncp") {
         headerItem()->setText(ENDP_COLUMN_PORT, endp_conn_title);
     }
 
-#ifdef HAVE_GEOIP
-    QMap<QString, int> db_name_to_col;
-    for (unsigned db = 0; db < geoip_db_num_dbs(); db++) {
-        QString db_name = geoip_db_name(db);
-        int col = db_name_to_col.value(db_name, -1);
-
-        if (col < 0) {
-            col = columnCount();
-            setColumnCount(col + 1);
-            headerItem()->setText(col, db_name);
-            hideColumn(col);
-            db_name_to_col[db_name] = col;
-        }
-        col_to_db_[col] << db;
+    int column_count = ENDP_NUM_COLUMNS;
+    if (table_address_type_ == AT_IPv4 || table_address_type_ == AT_IPv6) {
+        column_count = ENDP_NUM_GEO_COLUMNS;
     }
-#endif
+    for (int col = 0; col < column_count; col++) {
+        headerItem()->setText(col, endp_column_titles[col]);
+    }
+
 
     int one_en = fontMetrics().height() / 2;
     for (int i = 0; i < columnCount(); i++) {
@@ -465,7 +378,7 @@ EndpointTreeWidget::EndpointTreeWidget(QWidget *parent, register_ct_t *table) :
             setColumnWidth(i, one_en * (int) strlen("000,000"));
             break;
         default:
-            setColumnWidth(i, one_en * (int) strlen("-00.000000")); // GeoIP
+            setColumnWidth(i, one_en * 15); // Geolocation
         }
     }
 
@@ -515,7 +428,7 @@ EndpointTreeWidget::~EndpointTreeWidget()
 void EndpointTreeWidget::tapReset(void *conv_hash_ptr)
 {
     conv_hash_t *hash = (conv_hash_t*)conv_hash_ptr;
-    EndpointTreeWidget *endp_tree = static_cast<EndpointTreeWidget *>(hash->user_data);
+    EndpointTreeWidget *endp_tree = qobject_cast<EndpointTreeWidget *>((EndpointTreeWidget *)hash->user_data);
     if (!endp_tree) return;
 
     endp_tree->clear();
@@ -525,7 +438,7 @@ void EndpointTreeWidget::tapReset(void *conv_hash_ptr)
 void EndpointTreeWidget::tapDraw(void *conv_hash_ptr)
 {
     conv_hash_t *hash = (conv_hash_t*)conv_hash_ptr;
-    EndpointTreeWidget *endp_tree = static_cast<EndpointTreeWidget *>(hash->user_data);
+    EndpointTreeWidget *endp_tree = qobject_cast<EndpointTreeWidget *>((EndpointTreeWidget *)hash->user_data);
     if (!endp_tree) return;
 
     endp_tree->updateItems();
@@ -533,6 +446,7 @@ void EndpointTreeWidget::tapDraw(void *conv_hash_ptr)
 
 void EndpointTreeWidget::updateItems()
 {
+    bool resize = topLevelItemCount() < resizeThreshold();
     title_ = proto_get_protocol_short_name(find_protocol_by_id(get_conversation_proto_id(table_)));
 
     if (hash_.conv_array && hash_.conv_array->len > 0) {
@@ -544,25 +458,12 @@ void EndpointTreeWidget::updateItems()
         return;
     }
 
-#ifdef HAVE_GEOIP
-    if (topLevelItemCount() < 1 && hash_.conv_array->len > 0) {
-        hostlist_talker_t *endp_item = &g_array_index(hash_.conv_array, hostlist_talker_t, 0);
-        if (endp_item->myaddress.type == AT_IPv4 || endp_item->myaddress.type == AT_IPv6) {
-            for (unsigned i = 0; i < geoip_db_num_dbs(); i++) {
-                showColumn(ENDP_NUM_COLUMNS + i);
-            }
-            has_geoip_data_ = true;
-            emit geoIPStatusChanged();
-        }
-    }
-#endif
-
     setSortingEnabled(false);
+
+    QList<QTreeWidgetItem *>new_items;
     for (int i = topLevelItemCount(); i < (int) hash_.conv_array->len; i++) {
-        EndpointTreeWidgetItem *etwi = new EndpointTreeWidgetItem(this);
-        hostlist_talker_t *endp_item = &g_array_index(hash_.conv_array, hostlist_talker_t, i);
-        etwi->setData(ei_col_, Qt::UserRole, qVariantFromValue(endp_item));
-        addTopLevelItem(etwi);
+        EndpointTreeWidgetItem *etwi = new EndpointTreeWidgetItem(hash_.conv_array, i, &resolve_names_);
+        new_items << etwi;
 
         for (int col = 0; col < columnCount(); col++) {
             if (col != ENDP_COLUMN_ADDR && col < ENDP_NUM_COLUMNS) {
@@ -570,16 +471,13 @@ void EndpointTreeWidget::updateItems()
             }
         }
     }
-    QTreeWidgetItemIterator iter(this);
-    while (*iter) {
-        EndpointTreeWidgetItem *ei = static_cast<EndpointTreeWidgetItem *>(*iter);
-        ei->update(resolve_names_);
-        ++iter;
-    }
+    addTopLevelItems(new_items);
     setSortingEnabled(true);
 
-    for (int col = 0; col < columnCount(); col++) {
-        resizeColumnToContents(col);
+    if (resize) {
+        for (int col = 0; col < columnCount(); col++) {
+            resizeColumnToContents(col);
+        }
     }
 }
 
@@ -592,7 +490,7 @@ void EndpointTreeWidget::filterActionTriggered()
         return;
     }
 
-    hostlist_talker_t *endp_item = etwi->data(ei_col_, Qt::UserRole).value<hostlist_talker_t *>();
+    hostlist_talker_t *endp_item = etwi->hostlistTalker();
     if (!endp_item) {
         return;
     }

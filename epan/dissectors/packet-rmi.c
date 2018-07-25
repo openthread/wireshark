@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -170,8 +158,8 @@ dissect_rmi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         switch(rmitype) {
         case RMI_OUTPUTSTREAM:
             /* XXX - uint, or string? */
-            proto_tree_add_uint(rmi_tree, hf_rmi_magic,
-                                tvb, offset,     4, tvb_get_ntohl(tvb,0));
+            proto_tree_add_item(rmi_tree, hf_rmi_magic,
+                                tvb, offset,     4, ENC_BIG_ENDIAN);
             proto_tree_add_item(rmi_tree, hf_rmi_version,
                                 tvb, offset + 4, 2, ENC_BIG_ENDIAN);
             proto_tree_add_item(rmi_tree, hf_rmi_protocol,
@@ -360,8 +348,8 @@ proto_register_rmi(void)
     };
 
     proto_rmi = proto_register_protocol("Java RMI", "RMI", "rmi");
-    proto_ser = proto_register_protocol("Java Serialization", "Serialization",
-                                        "serialization");
+    proto_ser = proto_register_protocol_in_name_only("Java Serialization", "Serialization",
+                                        "serialization", proto_rmi, FT_PROTOCOL);
     proto_register_field_array(proto_rmi, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
@@ -373,7 +361,7 @@ proto_reg_handoff_rmi(void)
     dissector_handle_t rmi_handle;
 
     rmi_handle = create_dissector_handle(dissect_rmi, proto_rmi);
-    dissector_add_uint("tcp.port", TCP_PORT_RMI, rmi_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_RMI, rmi_handle);
 }
 
 /*

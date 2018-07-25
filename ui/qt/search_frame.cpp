@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "search_frame.h"
@@ -109,6 +97,7 @@ void SearchFrame::findPrevious()
 void SearchFrame::setFocus()
 {
     sf_ui_->searchLineEdit->setFocus();
+    sf_ui_->searchLineEdit->selectAll();
     cap_file_->dir = SD_FORWARD;
 }
 
@@ -125,22 +114,23 @@ void SearchFrame::findFrameWithFilter(QString &filter)
 {
     animatedShow();
     sf_ui_->searchLineEdit->setText(filter);
+    sf_ui_->searchLineEdit->setCursorPosition(0);
     sf_ui_->searchTypeComboBox->setCurrentIndex(df_search_);
     updateWidgets();
+    on_findButton_clicked();
 }
 
 void SearchFrame::keyPressEvent(QKeyEvent *event)
 {
-    if (wsApp->focusWidget() == sf_ui_->searchLineEdit) {
-        if (event->modifiers() == Qt::NoModifier) {
-            if (event->key() == Qt::Key_Escape) {
-                on_cancelButton_clicked();
-            } else if (event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return) {
-                on_findButton_clicked();
-            }
+    if (event->modifiers() == Qt::NoModifier) {
+        if (event->key() == Qt::Key_Escape) {
+            on_cancelButton_clicked();
+        } else if (event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return) {
+            on_findButton_clicked();
         }
-        return; // searchLineEdit didn't want it and we don't either.
     }
+
+    AccordionFrame::keyPressEvent(event);
 }
 
 bool SearchFrame::regexCompile()

@@ -16,6 +16,9 @@
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QTreeWidget" name="statsTreeWidget">
+     <property name="uniformRowHeights">
+      <bool>true</bool>
+     </property>
      <property name="sortingEnabled">
       <bool>true</bool>
      </property>
@@ -79,7 +82,7 @@
     <string>Copy a text representation of the tree to the clipboard</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+C</string>
+    <string notr="true">Ctrl+C</string>
    </property>
   </action>
   <action name="actionSaveAs">
@@ -90,7 +93,7 @@
     <string>Save the displayed data in various formats</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+S</string>
+    <string notr="true">Ctrl+S</string>
    </property>
   </action>
  </widget>
@@ -98,7 +101,7 @@
   <customwidget>
    <class>DisplayFilterEdit</class>
    <extends>QLineEdit</extends>
-   <header>display_filter_edit.h</header>
+   <header>widgets/display_filter_edit.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,10 +18,11 @@
 
 #include <ui/preference_utils.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "column_preferences_frame.h"
 #include <ui_column_preferences_frame.h>
-#include "syntax_line_edit.h"
+#include <ui/qt/widgets/syntax_line_edit.h>
+#include <ui/qt/widgets/field_filter_edit.h>
 #include "wireshark_application.h"
 
 #include <QComboBox>
@@ -50,8 +39,11 @@ const int custom_occurrence_col_ = 4;
 ColumnPreferencesFrame::ColumnPreferencesFrame(QWidget *parent) :
     QFrame(parent),
     ui(new Ui::ColumnPreferencesFrame),
+    cur_column_(0),
     cur_line_edit_(NULL),
-    cur_combo_box_(NULL)
+    cur_combo_box_(NULL),
+    saved_combo_idx_(0),
+    saved_custom_combo_idx_(-1)
 {
     ui->setupUi(this);
 
@@ -219,20 +211,32 @@ void ColumnPreferencesFrame::updateWidgets()
 
 void ColumnPreferencesFrame::on_columnTreeWidget_currentItemChanged(QTreeWidgetItem *, QTreeWidgetItem *previous)
 {
-    if (previous && ui->columnTreeWidget->itemWidget(previous, title_col_)) {
-        ui->columnTreeWidget->removeItemWidget(previous, title_col_);
-    }
-    if (previous && ui->columnTreeWidget->itemWidget(previous, type_col_)) {
-        ui->columnTreeWidget->removeItemWidget(previous, type_col_);
-        previous->setText(type_col_, col_format_desc(previous->data(type_col_, Qt::UserRole).toInt()));
-    }
-    if (previous && ui->columnTreeWidget->itemWidget(previous, custom_fields_col_)) {
-        ui->columnTreeWidget->removeItemWidget(previous, custom_fields_col_);
-    }
-    if (previous && ui->columnTreeWidget->itemWidget(previous, custom_occurrence_col_)) {
-        ui->columnTreeWidget->removeItemWidget(previous, custom_occurrence_col_);
-    }
+    if (previous) {
+        if (ui->columnTreeWidget->itemWidget(previous, title_col_)) {
+            ui->columnTreeWidget->removeItemWidget(previous, title_col_);
+        }
+        if (ui->columnTreeWidget->itemWidget(previous, type_col_)) {
+            ui->columnTreeWidget->removeItemWidget(previous, type_col_);
+            previous->setText(type_col_, col_format_desc(previous->data(type_col_, Qt::UserRole).toInt()));
+        }
+        if (ui->columnTreeWidget->itemWidget(previous, custom_fields_col_)) {
+            ui->columnTreeWidget->removeItemWidget(previous, custom_fields_col_);
+        }
+        if (ui->columnTreeWidget->itemWidget(previous, custom_occurrence_col_)) {
+            ui->columnTreeWidget->removeItemWidget(previous, custom_occurrence_col_);
+        }
 
+        // If the custom column auto-changed the Column type, change it back if
+        // there isn't any text in the field columns
+        if ((previous->text(custom_fields_col_) == "") &&
+            (previous->text(custom_occurrence_col_) == "") &&
+            (saved_custom_combo_idx_ >= 0))
+        {
+            previous->setText(type_col_, col_format_desc(saved_custom_combo_idx_));
+            previous->setData(type_col_, Qt::UserRole, QVariant(saved_custom_combo_idx_));
+            saved_custom_combo_idx_ = -1;
+        }
+    }
     updateWidgets();
 }
 
@@ -240,6 +244,7 @@ void ColumnPreferencesFrame::on_columnTreeWidget_itemActivated(QTreeWidgetItem *
 {
     if (!item || cur_line_edit_ || cur_combo_box_) return;
 
+    QTreeWidget *ctw = ui->columnTreeWidget;
     QWidget *editor = NULL;
     cur_column_ = column;
     saved_combo_idx_ = item->data(type_col_, Qt::UserRole).toInt();
@@ -269,14 +274,18 @@ void ColumnPreferencesFrame::on_columnTreeWidget_itemActivated(QTreeWidgetItem *
     }
     case custom_fields_col_:
     {
-        SyntaxLineEdit *syntax_edit = new SyntaxLineEdit();
+        FieldFilterEdit *field_filter_edit = new FieldFilterEdit();
         saved_col_string_ = item->text(custom_fields_col_);
-        connect(syntax_edit, SIGNAL(textChanged(QString)),
-                syntax_edit, SLOT(checkCustomColumn(QString)));
-        connect(syntax_edit, SIGNAL(editingFinished()), this, SLOT(customFieldsEditingFinished()));
-        editor = cur_line_edit_ = syntax_edit;
+        connect(field_filter_edit, SIGNAL(textChanged(QString)),
+                field_filter_edit, SLOT(checkCustomColumn(QString)));
+        connect(field_filter_edit, SIGNAL(editingFinished()), this, SLOT(customFieldsEditingFinished()));
+        field_filter_edit->setFixedWidth(ctw->columnWidth(custom_fields_col_));
+        editor = cur_line_edit_ = field_filter_edit;
 
-        saved_combo_idx_ = item->data(type_col_, Qt::UserRole).toInt();
+        //Save off the current column type in case it needs to be restored
+        if ((item->text(custom_fields_col_) == "") && (item->text(custom_occurrence_col_) == "")) {
+            saved_custom_combo_idx_ = item->data(type_col_, Qt::UserRole).toInt();
+        }
         item->setText(type_col_, col_format_desc(COL_CUSTOM));
         item->setData(type_col_, Qt::UserRole, QVariant(COL_CUSTOM));
         break;
@@ -288,9 +297,13 @@ void ColumnPreferencesFrame::on_columnTreeWidget_itemActivated(QTreeWidgetItem *
         connect(syntax_edit, SIGNAL(textChanged(QString)),
                 syntax_edit, SLOT(checkInteger(QString)));
         connect(syntax_edit, SIGNAL(editingFinished()), this, SLOT(customOccurrenceEditingFinished()));
+        syntax_edit->setFixedWidth(ctw->columnWidth(custom_occurrence_col_));
         editor = cur_line_edit_ = syntax_edit;
 
-        saved_combo_idx_ = item->data(type_col_, Qt::UserRole).toInt();
+        //Save off the current column type in case it needs to be restored
+        if ((item->text(custom_fields_col_) == "") && (item->text(custom_occurrence_col_) == "")) {
+            saved_custom_combo_idx_ = item->data(type_col_, Qt::UserRole).toInt();
+        }
         item->setText(type_col_, col_format_desc(COL_CUSTOM));
         item->setData(type_col_, Qt::UserRole, QVariant(COL_CUSTOM));
         break;

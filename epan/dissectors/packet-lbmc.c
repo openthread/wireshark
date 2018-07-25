@@ -7,25 +7,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/sequence_analysis.h>
+#include <epan/column-info.h>
+#include <epan/to_str.h>
 #include <epan/tap.h>
 #include "packet-lbm.h"
 #include "packet-lbttcp.h"
@@ -6015,7 +6006,7 @@ static expert_field ei_lbmc_analysis_zero_length = EI_INIT;
 static expert_field ei_lbmc_analysis_tsni = EI_INIT;
 static expert_field ei_lbmc_analysis_invalid_value = EI_INIT;
 static expert_field ei_lbmc_analysis_no_reassembly = EI_INIT;
-static expert_field ei_lbmc_analysis_invalid_offset = EI_INIT;
+/* static expert_field ei_lbmc_analysis_invalid_offset = EI_INIT; */
 static expert_field ei_lbmc_analysis_missing_reassembly_frame = EI_INIT;
 static expert_field ei_lbmc_analysis_invalid_fragment = EI_INIT;
 static expert_field ei_lbmc_extopt_fragment_offset = EI_INIT;
@@ -6058,6 +6049,147 @@ typedef struct
     gboolean set;
     guint32 session_id;
 } lbmc_tcp_sid_info_t;
+
+/*----------------------------------------------------------------------------*/
+/* UIM Flow tap handler                                                       */
+/*----------------------------------------------------------------------------*/
+typedef struct
+{
+    guint64 channel;
+    guint32 sqn;
+    lbm_uim_stream_endpoint_t endpoint_a;
+    lbm_uim_stream_endpoint_t endpoint_b;
+    const gchar * description;
+} lbm_uim_stream_info_t;
+
+static gboolean
+lbm_uim_seq_analysis_packet(void *ptr, packet_info *pinfo, epan_dissect_t *edt _U_, const void *uim_info)
+{
+    seq_analysis_info_t *sainfo = (seq_analysis_info_t *) ptr;
+    const lbm_uim_stream_info_t* stream_info = (const lbm_uim_stream_info_t *)uim_info;
+    lbm_uim_stream_endpoint_t epa;
+    lbm_uim_stream_endpoint_t epb;
+    gchar * ctxinst1;
+    gchar * ctxinst2;
+    gboolean swap_endpoints = FALSE;
+    seq_analysis_item_t* sai;
+    char time_str[COL_MAX_LEN];
+    int rc;
+
+    if (stream_info->endpoint_a.type != stream_info->endpoint_b.type)
+    {
+        return TRUE;
+    }
+    if (stream_info->endpoint_a.type == lbm_uim_instance_stream)
+    {
+        rc = memcmp((const void *)stream_info->endpoint_a.stream_info.ctxinst.ctxinst,
+                    (const void *)stream_info->endpoint_b.stream_info.ctxinst.ctxinst,
+                    LBM_CONTEXT_INSTANCE_BLOCK_SZ);
+        if (rc <= 0)
+        {
+            swap_endpoints = FALSE;
+        }
+        else
+        {
+            swap_endpoints = TRUE;
+        }
+    }
+    else
+    {
+        if (stream_info->endpoint_a.stream_info.dest.domain < stream_info->endpoint_b.stream_info.dest.domain)
+        {
+            swap_endpoints = FALSE;
+        }
+        else if (stream_info->endpoint_a.stream_info.dest.domain > stream_info->endpoint_b.stream_info.dest.domain)
+        {
+            swap_endpoints = TRUE;
+        }
+        else
+        {
+            int compare;
+
+            compare = cmp_address(&(stream_info->endpoint_a.stream_info.dest.addr), &(stream_info->endpoint_b.stream_info.dest.addr));
+            if (compare < 0)
+            {
+                swap_endpoints = FALSE;
+            }
+            else if (compare > 0)
+            {
+                swap_endpoints = TRUE;
+            }
+            else
+            {
+                if (stream_info->endpoint_a.stream_info.dest.port <= stream_info->endpoint_b.stream_info.dest.port)
+                {
+                    swap_endpoints = FALSE;
+                }
+                else
+                {
+                    swap_endpoints = TRUE;
+                }
+            }
+        }
+    }
+    if (swap_endpoints == FALSE)
+    {
+        epa = stream_info->endpoint_a;
+        epb = stream_info->endpoint_b;
+    }
+    else
+    {
+        epb = stream_info->endpoint_a;
+        epa = stream_info->endpoint_b;
+    }
+
+    sai = g_new0(seq_analysis_item_t, 1);
+    copy_address(&(sai->src_addr), &(pinfo->src));
+    copy_address(&(sai->dst_addr), &(pinfo->dst));
+    sai->frame_number = pinfo->num;
+    sai->port_src = pinfo->srcport;
+    sai->port_dst = pinfo->destport;
+
+    if (stream_info->description == NULL)
+    {
+        sai->frame_label = g_strdup_printf("(%" G_GUINT32_FORMAT ")", stream_info->sqn);
+    }
+    else
+    {
+        sai->frame_label = g_strdup_printf("%s (%" G_GUINT32_FORMAT ")", stream_info->description, stream_info->sqn);
+    }
+    if (epa.type == lbm_uim_instance_stream)
+    {
+        ctxinst1 = bytes_to_str(pinfo->pool, epa.stream_info.ctxinst.ctxinst, sizeof(epa.stream_info.ctxinst.ctxinst));
+        ctxinst2 = bytes_to_str(pinfo->pool, epb.stream_info.ctxinst.ctxinst, sizeof(epb.stream_info.ctxinst.ctxinst));
+        sai->comment = g_strdup_printf("%s <-> %s [%" G_GUINT64_FORMAT "]",
+            ctxinst1,
+            ctxinst2,
+            stream_info->channel);
+    }
+    else
+    {
+        sai->comment = g_strdup_printf("%" G_GUINT32_FORMAT ":%s:%" G_GUINT16_FORMAT " <-> %" G_GUINT32_FORMAT ":%s:%" G_GUINT16_FORMAT " [%" G_GUINT64_FORMAT "]",
+            epa.stream_info.dest.domain,
+            address_to_str(pinfo->pool, &(epa.stream_info.dest.addr)),
+            epa.stream_info.dest.port,
+            epb.stream_info.dest.domain,
+            address_to_str(pinfo->pool, &(epb.stream_info.dest.addr)),
+            epb.stream_info.dest.port,
+            stream_info->channel);
+    }
+
+    /* Fill in the timestamps */
+    set_fd_time(pinfo->epan, pinfo->fd, time_str);
+    sai->time_str = g_strdup(time_str);
+
+    sai->conv_num = (guint16)LBM_CHANNEL_ID(stream_info->channel);
+    sai->display = TRUE;
+    sai->line_style = 1;
+
+    g_queue_push_tail(sainfo->items, sai);
+
+    return TRUE;
+}
+
 
 /*----------------------------------------------------------------------------*/
 /* Message reassembly.                                                        */
@@ -6115,7 +6247,7 @@ static void lbmc_message_build_key(guint32 * key_value, wmem_tree_key_t * key, c
     guint32 val;
 
     key_value[LBMC_MESSAGE_KEY_ELEMENT_CHANNEL_HIGH] = (guint32) ((message->channel >> 32) & 0xffffffff);
-    key_value[LBMC_MESSAGE_KEY_ELEMENT_CHANNEL_LOW] = (guint32) ((message->channel & 0xffffffff) >> 32);
+    key_value[LBMC_MESSAGE_KEY_ELEMENT_CHANNEL_LOW] = (guint32) (message->channel & 0xffffffff);
     memcpy((void *) &val, (const void *) message->addr.data, sizeof(guint32));
     key_value[LBMC_MESSAGE_KEY_ELEMENT_ADDR] = val;
     key_value[LBMC_MESSAGE_KEY_ELEMENT_PORT] = (guint32) message->port;
@@ -9967,7 +10099,7 @@ static int dissect_nhdr_extopt(tvbuff_t * tvb, int offset, packet_info * pinfo, 
             {
                 tvb_memcpy(tvb, reassembly->data + fragment_offset, data_offset, data_len);
                 reassembly->len += data_len;
-                buf = (gchar *) wmem_memdup(wmem_file_scope(), reassembly->data, reassembly->len);
+                buf = (gchar *) wmem_memdup(pinfo->pool, reassembly->data, reassembly->len);
                 reassembly_tvb = tvb_new_real_data(buf, reassembly->len, reassembly->len);
                 add_new_data_source(pinfo, reassembly_tvb, "Reassembled EXTOPT fragment data");
             }
@@ -10635,7 +10767,7 @@ int lbmc_dissect_lbmc_packet(tvbuff_t * tvb, int offset, packet_info * pinfo, pr
     int lbmc_hdr_len;
     guint32 msgprop_len = 0;
     lbmc_fragment_info_t frag_info;
-    lbmc_extopt_reassembled_data_t reassembly;
+    lbmc_extopt_reassembled_data_t *reassembly;
     gboolean data_is_umq_cmd_resp;
     gboolean packet_is_data;
     lbmc_stream_info_t stream_info;
@@ -10760,7 +10892,8 @@ int lbmc_dissect_lbmc_packet(tvbuff_t * tvb, int offset, packet_info * pinfo, pr
         frag_info.offset = 0;
         frag_info.len = 0;
         msgprop_len = 0;
-        lbmc_init_extopt_reassembled_data(&reassembly);
+        reassembly = wmem_new(wmem_packet_scope(), lbmc_extopt_reassembled_data_t);
+        lbmc_init_extopt_reassembled_data(reassembly);
         data_is_umq_cmd_resp = FALSE;
         stream_info.set = FALSE;
         ctxinstd_info.set = FALSE;
@@ -11060,7 +11193,7 @@ int lbmc_dissect_lbmc_packet(tvbuff_t * tvb, int offset, packet_info * pinfo, pr
                     dissected_hdr_len = dissect_nhdr_tcp_sid(hdr_tvb, 0, pinfo, subtree, &tcp_sid_info);
                     break;
                 case LBMC_NHDR_EXTOPT:
-                    dissected_hdr_len = dissect_nhdr_extopt(hdr_tvb, 0, pinfo, subtree, &reassembly);
+                    dissected_hdr_len = dissect_nhdr_extopt(hdr_tvb, 0, pinfo, subtree, reassembly);
                     break;
                     /* Headers that are not implemented. */
                 case LBMC_NHDR_NONE:
@@ -11367,7 +11500,7 @@ int lbmc_dissect_lbmc_packet(tvbuff_t * tvb, int offset, packet_info * pinfo, pr
                     gchar * buf = NULL;
 
                     /* Create a new real data tvb of the reassembled data. */
-                    buf = (gchar *)wmem_alloc(wmem_file_scope(), (size_t)msg->total_len);
+                    buf = (gchar *)wmem_alloc(pinfo->pool, (size_t)msg->total_len);
                     cur = msg->entry;
                     while (cur != NULL)
                     {
@@ -14177,7 +14310,9 @@ void proto_register_lbmc(void)
         { &ei_lbmc_analysis_tsni, { "lbmc.analysis.tsni", PI_SEQUENCE, PI_NOTE, "TSNI Sqn", EXPFILL } },
         { &ei_lbmc_analysis_invalid_value, { "lbmc.analysis.invalid_value", PI_MALFORMED, PI_ERROR, "Invalid value", EXPFILL } },
         { &ei_lbmc_analysis_no_reassembly, { "lbmc.analysis.no_reassembly", PI_PROTOCOL, PI_ERROR, "Reassembly not in progress but fragment_offset not zero", EXPFILL } },
+#if 0
         { &ei_lbmc_analysis_invalid_offset, { "lbmc.analysis.invalid_offset", PI_MALFORMED, PI_ERROR, "Message property offset exceeds data length", EXPFILL } },
+#endif
         { &ei_lbmc_analysis_missing_reassembly_frame, { "lbmc.analysis.missing_reassembly_frame", PI_UNDECODED, PI_WARN, "Message not reassembled - reassembly data missing from capture", EXPFILL } },
         { &ei_lbmc_analysis_invalid_fragment, { "lbmc.analysis.invalid_fragment", PI_MALFORMED, PI_ERROR, "Invalid fragment", EXPFILL } },
         { &ei_lbmc_extopt_fragment_offset, { "lbmc.extopt.fragment_offset.invalid", PI_PROTOCOL, PI_ERROR, "Invalid fragment offset", EXPFILL } },
@@ -14215,6 +14350,8 @@ void proto_register_lbmc(void)
         &lbmc_dissect_lbmpdm);
     lbm_stream_init();
     lbmc_message_table = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
+
+    register_seq_analysis("lbm_uim", "UIM Flows", proto_lbmc, "lbm_uim", TL_REQUIRES_COLUMNS, lbm_uim_seq_analysis_packet);
 }
 
 /* The registration hand-off routine */

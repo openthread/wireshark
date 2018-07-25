@@ -8,25 +8,18 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref ITU-T Rec. Q.1950 (12/2002)
  */
 
 #include "config.h"
 
+#include <epan/packet.h>
+#include <epan/asn1.h>
+
+#include "packet-ber.h"
+#include "packet-isup.h"
 #include "packet-h248.h"
 
 void proto_reg_handoff_q1950(void);
@@ -405,10 +398,11 @@ static h248_pkg_param_t  h248_pkg_h248_pkg_bcg_sig_bdt_params[] = {
 };
 
 static const value_string h248_pkg_bcg_signals_vals[] = {
-    { 0x0041, "Dial Tone (bdt)" },
-    { 0x0042, "Ringing Tone (brt)" },
-    { 0x0043, "Busy Tone (bbt)" },
-    { 0x0044, "Congestion Tone (bct)" },
+    { 0x0040, "Dial Tone (bdt)" },
+    { 0x0041, "Ringing Tone (brt)" },
+    { 0x0042, "Busy Tone (bbt)" },
+    { 0x0043, "Congestion Tone (bct)" },
+    { 0x0044, "Special information tone (bsit)" },
     { 0x0045, "Warning Tone (bwt)" },
     { 0x0046, "Payphone Recognition Tone (bpt)" },
     { 0x0047, "Call Waiting Tone (bcw)" },

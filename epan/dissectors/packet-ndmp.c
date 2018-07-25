@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* see www.ndmp.org for protocol specifications.
@@ -1364,7 +1352,7 @@ dissect_execute_cdb_cdb(tvbuff_t *tvb, int offset, packet_info *pinfo,
 		tvb_rlen=tvb_reported_length_remaining(tvb, offset);
 		if(tvb_rlen>16)
 			tvb_rlen=16;
-		cdb_tvb=tvb_new_subset(tvb, offset, tvb_len, tvb_rlen);
+		cdb_tvb=tvb_new_subset_length_caplen(tvb, offset, tvb_len, tvb_rlen);
 
 		if(ndmp_conv_data->task && !ndmp_conv_data->task->itlq){
 			ndmp_conv_data->task->itlq=wmem_new(wmem_file_scope(), itlq_nexus_t);
@@ -1417,7 +1405,7 @@ dissect_execute_cdb_payload(tvbuff_t *tvb, int offset, packet_info *pinfo, proto
 		tvb_rlen=tvb_reported_length_remaining(tvb, offset);
 		if(tvb_rlen>(int)payload_len)
 			tvb_rlen=payload_len;
-		data_tvb=tvb_new_subset(tvb, offset, tvb_len, tvb_rlen);
+		data_tvb=tvb_new_subset_length_caplen(tvb, offset, tvb_len, tvb_rlen);
 
 		if(ndmp_conv_data->task && ndmp_conv_data->task->itlq){
 			/* ndmp conceptually always send both read and write
@@ -2394,7 +2382,6 @@ dissect_file_stats(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *pa
 	proto_item* item;
 	proto_tree* tree;
 	int old_offset=offset;
-	nstime_t ns;
 
 	tree = proto_tree_add_subtree(parent_tree, tvb, offset, -1,
 				ett_ndmp_file_stats, &item, "Stats:");
@@ -2411,21 +2398,15 @@ dissect_file_stats(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *pa
 	offset += 4;
 
 	/* mtime */
-	ns.secs=tvb_get_ntohl(tvb, offset);
-	ns.nsecs=0;
-	proto_tree_add_time(tree, hf_ndmp_file_mtime, tvb, offset, 4, &ns);
+	proto_tree_add_item(tree, hf_ndmp_file_mtime, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 	offset += 4;
 
 	/* atime */
-	ns.secs=tvb_get_ntohl(tvb, offset);
-	ns.nsecs=0;
-	proto_tree_add_time(tree, hf_ndmp_file_atime, tvb, offset, 4, &ns);
+	proto_tree_add_item(tree, hf_ndmp_file_atime, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 	offset += 4;
 
 	/* ctime */
-	ns.secs=tvb_get_ntohl(tvb, offset);
-	ns.nsecs=0;
-	proto_tree_add_time(tree, hf_ndmp_file_ctime, tvb, offset, 4, &ns);
+	proto_tree_add_item(tree, hf_ndmp_file_ctime, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 	offset += 4;
 
 	/* owner */
@@ -2712,8 +2693,6 @@ static int
 dissect_data_get_state_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
 		proto_tree *tree, guint32 seq)
 {
-	nstime_t ns;
-
 	/* invalids */
 	offset = dissect_state_invalids(tvb, offset, pinfo, tree);
 
@@ -2741,9 +2720,7 @@ dissect_data_get_state_reply(tvbuff_t *tvb, int offset, packet_info *pinfo,
 			offset);
 
 	/* est time remain */
-	ns.secs=tvb_get_ntohl(tvb, offset);
-	ns.nsecs=0;
-	proto_tree_add_time(tree, hf_ndmp_data_est_time_remain, tvb, offset, 4, &ns);
+	proto_tree_add_item(tree, hf_ndmp_data_est_time_remain, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 	offset += 4;
 
 	/* ndmp addr */
@@ -2991,7 +2968,7 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	wmem_map_t *frags;
 	conversation_t *conversation;
 	proto_item *vers_item;
-	gboolean save_fragmented, save_writable;
+	gboolean save_fragmented, save_info_writable, save_proto_writable;
 	gboolean do_frag = TRUE;
 	tvbuff_t* new_tvb = NULL;
 	fragment_head *frag_msg = NULL;
@@ -3212,8 +3189,10 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	 * multiple fragments, the column becomes unwritable.
 	 * Temporarily change that so that the correct header can be
 	 * applied */
-	save_writable = col_get_writable(pinfo->cinfo);
-	col_set_writable(pinfo->cinfo, TRUE);
+	save_info_writable = col_get_writable(pinfo->cinfo, COL_INFO);
+	save_proto_writable = col_get_writable(pinfo->cinfo, COL_PROTOCOL);
+	col_set_writable(pinfo->cinfo, COL_PROTOCOL, TRUE);
+	col_set_writable(pinfo->cinfo, COL_INFO, TRUE);
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "NDMP");
 	col_clear(pinfo->cinfo, COL_INFO);
@@ -3292,7 +3271,8 @@ dissect_ndmp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 
 	/* restore saved variables */
 	pinfo->fragmented = save_fragmented;
-	col_set_writable(pinfo->cinfo, save_writable);
+	col_set_writable(pinfo->cinfo, COL_INFO, save_info_writable);
+	col_set_writable(pinfo->cinfo, COL_PROTOCOL, save_proto_writable);
 
 	return tvb_captured_length(tvb);
 }
@@ -3411,19 +3391,6 @@ dissect_ndmp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 	tcp_dissect_pdus(tvb, pinfo, tree, ndmp_desegment, 28,
 			 get_ndmp_pdu_len, dissect_ndmp_message, data);
 	return tvb_captured_length(tvb);
-}
-
-static void
-ndmp_init(void)
-{
-	reassembly_table_init(&ndmp_reassembly_table,
-	    &addresses_reassembly_table_functions);
-}
-
-static void
-ndmp_cleanup(void)
-{
-	reassembly_table_destroy(&ndmp_reassembly_table);
 }
 
 
@@ -4256,15 +4223,15 @@ proto_register_ndmp(void)
 	"Reassemble fragmented NDMP messages spanning multiple packets",
 	"Whether the dissector should defragment NDMP messages spanning multiple packets.",
 	&ndmp_defragment);
-	register_init_routine(ndmp_init);
-	register_cleanup_routine(ndmp_cleanup);
+	reassembly_table_register(&ndmp_reassembly_table,
+	    &addresses_reassembly_table_functions);
 }
 
 void
 proto_reg_handoff_ndmp(void)
 {
 	ndmp_handle = create_dissector_handle(dissect_ndmp, proto_ndmp);
-	dissector_add_uint("tcp.port",TCP_PORT_NDMP, ndmp_handle);
+	dissector_add_uint_with_preference("tcp.port",TCP_PORT_NDMP, ndmp_handle);
 	heur_dissector_add("tcp", dissect_ndmp_heur, "NDMP over TCP", "ndmp_tcp", proto_ndmp, HEURISTIC_ENABLE);
 }
 

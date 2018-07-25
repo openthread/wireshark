@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -290,7 +278,7 @@ void lbm_topic_init(void)
 static void lbm_topic_build_key(guint32 * key_value, wmem_tree_key_t * key, guint64 channel, guint32 topic_index)
 {
     key_value[LBM_TOPIC_KEY_ELEMENT_CHANNEL_HIGH] = (guint32) ((channel >> 32) & 0xffffffff);
-    key_value[LBM_TOPIC_KEY_ELEMENT_CHANNEL_LOW] = (guint32) ((channel & 0xffffffff) >> 32);
+    key_value[LBM_TOPIC_KEY_ELEMENT_CHANNEL_LOW] = (guint32) (channel & 0xffffffff);
     key_value[LBM_TOPIC_KEY_ELEMENT_TOPIC_INDEX] = topic_index;
     key[0].length = LBM_TOPIC_KEY_ELEMENT_COUNT;
     key[0].key = key_value;

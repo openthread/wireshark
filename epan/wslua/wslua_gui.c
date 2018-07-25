@@ -7,24 +7,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/wmem/wmem.h>
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 #include "wslua.h"
 
@@ -60,10 +49,10 @@ static void lua_menu_callback(gpointer data) {
         case 0:
             break;
         case LUA_ERRRUN:
-            g_warning("Runtime error while calling menu callback");
+            ws_g_warning("Runtime error while calling menu callback");
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling menu callback");
+            ws_g_warning("Memory alloc error while calling menu callback");
             break;
         default:
             g_assert_not_reached();
@@ -157,10 +146,10 @@ static void lua_dialog_cb(gchar** user_input, void* data) {
         case 0:
             break;
         case LUA_ERRRUN:
-            g_warning("Runtime error while calling dialog callback");
+            ws_g_warning("Runtime error while calling dialog callback");
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling dialog callback");
+            ws_g_warning("Memory alloc error while calling dialog callback");
             break;
         default:
             g_assert_not_reached();
@@ -196,10 +185,10 @@ static void text_win_close_cb(void* data) {
             case 0:
                 break;
             case LUA_ERRRUN:
-                g_warning("Runtime error during execution of TextWindow close callback");
+                ws_g_warning("Runtime error during execution of TextWindow close callback");
                 break;
             case LUA_ERRMEM:
-                g_warning("Memory alloc error during execution of TextWindow close callback");
+                ws_g_warning("Memory alloc error during execution of TextWindow close callback");
                 break;
             default:
                 break;
@@ -264,6 +253,7 @@ WSLUA_FUNCTION wslua_new_dialog(lua_State* L) { /* Pops up a new dialog */
     for (i = 1; i <= top; i++) {
         if (! lua_isstring(L,i)) {
             g_ptr_array_free(labels,TRUE);
+            g_free (dcbd);
             WSLUA_ERROR(new_dialog,"All fields must be strings");
             return 0;
         }
@@ -282,7 +272,7 @@ WSLUA_FUNCTION wslua_new_dialog(lua_State* L) { /* Pops up a new dialog */
 
 
 
-WSLUA_CLASS_DEFINE(ProgDlg,FAIL_ON_NULL("ProgDlg"),NOP); /* Manages a progress bar dialog. */
+WSLUA_CLASS_DEFINE(ProgDlg,FAIL_ON_NULL("ProgDlg")); /* Manages a progress bar dialog. */
 
 WSLUA_CONSTRUCTOR ProgDlg_new(lua_State* L) { /* Creates a new `ProgDlg` progress dialog. */
 #define WSLUA_OPTARG_ProgDlg_new_TITLE 2 /* Title of the new window, defaults to "Progress". */
@@ -295,6 +285,7 @@ WSLUA_CONSTRUCTOR ProgDlg_new(lua_State* L) { /* Creates a new `ProgDlg` progres
     if (ops->new_progress_window) {
         pd->pw = ops->new_progress_window(ops->ops_id, pd->title, pd->task, TRUE, &(pd->stopped));
     } else {
+        g_free (pd);
         WSLUA_ERROR(ProgDlg_new, "GUI not available");
         return 0;
     }
@@ -410,7 +401,7 @@ int ProgDlg_register(lua_State* L) {
 
 
 
-WSLUA_CLASS_DEFINE(TextWindow,FAIL_ON_NULL_OR_EXPIRED("TextWindow"),NOP); /* Manages a text window. */
+WSLUA_CLASS_DEFINE(TextWindow,FAIL_ON_NULL_OR_EXPIRED("TextWindow")); /* Manages a text window. */
 
 /* XXX: button and close callback data is being leaked */
 /* XXX: lua callback function and TextWindow are not garbage collected because
@@ -623,10 +614,10 @@ static gboolean wslua_button_callback(funnel_text_window_t* ws_tw, void* data) {
         case 0:
             break;
         case LUA_ERRRUN:
-            g_warning("Runtime error while calling button callback");
+            ws_g_warning("Runtime error while calling button callback");
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling button callback");
+            ws_g_warning("Memory alloc error while calling button callback");
             break;
         default:
             g_assert_not_reached();

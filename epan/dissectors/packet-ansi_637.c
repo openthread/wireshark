@@ -21,19 +21,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -290,6 +278,7 @@ static int hf_ansi_637_reserved_bits_8_07 = -1;
 static int hf_ansi_637_reserved_bits_8_0f = -1;
 static int hf_ansi_637_reserved_bits_8_3f = -1;
 static int hf_ansi_637_reserved_bits_8_7f = -1;
+static int hf_ansi_637_reserved_bits_16_generic = -1;
 static int hf_ansi_637_tele_cmas_encoding = -1;
 static int hf_ansi_637_tele_cmas_num_fields = -1;
 static int hf_ansi_637_tele_cmas_protocol_version = -1;
@@ -429,7 +418,7 @@ text_decoder(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offset
         offset = 0;
         bit = 0;
 
-        ustr = tvb_get_ascii_7bits_string(wmem_packet_scope(), tvb, (offset << 3) + bit, num_fields);
+        ustr = tvb_get_ascii_7bits_string(wmem_packet_scope(), tvb_out, (offset << 3) + bit, num_fields);
         IA5_7BIT_decode(ansi_637_bigbuf, ustr, num_fields);
 
         proto_tree_add_string(tree, hf_index, tvb_out, 0,
@@ -1120,7 +1109,25 @@ tele_param_user_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint 
         switch (cset)
         {
         case GSM_7BITS:
-            proto_tree_add_bits_item(tree, hf_ansi_637_reserved_bits_8_generic, tvb, ((orig_offset + len - 1)*8), reserved_bits, ENC_NA); /* MSBs */
+            {
+                crumb_spec_t crumbs[3];
+                guint8 i = 0;
+                guint bits_offset;
+
+                if (reserved_bits > 3) {
+                    bits_offset = ((orig_offset + len - 2)*8)+5;
+                    crumbs[i].crumb_bit_offset = 0;
+                    crumbs[i++].crumb_bit_length = reserved_bits - 3;
+                    crumbs[i].crumb_bit_offset = 8;
+                } else {
+                    bits_offset = ((orig_offset + len - 1)*8)+5;
+                    crumbs[i].crumb_bit_offset = 0;
+                }
+                crumbs[i++].crumb_bit_length = 3;
+                crumbs[i].crumb_bit_offset = 0;
+                crumbs[i].crumb_bit_length = 0;
+                proto_tree_add_split_bits_item_ret_val(tree, hf_ansi_637_reserved_bits_16_generic, tvb, bits_offset, crumbs, NULL);
+            }
             break;
 
         default:
@@ -1368,7 +1375,7 @@ tele_param_cb_num(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint len
         proto_tree_add_string_format(tree, hf_ansi_637_tele_cb_num_number, tvb, offset, num_fields,
             (gchar *) poctets,
             "Number: %s",
-            (gchar *) format_text(poctets, num_fields));
+            (gchar *) format_text(wmem_packet_scope(), poctets, num_fields));
     }
     else
     {
@@ -1522,7 +1529,25 @@ tele_param_mult_enc_user_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
         switch (cset)
         {
         case GSM_7BITS:
-            proto_tree_add_bits_item(tree, hf_ansi_637_reserved_bits_8_generic, tvb, ((orig_offset + len - 1)*8), reserved_bits, ENC_NA); /* MSBs */
+            {
+                crumb_spec_t crumbs[3];
+                guint8 i = 0;
+                guint bits_offset;
+
+                if (reserved_bits > 3) {
+                    bits_offset = ((orig_offset + len - 2)*8)+5;
+                    crumbs[i].crumb_bit_offset = 0;
+                    crumbs[i++].crumb_bit_length = reserved_bits - 3;
+                    crumbs[i].crumb_bit_offset = 8;
+                } else {
+                    bits_offset = ((orig_offset + len - 1)*8)+5;
+                    crumbs[i].crumb_bit_offset = 0;
+                }
+                crumbs[i++].crumb_bit_length = 3;
+                crumbs[i].crumb_bit_offset = 0;
+                crumbs[i].crumb_bit_length = 0;
+                proto_tree_add_split_bits_item_ret_val(tree, hf_ansi_637_reserved_bits_16_generic, tvb, bits_offset, crumbs, NULL);
+            }
             break;
 
         default:
@@ -1670,7 +1695,25 @@ tele_param_srvc_cat_prog_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
         switch (cset)
         {
         case GSM_7BITS:
-            proto_tree_add_bits_item(tree, hf_ansi_637_reserved_bits_8_generic, tvb, ((orig_offset + len - 1)*8), reserved_bits, ENC_NA); /* MSBs */
+            {
+                crumb_spec_t crumbs[3];
+                guint8 i = 0;
+                guint bits_offset;
+
+                if (reserved_bits > 3) {
+                    bits_offset = ((orig_offset + len - 2)*8)+5;
+                    crumbs[i].crumb_bit_offset = 0;
+                    crumbs[i++].crumb_bit_length = reserved_bits - 3;
+                    crumbs[i].crumb_bit_offset = 8;
+                } else {
+                    bits_offset = ((orig_offset + len - 1)*8)+5;
+                    crumbs[i].crumb_bit_offset = 0;
+                }
+                crumbs[i++].crumb_bit_length = 3;
+                crumbs[i].crumb_bit_offset = 0;
+                crumbs[i].crumb_bit_length = 0;
+                proto_tree_add_split_bits_item_ret_val(tree, hf_ansi_637_reserved_bits_16_generic, tvb, bits_offset, crumbs, NULL);
+            }
             break;
 
         default:
@@ -3063,6 +3106,11 @@ proto_register_ansi_637(void)
             FT_UINT8, BASE_DEC, NULL, 0x7f,
             NULL, HFILL }
         },
+        { &hf_ansi_637_reserved_bits_16_generic,
+            { "Reserved bit(s)", "ansi_637_tele.reserved",
+            FT_UINT16, BASE_DEC, NULL, 0,
+            NULL, HFILL }
+        },
         { &hf_ansi_637_tele_cmas_encoding,
             { "Encoding", "ansi_637_tele.cmas.encoding",
             FT_UINT16, BASE_DEC, NULL, 0xf800,
@@ -3346,7 +3394,7 @@ proto_register_ansi_637(void)
 
     tele_dissector_table =
         register_dissector_table("ansi_637.tele_id",
-            "ANSI IS-637-A Teleservice ID", proto_ansi_637_tele, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "ANSI IS-637-A Teleservice ID", proto_ansi_637_tele, FT_UINT8, BASE_DEC);
 }
 
 

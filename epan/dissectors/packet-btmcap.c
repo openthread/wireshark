@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -93,6 +81,8 @@ static const value_string response_code_vals[] = {
     { 0, NULL }
 };
 
+static const unit_name_string units_ppm = { " ppm", NULL };
+
 void proto_register_btmcap(void);
 void proto_reg_handoff_btmcap(void);
 
@@ -131,7 +121,7 @@ dissect_btmcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     op_code = tvb_get_guint8(tvb, offset);
     offset += 1;
 
-    col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str(op_code, op_code_vals, "Unknown Op Code"));
+    col_append_str(pinfo->cinfo, COL_INFO, val_to_str(op_code, op_code_vals, "Unknown Op Code"));
     if (op_code >= 0x11 && op_code <= 0x20) {
         proto_item_append_text(pitem, " (Clock Sync)");
         col_append_str(pinfo->cinfo, COL_INFO, " (Clock Sync)");
@@ -154,10 +144,10 @@ dissect_btmcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                 col_append_fstr(pinfo->cinfo, COL_INFO, " - MDL ID: %u", mdl_id);
                 if (mdl_id == 0xFFFF) {
                     proto_item_append_text(pitem, " (Indicates all MDLs)");
-                    col_append_fstr(pinfo->cinfo, COL_INFO, " (Indicates all MDLs)");
+                    col_append_str(pinfo->cinfo, COL_INFO, " (Indicates all MDLs)");
                 } else if (mdl_id >= 0x0001 && mdl_id <= 0xFEFF) {
                     proto_item_append_text(pitem, " (Dynamic Range)");
-                    col_append_fstr(pinfo->cinfo, COL_INFO, " (Dynamic Range)");
+                    col_append_str(pinfo->cinfo, COL_INFO, " (Dynamic Range)");
                 } else if (mdl_id == 0x0000) {
                     proto_item_append_text(pitem, " (Reserved)");
                     col_append_str(pinfo->cinfo, COL_INFO, " (Reserved)");
@@ -184,8 +174,7 @@ dissect_btmcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                 }
                 break;
             case 0x11: /* MD_SYNC_CAP_REQ */
-                pitem = proto_tree_add_item(main_tree, hf_btmcap_timestamp_required_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
-                proto_item_append_text(pitem, " ppm");
+                proto_tree_add_item(main_tree, hf_btmcap_timestamp_required_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
                 offset += 2;
                 break;
             case 0x13: /* MD_SYNC_SET_REQ */
@@ -217,8 +206,7 @@ dissect_btmcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                 proto_item_append_text(pitem, " (Time-Stamp Clock Instant)");
                 offset += 8;
 
-                pitem = proto_tree_add_item(main_tree, hf_btmcap_timestamp_sample_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
-                proto_item_append_text(pitem, " us");
+                proto_tree_add_item(main_tree, hf_btmcap_timestamp_sample_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
                 offset += 2;
                 break;
         }
@@ -239,16 +227,13 @@ dissect_btmcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                     proto_item_append_text(pitem, " (Baseband half-slots)");
                     offset += 1;
 
-                    pitem = proto_tree_add_item(main_tree, hf_btmcap_sync_lead_time, tvb, offset, 2, ENC_BIG_ENDIAN);
-                    proto_item_append_text(pitem, " ms");
+                    proto_tree_add_item(main_tree, hf_btmcap_sync_lead_time, tvb, offset, 2, ENC_BIG_ENDIAN);
                     offset += 2;
 
-                    pitem = proto_tree_add_item(main_tree, hf_btmcap_timestamp_native_resolution, tvb, offset, 2, ENC_BIG_ENDIAN);
-                    proto_item_append_text(pitem, " us");
+                    proto_tree_add_item(main_tree, hf_btmcap_timestamp_native_resolution, tvb, offset, 2, ENC_BIG_ENDIAN);
                     offset += 2;
 
-                    pitem = proto_tree_add_item(main_tree, hf_btmcap_timestamp_native_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
-                    proto_item_append_text(pitem, " ppm");
+                    proto_tree_add_item(main_tree, hf_btmcap_timestamp_native_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
                     offset += 2;
                     break;
                 case 0x14: /* MD_SYNC_SET_RSP */
@@ -268,8 +253,7 @@ dissect_btmcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                         proto_item_append_text(pitem, " (Time-Stamp Clock Instant)");
                     offset += 8;
 
-                    pitem = proto_tree_add_item(main_tree, hf_btmcap_timestamp_sample_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
-                    proto_item_append_text(pitem, " us");
+                    proto_tree_add_item(main_tree, hf_btmcap_timestamp_sample_accuracy, tvb, offset, 2, ENC_BIG_ENDIAN);
                     offset += 2;
                     break;
             }
@@ -349,7 +333,7 @@ proto_register_btmcap(void)
         },
         { &hf_btmcap_timestamp_required_accuracy,
             { "Timestamp Required Accuracy",     "btmcap.timestamp_required_accuracy",
-            FT_UINT16, BASE_DEC, NULL, 0x00,
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_ppm, 0x00,
             NULL, HFILL }
         },
         { &hf_btmcap_timestamp_update_information,
@@ -369,7 +353,7 @@ proto_register_btmcap(void)
         },
         { &hf_btmcap_timestamp_sample_accuracy,
             { "Timestamp Sample Accuracy",       "btmcap.timestamp_sample_accuracy",
-            FT_UINT16, BASE_DEC, NULL, 0x00,
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_microseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_btmcap_bluetooth_clock_access_resolution,
@@ -379,17 +363,17 @@ proto_register_btmcap(void)
         },
         { &hf_btmcap_sync_lead_time,
             { "Sync Lead Time",                  "btmcap.sync_lead_time",
-            FT_UINT16, BASE_DEC, NULL, 0x00,
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_btmcap_timestamp_native_resolution,
             { "Timestamp Native Resolution",     "btmcap.timestamp_native_resolution",
-            FT_UINT16, BASE_DEC, NULL, 0x00,
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_microseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_btmcap_timestamp_native_accuracy,
             { "Timestamp Native Accuracy",       "btmcap.timestamp_native_accuracy",
-            FT_UINT16, BASE_DEC, NULL, 0x00,
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_ppm, 0x00,
             NULL, HFILL }
         },
         { &hf_btmcap_response_parameters,
@@ -424,7 +408,7 @@ proto_register_btmcap(void)
     expert_btmcap = expert_register_protocol(proto_btmcap);
     expert_register_field_array(expert_btmcap, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_btmcap, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btmcap, NULL);
     prefs_register_static_text_preference(module, "mcap.version",
             "Bluetooth Protocol MCAP version: 1.0",
             "Version of protocol supported by this dissector.");

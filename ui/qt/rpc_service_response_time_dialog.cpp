@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 // warning C4267: 'argument' : conversion from 'size_t' to 'int', possible loss of data
@@ -35,7 +23,7 @@
 #include <epan/guid-utils.h>
 #include <epan/srt_table.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -163,7 +151,7 @@ TapParameterDialog *RpcServiceResponseTimeDialog::createDceRpcSrtDialog(QWidget 
     // dcerpc,srt,<uuid>,<major version>.<minor version>[,<filter>]
     QStringList args_l = QString(opt_arg).split(',');
     if (args_l.length() > 1) {
-        // Alas, QUuid requires Qt 4.8.
+        // XXX Switch to QUuid.
         unsigned d1, d2, d3, d4_0, d4_1, d4_2, d4_3, d4_4, d4_5, d4_6, d4_7;
         if(sscanf(args_l[0].toUtf8().constData(),
                   "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
@@ -382,11 +370,10 @@ void RpcServiceResponseTimeDialog::fillVersionCombo()
     }
 }
 
-void RpcServiceResponseTimeDialog::fillTree()
+void RpcServiceResponseTimeDialog::provideParameterData()
 {
     void *tap_data = NULL;
     const QString program_name = program_combo_->currentText();
-    gchar *program_name_cptr = qstring_strdup(program_name);
     guint32 max_procs = 0;
 
     switch (dlg_type_) {
@@ -397,8 +384,8 @@ void RpcServiceResponseTimeDialog::fillTree()
         guid_key *dkey = dce_name_to_uuid_key_[program_name];
         dcerpcstat_tap_data_t *dtap_data = g_new0(dcerpcstat_tap_data_t, 1);
         dtap_data->uuid = dkey->guid;
-        dtap_data->prog = program_name_cptr;
         dtap_data->ver = (guint16) version_combo_->itemData(version_combo_->currentIndex()).toUInt();
+        dtap_data->prog = dcerpc_get_proto_name(&dtap_data->uuid, dtap_data->ver);
 
         dcerpc_sub_dissector *procs = dcerpc_get_proto_sub_dissector(&(dkey->guid), dtap_data->ver);
         for (int i = 0; procs[i].name; i++) {
@@ -414,8 +401,8 @@ void RpcServiceResponseTimeDialog::fillTree()
         if (!onc_name_to_program_.contains(program_name)) return;
 
         rpcstat_tap_data_t *otap_data = g_new0(rpcstat_tap_data_t, 1);
-        otap_data->prog = program_name_cptr;
         otap_data->program = onc_name_to_program_[program_name];
+        otap_data->prog = rpc_prog_name(otap_data->program);
         otap_data->version = (guint32) version_combo_->itemData(version_combo_->currentIndex()).toUInt();
 
         onc_rpc_num_procedures_ = -1;
@@ -429,10 +416,6 @@ void RpcServiceResponseTimeDialog::fillTree()
     }
 
     set_srt_table_param_data(srt_, tap_data);
-
-    ServiceResponseTimeDialog::fillTree();
-    g_free(program_name_cptr);
-    g_free(tap_data);
 }
 
 /*

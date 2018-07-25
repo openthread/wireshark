@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -138,7 +126,7 @@ dissect_a_binary_command(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
 {
     proto_item *ti;
     proto_tree *subtree;
-    guint8* pstr;
+    const guint8* pstr;
     guint i, len;
 
     /* create command subtree */
@@ -277,8 +265,7 @@ dissect_a_binary_command(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
                         len = tvb_get_guint8(tvb, i+1);
                         ti = proto_tree_add_item(subtree, hf_a_item, tvb, i, len+2, ENC_NA);
                         infotree = proto_item_add_subtree(ti, ett_a_item);
-                        proto_tree_add_item(infotree, hf_a_weekday, tvb, i+2, len, ENC_ASCII|ENC_NA);
-                        pstr = tvb_get_string_enc(wmem_packet_scope(), tvb, i+2, len, ENC_ASCII|ENC_NA);
+                        proto_tree_add_item_ret_string(infotree, hf_a_weekday, tvb, i+2, len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &pstr);
                         if(pstr)
                             proto_item_append_text(ti, ", Weekday: '%s'", pstr);
 
@@ -290,8 +277,7 @@ dissect_a_binary_command(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
                         len = tvb_get_guint8(tvb, i+1);
                         ti = proto_tree_add_item(subtree, hf_a_item, tvb, i, len+2, ENC_NA);
                         infotree = proto_item_add_subtree(ti, ett_a_item);
-                        proto_tree_add_item(infotree, hf_a_month_name, tvb, i+2, len, ENC_ASCII|ENC_NA);
-                        pstr = tvb_get_string_enc(wmem_packet_scope(), tvb, i+2, len, ENC_ASCII|ENC_NA);
+                        proto_tree_add_item_ret_string(infotree, hf_a_month_name, tvb, i+2, len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &pstr);
                         if(pstr)
                             proto_item_append_text(ti, ", Month name: '%s'", pstr);
                         i += len +2;
@@ -302,8 +288,7 @@ dissect_a_binary_command(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
                         len = tvb_get_guint8(tvb, i+1);
                         ti = proto_tree_add_item(subtree, hf_a_item, tvb, i, len+2, ENC_NA);
                         infotree = proto_item_add_subtree(ti, ett_a_item);
-                        proto_tree_add_item(infotree, hf_a_weekofyear_prefix, tvb, i+2, len, ENC_ASCII|ENC_NA);
-                        pstr = tvb_get_string_enc(wmem_packet_scope(), tvb, i+2, len, ENC_ASCII|ENC_NA);
+                        proto_tree_add_item_ret_string(infotree, hf_a_weekofyear_prefix, tvb, i+2, len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &pstr);
                         if(pstr)
                             proto_item_append_text(ti, ", Week of the year prefix: '%s'", pstr);
                         i += len +2;

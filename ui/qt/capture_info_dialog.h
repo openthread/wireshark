@@ -4,36 +4,69 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef CAPTURE_INFO_DIALOG_H
 #define CAPTURE_INFO_DIALOG_H
 
-#include <QDialog>
+#include "geometry_state_dialog.h"
 
-class CaptureInfoDialog : public QDialog
+#include <QAbstractTableModel>
+#include <QTime>
+
+struct _capture_info;
+struct _capture_session;
+
+namespace Ui {
+class CaptureInfoDialog;
+}
+
+class CaptureInfoModel : public QAbstractTableModel
 {
     Q_OBJECT
+
 public:
-    explicit CaptureInfoDialog(QWidget *parent = 0);
+    explicit CaptureInfoModel(struct _capture_info *cap_info, QObject * parent = Q_NULLPTR);
+    virtual ~CaptureInfoModel() {}
+    void updateInfo();
+
+    virtual int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    virtual int columnCount(const QModelIndex &parent = QModelIndex()) const;
+    virtual QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const;
+//    virtual QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const;
+
+private:
+    struct _capture_info *cap_info_;
+    int samples_;
+    QMap<int, int> last_count_;
+    QMap<int, QList<int> > points_;
+    int last_other_;
+    QList<int> other_points_;
+};
+
+class CaptureInfoDialog : public GeometryStateDialog
+{
+    Q_OBJECT
+
+public:
+    explicit CaptureInfoDialog(struct _capture_info *cap_info, struct _capture_session *cap_session, QWidget *parent = 0);
+    ~CaptureInfoDialog();
+    void updateInfo(void);
 
 signals:
 
 public slots:
 
+private slots:
+    void stopCapture();
+
+private:
+    Ui::CaptureInfoDialog *ui;
+    struct _capture_info *cap_info_;
+    struct _capture_session *cap_session_;
+    CaptureInfoModel *ci_model_;
+    QTime duration_;
 };
 
 #endif // CAPTURE_INFO_DIALOG_H

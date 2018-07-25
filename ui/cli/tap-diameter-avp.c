@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -41,6 +29,8 @@
 #include <string.h>
 
 #include <glib.h>
+
+#include <wsutil/strtoi.h>
 
 #include <epan/packet_info.h>
 #include <epan/tap.h>
@@ -106,11 +96,11 @@ diam_tree_to_csv(proto_node *node, gpointer data)
 	ftype = fvalue_type_ftenum(&fi->value);
 	if (ftype != FT_NONE && ftype != FT_PROTOCOL) {
 		/* convert value to string */
-		val_tmp = fvalue_to_string_repr(&fi->value, FTREPR_DISPLAY, hfi->display, NULL);
+		val_tmp = fvalue_to_string_repr(NULL, &fi->value, FTREPR_DISPLAY, hfi->display);
 		if (val_tmp)
 		{
 			val_str = g_strdup(val_tmp);
-			g_free(val_tmp);
+			wmem_free(NULL, val_tmp);
 		} else
 			val_str = g_strdup_printf("unsupported type: %s", ftype_name(ftype));
 
@@ -238,8 +228,16 @@ diameteravp_init(const char *opt_arg, void *userdata _U_)
 	opt_count = 0;
 	while (tokens[opt_count])
 		opt_count++;
-	if (opt_count > 2)
-		ds->cmd_code = (guint32)atoi(tokens[2]);
+	if (opt_count > 2) {
+		/* if the token is a not-null string and it's not *, the conversion must succeeed */
+		if (strlen(tokens[2]) > 0 && tokens[2][0] != '*') {
+			if (!ws_strtou32(tokens[2], NULL, &ds->cmd_code)) {
+				fprintf(stderr, "Invalid integer token: %s\n", tokens[2]);
+				g_strfreev(tokens);
+				exit(1);
+			}
+		}
+	}
 
 	/* Loop over diameter field names. */
 	for (opt_idx=3; opt_idx<opt_count; opt_idx++)
@@ -257,7 +255,7 @@ diameteravp_init(const char *opt_arg, void *userdata _U_)
 	g_strfreev(tokens);
 	ds->filter = g_string_free(filter, FALSE);
 
-	error_string = register_tap_listener("diameter", ds, ds->filter, 0, NULL, diameteravp_packet, diameteravp_draw);
+	error_string = register_tap_listener("diameter", ds, ds->filter, 0, NULL, diameteravp_packet, diameteravp_draw, NULL);
 	if (error_string) {
 		/* error, we failed to attach to the tap. clean up */
 		g_free(ds);

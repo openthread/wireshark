@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __VALUE_STRING_H__
@@ -197,7 +185,7 @@ value_string_ext_new(const value_string *vs, guint vs_tot_num_entries, const gch
 
 WS_DLL_PUBLIC
 void
-value_string_ext_free(const value_string_ext *vse);
+value_string_ext_free(value_string_ext *vse);
 
 WS_DLL_PUBLIC
 const gchar *
@@ -265,6 +253,40 @@ try_rval_to_str(const guint32 val, const range_string *rs);
 WS_DLL_PUBLIC
 const gchar *
 try_rval_to_str_idx(const guint32 val, const range_string *rs, gint *idx);
+
+WS_DLL_PUBLIC
+const gchar *
+try_rval64_to_str(const guint64 val, const range_string *rs);
+
+WS_DLL_PUBLIC
+const gchar *
+try_rval64_to_str_idx(const guint64 val, const range_string *rs, gint *idx);
+
+/* BYTES TO STRING MATCHING */
+
+typedef struct _bytes_string {
+  const guint8 *value;
+  const size_t  value_length;
+  const gchar  *strptr;
+} bytes_string;
+
+WS_DLL_PUBLIC
+const gchar *
+bytesval_to_str(const guint8 *val, const size_t val_len, const bytes_string *bs, const char *fmt)
+G_GNUC_PRINTF(4, 0);
+
+WS_DLL_PUBLIC
+const gchar *
+try_bytesval_to_str(const guint8 *val, const size_t val_len, const bytes_string *bs);
+
+WS_DLL_PUBLIC
+const gchar *
+bytesprefix_to_str(const guint8 *haystack, const size_t haystack_len, const bytes_string *bs, const char *fmt)
+G_GNUC_PRINTF(4, 0);
+
+WS_DLL_PUBLIC
+const gchar *
+try_bytesprefix_to_str(const guint8 *haystack, const size_t haystack_len, const bytes_string *bs);
 
 /* MISC (generally do not use) */
 

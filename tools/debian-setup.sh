@@ -1,54 +1,133 @@
-#!/bin/sh
+#!/bin/bash
 # Setup development environment on Debian and derivatives such as Ubuntu
 #
 # Wireshark - Network traffic analyzer
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#
-
-#
-# Install the packages required for Wireshark development.
-# (This includes GUI packages; making that optional, with a command-line
-# flag, is left as an exercise to the reader.)
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # We drag in tools that might not be needed by all users; it's easier
 # that way.
 #
 
-if [ ! -z $1 ] && [ "$1" != "--install-optional" ]
+if [ "$1" = "--help" ]
 then
-	echo "\n*** Invalid parameter: $1\n"
+	printf "\\nUtility to setup a debian-based system for Wireshark Development.\\n"
+	printf "The basic usage installs the needed software\\n\\n"
+	printf "Usage: %s [--install-optional] [...other options...]\\n" "$0"
+	printf "\\t--install-optional: install optional software as well"
+	printf "\\t[other]: other options are passed as-is to apt\\n"
 	exit 1
 fi
 
-apt-get install libgtk2.0-dev libpcap-dev bison flex make automake \
-	libtool libtool-bin python perl
-
-#
-# Now arrange for optional support libraries
-#
-if [ -z $1 ]
+# Check if the user is root
+if [ "$(id -u)" -ne 0 ]
 then
-	echo "\n*** Optional packages not installed. Rerun with --install-optional to have them.\n"
-	exit 0
+	echo "You must be root."
+	exit 1
 fi
 
-apt-get install libnl-3-dev qttools5-dev qttools5-dev-tools libgtk-3-dev \
-	libc-ares-dev libssh-dev libkrb5-dev libqt5svg5-dev lynx libsmi2-dev \
-	portaudio19-dev asciidoc libgcrypt-dev libsbc-dev libgeoip-dev \
-	libgnutls-dev qtmultimedia5-dev liblua5.2-dev libnl-cli-3-dev \
-	libparse-yapp-perl qt5-default
+for op
+do
+	if [ "$op" = "--install-optional" ]
+	then
+		ADDITIONAL=1
+	else
+		OPTIONS="$OPTIONS $op"
+	fi
+done
+
+BASIC_LIST="qttools5-dev \
+	qttools5-dev-tools \
+	libqt5svg5-dev \
+	qtmultimedia5-dev \
+	qt5-default \
+	libpcap-dev \
+	bison \
+	flex \
+	make \
+	python \
+	perl \
+	libgcrypt-dev"
+
+ADDITIONAL_LIST="libnl-3-dev \
+	libc-ares-dev \
+	libkrb5-dev \
+	libsmi2-dev \
+	asciidoctor \
+	libsbc-dev \
+	liblua5.2-dev \
+	libnl-cli-3-dev \
+	libparse-yapp-perl \
+	libcap-dev \
+	liblz4-dev \
+	libsnappy-dev \
+	libspandsp-dev \
+	libxml2-dev \
+	git \
+	libjson-glib-dev \
+	ninja-build \
+	doxygen \
+	xsltproc"
+
+# Adds package $2 to list variable $1 if the package is found.
+# If $3 is given, then this version requirement must be satisfied.
+add_package() {
+	local list="$1" pkgname="$2" versionreq="$3" version
+
+	version=$(apt-cache show "$pkgname" 2>/dev/null |
+		awk '/^Version:/{ print $2; exit}')
+	# fail if the package is not known
+	if [ -z "$version" ]; then
+		return 1
+	elif [ -n "$versionreq" ]; then
+		# Require minimum version or fail.
+		# shellcheck disable=SC2086
+		dpkg --compare-versions $version $versionreq || return 1
+	fi
+
+	# package is found, append it to list
+	eval "${list}=\"\${${list}} \${pkgname}\""
+}
+
+# cmake3 3.5.1: Ubuntu 14.04
+# cmake >= 3.5: Debian >= jessie-backports, Ubuntu >= 16.04
+add_package BASIC_LIST cmake3 ||
+BASIC_LIST="$BASIC_LIST cmake"
+
+# Debian >= wheezy-backports, Ubuntu >= 16.04
+add_package ADDITIONAL_LIST libnghttp2-dev ||
+echo "libnghttp2-dev is unavailable" >&2
+
+# libssh-gcrypt-dev: Debian >= jessie, Ubuntu >= 16.04
+# libssh-dev (>= 0.6): Debian >= jessie, Ubuntu >= 14.04
+add_package ADDITIONAL_LIST libssh-gcrypt-dev ||
+add_package ADDITIONAL_LIST libssh-dev ||
+echo "libssh-gcrypt-dev and libssh-dev are unavailable" >&2
+
+# libgnutls-dev: Debian <= jessie, Ubuntu <= 16.04
+# libgnutls28-dev: Debian >= wheezy-backports, Ubuntu >= 12.04
+add_package ADDITIONAL_LIST libgnutls28-dev ">= 3.2.14-1" ||
+add_package ADDITIONAL_LIST libgnutls-dev ||
+echo "libgnutls28-dev and libgnutls-dev are unavailable" >&2
+
+# mmdbresolve
+add_package ADDITIONAL_LIST libmaxminddb-dev ||
+echo "libmaxminddb-dev is unavailable" >&2
+
+ACTUAL_LIST=$BASIC_LIST
+
+# Now arrange for optional support libraries
+if [ $ADDITIONAL ]
+then
+	ACTUAL_LIST="$ACTUAL_LIST $ADDITIONAL_LIST"
+fi
+
+# shellcheck disable=SC2086
+apt-get install $ACTUAL_LIST $OPTIONS || exit 2
+
+if [ ! $ADDITIONAL ]
+then
+	printf "\\n*** Optional packages not installed. Rerun with --install-optional to have them.\\n"
+fi

@@ -9,25 +9,12 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/oui.h>
 #include "packet-tcp.h"
@@ -431,6 +418,7 @@ static const value_string mausb_status_string[] = {
     { 153, "NO_USB_PING_RESPONSE" },
     { 154, "NOT_SUPPORTED" },
     { 155, "REQUEST_DENIED" },
+    { 156, "MISSING_REQUEST_ID" },
     { 0, NULL}
 };
 
@@ -559,11 +547,13 @@ static const value_string mausb_cancel_transfer_status_string[] = {
     { 0, "Cancel Unsuccessful"},
     { 1, "Canceled before any data was moved"},
     { 2, "Canceled after some data was moved"},
-    { 3, "Transfer Not Found"},
+    { 3, "Transfer completed"},
+    { 4, "Transfer not yet received"},
+    { 5, "Transfer cleared without any data moved"},
     { 0, NULL}
 };
 
-#define MAUSB_CANCEL_TRANSFER_STATUS_MASK 0x03
+#define MAUSB_CANCEL_TRANSFER_STATUS_MASK 0x07
 
 #define MAUSB_CLEAR_TRANSFERS_RESP_NUM_MASK 0x1f
 #define MAUSB_CLEAR_TRANSFERS_STATUS_MASK 0x01
@@ -669,10 +659,6 @@ static guint mausb_get_pkt_len(packet_info *pinfo _U_, tvbuff_t *tvb,
 {
     return tvb_get_letohs(tvb, offset + 2);
 }
-
-/* Global Port Preference */
-static unsigned int mausb_tcp_port_pref = 0;
-static unsigned int mausb_udp_port_pref = 0;
 
 /* Initialize the subtree pointers */
 static gint ett_mausb = -1;
@@ -2247,12 +2233,10 @@ proto_register_mausb(void)
         },
     };
 
-    module_t *mausb_module;
     expert_module_t* expert_mausb;
 
     /* Register the protocol name and description */
-    proto_mausb = proto_register_protocol("Media Agnostic USB",
-            "MAUSB", "mausb");
+    proto_mausb = proto_register_protocol("Media Agnostic USB", "MAUSB", "mausb");
 
     /* Required function calls to register the header fields and subtrees */
     proto_register_field_array(proto_mausb, hf, array_length(hf));
@@ -2265,53 +2249,23 @@ proto_register_mausb(void)
     expert_mausb = expert_register_protocol(proto_mausb);
     expert_register_field_array(expert_mausb, ei, array_length(ei));
 
-    /* Register Protocol preferences */
-    mausb_module = prefs_register_protocol(proto_mausb, proto_reg_handoff_mausb);
-
-    /* Register TCP port preference */
-    prefs_register_uint_preference(mausb_module, "tcp.port", "MAUSB TCP Port",
-                       "Set the port for Media Agnostic Packets",
-                       10, &mausb_tcp_port_pref);
-
-    /* Register UDP port preference */
-    prefs_register_uint_preference(mausb_module, "udp.port", "MAUSB UDP Port",
-                       "Set the port for Media Agnostic Packets",
-                       10, &mausb_udp_port_pref);
-
     llc_add_oui(OUI_WFA, "llc.wfa_pid", "LLC WFA OUI PID", oui_hf, proto_mausb);
 }
 
 void
 proto_reg_handoff_mausb(void)
 {
-    static gboolean initialized = FALSE;
-    static dissector_handle_t mausb_tcp_handle;
-    static dissector_handle_t mausb_pkt_handle;
-    static guint saved_mausb_tcp_port_pref;
-    static guint saved_mausb_udp_port_pref;
+    dissector_handle_t mausb_tcp_handle;
+    dissector_handle_t mausb_pkt_handle;
 
-    if (!initialized) {
-        /* only initialize once */
-        mausb_tcp_handle = create_dissector_handle(dissect_mausb,
-                proto_mausb);
+    mausb_tcp_handle = create_dissector_handle(dissect_mausb, proto_mausb);
 
-        mausb_pkt_handle = create_dissector_handle(dissect_mausb_pkt,
-                proto_mausb);
+    mausb_pkt_handle = create_dissector_handle(dissect_mausb_pkt, proto_mausb);
 
-        dissector_add_uint("llc.wfa_pid", PID_MAUSB, mausb_pkt_handle);
-        initialized = TRUE;
+    dissector_add_uint("llc.wfa_pid", PID_MAUSB, mausb_pkt_handle);
 
-    } else {
-        /* if we have already been initialized */
-        dissector_delete_uint("tcp.port", saved_mausb_tcp_port_pref, mausb_tcp_handle);
-        dissector_delete_uint("udp.port", saved_mausb_udp_port_pref, mausb_pkt_handle);
-    }
-
-    saved_mausb_tcp_port_pref = mausb_tcp_port_pref;
-    saved_mausb_udp_port_pref = mausb_udp_port_pref;
-
-    dissector_add_uint("tcp.port", mausb_tcp_port_pref, mausb_tcp_handle);
-    dissector_add_uint("udp.port", mausb_udp_port_pref, mausb_pkt_handle);
+    dissector_add_uint_range_with_preference("tcp.port", "", mausb_tcp_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", mausb_pkt_handle);
 }
 
 /*

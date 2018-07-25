@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -50,7 +38,6 @@ void proto_register_cmp(void);
 /* desegmentation of CMP over TCP */
 static gboolean cmp_desegment = TRUE;
 
-static guint cmp_alternate_tcp_port = 0;
 static guint cmp_alternate_http_port = 0;
 static guint cmp_alternate_tcp_style_http_port = 0;
 
@@ -72,9 +59,12 @@ static gint ett_cmp = -1;
 #include "packet-cmp-fn.c"
 
 static int
-dissect_cmp_pdu(tvbuff_t *tvb, proto_tree *tree, asn1_ctx_t *actx)
+dissect_cmp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-	return dissect_cmp_PKIMessage(FALSE, tvb, 0, actx,tree, -1);
+	asn1_ctx_t asn1_ctx;
+	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
+
+	return dissect_cmp_PKIMessage(FALSE, tvb, 0, &asn1_ctx, tree, -1);
 }
 
 #define CMP_TYPE_PKIMSG		0
@@ -101,18 +91,13 @@ static int dissect_cmp_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pa
 	tvbuff_t   *next_tvb;
 	guint32    pdu_len;
 	guint8     pdu_type;
-	nstime_t   ts;
 	proto_item *item=NULL;
 	proto_item *ti=NULL;
 	proto_tree *tree=NULL;
 	proto_tree *tcptrans_tree=NULL;
-	asn1_ctx_t asn1_ctx;
 	int offset=0;
 
-	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
-
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "CMP");
-
 	col_set_str(pinfo->cinfo, COL_INFO, "PKIXCMP");
 
 	if(parent_tree){
@@ -145,17 +130,15 @@ static int dissect_cmp_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pa
 
 	switch(pdu_type){
 		case CMP_TYPE_PKIMSG:
-			next_tvb = tvb_new_subset(tvb, offset, tvb_reported_length_remaining(tvb, offset), pdu_len);
-			dissect_cmp_pdu(next_tvb, tree, &asn1_ctx);
+			next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_reported_length_remaining(tvb, offset), pdu_len);
+			dissect_cmp_pdu(next_tvb, pinfo, tree, NULL);
 			offset += tvb_reported_length_remaining(tvb, offset);
 			break;
 		case CMP_TYPE_POLLREP:
 			proto_tree_add_item(tcptrans_tree, hf_cmp_tcptrans_poll_ref, tvb, offset, 4, ENC_BIG_ENDIAN);
 			offset += 4;
 
-			ts.secs = tvb_get_ntohl(tvb, 4);
-			ts.nsecs = 0;
-			proto_tree_add_time(tcptrans_tree, hf_cmp_tcptrans_ttcb, tvb, offset, 4, &ts);
+			proto_tree_add_item(tcptrans_tree, hf_cmp_tcptrans_ttcb, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 			offset += 4;
 			break;
 		case CMP_TYPE_POLLREQ:
@@ -168,18 +151,16 @@ static int dissect_cmp_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *pa
 			proto_tree_add_item(tcptrans_tree, hf_cmp_tcptrans_next_poll_ref, tvb, offset, 4, ENC_BIG_ENDIAN);
 			offset += 4;
 
-			ts.secs = tvb_get_ntohl(tvb, 4);
-			ts.nsecs = 0;
-			proto_tree_add_time(tcptrans_tree, hf_cmp_tcptrans_ttcb, tvb, offset, 4, &ts);
+			proto_tree_add_item(tcptrans_tree, hf_cmp_tcptrans_ttcb, tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 			offset += 4;
 
-			next_tvb = tvb_new_subset(tvb, offset, tvb_reported_length_remaining(tvb, offset), pdu_len);
-			dissect_cmp_pdu(next_tvb, tree, &asn1_ctx);
+			next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_reported_length_remaining(tvb, offset), pdu_len);
+			dissect_cmp_pdu(next_tvb, pinfo, tree, NULL);
 			offset += tvb_reported_length_remaining(tvb, offset);
 			break;
 		case CMP_TYPE_FINALMSGREP:
-			next_tvb = tvb_new_subset(tvb, offset, tvb_reported_length_remaining(tvb, offset), pdu_len);
-			dissect_cmp_pdu(next_tvb, tree, &asn1_ctx);
+			next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_reported_length_remaining(tvb, offset), pdu_len);
+			dissect_cmp_pdu(next_tvb, pinfo, tree, NULL);
 			offset += tvb_reported_length_remaining(tvb, offset);
 			break;
 		case CMP_TYPE_ERRORMSGREP:
@@ -267,12 +248,8 @@ dissect_cmp_http(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, voi
 {
 	proto_item *item=NULL;
 	proto_tree *tree=NULL;
-	asn1_ctx_t asn1_ctx;
-
-	asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "CMP");
-
 	col_set_str(pinfo->cinfo, COL_INFO, "PKIXCMP");
 
 	if(parent_tree){
@@ -280,7 +257,7 @@ dissect_cmp_http(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, voi
 		tree = proto_item_add_subtree(item, ett_cmp);
 	}
 
-	return dissect_cmp_pdu(tvb, tree, &asn1_ctx);
+	return dissect_cmp_pdu(tvb, pinfo, tree, NULL);
 }
 
 
@@ -345,12 +322,6 @@ void proto_register_cmp(void) {
 			"To use this option, you must also enable \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
 			&cmp_desegment);
 
-	prefs_register_uint_preference(cmp_module, "tcp_alternate_port",
-			"Alternate TCP port",
-			"Decode this TCP port\'s traffic as CMP. Set to \"0\" to disable.",
-			10,
-			&cmp_alternate_tcp_port);
-
 	prefs_register_uint_preference(cmp_module, "http_alternate_port",
 			"Alternate HTTP port",
 			"Decode this TCP port\'s traffic as CMP-over-HTTP. Set to \"0\" to disable. "
@@ -364,6 +335,8 @@ void proto_register_cmp(void) {
 			"Use this if the Content-Type is not set correctly.",
 			10,
 			&cmp_alternate_tcp_style_http_port);
+
+	register_ber_syntax_dissector("PKIMessage", proto_cmp, dissect_cmp_pdu);
 }
 
 
@@ -373,7 +346,6 @@ void proto_reg_handoff_cmp(void) {
 	static dissector_handle_t cmp_http_handle;
 	static dissector_handle_t cmp_tcp_style_http_handle;
 	static dissector_handle_t cmp_tcp_handle;
-	static guint cmp_alternate_tcp_port_prev = 0;
 	static guint cmp_alternate_http_port_prev = 0;
 	static guint cmp_alternate_tcp_style_http_port_prev = 0;
 
@@ -387,7 +359,7 @@ void proto_reg_handoff_cmp(void) {
 		dissector_add_string("media_type", "application/x-pkixcmp-poll", cmp_tcp_style_http_handle);
 
 		cmp_tcp_handle = create_dissector_handle(dissect_cmp_tcp, proto_cmp);
-		dissector_add_uint("tcp.port", TCP_PORT_CMP, cmp_tcp_handle);
+		dissector_add_uint_with_preference("tcp.port", TCP_PORT_CMP, cmp_tcp_handle);
 
 		oid_add_from_string("Cryptlib-presence-check","1.3.6.1.4.1.3029.3.1.1");
 		oid_add_from_string("Cryptlib-PKIBoot","1.3.6.1.4.1.3029.3.1.2");
@@ -401,34 +373,23 @@ void proto_reg_handoff_cmp(void) {
 		inited = TRUE;
 	}
 
-	/* change alternate TCP port if changed in the preferences */
-	if (cmp_alternate_tcp_port != cmp_alternate_tcp_port_prev) {
-		if (cmp_alternate_tcp_port_prev != 0)
-			dissector_delete_uint("tcp.port", cmp_alternate_tcp_port_prev, cmp_tcp_handle);
-		if (cmp_alternate_tcp_port != 0)
-			dissector_add_uint("tcp.port", cmp_alternate_tcp_port, cmp_tcp_handle);
-		cmp_alternate_tcp_port_prev = cmp_alternate_tcp_port;
-	}
-
 	/* change alternate HTTP port if changed in the preferences */
 	if (cmp_alternate_http_port != cmp_alternate_http_port_prev) {
 		if (cmp_alternate_http_port_prev != 0) {
-			dissector_delete_uint("tcp.port", cmp_alternate_http_port_prev, NULL);
-			dissector_delete_uint("http.port", cmp_alternate_http_port_prev, NULL);
+			http_tcp_dissector_delete(cmp_alternate_http_port_prev);
 		}
 		if (cmp_alternate_http_port != 0)
-			http_dissector_add( cmp_alternate_http_port, cmp_http_handle);
+			http_tcp_dissector_add( cmp_alternate_http_port, cmp_http_handle);
 		cmp_alternate_http_port_prev = cmp_alternate_http_port;
 	}
 
 	/* change alternate TCP-style-HTTP port if changed in the preferences */
 	if (cmp_alternate_tcp_style_http_port != cmp_alternate_tcp_style_http_port_prev) {
 		if (cmp_alternate_tcp_style_http_port_prev != 0) {
-			dissector_delete_uint("tcp.port", cmp_alternate_tcp_style_http_port_prev, NULL);
-			dissector_delete_uint("http.port", cmp_alternate_tcp_style_http_port_prev, NULL);
+			http_tcp_dissector_delete(cmp_alternate_tcp_style_http_port_prev);
 		}
 		if (cmp_alternate_tcp_style_http_port != 0)
-			http_dissector_add( cmp_alternate_tcp_style_http_port, cmp_tcp_style_http_handle);
+			http_tcp_dissector_add( cmp_alternate_tcp_style_http_port, cmp_tcp_style_http_handle);
 		cmp_alternate_tcp_style_http_port_prev = cmp_alternate_tcp_style_http_port;
 	}
 

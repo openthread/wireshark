@@ -11,7 +11,7 @@ indent_size = 2
 indent_style = tab
 indent_size = tab
 
-[airpdcap_wep.[ch]]
+[dot11decrypt_wep.[ch]]
 indent_style = tab
 indent_size = tab
 
@@ -53,22 +53,7 @@ indent_size = tab
 indent_style = tab
 indent_size = tab
 
-[file_util.[ch]]
-indent_size = 6
-
 [g711.[ch]]
-indent_style = tab
-indent_size = tab
-
-[inet_aton.[ch]]
-indent_style = tab
-indent_size = tab
-
-[inet_ntop.[ch]]
-indent_style = tab
-indent_size = tab
-
-[inet_pton.[ch]]
 indent_style = tab
 indent_size = tab
 
@@ -131,10 +116,6 @@ indent_size = tab
 
 [ws_mempbrk_sse42.[ch]]
 indent_size = 2
-
-[ws_version_info.[ch]]
-indent_style = tab
-indent_size = tab
 
 [wsgetopt.[ch]]
 indent_size = 2

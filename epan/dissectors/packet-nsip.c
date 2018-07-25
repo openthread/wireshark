@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* 3GPP TS 48.016 V 5.3.0 (2004-07) Release 6 + CR013 */
@@ -37,8 +25,7 @@ void proto_reg_handoff_nsip(void);
 #define NSIP_DEBUG 0
 #define NSIP_SEP ", " /* Separator string */
 
-static range_t *global_nsip_udp_port_range;
-#define DEFAULT_NSIP_PORT_RANGE "2157,19999"
+#define DEFAULT_NSIP_PORT_RANGE "2157,19999" /* Not IANA registered */
 
 /* Initialize the protocol and registered fields */
 static int proto_nsip = -1;
@@ -345,7 +332,7 @@ decode_iei_ns_pdu(nsip_ie_t *ie, build_info_t *bi, int ie_start_offset) {
   proto_tree_add_bytes_format(bi->nsip_tree, hf_nsip_ns_pdu, bi->tvb, ie_start_offset,
                       ie->total_length, NULL,
                       "NS PDU (%u bytes)", ie->value_length);
-  next_tvb = tvb_new_subset(bi->tvb, bi->offset, ie->value_length, -1);
+  next_tvb = tvb_new_subset_length_caplen(bi->tvb, bi->offset, ie->value_length, -1);
   if (nsip_handle) {
     gboolean was_recursive;
     was_recursive = nsip_is_recursive;
@@ -515,7 +502,7 @@ decode_iei_reset_flag(nsip_ie_t *ie _U_, build_info_t *bi, int ie_start_offset _
                            ett_nsip_reset_flag, reset_flags, ENC_NA);
 
   if (flag & NSIP_MASK_RESET_FLAG) {
-    col_append_sep_fstr(bi->pinfo->cinfo, COL_INFO, NSIP_SEP, "Reset");
+    col_append_sep_str(bi->pinfo->cinfo, COL_INFO, NSIP_SEP, "Reset");
   }
   bi->offset += 1;
 }
@@ -524,7 +511,7 @@ static void
 decode_iei_ip_address(nsip_ie_t *ie, build_info_t *bi, int ie_start_offset) {
   guint8 addr_type;
   guint32 ip4_addr;
-  struct e_in6_addr ip6_addr;
+  ws_in6_addr ip6_addr;
 
   addr_type = tvb_get_guint8(bi->tvb, bi->offset);
   proto_tree_add_item(bi->nsip_tree, hf_nsip_ip_address_type,
@@ -951,7 +938,7 @@ dissect_nsip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     col_set_str(pinfo->cinfo, COL_INFO,
                 val_to_str_const(pdu_type, tab_nsip_pdu_types, "Unknown PDU type"));
   } else {
-    col_append_sep_fstr(pinfo->cinfo, COL_INFO, NSIP_SEP, "%s",
+    col_append_sep_str(pinfo->cinfo, COL_INFO, NSIP_SEP,
                 val_to_str_const(pdu_type, tab_nsip_pdu_types, "Unknown PDU type"));
   }
   decode_pdu(pdu_type, &bi);
@@ -964,7 +951,7 @@ proto_register_nsip(void)
   static hf_register_info hf[] = {
     { &hf_nsip_cause,
       { "Cause", "nsip.cause",
-        FT_UINT8, BASE_OCT, VALS(tab_nsip_cause_values), 0x0,
+        FT_UINT8, BASE_HEX, VALS(tab_nsip_cause_values), 0x0,
         NULL, HFILL }
     },
     { &hf_nsip_ns_vci,
@@ -974,7 +961,7 @@ proto_register_nsip(void)
     },
     { &hf_nsip_pdu_type,
       { "PDU type", "nsip.pdu_type",
-        FT_UINT8, BASE_OCT, VALS(tab_nsip_pdu_types), 0x0,
+        FT_UINT8, BASE_HEX, VALS(tab_nsip_pdu_types), 0x0,
         "PDU type information element", HFILL }
     },
     { &hf_nsip_bvci,
@@ -1140,8 +1127,7 @@ proto_register_nsip(void)
   module_t *nsip_module;
 
   /* Register the protocol name and description */
-  proto_nsip = proto_register_protocol("GPRS Network Service",
-                                       "GPRS-NS", "gprs-ns");
+  proto_nsip = proto_register_protocol("GPRS Network Service", "GPRS-NS", "gprs-ns");
 
   /* Required function calls to register the header fields and
      subtrees used */
@@ -1150,36 +1136,19 @@ proto_register_nsip(void)
 
   register_dissector("gprs_ns", dissect_nsip, proto_nsip);
 
-  /* Set default UDP ports */
-  range_convert_str(&global_nsip_udp_port_range, DEFAULT_NSIP_PORT_RANGE, MAX_UDP_PORT);
-
   /* Register configuration options */
-  nsip_module = prefs_register_protocol(proto_nsip, proto_reg_handoff_nsip);
+  nsip_module = prefs_register_protocol(proto_nsip, NULL);
   prefs_register_obsolete_preference(nsip_module, "udp.port1");
   prefs_register_obsolete_preference(nsip_module, "udp.port2");
-  prefs_register_range_preference(nsip_module, "udp.ports", "GPRS-NS UDP ports",
-                                  "UDP ports to be decoded as GPRS-NS (default: "
-                                  DEFAULT_NSIP_PORT_RANGE ")",
-                                  &global_nsip_udp_port_range, MAX_UDP_PORT);
 }
 
 void
 proto_reg_handoff_nsip(void) {
-  static gboolean nsip_prefs_initialized = FALSE;
-  static range_t *nsip_udp_port_range;
 
-  if (!nsip_prefs_initialized) {
-    nsip_handle = find_dissector_add_dependency("gprs_ns", proto_nsip);
-    bssgp_handle = find_dissector_add_dependency("bssgp", proto_nsip);
-    nsip_prefs_initialized = TRUE;
-  } else {
-    dissector_delete_uint_range("udp.port", nsip_udp_port_range, nsip_handle);
-    g_free(nsip_udp_port_range);
-  }
+  nsip_handle = find_dissector_add_dependency("gprs_ns", proto_nsip);
+  bssgp_handle = find_dissector_add_dependency("bssgp", proto_nsip);
 
-  nsip_udp_port_range = range_copy(global_nsip_udp_port_range);
-
-  dissector_add_uint_range("udp.port", nsip_udp_port_range, nsip_handle);
+  dissector_add_uint_range_with_preference("udp.port", DEFAULT_NSIP_PORT_RANGE, nsip_handle);
   dissector_add_uint("atm.aal5.type", TRAF_GPRS_NS, nsip_handle);
 
 }

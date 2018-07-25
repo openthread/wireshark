@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Request-Answer Pair */
@@ -47,8 +35,10 @@ typedef struct _diam_sub_dis_t {
 
 #define DIAM_APPID_3GPP_CX      16777216
 #define DIAM_APPID_3GPP_SH      16777217
+#define DIAM_APPID_3GPP_RX      16777236
 #define DIAM_APPID_3GPP_GX      16777238
 #define DIAM_APPID_3GPP_S6A_S6D 16777251
 #define DIAM_APPID_3GPP_S13	16777252
 #define DIAM_APPID_3GPP_SLH	16777291
+#define DIAM_APPID_3GPP_SD	16777303
 #define DIAM_APPID_3GPP_S7A	16777308

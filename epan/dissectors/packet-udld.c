@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,7 +18,7 @@
 /*
  * See
  *
- *  http://www.ietf.org/internet-drafts/draft-foschiano-udld-02.txt
+ *  http://tools.ietf.org/rfc/rfc5171.txt
  *
  * for some information on UDLD.
  */
@@ -110,25 +98,25 @@ dissect_udld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     col_clear(pinfo->cinfo, COL_INFO);
 
     if (tree) {
-    proto_item *flags_ti;
-    proto_tree *flags_tree;
+        proto_item *flags_ti;
+        proto_tree *flags_tree;
 
-    ti = proto_tree_add_item(tree, proto_udld, tvb, offset, -1, ENC_NA);
-    udld_tree = proto_item_add_subtree(ti, ett_udld);
+        ti = proto_tree_add_item(tree, proto_udld, tvb, offset, -1, ENC_NA);
+        udld_tree = proto_item_add_subtree(ti, ett_udld);
 
-    /* UDLD header */
-    proto_tree_add_item(udld_tree, hf_udld_version, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(udld_tree, hf_udld_opcode, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-    flags_ti = proto_tree_add_item(udld_tree, hf_udld_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
-    flags_tree = proto_item_add_subtree(flags_ti, ett_udld_flags);
-    proto_tree_add_item(flags_tree, hf_udld_flags_rt, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flags_tree, hf_udld_flags_rsy, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-    proto_tree_add_item(udld_tree, hf_udld_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
+        /* UDLD header */
+        proto_tree_add_item(udld_tree, hf_udld_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(udld_tree, hf_udld_opcode, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+        flags_ti = proto_tree_add_item(udld_tree, hf_udld_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+        flags_tree = proto_item_add_subtree(flags_ti, ett_udld_flags);
+        proto_tree_add_item(flags_tree, hf_udld_flags_rt, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flags_tree, hf_udld_flags_rsy, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+        proto_tree_add_checksum(udld_tree, tvb, offset, hf_udld_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
+        offset += 2;
     } else {
-    offset += 4; /* The version/opcode/flags/checksum fields from above */
+        offset += 4; /* The version/opcode/flags/checksum fields from above */
     }
 
     while (tvb_reported_length_remaining(tvb, offset) != 0) {
@@ -245,11 +233,11 @@ proto_register_udld(void)
             NULL, HFILL }},
 
         { &hf_udld_flags_rt,
-          { "Recommended timeout",        "udld.flags.rt", FT_UINT8, BASE_HEX, NULL, 0x80,
+          { "Recommended timeout",        "udld.flags.rt", FT_UINT8, BASE_HEX, NULL, 0x01,
             NULL, HFILL }},
 
         { &hf_udld_flags_rsy,
-          { "ReSynch",        "udld.flags.rsy", FT_UINT8, BASE_HEX, NULL, 0x40,
+          { "ReSynch",        "udld.flags.rsy", FT_UINT8, BASE_HEX, NULL, 0x02,
             NULL, HFILL }},
 
         { &hf_udld_checksum,

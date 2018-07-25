@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,6 +19,7 @@
 #include <epan/expert.h>
 #include <epan/strutil.h>
 #include <epan/proto_data.h>
+#include <wmem/wmem_map.h>
 
 #include "packet-ipx.h"
 #include "packet-tcp.h"
@@ -2629,7 +2618,7 @@ server_entry(tvbuff_t* tvb, packet_info* pinfo, proto_tree *ndps_tree, int foffs
 
     atree = proto_tree_add_subtree(ndps_tree, tvb, foffset, -1, ett_ndps, &aitem, "Server Info");
     foffset = ndps_string(tvb, hf_ndps_server_name, ndps_tree, foffset, &server_name);
-    proto_item_append_text(aitem, ": %s", format_text(server_name, strlen(server_name)));
+    proto_item_append_text(aitem, ": %s", format_text(wmem_packet_scope(), server_name, strlen(server_name)));
     proto_tree_add_item(atree, hf_ndps_server_type, tvb, foffset, 4, ENC_BIG_ENDIAN);
     foffset += 4;
     foffset = print_address(tvb, atree, foffset);
@@ -4034,7 +4023,7 @@ typedef struct {
     guint32             ndps_end_frag;
 } ndps_req_hash_value;
 
-static GHashTable *ndps_req_hash = NULL;
+static wmem_map_t *ndps_req_hash = NULL;
 
 /* Hash Functions */
 static gint
@@ -4057,38 +4046,6 @@ ndps_hash(gconstpointer v)
     return GPOINTER_TO_UINT(ndps_key->conversation) + ndps_key->ndps_xport;
 }
 
-/* Initializes the hash table each time a new
- * file is loaded or re-loaded in wireshark */
-static void
-ndps_init_protocol(void)
-{
-    reassembly_table_init(&ndps_reassembly_table,
-                          &addresses_reassembly_table_functions);
-    ndps_req_hash = g_hash_table_new(ndps_hash, ndps_equal);
-}
-
-static void
-ndps_cleanup_protocol(void)
-{
-    reassembly_table_destroy(&ndps_reassembly_table);
-    /* ndps_req_hash is already destroyed by ndps_postseq_cleanup */
-}
-
-/* After the sequential run, we don't need the ncp_request hash and keys
- * anymore; the lookups have already been done and the vital info
- * saved in the reply-packets' private_data in the frame_data struct. */
-static void
-ndps_postseq_cleanup(void)
-{
-    if (ndps_req_hash) {
-        /* Destroy the hash, but don't clean up request_condition data. */
-        g_hash_table_destroy(ndps_req_hash);
-        ndps_req_hash = NULL;
-    }
-    /* Don't free the ndps_req_hash_value values of ndps_req_hash, as they're
-     * needed during random-access processing of the proto_tree.*/
-}
-
 static ndps_req_hash_value*
 ndps_hash_insert(conversation_t *conversation, guint32 ndps_xport)
 {
@@ -4108,7 +4065,7 @@ ndps_hash_insert(conversation_t *conversation, guint32 ndps_xport)
     request_value->ndps_frag = FALSE;
     request_value->ndps_end_frag = 0;
 
-    g_hash_table_insert(ndps_req_hash, request_key, request_value);
+    wmem_map_insert(ndps_req_hash, request_key, request_value);
 
     return request_value;
 }
@@ -4122,7 +4079,7 @@ ndps_hash_lookup(conversation_t *conversation, guint32 ndps_xport)
     request_key.conversation = conversation;
     request_key.ndps_xport = ndps_xport;
 
-    return (ndps_req_hash_value *)g_hash_table_lookup(ndps_req_hash, &request_key);
+    return (ndps_req_hash_value *)wmem_map_lookup(ndps_req_hash, &request_key);
 }
 
 /* ================================================================= */
@@ -4305,13 +4262,13 @@ ndps_defrag(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, spx_info *spx_i
     {
         /* Lets see if this is a new conversation */
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-            PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
+            ENDPOINT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
 
         if (conversation == NULL)
         {
             /* It's not part of any conversation - create a new one. */
             conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
+                ENDPOINT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
         }
 
         /* So now we need to get the request info for this conversation */
@@ -4497,13 +4454,13 @@ dissect_ndps_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, g
         let the user select that conversation to be displayed.) */
 
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-            PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
+            ENDPOINT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
 
         if (conversation == NULL)
         {
             /* It's not part of any conversation - create a new one. */
             conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                PT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
+                ENDPOINT_NCP, (guint32) pinfo->srcport, (guint32) pinfo->srcport, 0);
         }
 
         request_value = ndps_hash_insert(conversation, (guint32) pinfo->srcport);
@@ -6751,7 +6708,7 @@ dissect_ndps_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ndps_tree, int
     if (!pinfo->fd->flags.visited) {
         /* Find the conversation whence the request would have come. */
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-            PT_NCP, (guint32) pinfo->destport, (guint32) pinfo->destport, 0);
+            ENDPOINT_NCP, (guint32) pinfo->destport, (guint32) pinfo->destport, 0);
         if (conversation != NULL) {
             /* find the record telling us the request made that caused
             this reply */
@@ -9495,9 +9452,10 @@ proto_register_ndps(void)
                                    "Whether or not the NDPS dissector should show object id's and other details",
                                    &ndps_show_oids);
 
-    register_init_routine(&ndps_init_protocol);
-    register_cleanup_routine(&ndps_cleanup_protocol);
-    register_postseq_cleanup_routine(&ndps_postseq_cleanup);
+    reassembly_table_register(&ndps_reassembly_table,
+                          &addresses_reassembly_table_functions);
+
+    ndps_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), ndps_hash, ndps_equal);
 }
 
 void
@@ -9514,12 +9472,7 @@ proto_reg_handoff_ndps(void)
     dissector_add_uint("spx.socket", SPX_SOCKET_ENS, ndps_handle);
     dissector_add_uint("spx.socket", SPX_SOCKET_RMS, ndps_handle);
     dissector_add_uint("spx.socket", SPX_SOCKET_NOTIFY_LISTENER, ndps_handle);
-    dissector_add_uint("tcp.port", TCP_PORT_PA, ndps_tcp_handle);
-    dissector_add_uint("tcp.port", TCP_PORT_BROKER, ndps_tcp_handle);
-    dissector_add_uint("tcp.port", TCP_PORT_SRS, ndps_tcp_handle);
-    dissector_add_uint("tcp.port", TCP_PORT_ENS, ndps_tcp_handle);
-    dissector_add_uint("tcp.port", TCP_PORT_RMS, ndps_tcp_handle);
-    dissector_add_uint("tcp.port", TCP_PORT_NOTIFY_LISTENER, ndps_tcp_handle);
+    dissector_add_uint_range_with_preference("tcp.port", TCP_PORT_RANGE, ndps_tcp_handle);
 }
 
 /*

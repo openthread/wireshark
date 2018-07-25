@@ -17,19 +17,7 @@
  *
  * Originally based on packet-http.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -40,8 +28,9 @@
 #include <epan/tap.h>
 #include "packet-tcp.h"
 #include "packet-ssl.h"
+#include "packet-http.h"
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 #define ZLIB_CONST
 #include <zlib.h>
 #endif
@@ -58,7 +47,7 @@ void proto_reg_handoff_spdy(void);
  * entities and for decompressing request & reply header blocks.
  */
 typedef struct _spdy_conv_t {
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
   z_streamp rqst_decompressor;
   z_streamp rply_decompressor;
   uLong     dictionary_id;
@@ -177,6 +166,7 @@ typedef struct _spdy_data_frame_t {
 } spdy_data_frame_t;
 
 typedef struct _spdy_stream_info_t {
+  http_type_t message_type;
   gchar *content_type;
   gchar *content_type_parameters;
   gchar *content_encoding;
@@ -248,7 +238,7 @@ static gboolean spdy_assemble_entity_bodies = TRUE;
 /*
  * Decompression of zlib encoded entities.
  */
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 static gboolean spdy_decompress_body = TRUE;
 static gboolean spdy_decompress_headers = TRUE;
 #else
@@ -256,6 +246,7 @@ static gboolean spdy_decompress_body = FALSE;
 static gboolean spdy_decompress_headers = FALSE;
 #endif
 
+#ifdef HAVE_ZLIB
 static const char spdy_dictionary[] = {
   0x00, 0x00, 0x00, 0x07, 0x6f, 0x70, 0x74, 0x69,  /* - - - - o p t i */
   0x6f, 0x6e, 0x73, 0x00, 0x00, 0x00, 0x04, 0x68,  /* o n s - - - - h */
@@ -437,7 +428,6 @@ static const char spdy_dictionary[] = {
   0x2c, 0x65, 0x6e, 0x71, 0x3d, 0x30, 0x2e         /* - e n q - 0 -   */
 };
 
-#ifdef HAVE_LIBZ
 /* callback function used at the end of file-scope to cleanup zlib's inflate
  * streams to avoid memory leaks.
  * XXX: can we be more aggressive and call this sooner for finished streams?
@@ -467,7 +457,7 @@ spdy_init_protocol(void)
 static spdy_conv_t * get_or_create_spdy_conversation_data(packet_info *pinfo) {
   conversation_t  *conversation;
   spdy_conv_t *conv_data;
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
   int retcode;
 #endif
 
@@ -481,7 +471,7 @@ static spdy_conv_t * get_or_create_spdy_conversation_data(packet_info *pinfo) {
 
     conv_data->streams = NULL;
     if (spdy_decompress_headers) {
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
       conv_data->rqst_decompressor = wmem_new0(wmem_file_scope(), z_stream);
       conv_data->rply_decompressor = wmem_new0(wmem_file_scope(), z_stream);
       retcode = inflateInit(conv_data->rqst_decompressor);
@@ -514,6 +504,7 @@ static spdy_conv_t * get_or_create_spdy_conversation_data(packet_info *pinfo) {
  */
 static void spdy_save_stream_info(spdy_conv_t *conv_data,
                                   guint32 stream_id,
+                                  http_type_t message_type,
                                   gchar *content_type,
                                   gchar *content_type_params,
                                   gchar *content_encoding) {
@@ -524,6 +515,7 @@ static void spdy_save_stream_info(spdy_conv_t *conv_data,
   }
 
   si = (spdy_stream_info_t *)wmem_alloc(wmem_file_scope(), sizeof(spdy_stream_info_t));
+  si->message_type = message_type;
   si->content_type = content_type;
   si->content_type_parameters = content_type_params;
   si->content_encoding = content_encoding;
@@ -725,6 +717,7 @@ static int dissect_spdy_data_payload(tvbuff_t *tvb,
   dissector_handle_t handle;
   guint num_data_frames;
   gboolean dissected;
+  http_message_info_t message_info;
 
   /* Add frame description. */
   proto_item_append_text(spdy_proto, ", Stream: %d, Length: %d",
@@ -911,11 +904,13 @@ static int dissect_spdy_data_payload(tvbuff_t *tvb,
       handle = dissector_get_string_handle(media_type_subdissector_table,
                                            si->content_type);
     }
+    message_info.type = si->message_type;
+    message_info.media_str = media_str;
     if (handle != NULL) {
       /*
        * We have a subdissector - call it.
        */
-      dissected = call_dissector_with_data(handle, data_tvb, pinfo, spdy_tree, media_str);
+      dissected = call_dissector_with_data(handle, data_tvb, pinfo, spdy_tree, &message_info);
     } else {
       dissected = FALSE;
     }
@@ -925,7 +920,7 @@ static int dissect_spdy_data_payload(tvbuff_t *tvb,
        * Calling the default media handle if there is a content-type that
        * wasn't handled above.
        */
-      call_dissector_with_data(media_handle, next_tvb, pinfo, spdy_tree, media_str);
+      call_dissector_with_data(media_handle, next_tvb, pinfo, spdy_tree, &message_info);
     } else {
       /* Call the default data dissector */
       call_data_dissector(next_tvb, pinfo, spdy_tree);
@@ -942,7 +937,7 @@ body_dissected:
   return frame->length;
 }
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 /*
  * Performs header decompression.
  *
@@ -1153,7 +1148,7 @@ static int dissect_spdy_header_payload(
     if (header_info == NULL) {
       guint8 *uncomp_ptr = NULL;
       guint uncomp_length = 0;
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
       z_streamp decomp;
 
       /* Get our decompressor. */
@@ -1328,8 +1323,9 @@ static int dissect_spdy_header_payload(
    */
   if (content_type != NULL && !pinfo->fd->flags.visited) {
     gchar *content_type_params = spdy_parse_content_type(content_type);
-    spdy_save_stream_info(conv_data, stream_id, content_type,
-                          content_type_params, content_encoding);
+    spdy_save_stream_info(conv_data, stream_id,
+                          (hdr_status == NULL) ? HTTP_REQUEST : HTTP_RESPONSE,
+                          content_type, content_type_params, content_encoding);
   }
 
   return frame->length;
@@ -1941,7 +1937,7 @@ void proto_register_spdy(void)
 
 void proto_reg_handoff_spdy(void) {
 
-  dissector_add_uint("tcp.port", TCP_PORT_SPDY, spdy_handle);
+  dissector_add_uint_with_preference("tcp.port", TCP_PORT_SPDY, spdy_handle);
   /* Use "0" to avoid overwriting HTTPS port and still offer support over SSL */
   ssl_dissector_add(0, spdy_handle);
 

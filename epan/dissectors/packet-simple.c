@@ -2,19 +2,7 @@
  * Routines for SIMPLE dissection
  * Copyright 2015 Peter Ross
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* SIMPLE (Standard Interface for Multiple Platform Link Evaluation)
@@ -247,7 +235,7 @@ static gint hf_simple_status_link11_pu = -1;
 static gint hf_simple_status_link11_dts_host_status = -1;
 static gint hf_simple_status_spare_3 = -1;
 static gint hf_simple_checksum = -1;
-static gint hf_simple_checksum_bad = -1;
+static gint hf_simple_checksum_status = -1;
 
 static gint ett_simple = -1;
 static gint ett_packet = -1;
@@ -300,7 +288,7 @@ static void dissect_simple_link16(tvbuff_t *tvb, packet_info *pinfo _U_, proto_t
     case SIMPLE_LINK16_FIXED_FORMAT:
         memset(&state, 0, sizeof(state));
         for (i = 0; i < word_count; i += 5) {
-            newtvb = tvb_new_subset(tvb, offset, 10, -1);
+            newtvb = tvb_new_subset_length_caplen(tvb, offset, 10, -1);
             add_new_data_source(pinfo, newtvb, "Link 16 Word");
             call_dissector_with_data(link16_handle, newtvb, pinfo, tree, &state);
             offset += 10;
@@ -409,10 +397,6 @@ static void dissect_simple_status(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
 static void dissect_checksum(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
 {
-    gint checksum = tvb_get_letohs(tvb, offset);
-    proto_item *checksum_item = proto_tree_add_item(tree, hf_simple_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
-    proto_item *hidden_item;
-
     const guint8 * v = tvb_get_ptr(tvb, 0, offset);
     guint16 expected_checksum = 0;
     gint i;
@@ -420,17 +404,8 @@ static void dissect_checksum(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     for (i = 0; i < offset; i++)
         expected_checksum += v[i];
 
-    if (checksum == expected_checksum) {
-        hidden_item = proto_tree_add_boolean(tree, hf_simple_checksum_bad, tvb, offset, 2, FALSE);
-        PROTO_ITEM_SET_HIDDEN(hidden_item);
-        proto_item_append_text(checksum_item, " [correct]");
-    } else {
-        hidden_item = proto_tree_add_boolean(tree, hf_simple_checksum_bad, tvb, offset, 2, TRUE);
-        PROTO_ITEM_SET_HIDDEN(hidden_item);
-        proto_item_append_text(checksum_item, " [incorrect, should be 0x%04x]", expected_checksum);
-        expert_add_info_format(pinfo, checksum_item, &ei_simple_checksum_bad,
-                               "SIMPLE Checksum Incorrect, should be 0x%04x", expected_checksum);
-    }
+    proto_tree_add_checksum(tree, tvb, offset, hf_simple_checksum, hf_simple_checksum_status, &ei_simple_checksum_bad, pinfo, expected_checksum,
+                            ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_VERIFY);
 }
 
 static int dissect_simple(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -616,7 +591,7 @@ void proto_register_simple(void)
           { "DX Common TOMS/BOMS", "simple.status.dx_flag.common_toms_boms", FT_BOOLEAN, 16, NULL, 0x4,
             NULL, HFILL }},
         { &hf_simple_status_dx_flag_simple_receive,
-          { "DX SIMPLE Recieve", "simple.status.dx_flag.simple_receive", FT_BOOLEAN, 16, NULL, 0x8,
+          { "DX SIMPLE Receive", "simple.status.dx_flag.simple_receive", FT_BOOLEAN, 16, NULL, 0x8,
             NULL, HFILL }},
         { &hf_simple_status_dx_flag_simple_transmit,
           { "DX SIMPLE Transmit", "simple.status.dx_flag.simple_transmit", FT_BOOLEAN, 16, NULL, 0x10,
@@ -669,8 +644,8 @@ void proto_register_simple(void)
         { &hf_simple_checksum,
           { "Checksum", "simple.checksum", FT_UINT16, BASE_HEX, NULL, 0x0,
             NULL, HFILL }},
-        { &hf_simple_checksum_bad,
-          { "Bad Checksum", "simple.checksum_bad", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+        { &hf_simple_checksum_status,
+          { "Checksum Status", "simple.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
             NULL, HFILL }}
     };
     static gint *ett[] = {
@@ -698,7 +673,8 @@ void proto_reg_handoff_simple(void)
 {
     dissector_handle_t simple_dissector_handle;
     simple_dissector_handle = create_dissector_handle(dissect_simple, proto_simple);
-    dissector_add_for_decode_as("udp.port", simple_dissector_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", simple_dissector_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", simple_dissector_handle);
 
     link16_handle = find_dissector_add_dependency("link16", proto_simple);
 }

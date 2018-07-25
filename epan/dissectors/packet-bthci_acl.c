@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -205,6 +193,8 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     acl_data->adapter_id                  = adapter_id;
     acl_data->adapter_disconnect_in_frame = bluetooth_data->adapter_disconnect_in_frame;
     acl_data->chandle                     = connection_handle;
+    acl_data->is_btle                     = FALSE;
+    acl_data->is_btle_retransmit          = FALSE;
 
     key[0].length = 1;
     key[0].key    = &interface_id;
@@ -411,6 +401,13 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         fragmented = FALSE;
     }
 
+    alloc_address_wmem(pinfo->pool, &pinfo->net_src, AT_STRINGZ, (int)strlen(src_name) + 1, src_name);
+    alloc_address_wmem(pinfo->pool, &pinfo->dl_src, AT_ETHER, 6, src_bd_addr);
+    alloc_address_wmem(pinfo->pool, &pinfo->src, AT_STRINGZ, (int)strlen(src_addr_name) + 1, src_addr_name);
+
+    alloc_address_wmem(pinfo->pool, &pinfo->net_dst, AT_STRINGZ, (int)strlen(dst_name) + 1, dst_name);
+    alloc_address_wmem(pinfo->pool, &pinfo->dl_dst, AT_ETHER, 6, dst_bd_addr);
+    alloc_address_wmem(pinfo->pool, &pinfo->dst, AT_STRINGZ, (int)strlen(dst_addr_name) + 1, dst_addr_name);
 
     if (!fragmented || (!acl_reassembly && !(pb_flag & 0x01))) {
         /* call L2CAP dissector for PDUs that are not fragmented
@@ -422,8 +419,8 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             length = tvb_captured_length_remaining(tvb, offset);
         }
 
-        next_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), length);
-        offset += call_dissector_with_data(btl2cap_handle, next_tvb, pinfo, tree, acl_data);
+        next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), length);
+        call_dissector_with_data(btl2cap_handle, next_tvb, pinfo, tree, acl_data);
     } else if (fragmented && acl_reassembly) {
         multi_fragment_pdu_t *mfp = NULL;
         gint                  len;
@@ -449,7 +446,7 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
                 item = proto_tree_add_uint(bthci_acl_tree, hf_bthci_acl_reassembled_in, tvb, 0, 0, mfp->last_frame);
                 PROTO_ITEM_SET_GENERATED(item);
-                col_append_fstr(pinfo->cinfo, COL_INFO, " [Reassembled in #%u]", mfp->last_frame);
+                col_append_frame_number(pinfo, COL_INFO, " [Reassembled in #%u]", mfp->last_frame);
             }
         }
         if (pb_flag == 0x01) { /* continuation fragment */
@@ -469,19 +466,28 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 
                 item = proto_tree_add_uint(bthci_acl_tree, hf_bthci_acl_continuation_to, tvb, 0, 0, mfp->first_frame);
                 PROTO_ITEM_SET_GENERATED(item);
-                col_append_fstr(pinfo->cinfo, COL_INFO, " [Continuation to #%u]", mfp->first_frame);
+                col_append_frame_number(pinfo, COL_INFO, " [Continuation to #%u]", mfp->first_frame);
+                if (mfp->last_frame && mfp->last_frame != pinfo->num) {
+                    item = proto_tree_add_uint(bthci_acl_tree, hf_bthci_acl_reassembled_in, tvb, 0, 0, mfp->last_frame);
+                    PROTO_ITEM_SET_GENERATED(item);
+                    col_append_frame_number(pinfo, COL_INFO, " [Reassembled in #%u]", mfp->last_frame);
+                }
             }
             if (mfp != NULL && mfp->last_frame == pinfo->num) {
                 next_tvb = tvb_new_child_real_data(tvb, (guint8 *) mfp->reassembled, mfp->tot_len, mfp->tot_len);
                 add_new_data_source(pinfo, next_tvb, "Reassembled BTHCI ACL");
 
-                offset += call_dissector_with_data(btl2cap_handle, next_tvb, pinfo, tree, acl_data);
+                call_dissector_with_data(btl2cap_handle, next_tvb, pinfo, tree, acl_data);
             }
         }
     }
 
-    if (tvb_captured_length_remaining(tvb, offset) > 0)
-        proto_tree_add_item(bthci_acl_tree, hf_bthci_acl_data, tvb, offset, -1, ENC_NA);
+    if (tvb_captured_length_remaining(tvb, offset) > 0) {
+        sub_item = proto_tree_add_item(bthci_acl_tree, hf_bthci_acl_data, tvb, offset, -1, ENC_NA);
+        if (fragmented) {
+            proto_item_append_text(sub_item, " Fragment");
+        }
+    }
 
     if (chandle_session) {
         sub_item = proto_tree_add_uint(bthci_acl_tree, hf_bthci_acl_connect_in, tvb, 0, 0, chandle_session->connect_in_frame);
@@ -496,14 +502,6 @@ dissect_bthci_acl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     if (acl_data->disconnect_in_frame == &invalid_session) {
         expert_add_info(pinfo, bthci_acl_itam, &ei_invalid_session);
     }
-
-    set_address(&pinfo->net_src, AT_STRINGZ, (int)strlen(src_name) + 1, src_name);
-    set_address(&pinfo->dl_src, AT_ETHER, 6, src_bd_addr);
-    set_address(&pinfo->src, AT_STRINGZ, (int)strlen(src_addr_name) + 1, src_addr_name);
-
-    set_address(&pinfo->net_dst, AT_STRINGZ, (int)strlen(dst_name) + 1, dst_name);
-    set_address(&pinfo->dl_dst, AT_ETHER, 6, dst_bd_addr);
-    set_address(&pinfo->dst, AT_STRINGZ, (int)strlen(dst_addr_name) + 1, dst_addr_name);
 
     if (!pinfo->fd->flags.visited) {
         address *addr;
@@ -673,7 +671,7 @@ proto_register_bthci_acl(void)
     expert_register_field_array(bthci_acl_expert_module, ei, array_length(ei));
 
     /* Register configuration preferences */
-    bthci_acl_module = prefs_register_protocol(proto_bthci_acl, NULL);
+    bthci_acl_module = prefs_register_protocol_subtree("Bluetooth", proto_bthci_acl, NULL);
     prefs_register_bool_preference(bthci_acl_module, "hci_acl_reassembly",
         "Reassemble ACL Fragments",
         "Whether the ACL dissector should reassemble fragmented PDUs",

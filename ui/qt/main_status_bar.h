@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef MAIN_STATUS_BAR_H
@@ -28,7 +16,9 @@
 
 #include "capchild/capture_session.h"
 
-#include "label_stack.h"
+#include <ui/qt/utils/field_information.h>
+#include <ui/qt/widgets/label_stack.h>
+#include <ui/qt/widgets/clickable_label.h>
 #include "progress_frame.h"
 #include "wireshark_application.h"
 
@@ -49,18 +39,24 @@ public:
     void expertUpdate();
     void setFileName(CaptureFile &cf);
 
+protected:
+    virtual void changeEvent(QEvent* event);
+
 private:
     QToolButton *expert_button_;
     QToolButton *comment_button_;
     LabelStack info_status_;
     ProgressFrame progress_frame_;
     LabelStack packet_status_;
-    LabelStack profile_status_;
+    ClickableLabel profile_status_;
     capture_file *cap_file_;
-    QMenu profile_menu_;
-    QMenu ctx_menu_;
-    QAction *edit_action_;
-    QAction *delete_action_;
+    QString ready_msg_;
+
+    // Capture statistics
+    bool cs_fixed_;
+    guint32 cs_count_;
+
+    void showCaptureStatistics();
 
 signals:
     void showExpertInfo();
@@ -69,6 +65,8 @@ signals:
 
 public slots:
     void setCaptureFile(capture_file *cf);
+    void selectedFieldChanged(FieldInformation *);
+    void highlightedFieldChanged(FieldInformation *);
     void pushTemporaryStatus(const QString &message);
     void popTemporaryStatus();
     void pushFileStatus(const QString &message, const QString &messagetip = QString());
@@ -79,22 +77,24 @@ public slots:
     void popByteStatus();
     void pushFilterStatus(const QString &message);
     void popFilterStatus();
-    void pushProfileName();
     void pushBusyStatus(const QString &message, const QString &messagetip = QString());
     void popBusyStatus();
     void pushProgressStatus(const QString &message, bool animate, bool terminate_is_stop = false, gboolean *stop_flag = NULL);
     void updateProgressStatus(int value);
     void popProgressStatus();
+    void selectedFrameChanged(int);
 
     void updateCaptureStatistics(capture_session * cap_session);
     void updateCaptureFixedStatistics(capture_session * cap_session);
 
+    void captureEventHandler(CaptureEvent ev);
+
 private slots:
     void pushPacketStatus(const QString &message);
     void popPacketStatus();
-    void pushProfileStatus(const QString &message);
-    void popProfileStatus();
+
     void toggleBackground(bool enabled);
+    void setProfileName();
     void switchToProfile();
     void manageProfile();
     void showProfileMenu(const QPoint &global_pos, Qt::MouseButton button);

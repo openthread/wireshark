@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Serval is a service-centric architecture that has been ported to XIA to
  * allow applications to communicate using service names.
@@ -41,6 +29,7 @@ static gint proto_xip_serval		= -1;
 static gint hf_xip_serval_hl		= -1;
 static gint hf_xip_serval_proto		= -1;
 static gint hf_xip_serval_check		= -1;
+static gint hf_xip_serval_check_status = -1;
 
 /* XIP Serval general extension header. */
 static gint hf_xip_serval_ext_type	= -1;
@@ -119,9 +108,8 @@ display_xip_serval_control_ext(tvbuff_t *tvb, proto_tree *xip_serval_tree,
 	offset++;
 
 	/* Add XIP Serval extension length. */
-	ti = proto_tree_add_item(cext_tree, hf_xip_serval_ext_length, tvb,
+	proto_tree_add_item(cext_tree, hf_xip_serval_ext_length, tvb,
 		offset, 1, ENC_BIG_ENDIAN);
-	proto_item_append_text(ti, " bytes");
 	offset++;
 
 	/* Create XIP Serval Control Extension flags tree. */
@@ -179,12 +167,11 @@ static void
 display_xip_serval(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
 	proto_tree *xip_serval_tree;
-	proto_item *ti, *check_ti, *hl_ti;
+	proto_item *ti, *hl_ti;
 	tvbuff_t *next_tvb;
 
 	vec_t cksum_vec;
 	gint offset;
-	guint16 packet_checksum, actual_checksum;
 	guint8 xsh_len, protocol, bytes_remaining;
 
 	/* Get XIP Serval header length, stored as number of 32-bit words. */
@@ -198,7 +185,6 @@ display_xip_serval(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	/* Add XIP Serval header length. */
 	hl_ti = proto_tree_add_item(xip_serval_tree, hf_xip_serval_hl, tvb,
 		XSRVL_LEN, 1, ENC_BIG_ENDIAN);
-	proto_item_append_text(hl_ti, " bytes");
 	if (tvb_captured_length(tvb) < xsh_len)
 		expert_add_info_format(pinfo, hl_ti, &ei_xip_serval_bad_len,
 			"Header Length field (%d bytes) cannot be greater than actual number of bytes left in packet (%d bytes)",
@@ -216,27 +202,9 @@ display_xip_serval(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* Compute checksum. */
 	SET_CKSUM_VEC_TVB(cksum_vec, tvb, 0, xsh_len);
-	actual_checksum = in_cksum(&cksum_vec, 1);
-	/* Get XIP Serval checksum. */
-	packet_checksum = tvb_get_ntohs(tvb, XSRVL_CHK);
 
-	if (actual_checksum == 0) {
-		/* Add XIP Serval checksum as correct. */
-		proto_tree_add_uint_format(xip_serval_tree,
-			hf_xip_serval_check, tvb, XSRVL_CHK, 2, packet_checksum,
-			"Header checksum: 0x%04x [correct]", packet_checksum);
-	} else {
-		/* Add XIP Serval checksum as incorrect. */
-		check_ti = proto_tree_add_uint_format(xip_serval_tree,
-			hf_xip_serval_check, tvb, XSRVL_CHK, 2, packet_checksum,
-			"Header checksum: 0x%04x [incorrect, should be 0x%04x]",
-			packet_checksum,
-			in_cksum_shouldbe(packet_checksum, actual_checksum));
-
-		expert_add_info_format(pinfo, check_ti,
-			&ei_xip_serval_bad_checksum, "Bad checksum");
-	}
-
+	proto_tree_add_checksum(xip_serval_tree, tvb, XSRVL_CHK, hf_xip_serval_check, hf_xip_serval_check_status, &ei_xip_serval_bad_checksum, pinfo, in_cksum(&cksum_vec, 1),
+							ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
 	offset = XSRVL_EXT;
 
 	/* If there's still more room, check for extension headers. */
@@ -266,13 +234,13 @@ display_xip_serval(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		 * size of the TCP header of 32-bit words.
 		 */
 		guint8 tcp_len = hi_nibble(tvb_get_guint8(tvb, offset + 12))*4;
-		next_tvb = tvb_new_subset(tvb, offset, tcp_len, tcp_len);
+		next_tvb = tvb_new_subset_length_caplen(tvb, offset, tcp_len, tcp_len);
 		call_dissector(tcp_handle, next_tvb, pinfo, tree);
 		break;
 	}
 	case IP_PROTO_UDP:
 		/* The UDP header is always 8 bytes. */
-		next_tvb = tvb_new_subset(tvb, offset, 8, 8);
+		next_tvb = tvb_new_subset_length_caplen(tvb, offset, 8, 8);
 		call_dissector(udp_handle, next_tvb, pinfo, tree);
 		break;
 	default:
@@ -302,7 +270,7 @@ proto_register_xip_serval(void)
 
 		{ &hf_xip_serval_hl,
 		{ "Header Length", "xip_serval.hl", FT_UINT8,
-		   BASE_DEC, NULL, 0x0,	NULL, HFILL }},
+		   BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,	NULL, HFILL }},
 
 		{ &hf_xip_serval_proto,
 		{ "Protocol", "xip_serval.proto", FT_UINT8,
@@ -312,6 +280,10 @@ proto_register_xip_serval(void)
 		{ "Checksum", "xip_serval.check", FT_UINT16,
 		   BASE_HEX, NULL, 0x0,	NULL, HFILL }},
 
+		{ &hf_xip_serval_check_status,
+		{ "Checksum Status", "xip_serval.check.status", FT_UINT8,
+		   BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
+
 		/* Serval Extension Header. */
 
 		{ &hf_xip_serval_ext_type,
@@ -320,7 +292,7 @@ proto_register_xip_serval(void)
 
 		{ &hf_xip_serval_ext_length,
 		{ "Extension Length", "xip_serval.ext_length", FT_UINT8,
-		   BASE_DEC, NULL, 0x0,	NULL, HFILL }},
+		   BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,	NULL, HFILL }},
 
 		/* Serval Control Extension Header. */
 

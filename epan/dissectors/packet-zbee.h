@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef PACKET_ZBEE_H
 #define PACKET_ZBEE_H
@@ -80,6 +68,8 @@
 #define ZBEE_PROFILE_RSVD1_MIN              0x8000
 #define ZBEE_PROFILE_RSVD1_MAX              0xbeff
 
+#define ZBEE_PROFILE_GP                     0xa1e0
+
 /* Organization Profile IDs */
 #define ZBEE_PROFILE_IEEE_1451_5            0xbf00
 
@@ -111,7 +101,8 @@
 #define ZBEE_PROFILE_AWAREPOINT_MAX         0xc057
 #define ZBEE_PROFILE_SAN_JUAN_1_MIN         0xc058
 #define ZBEE_PROFILE_SAN_JUAN_1_MAX         0xc05d
-#define ZBEE_PROFILE_PHILIPS_MIN            0xc05e
+#define ZBEE_PROFILE_ZLL                    0xc05e
+#define ZBEE_PROFILE_PHILIPS_MIN            0xc05f
 #define ZBEE_PROFILE_PHILIPS_MAX            0xc067
 #define ZBEE_PROFILE_LUXOFT_MIN             0xc068
 #define ZBEE_PROFILE_LUXOFT_MAX             0xc071
@@ -424,6 +415,8 @@
 #define ZBEE_ZCL_FCF_TO_CLIENT                0x01
 
 /* Manufacturer Codes */
+#define ZBEE_MFG_CODE_NONE                  0x0000
+
 /* Codes less than 0x1000 were issued for RF4CE */
 #define ZBEE_MFG_CODE_PANASONIC_RF4CE       0x0001
 #define ZBEE_MFG_CODE_SONY_RF4CE            0x0002
@@ -1117,6 +1110,7 @@
 /* Protocol Abbreviations */
 #define ZBEE_PROTOABBREV_NWK                "zbee_nwk"
 #define ZBEE_PROTOABBREV_NWK_GP             "zbee_nwk_gp"
+#define ZBEE_PROTOABBREV_NWK_GP_CMD         "zbee_nwk_gp_cmd"
 #define ZBEE_PROTOABBREV_APS                "zbee_aps"
 #define ZBEE_PROTOABBREV_ZCL                "zbee_zcl"
 #define ZBEE_PROTOABBREV_ZCL_APPLCTRL       "zbee_zcl_general.applctrl"
@@ -1158,22 +1152,88 @@
 #define ZBEE_PROTOABBREV_ZCL_ANALOG_VALUE_BASIC               "zbee_zcl_general.analog.value.basic"
 #define ZBEE_PROTOABBREV_ZCL_ANALOG_INPUT_BASIC               "zbee_zcl_general.analog.input.basic"
 #define ZBEE_PROTOABBREV_ZCL_ANALOG_OUTPUT_BASIC              "zbee_zcl_general.analog.output.basic"
-#define ZBEE_PROTOABBREV_ZCL_ILLUMMEAS      "zbee_zcl_meas_sensing.illummeas"
-#define ZBEE_PROTOABBREV_ZCL_ILLUMLEVELSEN  "zbee_zcl_meas_sensing.illumlevelsen"
-#define ZBEE_PROTOABBREV_ZCL_PRESSMEAS      "zbee_zcl_meas_sensing.pressmeas"
-#define ZBEE_PROTOABBREV_ZCL_FLOWMEAS       "zbee_zcl_meas_sensing.flowmeas"
-#define ZBEE_PROTOABBREV_ZCL_RELHUMMEAS     "zbee_zcl_meas_sensing.relhummeas"
-#define ZBEE_PROTOABBREV_ZCL_TEMPMEAS       "zbee_zcl_meas_sensing.tempmeas"
-#define ZBEE_PROTOABBREV_ZCL_OCCSEN         "zbee_zcl_meas_sensing.occsen"
-#define ZBEE_PROTOABBREV_ZCL_CAL            "zbee_zcl_se.cal"
-#define ZBEE_PROTOABBREV_ZCL_KE             "zbee_zcl_se.ke"
-#define ZBEE_PROTOABBREV_ZCL_MSG            "zbee_zcl_se.msg"
-#define ZBEE_PROTOABBREV_ZCL_TUN            "zbee_zcl_se.tun"
-#define ZBEE_PROTOABBREV_ZCL_SHADE_CONFIG   "zbee_zcl_closures.shade_config"
-#define ZBEE_PROTOABBREV_ZCL_DOOR_LOCK      "zbee_zcl_closures.door_lock"
-#define ZBEE_PROTOABBREV_ZCL_COLOR_CONTROL  "zbee_zcl_lighting.color_ctrl"
-#define ZBEE_PROTOABBREV_ZCL_BALLAST_CONFIG "zbee_zcl_lighting.ballast_ctrl"
+#define ZBEE_PROTOABBREV_ZCL_ILLUMMEAS         "zbee_zcl_meas_sensing.illummeas"
+#define ZBEE_PROTOABBREV_ZCL_ILLUMLEVELSEN     "zbee_zcl_meas_sensing.illumlevelsen"
+#define ZBEE_PROTOABBREV_ZCL_PRESSMEAS         "zbee_zcl_meas_sensing.pressmeas"
+#define ZBEE_PROTOABBREV_ZCL_FLOWMEAS          "zbee_zcl_meas_sensing.flowmeas"
+#define ZBEE_PROTOABBREV_ZCL_RELHUMMEAS        "zbee_zcl_meas_sensing.relhummeas"
+#define ZBEE_PROTOABBREV_ZCL_TEMPMEAS          "zbee_zcl_meas_sensing.tempmeas"
+#define ZBEE_PROTOABBREV_ZCL_OCCSEN            "zbee_zcl_meas_sensing.occsen"
+#define ZBEE_PROTOABBREV_ZCL_KEEP_ALIVE        "zbee_zcl_se.keep_alive"
+#define ZBEE_PROTOABBREV_ZCL_PRICE             "zbee_zcl_se.price"
+#define ZBEE_PROTOABBREV_ZCL_DRLC              "zbee_zcl_se.drlc"
+#define ZBEE_PROTOABBREV_ZCL_KE                "zbee_zcl_se.ke"
+#define ZBEE_PROTOABBREV_ZCL_MET               "zbee_zcl_se.met"
+#define ZBEE_PROTOABBREV_ZCL_MSG               "zbee_zcl_se.msg"
+#define ZBEE_PROTOABBREV_ZCL_TUN               "zbee_zcl_se.tun"
+#define ZBEE_PROTOABBREV_ZCL_PRE_PAYMENT       "zbee_zcl_se.pp"
+#define ZBEE_PROTOABBREV_ZCL_ENERGY_MANAGEMENT "zbee_zcl_se.em"
+#define ZBEE_PROTOABBREV_ZCL_CALENDAR          "zbee_zcl_se.calendar"
+#define ZBEE_PROTOABBREV_ZCL_DEVICE_MANAGEMENT "zbee_zcl_se.dm"
+#define ZBEE_PROTOABBREV_ZCL_EVENTS            "zbee_zcl_se.events"
+#define ZBEE_PROTOABBREV_ZCL_MDU_PAIRING       "zbee_zcl_se.mdu_pairing"
+#define ZBEE_PROTOABBREV_ZCL_SUB_GHZ           "zbee_zcl_se.sub_ghz"
+#define ZBEE_PROTOABBREV_ZCL_SHADE_CONFIG      "zbee_zcl_closures.shade_config"
+#define ZBEE_PROTOABBREV_ZCL_DOOR_LOCK         "zbee_zcl_closures.door_lock"
+#define ZBEE_PROTOABBREV_ZCL_COLOR_CONTROL     "zbee_zcl_lighting.color_ctrl"
+#define ZBEE_PROTOABBREV_ZCL_BALLAST_CONFIG    "zbee_zcl_lighting.ballast_ctrl"
+#define ZBEE_PROTOABBREV_ZCL_TOUCHLINK         "zbee_zcl_general.touchlink"
+#define ZBEE_PROTOABBREV_ZCL_GP                "zbee_zcl_general.gp"
 
+/* ZigBee Vendor Sub IE Fields */
+#define ZBEE_ZIGBEE_IE_ID_MASK                      0xFFC0
+#define ZBEE_ZIGBEE_IE_LENGTH_MASK                  0x003F
+#define ZBEE_ZIGBEE_IE_REJOIN                         0x00
+#define ZBEE_ZIGBEE_IE_TX_POWER                       0x01
+#define ZBEE_ZIGBEE_IE_BEACON_PAYLOAD                 0x02
+
+/* ZigBee PRO beacons */
+#define ZBEE_ZIGBEE_BEACON_PROTOCOL_ID                0x00
+#define ZBEE_ZIGBEE_BEACON_STACK_PROFILE              0x0f
+#define ZBEE_ZIGBEE_BEACON_PROTOCOL_VERSION           0xf0
+#define ZBEE_ZIGBEE_BEACON_ROUTER_CAPACITY            0x04
+#define ZBEE_ZIGBEE_BEACON_NETWORK_DEPTH              0x78
+#define ZBEE_ZIGBEE_BEACON_END_DEVICE_CAPACITY        0x80
+
+/* ZigBee ZLL Device descriptions */
+#define ZBEE_ZLL_DEVICE_ON_OFF_LIGHT                    0x0000
+#define ZBEE_ZLL_DEVICE_ON_OFF_PLUG_IN_UNIT             0x0010
+#define ZBEE_ZLL_DEVICE_DIMMABLE_LIGHT                  0x0100
+#define ZBEE_ZLL_DEVICE_DIMMABLE_PLUG_IN_UNIT           0x0110
+#define ZBEE_ZLL_DEVICE_COLOR_LIGHT                     0x0200
+#define ZBEE_ZLL_DEVICE_EXTENDED_COLOR_LIGHT            0x0210
+#define ZBEE_ZLL_DEVICE_COLOR_TEMPERATURE_LIGHT         0x0220
+#define ZBEE_ZLL_DEVICE_COLOR_CONTROLLER                0x0800
+#define ZBEE_ZLL_DEVICE_COLOR_SCENE_CONTROLLER          0x0810
+#define ZBEE_ZLL_DEVICE_NON_COLOR_CONTROLLER            0x0820
+#define ZBEE_ZLL_DEVICE_NON_COLOR_SCENE_CONTROLLER      0x0830
+#define ZBEE_ZLL_DEVICE_CONTROL_BRIDGE                  0x0840
+#define ZBEE_ZLL_DEVICE_ON_OFF_SENSOR                   0x0850
+
+/* ZigBee HA Device descriptions */
+#define ZBEE_HA_DEVICE_ON_OFF_LIGHT                     0x0100
+#define ZBEE_HA_DEVICE_DIMMABLE_LIGHT                   0x0101
+#define ZBEE_HA_DEVICE_COLOR_DIMMABLE_LIGHT             0x0102
+#define ZBEE_HA_DEVICE_ON_OFF_LIGHT_SWITCH              0x0103
+#define ZBEE_HA_DEVICE_DIMMER_SWITCH                    0x0104
+#define ZBEE_HA_DEVICE_COLOR_DIMMER_SWITCH              0x0105
+#define ZBEE_HA_DEVICE_LIGHT_SENSOR                     0x0106
+#define ZBEE_HA_DEVICE_OCCUPANCY_SENSOR                 0x0107
+#define ZBEE_HA_DEVICE_ON_OFF_BALLAST                   0x0108
+#define ZBEE_HA_DEVICE_DIMMABLE_BALLAST                 0x0109
+#define ZBEE_HA_DEVICE_ON_OFF_PLUG_IN_UNIT              0x010A
+#define ZBEE_HA_DEVICE_DIMMABLE_PLUG_IN_UNIT            0x010B
+#define ZBEE_HA_DEVICE_COLOR_TEMPERATURE_LIGHT          0x010C
+#define ZBEE_HA_DEVICE_EXTENDED_COLOR_LIGHT             0x010D
+#define ZBEE_HA_DEVICE_LIGHT_LEVEL_SENSOR               0x010E
+#define ZBEE_HA_DEVICE_COLOR_CONTROLLER                 0x0800
+#define ZBEE_HA_DEVICE_COLOR_SCENE_CONTROLLER           0x0810
+#define ZBEE_HA_DEVICE_NON_COLOR_CONTROLLER             0x0820
+#define ZBEE_HA_DEVICE_NON_COLOR_SCENE_CONTROLLER       0x0830
+#define ZBEE_HA_DEVICE_CONTROL_BRIDGE                   0x0840
+#define ZBEE_HA_DEVICE_ON_OFF_SENSOR                    0x0850
+
+/* Helper Functions */
 /* Helper Functions */
 extern guint zbee_get_bit_field(guint input, guint mask);
 

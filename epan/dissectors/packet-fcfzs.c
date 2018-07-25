@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -81,7 +69,7 @@ typedef struct _fcfzs_conv_data {
     guint32 opcode;
 } fcfzs_conv_data_t;
 
-static GHashTable *fcfzs_req_hash = NULL;
+static wmem_map_t *fcfzs_req_hash = NULL;
 
 /*
  * Hash Functions
@@ -104,21 +92,6 @@ fcfzs_hash(gconstpointer v)
     val = key->conv_idx;
 
     return val;
-}
-
-/*
- * Protocol initialization
- */
-static void
-fcfzs_init_protocol(void)
-{
-    fcfzs_req_hash = g_hash_table_new(fcfzs_hash, fcfzs_equal);
-}
-
-static void
-fcfzs_cleanup_protocol(void)
-{
-    g_hash_table_destroy(fcfzs_req_hash);
 }
 
 /* Code to actually dissect the packets */
@@ -551,17 +524,17 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 
     if ((opcode != FCCT_MSG_ACC) && (opcode != FCCT_MSG_RJT)) {
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                         pinfo->ptype, fchdr->oxid,
+                                         conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                          fchdr->rxid, NO_PORT2);
         if (!conversation) {
             conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                                            pinfo->ptype, fchdr->oxid,
+                                            conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                             fchdr->rxid, NO_PORT2);
         }
 
-        ckey.conv_idx = conversation->index;
+        ckey.conv_idx = conversation->conv_index;
 
-        cdata = (fcfzs_conv_data_t *)g_hash_table_lookup(fcfzs_req_hash,
+        cdata = (fcfzs_conv_data_t *)wmem_map_lookup(fcfzs_req_hash,
                                                          &ckey);
         if (cdata) {
             /* Since we never free the memory used by an exchange, this maybe a
@@ -572,12 +545,12 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         }
         else {
             req_key = wmem_new(wmem_file_scope(), fcfzs_conv_key_t);
-            req_key->conv_idx = conversation->index;
+            req_key->conv_idx = conversation->conv_index;
 
             cdata = wmem_new(wmem_file_scope(), fcfzs_conv_data_t);
             cdata->opcode = opcode;
 
-            g_hash_table_insert(fcfzs_req_hash, req_key, cdata);
+            wmem_map_insert(fcfzs_req_hash, req_key, cdata);
         }
 
         col_add_str(pinfo->cinfo, COL_INFO, val_to_str(opcode, fc_fzs_opcode_val,
@@ -586,7 +559,7 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     else {
         /* Opcode is ACC or RJT */
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                         pinfo->ptype, fchdr->oxid,
+                                         conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                          fchdr->rxid, NO_PORT2);
         isreq = FALSE;
         if (!conversation) {
@@ -601,9 +574,9 @@ dissect_fcfzs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             }
         }
         else {
-            ckey.conv_idx = conversation->index;
+            ckey.conv_idx = conversation->conv_index;
 
-            cdata = (fcfzs_conv_data_t *)g_hash_table_lookup(fcfzs_req_hash, &ckey);
+            cdata = (fcfzs_conv_data_t *)wmem_map_lookup(fcfzs_req_hash, &ckey);
 
             if (cdata != NULL) {
                 if (opcode == FCCT_MSG_ACC)
@@ -867,9 +840,8 @@ proto_register_fcfzs(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_fcfzs = expert_register_protocol(proto_fcfzs);
     expert_register_field_array(expert_fcfzs, ei, array_length(ei));
-    register_init_routine(&fcfzs_init_protocol);
-    register_cleanup_routine(&fcfzs_cleanup_protocol);
 
+    fcfzs_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), fcfzs_hash, fcfzs_equal);
 }
 
 void

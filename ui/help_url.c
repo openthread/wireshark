@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2000 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -36,38 +24,6 @@
 #include <wsutil/unicode-utils.h>
 #endif
 
-/*
- * Given a filename return a filesystem URL. Relative paths are prefixed with
- * the datafile directory path.
- */
-gchar *
-data_file_url(const gchar *filename)
-{
-    gchar *file_path;
-    gchar *uri;
-
-    /* Absolute path? */
-#ifdef G_OS_WIN32
-    if((strlen(filename) > 2) && (filename[1] == ':')) {
-      file_path = g_strdup(filename);
-#else
-    if((strlen(filename) > 1) && (filename[0] == '/')) {
-      file_path = g_strdup(filename);
-#endif
-    } else if(running_in_build_directory()) {
-        file_path = g_strdup_printf("%s/doc/%s", get_datafile_dir(), filename);
-    } else {
-        file_path = g_strdup_printf("%s/%s", get_datafile_dir(), filename);
-    }
-
-    /* XXX - check, if the file is really existing, otherwise display a simple_dialog about the problem */
-
-    /* convert filename to uri */
-    uri = g_filename_to_uri(file_path, NULL, NULL);
-    g_free(file_path);
-    return uri;
-}
-
 const char *
 topic_online_url(topic_action_e action)
 {
@@ -80,6 +36,9 @@ topic_online_url(topic_action_e action)
         break;
     case(ONLINEPAGE_DOWNLOAD):
         return "https://www.wireshark.org/download.html";
+        break;
+    case(ONLINEPAGE_DOCS):
+        return "https://www.wireshark.org/docs/";
         break;
     case(ONLINEPAGE_USERGUIDE):
         return "https://www.wireshark.org/docs/wsug_html_chunked/";
@@ -260,7 +219,7 @@ topic_action_url(topic_action_e action)
         url = user_guide_url("ChCustProtocolDissectionSection.html");
         break;
     case(HELP_FOLLOW_STREAM_DIALOG):
-        url = user_guide_url("ChAdvFollowTCPSection.html");
+        url = user_guide_url("ChAdvFollowStreamSection.html");
         break;
     case(HELP_SHOW_PACKET_BYTES_DIALOG):
         url = user_guide_url("ChAdvShowPacketBytes.html");
@@ -268,11 +227,9 @@ topic_action_url(topic_action_e action)
     case(HELP_EXPERT_INFO_DIALOG):
         url = user_guide_url("ChAdvExpert.html");
         break;
-#ifdef HAVE_EXTCAP
     case(HELP_EXTCAP_OPTIONS_DIALOG):
-        url = user_guide_url("ChExtcapOptions.html");
+        url = data_file_url("extcap.html");
         break;
-#endif
     case(HELP_STATS_SUMMARY_DIALOG):
         url = user_guide_url("ChStatSummary.html");
         break;
@@ -296,6 +253,9 @@ topic_action_url(topic_action_e action)
         break;
     case(HELP_STATS_LTE_RLC_TRAFFIC_DIALOG):
         url = user_guide_url("ChTelLTERLCTraffic.html");
+        break;
+    case(HELP_STATS_TCP_STREAM_GRAPHS_DIALOG):
+        url = user_guide_url("ChStatTCPStreamGraphs.html");
         break;
     case(HELP_STATS_WLAN_TRAFFIC_DIALOG):
         url = user_guide_url("ChStatWLANTraffic.html");

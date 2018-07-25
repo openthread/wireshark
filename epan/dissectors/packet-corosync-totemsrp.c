@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Fields description are taken from
@@ -186,7 +174,7 @@ static const value_string corosync_totemsrp_ip_address_family[] = {
   { COMMON_AF_INET,       "AF_INET"  },
   { BSD_AF_INET6_BSD,     "AF_INET6 (most BSD)" },
   { BSD_AF_INET6_FREEBSD, "AF_INET6 (FreeBSD)" },
-  { BSD_AF_INET6_DARWIN,  "AF_INET6 (OS X and iOS)" },
+  { BSD_AF_INET6_DARWIN,  "AF_INET6 (macOS and iOS)" },
   { LINUX_AF_INET6,       "AF_INET6 (Linux)" },
   { SOLARIS_AF_INET6,     "AF_INET6 (Solaris)" },
   { WINSOCK_AF_INET6,     "AF_INET6 (Windows)" },
@@ -279,21 +267,21 @@ dissect_corosync_totemsrp_ip_address(tvbuff_t *tvb,
   case LINUX_AF_INET6:
   case SOLARIS_AF_INET6:
   case WINSOCK_AF_INET6:
-    len = sizeof(struct e_in6_addr);
+    len = sizeof(ws_in6_addr);
     proto_tree_add_item(tree, hf_corosync_totemsrp_ip_address_addr6, tvb, offset, len, ENC_NA);
     break;
   default:
-    len = sizeof(struct e_in6_addr);
+    len = sizeof(ws_in6_addr);
     proto_tree_add_item(tree, hf_corosync_totemsrp_ip_address_addr, tvb, offset, len, ENC_NA);
     break;
   }
 
   offset += len;
 
-  if (len != sizeof(struct e_in6_addr)) {
+  if (len != sizeof(ws_in6_addr)) {
     gint padding_len;
 
-    padding_len = (gint)(sizeof(struct e_in6_addr) - len);
+    padding_len = (gint)(sizeof(ws_in6_addr) - len);
     proto_tree_add_item (tree, hf_corosync_totemsrp_ip_address_addr4_padding,
                            tvb, offset, padding_len, ENC_NA);
     offset += padding_len;

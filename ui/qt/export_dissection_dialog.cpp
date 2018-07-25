@@ -4,26 +4,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "export_dissection_dialog.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
-#include "epan/packet-range.h"
+#include "ui/packet_range.h"
 #include "ui/win32/file_dlg_win32.h"
 #else // Q_OS_WIN
 
@@ -34,7 +22,7 @@
 #include <epan/print.h>
 #include <wsutil/filesystem.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 
 
 #include <QDialogButtonBox>
@@ -44,6 +32,19 @@
 
 #include <epan/prefs.h>
 #include "wireshark_application.h"
+
+#if !defined(Q_OS_WIN)
+static const QStringList export_extensions = QStringList()
+    << ""
+    << "txt"
+    << ""
+    << "csv"
+    << "psml"
+    << "pdml"
+    << "c"
+    << "json";
+
+#endif
 
 ExportDissectionDialog::ExportDissectionDialog(QWidget *parent, capture_file *cap_file, export_type_e export_type):
     QFileDialog(parent),
@@ -96,12 +97,14 @@ ExportDissectionDialog::ExportDissectionDialog(QWidget *parent, capture_file *ca
             << tr("Comma Separated Values - summary (*.csv)")
             << tr("PSML - summary (*.psml, *.xml)")
             << tr("PDML - details (*.pdml, *.xml)")
+            << tr("JSON (*.json)")
             << tr("C Arrays - bytes (*.c, *.h)");
     export_type_map_[name_filters[0]] = export_type_text;
     export_type_map_[name_filters[1]] = export_type_csv;
     export_type_map_[name_filters[2]] = export_type_psml;
     export_type_map_[name_filters[3]] = export_type_pdml;
-    export_type_map_[name_filters[4]] = export_type_carrays;
+    export_type_map_[name_filters[4]] = export_type_json;
+    export_type_map_[name_filters[5]] = export_type_carrays;
     setNameFilters(name_filters);
     selectNameFilter(export_type_map_.key(export_type));
     exportTypeChanged(export_type_map_.key(export_type));
@@ -147,6 +150,7 @@ ExportDissectionDialog::~ExportDissectionDialog()
 {
 #if !defined(Q_OS_WIN)
     g_free(print_args_.file);
+    packet_range_cleanup(&print_args_.range);
 #endif
 }
 
@@ -170,6 +174,7 @@ int ExportDissectionDialog::exec()
         print_args_.to_file             = TRUE;
         print_args_.cmd                 = NULL;
         print_args_.print_summary       = TRUE;
+        print_args_.print_col_headings  = TRUE;
         print_args_.print_dissections   = print_dissections_as_displayed;
         print_args_.print_hex           = FALSE;
         print_args_.print_formfeed      = FALSE;
@@ -177,6 +182,7 @@ int ExportDissectionDialog::exec()
         switch (export_type_) {
         case export_type_text:      /* Text */
             print_args_.print_summary = packet_format_group_box_.summaryEnabled();
+            print_args_.print_col_headings = packet_format_group_box_.includeColumnHeadingsEnabled();
             print_args_.print_dissections = print_dissections_none;
             if (packet_format_group_box_.detailsEnabled()) {
                 if (packet_format_group_box_.allCollapsedEnabled())
@@ -205,6 +211,9 @@ int ExportDissectionDialog::exec()
             break;
         case export_type_pdml:      /* PDML */
             status = cf_write_pdml_packets(cap_file_, &print_args_);
+            break;
+        case export_type_json:      /* JSON */
+            status = cf_write_json_packets(cap_file_, &print_args_);
             break;
         default:
             return QDialog::Rejected;
@@ -248,6 +257,7 @@ void ExportDissectionDialog::exportTypeChanged(QString name_filter)
     }
 
     checkValidity();
+    setDefaultSuffix(export_extensions[export_type_]);
 }
 
 void ExportDissectionDialog::checkValidity()

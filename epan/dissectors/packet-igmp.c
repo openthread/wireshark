@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
 	IGMP is defined in the following RFCs
@@ -109,6 +97,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 #include <epan/range.h>
 #include <epan/to_str.h>
 #include <epan/ipproto.h>
@@ -127,7 +116,7 @@ static int hf_group_type = -1;
 static int hf_reply_code = -1;
 static int hf_reply_pending = -1;
 static int hf_checksum = -1;
-static int hf_checksum_bad = -1;
+static int hf_checksum_status = -1;
 static int hf_identifier = -1;
 static int hf_access_key = -1;
 static int hf_max_resp = -1;
@@ -168,6 +157,8 @@ static int ett_igmp = -1;
 static int ett_group_record = -1;
 static int ett_max_resp = -1;
 static int ett_mtrace_block = -1;
+
+static expert_field ei_checksum = EI_INIT;
 
 static dissector_table_t   subdissector_table;
 
@@ -282,11 +273,9 @@ static const value_string mtrace_fwd_code_vals[] = {
 };
 
 void igmp_checksum(proto_tree *tree, tvbuff_t *tvb, int hf_index,
-	int hf_index_bad, packet_info *pinfo, guint len)
+	int hf_index_status, expert_field* ei_index, packet_info *pinfo, guint len)
 {
-	guint16 cksum, hdrcksum;
 	vec_t cksum_vec[1];
-	proto_item *hidden_item;
 
 	if (len == 0) {
 		/*
@@ -295,29 +284,16 @@ void igmp_checksum(proto_tree *tree, tvbuff_t *tvb, int hf_index,
 		len = tvb_reported_length(tvb);
 	}
 
-	hdrcksum = tvb_get_ntohs(tvb, 2);
 	if (!pinfo->fragmented && tvb_captured_length(tvb) >= len) {
 		/*
 		 * The packet isn't part of a fragmented datagram and isn't
 		 * truncated, so we can checksum it.
 		 */
 		SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, len);
-
-		cksum = in_cksum(&cksum_vec[0],1);
-
-		if (cksum == 0) {
-			proto_tree_add_uint_format(tree, hf_index, tvb, 2, 2, hdrcksum,
-				"Header checksum: 0x%04x [correct]", hdrcksum);
-		} else {
-			hidden_item = proto_tree_add_boolean(tree, hf_index_bad,
-				tvb, 2, 2, TRUE);
-			PROTO_ITEM_SET_HIDDEN(hidden_item);
-			proto_tree_add_uint_format(tree, hf_index, tvb, 2, 2, hdrcksum,
-				"Header checksum: 0x%04x [incorrect, should be 0x%04x]",
-				hdrcksum, in_cksum_shouldbe(hdrcksum,cksum));
-		}
+		proto_tree_add_checksum(tree, tvb, 2, hf_index, hf_index_status, ei_index, pinfo, in_cksum(&cksum_vec[0], 1),
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
 	} else
-		proto_tree_add_uint(tree, hf_index, tvb, 2, 2, hdrcksum);
+		proto_tree_add_checksum(tree, tvb, 2, hf_index, hf_index_status, ei_index, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 
 	return;
 }
@@ -563,7 +539,7 @@ dissect_igmp_v3_report(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tre
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
         proto_tree_add_item(tree, hf_reserved, tvb, offset, 2, ENC_NA);
@@ -598,7 +574,7 @@ dissect_igmp_v3_query(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree
 	offset = dissect_v3_max_resp(tvb, tree, offset);
 
 	/* checksum */
-	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* group address */
@@ -653,7 +629,7 @@ dissect_igmp_v2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 8);
+	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 8);
 	offset += 2;
 
 	/* group address */
@@ -695,7 +671,7 @@ dissect_igmp_v1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 8);
+	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 8);
 	offset += 2;
 
 	/* group address */
@@ -730,7 +706,7 @@ dissect_igmp_v0(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 20);
+	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 20);
 	offset += 2;
 
 	/* identifier */
@@ -813,7 +789,7 @@ dissect_igmp_mtrace(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* group address to be traced */
@@ -952,9 +928,9 @@ proto_register_igmp(void)
 			{ "Checksum", "igmp.checksum", FT_UINT16, BASE_HEX,
 			  NULL, 0, "IGMP Checksum", HFILL }},
 
-		{ &hf_checksum_bad,
-			{ "Bad Checksum", "igmp.checksum_bad", FT_BOOLEAN, BASE_NONE,
-			  NULL, 0x0, "Bad IGMP Checksum", HFILL }},
+		{ &hf_checksum_status,
+			{ "Checksum Status", "igmp.checksum.status", FT_UINT8, BASE_NONE,
+			  VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 
 		{ &hf_identifier,
 			{ "Identifier", "igmp.identifier", FT_UINT32, BASE_DEC,
@@ -1104,12 +1080,19 @@ proto_register_igmp(void)
 		&ett_mtrace_block,
 	};
 
-	proto_igmp = proto_register_protocol("Internet Group Management Protocol",
-		"IGMP", "igmp");
+	static ei_register_info ei[] = {
+		{ &ei_checksum, { "igmp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+	};
+
+	expert_module_t* expert_igmp;
+
+	proto_igmp = proto_register_protocol("Internet Group Management Protocol", "IGMP", "igmp");
 	proto_register_field_array(proto_igmp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+	expert_igmp = expert_register_protocol(proto_igmp);
+	expert_register_field_array(expert_igmp, ei, array_length(ei));
 
-	subdissector_table = register_dissector_table("igmp.type", "IGMP commands", proto_igmp, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	subdissector_table = register_dissector_table("igmp.type", "IGMP commands", proto_igmp, FT_UINT32, BASE_HEX);
 
 }
 
@@ -1124,10 +1107,10 @@ proto_reg_handoff_igmp(void)
 	dissector_add_uint("ip.proto", IP_PROTO_IGMP, igmp_handle);
 
 	/* IGMP v0 */
-	range_convert_str(&igmpv0_range, "0-15", 15);
+	range_convert_str(NULL, &igmpv0_range, "0-15", 15);
 	igmpv0_handle = create_dissector_handle(dissect_igmp_v0, proto_igmp);
 	dissector_add_uint_range("igmp.type", igmpv0_range, igmpv0_handle);
-	g_free(igmpv0_range);
+	wmem_free(NULL, igmpv0_range);
 
 	/* IGMP v1 */
 	igmpv1_handle = create_dissector_handle(dissect_igmp_v1, proto_igmp);

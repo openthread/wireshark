@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __RTD_TABLE_H__
@@ -27,6 +15,7 @@
 #include "tap.h"
 #include "timestats.h"
 #include "value_string.h"
+#include "wmem/wmem.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,7 +41,7 @@ typedef struct _rtd_stat_table {
  */
 typedef struct _rtd_data_t {
 	rtd_stat_table  stat_table;  /**< RTD table data */
-	void        *user_data;       /**< "GUI" specifics (GTK+ only) */
+	void        *user_data;       /**< "GUI" specifics (sharkd only?) */
 } rtd_data_t;
 
 /** Structure for information about a registered service response table */
@@ -60,9 +49,6 @@ struct register_rtd;
 typedef struct register_rtd register_rtd_t;
 
 typedef void (*rtd_gui_init_cb)(rtd_stat_table* rtd, void* gui_data);
-typedef void (*rtd_gui_reset_cb)(rtd_stat_table* rtd, void* gui_data); /* GTK+ only. */
-typedef void (*rtd_gui_free_cb)(rtd_stat_table* rtd, void* gui_data); /* GTK+ only. */
-typedef void (*rtd_init_cb)(struct register_rtd* rtd, rtd_gui_init_cb gui_callback, void* gui_data); /* GTK+ only. */
 typedef void (*rtd_filter_check_cb)(const char *opt_arg, const char **filter, char** err);
 
 /** Register the response time delay table.
@@ -123,18 +109,14 @@ WS_DLL_PUBLIC register_rtd_t* get_rtd_table_by_name(const char* name);
 /** Free the RTD table data.
  *
  * @param table RTD stat table array
- * @param gui_callback optional callback from GUI
- * @param callback_data callback data needed for GUI
  */
-WS_DLL_PUBLIC void free_rtd_table(rtd_stat_table* table, rtd_gui_free_cb gui_callback, void *callback_data);
+WS_DLL_PUBLIC void free_rtd_table(rtd_stat_table* table);
 
 /** Reset table data in the RTD.
  *
  * @param table RTD table
- * @param gui_callback optional callback from GUI
- * @param callback_data callback data needed for GUI
  */
-WS_DLL_PUBLIC void reset_rtd_table(rtd_stat_table* table, rtd_gui_reset_cb gui_callback, void *callback_data);
+WS_DLL_PUBLIC void reset_rtd_table(rtd_stat_table* table);
 
 /** Interator to walk RTD tables and execute func
  * Used for initialization
@@ -142,7 +124,7 @@ WS_DLL_PUBLIC void reset_rtd_table(rtd_stat_table* table, rtd_gui_reset_cb gui_c
  * @param func action to be performed on all converation tables
  * @param user_data any data needed to help perform function
  */
-WS_DLL_PUBLIC void rtd_table_iterate_tables(GFunc func, gpointer user_data);
+WS_DLL_PUBLIC void rtd_table_iterate_tables(wmem_foreach_func func, gpointer user_data);
 
 /** Return filter used for register_tap_listener
  *

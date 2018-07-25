@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <config.h>
@@ -33,22 +21,40 @@
 
 #include <wsutil/file_util.h>
 #include <wsutil/filesystem.h>
-#include "globals.h"
 
 #include <epan/strutil.h>
 
 #include "fileset.h"
-
-
 
 typedef struct _fileset {
     GList   *entries;
     char    *dirname;
 } fileset;
 
-/* this is the fileset's global data */
+/*
+ * This is the fileset's global data.
+ *
+ * XXX This should probably be per-main-window instead of global.
+ */
 static fileset set = { NULL, NULL};
 
+/*
+ * Given a stat structure, get the creation time of the file if available,
+ * or 0 if not.
+ */
+#ifdef _WIN32
+  /* Microsoft's documentation says this is the creation time */
+  #define ST_CREATE_TIME(statb) ((statb).st_ctime)
+#else /* _WIN32 */
+  /* UN*X - do we have a creation time? */
+  #if defined(HAVE_STRUCT_STAT_ST_BIRTHTIME)
+    #define ST_CREATE_TIME(statb) ((statb).st_birthtime)
+  #elif defined(HAVE_STRUCT_STAT___ST_BIRTHTIME)
+    #define ST_CREATE_TIME(statb) ((statb).__st_birthtime)
+  #else /* nothing */
+    #define ST_CREATE_TIME(statb) (0)
+  #endif /* creation time on UN*X */
+#endif /* _WIN32 */
 
 /* is this a probable file of a file set (does the naming pattern match)? */
 gboolean
@@ -186,7 +192,7 @@ fileset_update_file(const char *path)
 
             if (entry_list) {
                 entry = (fileset_entry *) entry_list->data;
-                entry->ctime    = buf.st_ctime;
+                entry->ctime    = ST_CREATE_TIME(buf);
                 entry->mtime    = buf.st_mtime;
                 entry->size     = buf.st_size;
             }
@@ -220,7 +226,7 @@ fileset_add_file(const char *dirname, const char *fname, gboolean current)
 
             entry->fullname = g_strdup(path);
             entry->name     = g_strdup(fname);
-            entry->ctime    = buf.st_ctime;
+            entry->ctime    = ST_CREATE_TIME(buf);
             entry->mtime    = buf.st_mtime;
             entry->size     = buf.st_size;
             entry->current  = current;
@@ -253,13 +259,14 @@ void fileset_update_dlg(void *window)
 {
     GList         *le;
 
-
-    /* add all entries to the dialog */
+    /* Add all entries to the dialog. */
+    fileset_dlg_begin_add_file(window);
     le = g_list_first(set.entries);
     while(le) {
         fileset_dlg_add_file((fileset_entry *)le->data, window);
         le = g_list_next(le);
     }
+    fileset_dlg_end_add_file(window);
 }
 
 

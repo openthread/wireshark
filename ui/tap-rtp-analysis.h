@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation,  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TAP_RTP_ANALYSIS_H__
@@ -42,19 +30,6 @@
 extern "C" {
 #endif /* __cplusplus */
 
-void rtp_analysis(
-    address *ip_src_fwd,
-    guint32  port_src_fwd,
-    address *ip_dst_fwd,
-    guint32  port_dst_fwd,
-    guint32  ssrc_fwd,
-    address *ip_src_rev,
-    guint32  port_src_rev,
-    address *ip_dst_rev,
-    guint32  port_dst_rev,
-    guint32 ssrc_rev
-    );
-
 /****************************************************************************/
 /* structure that holds the information about the forward and reversed direction */
 typedef struct _bw_history_item {
@@ -65,10 +40,10 @@ typedef struct _bw_history_item {
 #define BUFF_BW 300
 
 typedef struct _tap_rtp_stat_t {
-    gboolean        first_packet; /**< do not use in code that is called after rtp_packet_analyse */
+    gboolean        first_packet; /**< do not use in code that is called after rtppacket_analyse */
                                /* use (flags & STAT_FLAG_FIRST) instead */
     /* all of the following fields will be initialized after
-     * rtp_packet_analyse has been called
+     * rtppacket_analyse has been called
      */
     address         first_packet_mac_addr; /**< MAC address of first packet, used to determine duplicates due to mirroring */
     guint32         flags;      /* see STAT_FLAG-defines below */
@@ -106,7 +81,15 @@ typedef struct _tap_rtp_stat_t {
     gint            cycles;
     guint16         pt;
     int             reg_pt;
+    guint32         first_packet_num;
+    guint           last_payload_len;
 } tap_rtp_stat_t;
+
+typedef struct _tap_rtp_save_data_t {
+    guint32 timestamp;
+    unsigned int payload_type;
+    size_t payload_len;
+} tap_rtp_save_data_t;
 
 #define PT_UNDEFINED -1
 
@@ -126,7 +109,7 @@ typedef struct _tap_rtp_stat_t {
 struct _rtp_info;
 
 /* function for analysing an RTP packet. Called from rtp_analysis and rtp_streams */
-extern void rtp_packet_analyse(tap_rtp_stat_t *statinfo,
+extern void rtppacket_analyse(tap_rtp_stat_t *statinfo,
                               packet_info *pinfo,
                               const struct _rtp_info *rtpinfo);
 

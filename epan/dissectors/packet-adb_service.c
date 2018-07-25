@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See thehf_class
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -538,11 +526,11 @@ dissect_adb_service(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
         } else if (g_str_has_prefix(service, "shell:")) {
             if (adb_service_data->direction == P2P_DIR_SENT) {
                 proto_tree_add_item(main_tree, hf_stdin, tvb, offset, -1, ENC_NA | ENC_ASCII);
-                col_append_fstr(pinfo->cinfo, COL_INFO, " Stdin=<%s>", tvb_format_text_wsp(tvb, offset, tvb_captured_length_remaining(tvb, offset)));
+                col_append_fstr(pinfo->cinfo, COL_INFO, " Stdin=<%s>", tvb_format_text_wsp(wmem_packet_scope(), tvb, offset, tvb_captured_length_remaining(tvb, offset)));
 
             } else {
                 proto_tree_add_item(main_tree, hf_stdout, tvb, offset, -1, ENC_NA | ENC_ASCII);
-                col_append_fstr(pinfo->cinfo, COL_INFO, " Stdout=<%s>", tvb_format_text_wsp(tvb, offset, tvb_captured_length_remaining(tvb, offset)));
+                col_append_fstr(pinfo->cinfo, COL_INFO, " Stdout=<%s>", tvb_format_text_wsp(wmem_packet_scope(), tvb, offset, tvb_captured_length_remaining(tvb, offset)));
             }
             offset = tvb_captured_length(tvb);
         } else if (g_str_has_prefix(service, "jdwp:")) {
@@ -560,7 +548,7 @@ dissect_adb_service(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
                 g_str_has_prefix(service, "usb:")) {
             if (tvb_reported_length_remaining(tvb, offset)) {
                 proto_tree_add_item(main_tree, hf_result, tvb, offset, -1, ENC_NA | ENC_ASCII);
-                col_append_fstr(pinfo->cinfo, COL_INFO, " Result=<%s>", tvb_format_text_wsp(tvb, offset, tvb_captured_length_remaining(tvb, offset)));
+                col_append_fstr(pinfo->cinfo, COL_INFO, " Result=<%s>", tvb_format_text_wsp(wmem_packet_scope(), tvb, offset, tvb_captured_length_remaining(tvb, offset)));
 
                 offset = tvb_captured_length(tvb);
             }

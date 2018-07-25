@@ -55,13 +55,14 @@ C-like symbols:
 
 Additional operators exist expressed only in English, not C-like syntax:
 
-    contains  Does the protocol, field or slice contain a value
-    matches   Does the protocol or text string match the given Perl
-              regular expression
+    contains     Does the protocol, field or slice contain a value
+    matches, ~   Does the protocol or text string match the given
+                 case-insensitive Perl-compatible regular expression
 
 The "contains" operator allows a filter to search for a sequence of
 characters, expressed as a string (quoted or unquoted), or bytes,
-expressed as a byte array.  For example, to search for a given HTTP
+expressed as a byte array, or for a single character, expressed as a
+C-style character constant.  For example, to search for a given HTTP
 URL in a capture, the following filter can be used:
 
     http contains "https://www.wireshark.org"
@@ -69,18 +70,24 @@ URL in a capture, the following filter can be used:
 The "contains" operator cannot be used on atomic fields,
 such as numbers or IP addresses.
 
-The "matches" operator allows a filter to apply to a specified
+The "matches"  or "~" operator allows a filter to apply to a specified
 Perl-compatible regular expression (PCRE).  The "matches" operator is only
 implemented for protocols and for protocol fields with a text string
-representation.  For example, to search for a given WAP WSP User-Agent,
-you can write:
+representation. Matches are case-insensitive by default.  For example,
+to search for a given WAP WSP User-Agent, you can write:
 
-    wsp.user_agent matches "(?i)cldc"
+    wsp.user_agent matches "cldc"
 
-This example shows an interesting PCRE feature: pattern match options have to
-be specified with the B<(?>optionB<)> construct. For instance, B<(?i)> performs
-a case-insensitive pattern match. More information on PCRE can be found in the
-pcrepattern(3) man page (Perl Regular Expressions are explained in
+This would match "cldc", "CLDC", "cLdC" or any other combination of upper
+and lower case letters.
+
+You can force case sensitivity using
+
+    wsp.user_agent matches "(?-i)cldc"
+
+This is an example of PCRE's B<(?>optionB<)> construct. B<(?-i)> performs a
+case-sensitive pattern match but other options can be specified as well. More
+information can be found in the pcrepattern(3) man page at
 L<http://perldoc.perl.org/perlre.html>).
 
 =head2 Functions
@@ -89,6 +96,8 @@ The filter language has the following functions:
 
     upper(string-field) - converts a string field to uppercase
     lower(string-field) - converts a string field to lowercase
+    len(field)          - returns the byte length of a string or bytes field
+    count(field)        - returns the number of field occurrences in a frame
 
 upper() and lower() are useful for performing case-insensitive string
 comparisons. For example:
@@ -120,13 +129,18 @@ Each protocol field is typed. The types are:
     Signed integer, 1, 2, 3, 4, or 8 bytes
     Time offset
     Unsigned integer, 1, 2, 3, 4, or 8 bytes
+    1-byte ASCII character
 
-An integer may be expressed in decimal, octal, or hexadecimal notation.
-The following three display filters are equivalent:
+An integer may be expressed in decimal, octal, or hexadecimal notation,
+or as a C-style character constant.  The following six display filters
+are equivalent:
 
     frame.pkt_len > 10
     frame.pkt_len > 012
     frame.pkt_len > 0xa
+    frame.pkt_len > '\n'
+    frame.pkt_len > '\xa'
+    frame.pkt_len > '\012'
 
 Boolean values are either true or false.  In a display filter expression
 testing the value of a Boolean field, "true" is expressed as 1 or any
@@ -275,6 +289,16 @@ ports with the following filter:
 as opposed to the more verbose:
 
     tcp.port == 80 or tcp.port == 443 or tcp.port == 8080
+
+To find HTTP requests using the HEAD or GET methods:
+
+    http.request.method in {"HEAD" "GET"}
+
+The set of values can also contain ranges:
+
+    tcp.port in {443 4430..4434}
+    ip.addr in {10.0.0.5 .. 10.0.0.9 192.168.1.1..192.168.1.9}
+    frame.time_delta in {10 .. 10.5}
 
 =head2 Type conversions
 

@@ -7,19 +7,7 @@
  *
  * Copied from packet-smb.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -162,26 +150,28 @@ dissect_mount_dirpath_call(tvbuff_t *tvb, packet_info *pinfo,
 		rpc_call_info_value *civ=(rpc_call_info_value *)data;
 
 		if(civ->request && (civ->proc==1)){
-			const gchar *host;
-			unsigned char *name;
-			guint32 len;
-			unsigned char *ptr;
+			guint32 len_field;
 
-			host=address_to_str(wmem_packet_scope(), &pinfo->dst);
-			len=tvb_get_ntohl(tvb, offset);
-			if (len >= ITEM_LABEL_LENGTH)
-				THROW(ReportedBoundsError);
+			len_field = tvb_get_ntohl(tvb, offset);
+			if (len_field < ITEM_LABEL_LENGTH) {
+				gchar *name, *ptr;
+				int addr_len, name_len;
 
-			name=(unsigned char *)g_malloc(strlen(host)+1+len+1+200);
-			ptr=name;
-			memcpy(ptr, host, strlen(host));
-			ptr+=strlen(host);
-			*ptr++=':';
-			tvb_memcpy(tvb, ptr, offset+4, len);
-			ptr+=len;
-			*ptr=0;
+				name = address_to_str(wmem_packet_scope(), &pinfo->dst);
+				addr_len = (int)strlen(name);
+				/* IP address, colon, path, terminating 0 */
+				name_len = addr_len + 1 + len_field + 1;
 
-			nfs_name_snoop_add_name(civ->xid, tvb, -1, (gint)strlen(name), 0, 0, name);
+				name = (gchar *)wmem_realloc(wmem_packet_scope(),
+						(void *)name, name_len);
+				ptr = name + addr_len;
+				*ptr++ = ':';
+				tvb_memcpy(tvb, ptr, offset+4, len_field);
+				ptr += len_field;
+				*ptr = 0;
+
+				nfs_name_snoop_add_name(civ->xid, tvb, -1, name_len, 0, 0, name);
+			}
 		}
 	}
 

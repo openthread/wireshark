@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* TCP Convergence Layer - Message Types */
@@ -101,6 +89,7 @@
 #define BUNDLE_BLOCK_TYPE_EXTENSION_SECURITY    0x09 /* RFC6257 */
 #define BUNDLE_BLOCK_TYPE_CUSTODY_TRANSFER      0x0a /* http://bioserve.colorado.edu/bp-acs/ */
 #define BUNDLE_BLOCK_TYPE_EXTENDED_COS          0x13 /* http://tools.ietf.org/html/draft-irtf-dtnrg-ecos-02 */
+#define BUNDLE_BLOCK_TYPE_BUNDLE_AGE_EXTENSION  0x14 /* ION NASA specific */
 
 /* Payload Header Processing Flags */
 #define PAYLOAD_PROCFLAGS_REPLICATE_MASK        0x01
@@ -143,11 +132,34 @@
 /* ECOS Flags */
 #define ECOS_FLAGS_CRITICAL             0x01
 #define ECOS_FLAGS_STREAMING            0x02
-#define ECOS_FLAGS_ORDINAL              0x04
+#define ECOS_FLAGS_FLOWLABEL            0x04
+#define ECOS_FLAGS_RELIABLE             0x08
 
-#define IPN_SCHEME_STR			"ipn"
+#define DTN_SCHEME_STR                  "dtn"
+#define IPN_SCHEME_STR                  "ipn"
 
 int evaluate_sdnv(tvbuff_t *tvb, int offset, int *bytecount);
 gint64 evaluate_sdnv_64(tvbuff_t *tvb, int offset, int *bytecount);
 
 
+/* Special Functions to evaluate unsigned SDNVs with error indication
+ *    bytecount returns the number bytes consumed
+ *    value returns the actual value
+ *
+ *    result is TRUE (1) on success else FALSE (0)
+ */
+int evaluate_sdnv32(tvbuff_t *tvb, int offset, int *bytecount, guint32 *value);
+int evaluate_sdnv64(tvbuff_t *tvb, int offset, int *bytecount, guint64 *value);
+
+/*
+ * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ *
+ * Local variables:
+ * c-basic-offset: 4
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
+ */

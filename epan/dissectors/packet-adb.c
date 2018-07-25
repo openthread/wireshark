@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See thehf_class
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -65,6 +53,7 @@ static gint ett_adb_magic                                                  = -1;
 
 static expert_field ei_invalid_magic                                  = EI_INIT;
 static expert_field ei_invalid_crc                                    = EI_INIT;
+static expert_field ei_invalid_data                                   = EI_INIT;
 
 static dissector_handle_t  adb_handle;
 static dissector_handle_t  adb_service_handle;
@@ -102,6 +91,7 @@ typedef struct command_data_t {
     guint32   completed_in_frame;
     guint32   reassemble_data_length;
     guint8   *reassemble_data;
+    guint32   reassemble_error_in_frame;
 } command_data_t;
 
 static guint32 max_in_frame = G_MAXUINT32;
@@ -167,8 +157,8 @@ save_command(guint32 cmd, guint32 arg0, guint32 arg1, guint32 data_length,
 
     frame_number = pinfo->num;
 
-    if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-        interface_id = pinfo->phdr->interface_id;
+    if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+        interface_id = pinfo->rec->rec_header.packet_header.interface_id;
     else
         interface_id = 0;
 
@@ -258,6 +248,7 @@ save_command(guint32 cmd, guint32 arg0, guint32 arg1, guint32 data_length,
         command_data->completed_in_frame = max_in_frame;
     command_data->reassemble_data_length = 0;
     command_data->reassemble_data = (guint8 *) wmem_alloc(wmem_file_scope(), command_data->data_length);
+    command_data->reassemble_error_in_frame = 0;
 
     key[3].length = 1;
     key[3].key = &frame_number;
@@ -391,8 +382,8 @@ dissect_adb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         return offset;
     }
 
-    if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-        interface_id = pinfo->phdr->interface_id;
+    if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+        interface_id = pinfo->rec->rec_header.packet_header.interface_id;
     else
         interface_id = 0;
 
@@ -438,16 +429,14 @@ dissect_adb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             data_length = command_data->data_length;
             crc32 = command_data->crc32;
 
-            if (direction == P2P_DIR_SENT)
+            if (direction == P2P_DIR_SENT) {
                 if (command_data->command == A_CLSE)
                     side_id = command_data->arg1; /* OUT: local id */
                 else
                     side_id = command_data->arg0; /* OUT: local id */
-            else
-                if (command_data->command == A_OKAY) {
+            } else {
                     side_id = command_data->arg1; /* IN: remote id */
-                } else
-                    side_id = command_data->arg1; /* IN: remote id */
+            }
 
             key[3].length = 1;
             key[3].key = &side_id;
@@ -542,10 +531,10 @@ dissect_adb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             col_append_fstr(pinfo->cinfo, COL_INFO, "(local=%u, 0)", tvb_get_letohl(tvb, offset - 8));
             break;
         case A_WRTE:
-            proto_tree_add_item(arg0_tree, hf_zero, tvb, offset - 8, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item(arg0_tree, hf_local_id, tvb, offset - 8, 4, ENC_LITTLE_ENDIAN);
             proto_tree_add_item(arg1_tree, hf_remote_id, tvb, offset - 4, 4, ENC_LITTLE_ENDIAN);
 
-            col_append_fstr(pinfo->cinfo, COL_INFO, "(0, remote=%u)", tvb_get_letohl(tvb, offset - 4));
+            col_append_fstr(pinfo->cinfo, COL_INFO, "(local=%u, remote=%u)", arg0, arg1);
             break;
         case A_CLSE:
         case A_OKAY:
@@ -628,15 +617,31 @@ dissect_adb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         guint32 crc = 0;
         guint32 i_offset;
 
-        if ((!pinfo->fd->flags.visited && command_data && command_data->reassemble_data_length < command_data->data_length) || data_length > (guint32) tvb_captured_length_remaining(tvb, offset)) { /* need reassemble */
-            if (!pinfo->fd->flags.visited && command_data && command_data->reassemble_data_length < command_data->data_length) {
-                tvb_memcpy(tvb, command_data->reassemble_data + command_data->reassemble_data_length, offset, tvb_captured_length_remaining(tvb, offset));
-                command_data->reassemble_data_length += tvb_captured_length_remaining(tvb, offset);
-
-                if (command_data->reassemble_data_length >= command_data->data_length)
-                    command_data->completed_in_frame = frame_number;
+        /* First pass: store message payload (usually a single packet, but
+         * potentially multiple fragments). */
+        if (!pinfo->fd->flags.visited && command_data && command_data->reassemble_data_length < command_data->data_length) {
+            guint chunklen = tvb_captured_length_remaining(tvb, offset);
+            if (chunklen > command_data->data_length - command_data->reassemble_data_length) {
+                chunklen = command_data->data_length - command_data->reassemble_data_length;
+                /* This should never happen, but when it does, then either we
+                 * have a malicious application OR we failed to correctly match
+                 * this payload with a message header. */
+                command_data->reassemble_error_in_frame = frame_number;
             }
 
+            tvb_memcpy(tvb, command_data->reassemble_data + command_data->reassemble_data_length, offset, chunklen);
+            command_data->reassemble_data_length += chunklen;
+
+            if (command_data->reassemble_data_length >= command_data->data_length)
+                command_data->completed_in_frame = frame_number;
+        }
+
+        if (frame_number == command_data->reassemble_error_in_frame) {
+            /* data reassembly error was detected in the first pass. */
+            proto_tree_add_expert(main_tree, pinfo, &ei_invalid_data, tvb, offset, -1);
+        }
+
+        if ((!pinfo->fd->flags.visited && command_data && command_data->reassemble_data_length < command_data->data_length) || data_length > (guint32) tvb_captured_length_remaining(tvb, offset)) { /* need reassemble */
             proto_tree_add_item(main_tree, hf_data_fragment, tvb, offset, -1, ENC_NA);
             col_append_str(pinfo->cinfo, COL_INFO, "Data Fragment");
             offset = tvb_captured_length(tvb);
@@ -685,13 +690,18 @@ dissect_adb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 col_append_fstr(pinfo->cinfo, COL_INFO, "Service: %s", tvb_get_stringz_enc(wmem_packet_scope(), tvb, offset, NULL, ENC_ASCII));
                 offset = tvb_captured_length(tvb);
             } else if (command_data && command_data->command == A_CNXN) {
-                    gchar       *info;
-                    gint         len;
+                const guint8    *info;
 
-                info = tvb_get_stringz_enc(wmem_packet_scope(), tvb, offset, &len, ENC_ASCII);
+                /*
+                 * Format: "<systemtype>:<serialno>:<banner>".
+                 * Previously adb used "device::ro.product.name=...;...;\0" as
+                 * human-readable banner, but since platform/system/core commit
+                 * 1792c23cb8 (2015-05-18) it is a ";"-separated feature list.
+                 */
+
+                proto_tree_add_item_ret_string(main_tree, hf_connection_info, tvb, offset, -1, ENC_ASCII | ENC_NA, wmem_packet_scope(), &info);
                 col_append_fstr(pinfo->cinfo, COL_INFO, "Connection Info: %s", info);
-                proto_tree_add_item(main_tree, hf_connection_info, tvb, offset, len, ENC_ASCII | ENC_NA);
-                offset += len;
+                offset = tvb_captured_length(tvb);
             } else {
                 col_append_str(pinfo->cinfo, COL_INFO, "Data");
 
@@ -720,7 +730,7 @@ dissect_adb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                         }
                     }
 
-                    next_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_captured_length_remaining(tvb, offset));
+                    next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_captured_length_remaining(tvb, offset));
                     call_dissector_with_data(adb_service_handle, next_tvb, pinfo, tree, &adb_service_data);
 
                 } else {
@@ -860,7 +870,7 @@ proto_register_adb(void)
         },
         { &hf_connection_info,
             { "Info",                            "adb.connection_info",
-            FT_STRINGZ, STR_ASCII, NULL, 0x00,
+            FT_STRING, STR_ASCII, NULL, 0x00,
             NULL, HFILL }
         }
     };
@@ -876,6 +886,7 @@ proto_register_adb(void)
     static ei_register_info ei[] = {
         { &ei_invalid_magic,          { "adb.expert.invalid_magic", PI_PROTOCOL, PI_WARN, "Invalid Magic", EXPFILL }},
         { &ei_invalid_crc,            { "adb.expert.crc_error", PI_PROTOCOL, PI_ERROR, "CRC32 Error", EXPFILL }},
+        { &ei_invalid_data,           { "adb.expert.data_error", PI_PROTOCOL, PI_ERROR, "Mismatch between message payload size and data length", EXPFILL }},
     };
 
     command_info         = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
@@ -900,10 +911,10 @@ proto_reg_handoff_adb(void)
 {
     adb_service_handle = find_dissector_add_dependency("adb_service", proto_adb);
 
-    dissector_add_handle("tcp.port",     adb_handle);
-    dissector_add_handle("usb.device",   adb_handle);
-    dissector_add_handle("usb.product",  adb_handle);
-    dissector_add_handle("usb.protocol", adb_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port",     adb_handle);
+    dissector_add_for_decode_as("usb.device",   adb_handle);
+    dissector_add_for_decode_as("usb.product",  adb_handle);
+    dissector_add_for_decode_as("usb.protocol", adb_handle);
 
     proto_tcp = proto_get_id_by_filter_name("tcp");
     proto_usb = proto_get_id_by_filter_name("usb");

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* make sure that all flags that are set in a fragment entry is also set for
@@ -55,13 +43,6 @@
    into the defragmented packet */
 #define FD_BLOCKSEQUENCE        0x0100
 
-/* if REASSEMBLE_FLAGS_CHECK_DATA_PRESENT is set, and the first fragment is
- * incomplete, this flag is set in the flags word on the fd_head returned.
- *
- * It's all a fudge to preserve historical behaviour.
- */
-#define FD_DATA_NOT_PRESENT	0x0200
-
 /* This flag is set in (only) fd_head to denote that datalen has been set to a valid value.
  * It's implied by FD_DEFRAGMENTED (we must know the total length of the
  * datagram if we have defragmented it...)
@@ -70,29 +51,28 @@
 
 typedef struct _fragment_item {
 	struct _fragment_item *next;
-	guint32 frame;					/* XXX - does this apply to reassembly heads? */
-	guint32	offset;					/* XXX - does this apply to reassembly heads? */
-	guint32	len;					/* XXX - does this apply to reassembly heads? */
-	guint32 fragment_nr_offset;		/**< offset for frame numbering, for sequences, where the
-									 * provided fragment number of the first fragment does
-									 * not start with 0
-									 * XXX - does this apply only to reassembly heads? */
-	guint32 datalen;				/**< When flags&FD_BLOCKSEQUENCE is set, the
-									  index of the last block (segments in
-									  datagram + 1); otherwise the number of
-									  bytes of the full datagram. Only valid in
-									  the first item of the fragments list when
-									  flags&FD_DATALEN is set.*/
-	guint32 reassembled_in;			/**< frame where this PDU was reassembled,
-										 only valid in the first item of the list
-										 and when FD_DEFRAGMENTED is set*/
-	guint8 reas_in_layer_num;		/**< The current "depth" or layer number in the current frame where reassembly was completed.
-									 * Example: in SCTP there can be several data chunks and we want the reassemblied tvb for the final
-									 * segment only.
-									 */
-	guint32 flags;					/**< XXX - do some of these apply only to reassembly
-										 heads and others only to fragments within
-										 a reassembly? */
+	guint32 frame;			/* XXX - does this apply to reassembly heads? */
+	guint32	offset;			/* XXX - does this apply to reassembly heads? */
+	guint32	len;			/* XXX - does this apply to reassembly heads? */
+	guint32 fragment_nr_offset;	/**< offset for frame numbering, for sequences, where the
+					 * provided fragment number of the first fragment does
+					 * not start with 0
+					 * XXX - does this apply only to reassembly heads? */
+	guint32 datalen;		/**< When flags&FD_BLOCKSEQUENCE is set, the
+					 * index of the last block (segments in
+					 * datagram + 1); otherwise the number of
+					 * bytes of the full datagram. Only valid in
+					 * the first item of the fragments list when
+					 * flags&FD_DATALEN is set.*/
+	guint32 reassembled_in;		/**< frame where this PDU was reassembled,
+					 * only valid in the first item of the list
+					 * and when FD_DEFRAGMENTED is set*/
+	guint8 reas_in_layer_num;	/**< The current "depth" or layer number in the current frame where reassembly was completed.
+					 * Example: in SCTP there can be several data chunks and we want the reassemblied tvb for the final
+					 * segment only. */
+	guint32 flags;			/**< XXX - do some of these apply only to reassembly
+					 * heads and others only to fragments within
+					 * a reassembly? */
 	tvbuff_t *tvb_data;
 	/**
 	 * Null if the reassembly had no error; non-null if it had
@@ -117,9 +97,12 @@ typedef struct _fragment_item {
 /* a special fudge for the 802.11 dissector */
 #define REASSEMBLE_FLAGS_802_11_HACK		0x0002
 
-/* causes fragment_add_seq_key to check that all the fragment data is present
- * in the tvb, and if not, do something a bit odd. */
-#define REASSEMBLE_FLAGS_CHECK_DATA_PRESENT	0x0004
+/*
+ * Flags for fragment_add_seq_single_*
+ */
+
+/* we want to age off old packets */
+#define REASSEMBLE_FLAGS_AGING  0x0001
 
 /*
  * Generates a fragment identifier based on the given parameters. "data" is an
@@ -170,6 +153,14 @@ WS_DLL_PUBLIC const reassembly_table_functions
 	addresses_reassembly_table_functions;		/* keys have endpoint addresses and an ID */
 WS_DLL_PUBLIC const reassembly_table_functions
 	addresses_ports_reassembly_table_functions;	/* keys have endpoint addresses and ports and an ID */
+
+/*
+ * Register a reassembly table. By registering the table with epan, the creation and
+ * destruction of the table can be managed by epan and not the dissector.
+ */
+WS_DLL_PUBLIC void
+reassembly_table_register(reassembly_table *table,
+		      const reassembly_table_functions *funcs);
 
 /*
  * Initialize/destroy a reassembly table.
@@ -306,6 +297,35 @@ fragment_add_seq_next(reassembly_table *table, tvbuff_t *tvb, const int offset,
 		      const gboolean more_frags);
 
 /*
+ * Like fragment_add_seq_check, but for protocols like PPP MP with a single
+ * sequence number that increments for each fragment, thus acting like the sum
+ * of the PDU sequence number and explicit fragment number in other protocols.
+ * See Appendix A of RFC 4623 (PWE3 Fragmentation and Reassembly) for a list
+ * of protocols that use this style, including PPP MP (RFC 1990), PWE3 MPLS
+ * (RFC 4385), L2TPv2 (RFC 2661), L2TPv3 (RFC 3931), ATM, and Frame Relay.
+ * It is guaranteed to reassemble a packet split up to "max_frags" in size,
+ * but may manage to reassemble more in certain cases.
+ */
+WS_DLL_PUBLIC fragment_head *
+fragment_add_seq_single(reassembly_table *table, tvbuff_t *tvb,
+            const int offset, const packet_info *pinfo, const guint32 id,
+            const void* data, const guint32 frag_data_len,
+            const gboolean first, const gboolean last,
+            const guint32 max_frags);
+
+/*
+ * A variation on the above that ages off fragments that have not been
+ * reassembled. Useful if the sequence number loops to deal with leftover
+ * fragments from the beginning of the capture or missing fragments.
+ */
+WS_DLL_PUBLIC fragment_head *
+fragment_add_seq_single_aging(reassembly_table *table, tvbuff_t *tvb,
+            const int offset, const packet_info *pinfo, const guint32 id,
+            const void* data, const guint32 frag_data_len,
+            const gboolean first, const gboolean last,
+            const guint32 max_frags, const guint32 max_age);
+
+/*
  * Start a reassembly, expecting "tot_len" as the number of given fragments (not
  * the number of bytes). Data can be added later using fragment_add_seq_check.
  */
@@ -343,6 +363,18 @@ fragment_add_seq_offset(reassembly_table *table, const packet_info *pinfo, const
 WS_DLL_PUBLIC void
 fragment_set_tot_len(reassembly_table *table, const packet_info *pinfo,
 		     const guint32 id, const void *data, const guint32 tot_len);
+
+/*
+ * Similar to fragment_set_tot_len, it sets the expected number of bytes (for
+ * fragment_add functions) for a previously started reassembly. If the specified
+ * length already matches the reassembled length, then nothing will be done.
+ *
+ * If the fragments were previously reassembled, then this state will be
+ * cleared, allowing new fragments to extend the reassembled result again.
+ */
+void
+fragment_reset_tot_len(reassembly_table *table, const packet_info *pinfo,
+		       const guint32 id, const void *data, const guint32 tot_len);
 
 /*
  * Return the expected index for the last block (for fragment_add_seq functions)
@@ -429,5 +461,14 @@ show_fragment_tree(fragment_head *ipfd_head, const fragment_items *fit,
 WS_DLL_PUBLIC gboolean
 show_fragment_seq_tree(fragment_head *ipfd_head, const fragment_items *fit,
     proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, proto_item **fi);
+
+/* Initialize internal structures
+ */
+extern void reassembly_tables_init(void);
+
+/* Cleanup internal structures
+ */
+extern void
+reassembly_table_cleanup(void);
 
 #endif

@@ -7,23 +7,11 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * References:
  *
- * http://www.protocols.com/pbook/frame.htm
+ * http://web.archive.org/web/20150510093619/http://www.protocols.com/pbook/frame.htm
  * http://www.mplsforum.org/frame/Approved/FRF.3/FRF.3.2.pdf
  * ITU Recommendations Q.922 and Q.933
  * RFC-1490
@@ -38,20 +26,19 @@
 #include <epan/capture_dissectors.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/conversation.h>
 #include <wiretap/wtap.h>
 
 #include "packet-llc.h"
 #include "packet-chdlc.h"
 #include "packet-eth.h"
 #include "packet-ip.h"
-#include "packet-ipv6.h"
 #include "packet-ppp.h"
 #include "packet-juniper.h"
 #include "packet-sflow.h"
 #include "packet-l2tp.h"
 #include <epan/xdlc.h>
 #include <epan/etypes.h>
-#include <epan/oui.h>
 #include <epan/nlpid.h>
 
 void proto_register_fr(void);
@@ -122,6 +109,10 @@ static expert_field ei_fr_frame_relay_xid = EI_INIT;
 static dissector_handle_t eth_withfcs_handle;
 static dissector_handle_t gprs_ns_handle;
 static dissector_handle_t data_handle;
+static dissector_handle_t fr_handle;
+
+static capture_dissector_handle_t chdlc_cap_handle;
+static capture_dissector_handle_t eth_cap_handle;
 
 static dissector_table_t osinl_incl_subdissector_table;
 
@@ -207,7 +198,7 @@ static const xdlc_cf_items fr_cf_items_ext = {
 };
 
 static gboolean
-capture_fr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
+capture_fr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
   guint8  fr_octet;
   guint32 addr;
@@ -325,23 +316,7 @@ capture_fr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo,
         fr_nlpid = pd[offset];
       }
       offset++;
-      switch (fr_nlpid) {
-
-      case NLPID_IP:
-        return capture_ip(pd, offset, len, cpinfo, pseudo_header);
-
-      case NLPID_IP6:
-        return capture_ipv6(pd, offset, len, cpinfo, pseudo_header);
-
-      case NLPID_PPP:
-        return capture_ppp_hdlc(pd, offset, len, cpinfo, pseudo_header);
-
-      case NLPID_SNAP:
-        return capture_snap(pd, offset, len, cpinfo, pseudo_header);
-
-      default:
-        return FALSE;
-      }
+      return try_capture_dissector("fr.nlpid", fr_nlpid, pd, offset, len, cpinfo, pseudo_header);
     } else {
       if (addr == 0) {
         /*
@@ -367,7 +342,7 @@ capture_fr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo,
        * If the data does not start with unnumbered information (03) and
        * the DLCI# is not 0, then there may be Cisco Frame Relay encapsulation.
        */
-      return capture_chdlc(pd, offset, len, cpinfo, pseudo_header);
+      return call_capture_dissector(chdlc_cap_handle, pd, offset, len, cpinfo, pseudo_header);
     }
     break;
 
@@ -376,7 +351,7 @@ capture_fr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo,
 
   case RAW_ETHER:
     if (addr != 0)
-      return capture_eth(pd, offset, len, cpinfo, pseudo_header);
+      return call_capture_dissector(eth_cap_handle, pd, offset, len, cpinfo, pseudo_header);
 
     return FALSE;
   }
@@ -521,9 +496,7 @@ dissect_fr_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       proto_tree_add_uint(fr_tree, hf_fr_dlci, tvb, 0, offset, addr);
     }
 
-    pinfo->ctype = CT_DLCI;
-    pinfo->circuit_id = addr;
-
+    conversation_create_endpoint_by_id(pinfo, ENDPOINT_DLCI, addr, 0);
     col_add_fstr(pinfo->cinfo, COL_INFO, "DLCI %u", addr);
   }
 
@@ -906,7 +879,7 @@ proto_register_fr(void)
 
     { &hf_fr_oui,
       { "Organization Code", "fr.snap.oui",
-        FT_UINT24, BASE_HEX, VALS(oui_vals), 0x0,
+        FT_UINT24, BASE_OUI, NULL, 0x0,
         NULL, HFILL }},
 
     { &hf_fr_pid,
@@ -969,12 +942,12 @@ proto_register_fr(void)
   expert_register_field_array(expert_fr, ei, array_length(ei));
 
   fr_subdissector_table = register_dissector_table("fr.nlpid",
-                                                   "Frame Relay NLPID", proto_fr, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                   "Frame Relay NLPID", proto_fr, FT_UINT8, BASE_HEX);
   fr_osinl_subdissector_table = register_dissector_table("fr.osinl",
-                                                         "Frame Relay OSI NLPID", proto_fr, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                         "Frame Relay OSI NLPID", proto_fr, FT_UINT8, BASE_HEX);
 
   register_dissector("fr_uncompressed", dissect_fr_uncompressed, proto_fr);
-  register_dissector("fr", dissect_fr, proto_fr);
+  fr_handle = register_dissector("fr", dissect_fr, proto_fr);
   register_dissector("fr_stripped_address", dissect_fr_stripped_address, proto_fr);
 
   frencap_module = prefs_register_protocol(proto_fr, NULL);
@@ -989,14 +962,16 @@ proto_register_fr(void)
   prefs_register_enum_preference(frencap_module, "encap", "Encapsulation",
                                  "Encapsulation", &fr_encap,
                                  fr_encap_options, FALSE);
+
+  register_capture_dissector_table("fr.nlpid", "Frame Relay NLPID");
 }
 
 void
 proto_reg_handoff_fr(void)
 {
-  dissector_handle_t fr_handle, fr_phdr_handle;
+  dissector_handle_t fr_phdr_handle;
+  capture_dissector_handle_t fr_cap_handle;
 
-  fr_handle = find_dissector("fr");
   dissector_add_uint("gre.proto", ETHERTYPE_RAW_FR, fr_handle);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_FRELAY, fr_handle);
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_FRELAY, fr_handle);
@@ -1007,14 +982,18 @@ proto_reg_handoff_fr(void)
   fr_phdr_handle = create_dissector_handle(dissect_fr_phdr, proto_fr);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_FRELAY_WITH_PHDR, fr_phdr_handle);
 
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_FRELAY, capture_fr, proto_fr);
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_FRELAY_WITH_PHDR, capture_fr, proto_fr);
+  fr_cap_handle = create_capture_dissector_handle(capture_fr, proto_fr);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_FRELAY, fr_cap_handle);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_FRELAY_WITH_PHDR, fr_cap_handle);
 
   eth_withfcs_handle = find_dissector_add_dependency("eth_withfcs", proto_fr);
   gprs_ns_handle = find_dissector_add_dependency("gprs_ns", proto_fr);
   data_handle = find_dissector_add_dependency("data", proto_fr);
 
   osinl_incl_subdissector_table = find_dissector_table("osinl.incl");
+
+  chdlc_cap_handle = find_capture_dissector("chdlc");
+  eth_cap_handle = find_capture_dissector("eth");
 }
 
 /*

@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_P1_H
@@ -170,7 +158,7 @@
 #define ub_x121_address_length         16
 
 /*--- End of included file: packet-p1-val.h ---*/
-#line 28 "./asn1/p1/packet-p1-template.h"
+#line 16 "./asn1/p1/packet-p1-template.h"
 
 void p1_initialize_content_globals (asn1_ctx_t* actx, proto_tree *tree, gboolean report_unknown_cont_type);
 const char* p1_get_last_oraddress(asn1_ctx_t* actx);
@@ -231,7 +219,7 @@ int dissect_p1_SecurityLabel(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int o
 int dissect_p1_MessageSecurityLabel_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_);
 
 /*--- End of included file: packet-p1-exp.h ---*/
-#line 33 "./asn1/p1/packet-p1-template.h"
+#line 21 "./asn1/p1/packet-p1-template.h"
 
 void proto_reg_handoff_p1(void);
 void proto_register_p1(void);

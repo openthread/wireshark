@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -179,7 +167,6 @@ dissect_vp8(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
     gboolean hasHeader = FALSE;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "VP8");
-    col_clear(pinfo->cinfo, COL_INFO);
 
     item = proto_tree_add_item(tree, proto_vp8, tvb, 0, -1, ENC_NA);
     vp8_tree = proto_item_add_subtree(item, ett_vp8);
@@ -580,17 +567,17 @@ proto_register_vp8(void)
                             "; Values must be in the range 96 - 127",
                             &temp_dynamic_payload_type_range, 127);
 
-    register_dissector("vp8", dissect_vp8, proto_vp8);
+    vp8_handle = register_dissector("vp8", dissect_vp8, proto_vp8);
 }
 
 static void
-range_delete_vp8_rtp_pt_callback(guint32 rtp_pt) {
+range_delete_vp8_rtp_pt_callback(guint32 rtp_pt, gpointer ptr _U_) {
     if ((rtp_pt >= 96) && (rtp_pt <= 127))
         dissector_delete_uint("rtp.pt", rtp_pt, vp8_handle);
 }
 
 static void
-range_add_vp8_rtp_pt_callback(guint32 rtp_pt) {
+range_add_vp8_rtp_pt_callback(guint32 rtp_pt, gpointer ptr _U_) {
     if ((rtp_pt >= 96) && (rtp_pt <= 127))
         dissector_add_uint("rtp.pt", rtp_pt, vp8_handle);
 }
@@ -602,16 +589,15 @@ proto_reg_handoff_vp8(void)
     static gboolean  vp8_prefs_initialized      = FALSE;
 
     if (!vp8_prefs_initialized) {
-        vp8_handle = find_dissector("vp8");
         dissector_add_string("rtp_dyn_payload_type" , "VP8", vp8_handle);
         vp8_prefs_initialized = TRUE;
     } else {
-        range_foreach(dynamic_payload_type_range, range_delete_vp8_rtp_pt_callback);
-        g_free(dynamic_payload_type_range);
+        range_foreach(dynamic_payload_type_range, range_delete_vp8_rtp_pt_callback, NULL);
+        wmem_free(wmem_epan_scope(), dynamic_payload_type_range);
     }
 
-    dynamic_payload_type_range = range_copy(temp_dynamic_payload_type_range);
-    range_foreach(dynamic_payload_type_range, range_add_vp8_rtp_pt_callback);
+    dynamic_payload_type_range = range_copy(wmem_epan_scope(), temp_dynamic_payload_type_range);
+    range_foreach(dynamic_payload_type_range, range_add_vp8_rtp_pt_callback, NULL);
 }
 
 /*

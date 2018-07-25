@@ -8,25 +8,15 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/address_types.h>
 #include <epan/to_str.h>
+
+#include "packet-socketcan.h"
 
 void proto_register_j1939(void);
 void proto_reg_handoff_j1939(void);
@@ -168,11 +158,6 @@ j1939_fmt_address(gchar *result, guint32 addr )
         g_snprintf(result, ITEM_LABEL_LENGTH, "%d (Arbitrary)", addr);
 }
 
-struct can_identifier
-{
-    guint32 id;
-};
-
 static int dissect_j1939(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
     proto_item *ti, *can_id_item;
@@ -196,7 +181,7 @@ static int dissect_j1939(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "J1939");
     col_clear(pinfo->cinfo, COL_INFO);
 
-    ti = proto_tree_add_item(tree, proto_j1939, tvb, offset, -1, ENC_NA);
+    ti = proto_tree_add_item(tree, proto_j1939, tvb, offset, tvb_reported_length(tvb), ENC_NA);
     j1939_tree = proto_item_add_subtree(ti, ett_j1939);
 
     can_tree = proto_tree_add_subtree_format(j1939_tree, tvb, 0, 0,
@@ -247,27 +232,25 @@ static int dissect_j1939(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     /* For now just include raw bytes */
     col_append_fstr(pinfo->cinfo, COL_INFO, "   %s", tvb_bytes_to_str_punct(wmem_packet_scope(), tvb, 0, data_length, ' '));
 
-    msg_tree = proto_tree_add_subtree(j1939_tree, tvb, 0, -1, ett_j1939_message, NULL, "Message");
+    msg_tree = proto_tree_add_subtree(j1939_tree, tvb, 0, tvb_reported_length(tvb), ett_j1939_message, NULL, "Message");
 
     ti = proto_tree_add_uint(msg_tree, hf_j1939_pgn, tvb, 0, 0, pgn);
     PROTO_ITEM_SET_GENERATED(ti);
 
     if (!dissector_try_uint_new(subdissector_pgn_table, pgn, tvb, pinfo, msg_tree, TRUE, data))
     {
-        proto_tree_add_item(msg_tree, hf_j1939_data, tvb, 0, -1, ENC_NA);
+        proto_tree_add_item(msg_tree, hf_j1939_data, tvb, 0, tvb_reported_length(tvb), ENC_NA);
     }
 
     return tvb_captured_length(tvb);
 }
 
-static int J1939_addr_to_str(const address* addr, gchar *buf, int buf_len _U_)
+static int J1939_addr_to_str(const address* addr, gchar *buf, int buf_len)
 {
     const guint8 *addrdata = (const guint8 *)addr->data;
-    gchar *start_buf = buf;
 
-    buf = uint_to_str_back(buf, *addrdata);
-    *buf = '\0';
-    return (int)(buf-start_buf+1);
+    guint32_to_str_buf(*addrdata, buf, buf_len);
+    return (int)strlen(buf);
 }
 
 static int J1939_addr_str_len(const address* addr _U_)
@@ -333,7 +316,7 @@ void proto_register_j1939(void)
         },
         { &hf_j1939_data,
             {"Data", "j1939.data",
-            FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }
+            FT_BYTES, BASE_NONE|BASE_ALLOW_ZERO, NULL, 0x0, NULL, HFILL }
         },
     };
 
@@ -348,9 +331,9 @@ void proto_register_j1939(void)
     proto_register_field_array(proto_j1939, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    subdissector_pgn_table = register_dissector_table("j1939.pgn", "PGN Handle", proto_j1939, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+    subdissector_pgn_table = register_dissector_table("j1939.pgn", "PGN Handle", proto_j1939, FT_UINT32, BASE_DEC);
 
-    j1939_address_type = address_type_dissector_register("AT_J1939", "J1939 Address", J1939_addr_to_str, J1939_addr_str_len, J1939_col_filter_str, J1939_addr_len, NULL, NULL);
+    j1939_address_type = address_type_dissector_register("AT_J1939", "J1939 Address", J1939_addr_to_str, J1939_addr_str_len, NULL, J1939_col_filter_str, J1939_addr_len, NULL, NULL);
 }
 
 void

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  * Protocol ref:
  * http://tipc.sourceforge.net/
  */
@@ -93,7 +81,7 @@ static int hf_tipc_sm_msg_type = -1;
 static int hf_tipc_unknown_msg_type = -1;
 static int hf_tipc_seq_gap = -1;
 static int hf_tipc_nxt_snt_pkg = -1;
-static int hf_tipc_unused3 = -1;
+static int hf_tipc_unused_word = -1;
 static int hf_tipc_bearer_name = -1;
 static int hf_tipc_data = -1;
 static int hf_tipc_msg_no_bundle = -1;
@@ -194,7 +182,6 @@ static gint ett_tipc_msg_fragments = -1;
 static gint ett_tipc = -1;
 static gint ett_tipc_data = -1;
 
-static expert_field ei_tipc_words_unused_for_user = EI_INIT;
 static expert_field ei_tipc_field_not_specified = EI_INIT;
 
 static int tipc_address_type = -1;
@@ -207,15 +194,12 @@ static gboolean try_heuristic_first = FALSE;
 #define V2_AS_1_6  0x2
 #define V2_AS_1_7  0x4
 static gint     handle_v2_as = V2_AS_ALL;
-static guint tipc_alternate_tcp_port = 0;
 static gboolean tipc_tcp_desegment = TRUE;
 
 static dissector_handle_t tipc_handle;
 
 /* IANA have assigned port 6118 port for TIPC UDP transport. */
-#define DEFAULT_TIPC_PORT_RANGE   "0"
-
-static range_t *global_tipc_udp_port_range;
+#define DEFAULT_TIPC_PORT_RANGE   "6118"
 
 /* this is used to find encapsulated protocols */
 static dissector_table_t tipc_user_dissector;
@@ -581,20 +565,6 @@ void proto_reg_handoff_tipc(void);
 
 static reassembly_table tipc_msg_reassembly_table;
 
-
-static void
-tipc_defragment_init(void)
-{
-	reassembly_table_init(&tipc_msg_reassembly_table,
-	    &addresses_reassembly_table_functions);
-}
-
-static void
-tipc_defragment_cleanup(void)
-{
-	reassembly_table_destroy(&tipc_msg_reassembly_table);
-}
-
 static gchar*
 tipc_addr_value_to_buf(guint tipc_address, gchar *buf, int buf_len)
 {
@@ -915,12 +885,24 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			proto_tree_add_string(tipc_tree, hf_tipcv2_prev_node, tipc_tvb, offset, 4, addr_str_ptr);
 			offset = offset + 4;
 			if (handle_v2_as & (V2_AS_1_6)) {
-				/* W4-8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 20, "words 4-8 unused for this user");
-				offset = offset + 20;
+				/* W4 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
+				offset = offset + 4;
+				/* W5 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
+				offset = offset + 4;
+				/* W6 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 6 unused for this user");
+				offset = offset + 4;
+				/* W7 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 7 unused for this user");
+				offset = offset + 4;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
 			} else {
-				/* W4 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 4 unused for this user");
+				/* W4 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
 				offset = offset + 4;
 				/* W5 */
 				proto_tree_add_item(tipc_tree, hf_tipcv2_network_id, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -935,8 +917,8 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				addr_str_ptr = tipc_addr_to_str(dword);
 				proto_tree_add_string(tipc_tree, hf_tipcv2_dest_node, tipc_tvb, offset, 4, addr_str_ptr);
 				offset = offset + 4;
-				/* W8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 8 unused for this user");
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
 				offset = offset + 4;
 			}
 			/* W9 */
@@ -946,10 +928,12 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			break;
 		case TIPCv2_MSG_BUNDLER:
 			if (handle_v2_as & (V2_AS_1_6)) {
-				/* W1+W2 */
-				/* No message types */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 8, "words 1+2 unused for this user");
-				offset = offset + 8;
+				/* W1 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 1 unused for this user");
+				offset = offset + 4;
+				/* W2 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 2 unused for this user");
+				offset = offset + 4;
 			} else {
 				/* W1 */
 				proto_tree_add_item(tipc_tree, hf_tipcv2_bundler_mtype, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -966,13 +950,28 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			proto_tree_add_string(tipc_tree, hf_tipcv2_prev_node, tipc_tvb, offset, 4, addr_str_ptr);
 			offset = offset + 4;
 			if (handle_v2_as & (V2_AS_1_6)) {
-				/* W4-8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 20, "words 4-8 unused for this user");
-				offset = offset + 20;
+				/* W4 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
+				offset = offset + 4;
+				/* W5 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
+				offset = offset + 4;
+				/* W6 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 6 unused for this user");
+				offset = offset + 4;
+				/* W7 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 7 unused for this user");
+				offset = offset + 4;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
 			} else {
-				/* W4+5 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 8, "words 4+5 unused for this user");
-				offset = offset + 8;
+				/* W4 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
+				offset = offset + 4;
+				/* W5 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
+				offset = offset + 4;
 				/* W6 */
 				dword = tvb_get_ntohl(tipc_tvb, offset);
 				addr_str_ptr = tipc_addr_to_str(dword);
@@ -983,8 +982,8 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				addr_str_ptr = tipc_addr_to_str(dword);
 				proto_tree_add_string(tipc_tree, hf_tipcv2_dest_node, tipc_tvb, offset, 4, addr_str_ptr);
 				offset = offset + 4;
-				/* W8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 8 unused for this user");
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
 				offset = offset + 4;
 			}
 			/* W9 */
@@ -1062,9 +1061,15 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			proto_tree_add_item(tipc_tree, hf_tipcv2_probe, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
 			offset = offset + 4;
 			if (handle_v2_as & (V2_AS_1_6)) {
-				/* W6-8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 12, "words 6-8 unused for this user");
-				offset = offset + 12;
+				/* W6 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 6 unused for this user");
+				offset = offset + 4;
+				/* W7 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 7 unused for this user");
+				offset = offset + 4;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
 			} else {
 				/* W6 */
 				dword = tvb_get_ntohl(tipc_tvb, offset);
@@ -1152,12 +1157,11 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			proto_tree_add_string(tipc_tree, hf_tipcv2_dest_node, tipc_tvb, offset, 4, addr_str_ptr);
 			offset = offset + 4;
 
-			/* W8 */
-			/* according to Allan Stephens this was never verfied by the receiver
+			/* W8 Unused */
+			/* might be set prior to 1.7.3 but according to Allan Stephens this was never verfied by the receiver
 			   proto_tree_add_item(tipc_tree, hf_tipcv2_transport_seq_no, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
 			   */
-			proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4,
-						"word 8 unused for this user (might be set prior to 1.7.3 but was never verified)");
+			proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
 			offset = offset + 4;
 
 
@@ -1201,12 +1205,27 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			/* W4 */
 
 			if (handle_v2_as & V2_AS_1_6) {
-				/* W4-9 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 24, "words 4-9 unused for this user");
-				offset = offset + 24;
+				/* W4 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
+				offset = offset + 4;
+				/* W5 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
+				offset = offset + 4;
+				/* W6 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 6 unused for this user");
+				offset = offset + 4;
+				/* W7 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 7 unused for this user");
+				offset = offset + 4;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
+				/* W9 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 9 unused for this user");
+				offset = offset + 4;
 			} else {
-				/* W4 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 4 unused for this user");
+				/* W4 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
 				offset = offset + 4;
 				/* W5 */
 				proto_tree_add_item(tipc_tree, hf_tipc_dst_port, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -1221,8 +1240,8 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				addr_str_ptr = tipc_addr_to_str(dword);
 				proto_tree_add_string(tipc_tree, hf_tipcv2_dest_node, tipc_tvb, offset, 4, addr_str_ptr);
 				offset = offset + 4;
-				/* W8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 8 unused for this user");
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
 				offset = offset + 4;
 				/* W9 */
 				dword = tvb_get_ntohl(tipc_tvb, offset);
@@ -1290,8 +1309,8 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			addr_str_ptr = tipc_addr_to_str(dword);
 			proto_tree_add_string(tipc_tree, hf_tipcv2_prev_node, tipc_tvb, offset, 4, addr_str_ptr);
 			offset = offset + 4;
-			/* W4 */
-			proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 4 unused for this user");
+			/* W4 Unused */
+			proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
 			offset = offset + 4;
 			/* W5 */
 			/* the following two fields appear in this user according to */
@@ -1305,9 +1324,15 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			offset = offset + 4;
 			/* W6-W8 */
 			if (handle_v2_as & (V2_AS_1_6)) {
-				/* W6-8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 12, "words 6-8 unused for this user");
-				offset = offset + 12;
+				/* W6 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 6 unused for this user");
+				offset = offset + 4;
+				/* W7 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 7 unused for this user");
+				offset = offset + 4;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
 			} else {
 				/* W6 */
 				dword = tvb_get_ntohl(tipc_tvb, offset);
@@ -1319,8 +1344,8 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				addr_str_ptr = tipc_addr_to_str(dword);
 				proto_tree_add_string(tipc_tree, hf_tipcv2_dest_node, tipc_tvb, offset, 4, addr_str_ptr);
 				offset = offset + 4;
-				/* W8 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 8 unused for this user");
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
 				offset = offset + 4;
 			}
 			/* W9 */
@@ -1328,7 +1353,8 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			{
 				case 0:
 					/* DUPLICATE_MSG */
-					proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 9 unused for this message type");
+					/* W9 Unused */
+					proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 9 unused for this user");
 					break;
 				case 1:
 					/* ORIGINAL_MSG */
@@ -1354,9 +1380,12 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			addr_str_ptr = tipc_addr_to_str(dword);
 			proto_tree_add_string(tipc_tree, hf_tipcv2_prev_node, tipc_tvb, offset, 4, addr_str_ptr);
 			offset = offset + 4;
-			/* W4+W5 */
-			proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 8, "words 4+5 unused for this user");
-			offset = offset + 8;
+			/* W4 Unused */
+			proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 4 unused for this user");
+			offset = offset + 4;
+			/* W5 Unused */
+			proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
+			offset = offset + 4;
 			/* W6 */
 			/* Originating Node: 32 bits. */
 			dword = tvb_get_ntohl(tipc_tvb, offset);
@@ -1375,12 +1404,14 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				proto_tree_add_item(tipc_tree, hf_tipcv2_transport_seq_no, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
 				offset = offset + 4;
 			} else {
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 8 unused for this user");
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
 				offset = offset + 4;
 			}
 			/* W9 */
 			if (handle_v2_as & V2_AS_1_6) {
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 9 unused for this user");
+				/* W9 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 9 unused for this user");
 				offset = offset + 4;
 			} else {
 				dword = tvb_get_ntohl(tipc_tvb, offset);
@@ -1417,12 +1448,24 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 			frag_msg_no = dword & 0x0000ffff;
 			offset = offset + 4;
 			if (handle_v2_as & (V2_AS_1_6)) {
-				/* W5-W9 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 20, "words 5-9 unused for this user");
-				offset = offset + 20;
+				/* W5 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
+				offset = offset + 4;
+				/* W6 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 6 unused for this user");
+				offset = offset + 4;
+				/* W7 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 7 unused for this user");
+				offset = offset + 4;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
+				/* W9 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 9 unused for this user");
+				offset = offset + 4;
 			} else {
-				/* W5 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 4, "word 5 unused for this user");
+				/* W5 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 5 unused for this user");
 				offset = offset + 4;
 				/* W6 */
 				dword = tvb_get_ntohl(tipc_tvb, offset);
@@ -1434,9 +1477,12 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 				addr_str_ptr = tipc_addr_to_str(dword);
 				proto_tree_add_string(tipc_tree, hf_tipcv2_dest_node, tipc_tvb, offset, 4, addr_str_ptr);
 				offset = offset + 4;
-				/* W8+9 */
-				proto_tree_add_expert_format(tipc_tree, pinfo, &ei_tipc_words_unused_for_user, tipc_tvb, offset, 8, "words 8+9 unused for this user");
-				offset = offset + 8;
+				/* W8 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 8 unused for this user");
+				offset = offset + 4;
+				/* W9 Unused */
+				proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tipc_tvb, offset, 4, "word 9 unused for this user");
+				offset = offset + 4;
 			}
 
 			len = (msg_size - (orig_hdr_size<<2));
@@ -1477,14 +1523,14 @@ dissect_tipc_v2_internal_msg(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_i
 					col_set_fence(pinfo->cinfo, COL_INFO);
 					dissect_tipc(new_tvb, pinfo, top_tree, NULL);
 				} else { /* make a new subset */
-					data_tvb = tvb_new_subset(tipc_tvb, offset, len, reported_len);
+					data_tvb = tvb_new_subset_length_caplen(tipc_tvb, offset, len, reported_len);
 					call_data_dissector(data_tvb, pinfo, top_tree);
 				}
 
 				pinfo->fragmented = save_fragmented;
 			} else {
 				/* don't reassemble is set in the "preferences" */
-				data_tvb = tvb_new_subset(tipc_tvb, offset, len, reported_len);
+				data_tvb = tvb_new_subset_length_caplen(tipc_tvb, offset, len, reported_len);
 				call_data_dissector(data_tvb, pinfo, top_tree);
 			}
 
@@ -1812,7 +1858,7 @@ dissect_tipc_v2(tvbuff_t *tipc_tvb, proto_tree *tipc_tree, packet_info *pinfo, i
 	/* TIPCv2 data */
 	len = (msg_size - (orig_hdr_size<<2));
 	reported_len = tvb_reported_length_remaining(tipc_tvb, offset);
-	data_tvb = tvb_new_subset(tipc_tvb, offset, len, reported_len);
+	data_tvb = tvb_new_subset_length_caplen(tipc_tvb, offset, len, reported_len);
 
 	call_tipc_v2_data_subdissectors(data_tvb, pinfo, name_type_p, user);
 }
@@ -1949,9 +1995,8 @@ dissect_tipc_int_prot_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tipc_tr
 	proto_tree_add_item(tipc_tree, hf_tipc_nxt_snt_pkg, tvb, offset, 4, ENC_BIG_ENDIAN);
 
 	offset = offset + 4;
-	/* W6 */
-	/* Unused */
-	proto_tree_add_item(tipc_tree, hf_tipc_unused3, tvb, offset, 4, ENC_BIG_ENDIAN);
+	/* W6 Unused */
+	proto_tree_add_none_format(tipc_tree, hf_tipc_unused_word, tvb, offset, 4, "word 6 unused for this user");
 	offset = offset + 4;
 	/* W7 */
 	if (msg_size == 28) /* No data */
@@ -2084,7 +2129,7 @@ dissect_tipc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 	proto_item *ti, *item;
 	proto_tree *tipc_tree, *tipc_data_tree;
 	int offset = 0;
-	guint32 dword;
+	guint32 srcport, destport = 0, dword;
 	guint8  version;
 	guint32 msg_size;
 	guint8  hdr_size;
@@ -2236,16 +2281,14 @@ dissect_tipc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 			break;
 	}
 
-	dword = tvb_get_ntohl(tipc_tvb, offset);
-	pinfo->ptype = PT_TIPC;
-	pinfo->srcport = dword;
-	proto_tree_add_item(tipc_tree, hf_tipc_org_port, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
+	proto_tree_add_item_ret_uint(tipc_tree, hf_tipc_org_port, tipc_tvb, offset, 4, ENC_BIG_ENDIAN, &srcport);
 	offset = offset + 4;
 	if (user != TIPC_NAME_DISTRIBUTOR) {
-		dword = tvb_get_ntohl(tipc_tvb, offset);
-		pinfo->destport = dword;
-		proto_tree_add_item(tipc_tree, hf_tipc_dst_port, tipc_tvb, offset, 4, ENC_BIG_ENDIAN);
+		proto_tree_add_item_ret_uint(tipc_tree, hf_tipc_dst_port, tipc_tvb, offset, 4, ENC_BIG_ENDIAN, &destport);
 	}
+
+	conversation_create_endpoint(pinfo, &pinfo->src, &pinfo->dst, ENDPOINT_TIPC, srcport, destport, 0);
+
 	offset = offset + 4;
 	/* 20 - 24 Bytes
 	   20 bytes: Used in subnetwork local, connection oriented messages, where error code, reroute
@@ -2573,10 +2616,10 @@ proto_register_tipc(void)
 				FT_UINT32, BASE_DEC, NULL, 0x0000ffff,
 				"TIPC Next sent packet", HFILL }
 		},
-		{ &hf_tipc_unused3,
-			{ "Unused", "tipc.unused3",
-				FT_UINT32, BASE_DEC, NULL, 0x0,
-				"TIPC Unused", HFILL }
+		{ &hf_tipc_unused_word,
+			{ "Word Unused", "tipc.unused_word",
+				FT_NONE, BASE_NONE, NULL, 0x0,
+				NULL, HFILL }
 		},
 		{ &hf_tipc_bearer_name,
 			{ "Bearer name", "tipc.bearer_name",
@@ -2996,7 +3039,6 @@ proto_register_tipc(void)
 	};
 
 	static ei_register_info ei[] = {
-		{ &ei_tipc_words_unused_for_user, { "tipc.words_unused_for_user", PI_PROTOCOL, PI_WARN, "words unused for this user", EXPFILL }},
 		{ &ei_tipc_field_not_specified, { "tipc.field_not_specified", PI_PROTOCOL, PI_WARN, "This field is not specified in TIPC v7", EXPFILL }},
 	};
 
@@ -3012,8 +3054,7 @@ proto_register_tipc(void)
 	};
 
 	/* Register the protocol name and description */
-	proto_tipc = proto_register_protocol("Transparent Inter Process Communication(TIPC)",
-			"TIPC", "tipc");
+	proto_tipc = proto_register_protocol("Transparent Inter Process Communication(TIPC)", "TIPC", "tipc");
 
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_tipc, hf, array_length(hf));
@@ -3026,12 +3067,12 @@ proto_register_tipc(void)
 
 	/* this allows e.g. to dissect everything which is TIPC Data */
 	tipc_user_dissector = register_dissector_table("tipc.usr",
-			"TIPC user", proto_tipc, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+			"TIPC user", proto_tipc, FT_UINT8, BASE_DEC);
 	/* this allows to dissect everything which is TIPC Data and uses a specific
 	 * port name type it actually does not really work because the type is not
 	 * necessarily set in every data message */
 	tipc_type_dissector = register_dissector_table("tipcv2.port_name_type",
-			"TIPC port name type", proto_tipc, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+			"TIPC port name type", proto_tipc, FT_UINT32, BASE_DEC);
 
 	/* make heuristic dissectors possible */
 	tipc_heur_subdissector_list = register_heur_dissector_list("tipc", proto_tipc);
@@ -3039,23 +3080,14 @@ proto_register_tipc(void)
 	/* Register by name */
 	tipc_handle = register_dissector("tipc", dissect_tipc, proto_tipc);
 
-	register_init_routine(tipc_defragment_init);
-	register_cleanup_routine(tipc_defragment_cleanup);
+	reassembly_table_register(&tipc_msg_reassembly_table,
+	    &addresses_reassembly_table_functions);
 
 	/* Register configuration options */
-	tipc_module = prefs_register_protocol(proto_tipc, proto_reg_handoff_tipc);
+	tipc_module = prefs_register_protocol(proto_tipc, NULL);
 
-	tipc_address_type = address_type_dissector_register("tipc_address_type", "TIPC Address Zone,Subnetwork,Processor",
-														tipc_addr_to_str_buf, tipc_addr_str_len, NULL, NULL, NULL, NULL);
-
-	/* Set default ports */
-	range_convert_str(&global_tipc_udp_port_range, DEFAULT_TIPC_PORT_RANGE, MAX_TCP_PORT);
-
-	prefs_register_range_preference(tipc_module, "udp.ports", "TIPC UDP ports",
-								  "UDP ports to be decoded as TIPC (default: "
-								  DEFAULT_TIPC_PORT_RANGE ")"
-								  "IANA have assigned port 6118 port for TIPC UDP transport.",
-								  &global_tipc_udp_port_range, MAX_UDP_PORT);
+	tipc_address_type = address_type_dissector_register("AT_TIPC", "TIPC Address Zone,Subnetwork,Processor",
+														tipc_addr_to_str_buf, tipc_addr_str_len, NULL, NULL, NULL, NULL, NULL);
 
 	prefs_register_bool_preference(tipc_module, "defragment",
 			"Reassemble TIPCv1 SEGMENTATION_MANAGER datagrams",
@@ -3079,10 +3111,6 @@ proto_register_tipc(void)
 			handle_v2_as_options,
 			TRUE);
 
-	prefs_register_uint_preference(tipc_module, "alternate_port",
-			"TIPC-over-TCP port", "Decode this TCP ports traffic as TIPC. Set to \"0\" to disable.", 10,
-			&tipc_alternate_tcp_port);
-
 	prefs_register_bool_preference(tipc_module, "desegment",
 			"Reassemble TIPC-over-TCP messages spanning multiple TCP segments",
 			"Whether the TIPC-over-TCP dissector should reassemble messages spanning multiple TCP segments. "
@@ -3093,33 +3121,14 @@ proto_register_tipc(void)
 void
 proto_reg_handoff_tipc(void)
 {
-	static gboolean inited = FALSE;
-	static dissector_handle_t tipc_tcp_handle;
-	static guint tipc_alternate_tcp_port_prev = 0;
-	static range_t *tipc_udp_port_range;
+	dissector_handle_t tipc_tcp_handle;
 
-	if (!inited) {
-		tipc_tcp_handle = create_dissector_handle(dissect_tipc_tcp, proto_tipc);
-		ip_handle = find_dissector("ip");
+	tipc_tcp_handle = create_dissector_handle(dissect_tipc_tcp, proto_tipc);
+	ip_handle = find_dissector("ip");
 
-		dissector_add_uint("ethertype", ETHERTYPE_TIPC, tipc_handle);
-
-		inited = TRUE;
-	} else {
-		/* change TIPC-over-TCP port if changed in the preferences */
-		if (tipc_alternate_tcp_port != tipc_alternate_tcp_port_prev) {
-			if (tipc_alternate_tcp_port_prev != 0)
-				dissector_delete_uint("tcp.port", tipc_alternate_tcp_port_prev, tipc_tcp_handle);
-			if (tipc_alternate_tcp_port != 0)
-				dissector_add_uint("tcp.port", tipc_alternate_tcp_port, tipc_tcp_handle);
-			tipc_alternate_tcp_port_prev = tipc_alternate_tcp_port;
-		}
-		dissector_add_uint_range("udp.port", tipc_udp_port_range, tipc_handle);
-		g_free(tipc_udp_port_range);
-	}
-
-	tipc_udp_port_range = range_copy(global_tipc_udp_port_range);
-	dissector_add_uint_range("udp.port", tipc_udp_port_range, tipc_handle);
+	dissector_add_uint("ethertype", ETHERTYPE_TIPC, tipc_handle);
+	dissector_add_for_decode_as_with_preference("tcp.port", tipc_tcp_handle);
+	dissector_add_uint_range_with_preference("udp.port", DEFAULT_TIPC_PORT_RANGE, tipc_handle);
 }
 
 /*

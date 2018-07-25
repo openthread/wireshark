@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
 
  * The information used comes from:
  * RFC6810: The Resource Public Key Infrastructure (RPKI) to Router Protocol
@@ -29,6 +17,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include "packet-tcp.h"
+#include "packet-ssl.h"
 #include <epan/expert.h>
 #include <epan/asn1.h>
 #include "packet-x509af.h"
@@ -62,14 +51,18 @@ static int hf_rpkirtr_expire_interval = -1;
 static int hf_rpkirtr_subject_key_identifier = -1;
 static int hf_rpkirtr_subject_public_key_info = -1;
 
-static guint g_port_rpkirtr     = 323;
-static guint g_port_rpkirtr_tls = 324;
+#define RPKI_RTR_TCP_PORT 323
+#define RPKI_RTR_TLS_PORT 324
+static guint g_port_rpkirtr_tls = RPKI_RTR_TLS_PORT;
 
 static gint ett_rpkirtr = -1;
 static gint ett_flags   = -1;
 static gint ett_flags_nd = -1;
 
 static expert_field ei_rpkirtr_wrong_version_router_key = EI_INIT;
+static expert_field ei_rpkirtr_bad_length = EI_INIT;
+
+static dissector_handle_t rpkirtr_handle;
 
 
 /* http://www.iana.org/assignments/rpki/rpki.xml#rpki-rtr-pdu */
@@ -108,6 +101,7 @@ static const value_string rtr_error_code_vals[] = {
     { 5, "Unsupported PDU Type" },
     { 6, "Withdrawal of Unknown Record" },
     { 7, "Duplicate Announcement Received" },
+    { 8, "Unexpected Protocol Version" },
     { 0, NULL }
 };
 
@@ -144,7 +138,7 @@ static int dissect_rpkirtr_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     guint8 pdu_type, version;
     guint length;
 
-    while (tvb_reported_length_remaining(tvb, offset) != 0) {
+    while (tvb_reported_length_remaining(tvb, offset) > 0) {
 
         ti = proto_tree_add_item(tree, proto_rpkirtr, tvb, 0, -1, ENC_NA);
 
@@ -292,13 +286,18 @@ static int dissect_rpkirtr_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                 offset +=  len_pdu;
                 proto_tree_add_item(rpkirtr_tree, hf_rpkirtr_length_text,      tvb, offset, 4, ENC_BIG_ENDIAN);
                 len_text =                                                     tvb_get_ntohl(tvb, offset);
-                offset += 4,
+                offset += 4;
                 proto_tree_add_item(rpkirtr_tree, hf_rpkirtr_error_text,   tvb, offset, len_text, ENC_ASCII|ENC_NA);
                 offset += len_text;
             }
             break;
             default:
-                /* No default ? */
+                /* No default ? At least sanity check the length*/
+                if (length > tvb_reported_length(tvb)) {
+                    expert_add_info(pinfo, ti_type, &ei_rpkirtr_bad_length);
+                    return tvb_reported_length(tvb);
+                }
+
                 offset += length;
                 break;
         }
@@ -453,6 +452,7 @@ proto_register_rpkirtr(void)
 
     static ei_register_info ei[] = {
         { &ei_rpkirtr_wrong_version_router_key, { "rpkirtr.router_key.wrong_version", PI_MALFORMED, PI_WARN, "Wrong version for Router Key type", EXPFILL }},
+        { &ei_rpkirtr_bad_length, { "rpkirtr.bad_length", PI_MALFORMED, PI_ERROR, "Invalid length field", EXPFILL }},
     };
 
     expert_module_t *expert_rpkirtr;
@@ -466,15 +466,13 @@ proto_register_rpkirtr(void)
     rpkirtr_module = prefs_register_protocol(proto_rpkirtr,
         proto_reg_handoff_rpkirtr);
 
-    prefs_register_uint_preference(rpkirtr_module, "tcp.rpkirtr.port", "RPKI-RTR TCP Port",
-         "RPKI-Router Protocol TCP port if other than the default",
-         10, &g_port_rpkirtr);
     prefs_register_uint_preference(rpkirtr_module, "tcp.rpkirtr_tls.port", "RPKI-RTR TCP TLS Port",
          "RPKI-Router Protocol TCP TLS port if other than the default",
          10, &g_port_rpkirtr_tls);
 
     expert_rpkirtr = expert_register_protocol(proto_rpkirtr);
     expert_register_field_array(expert_rpkirtr, ei, array_length(ei));
+    rpkirtr_handle = register_dissector("rpkirtr", dissect_rpkirtr, proto_rpkirtr);
 }
 
 
@@ -482,27 +480,17 @@ void
 proto_reg_handoff_rpkirtr(void)
 {
     static gboolean initialized = FALSE;
-    static dissector_handle_t rpkirtr_handle;
-    static dissector_handle_t ssl_handle;
-    static int rpki_rtr_port, rpki_rtr_tls_port;
+    static int rpki_rtr_tls_port;
 
     if (!initialized) {
-
-        rpkirtr_handle = create_dissector_handle(dissect_rpkirtr,
-                                                        proto_rpkirtr);
-        ssl_handle           = find_dissector("ssl");
+        dissector_add_uint_with_preference("tcp.port", RPKI_RTR_TCP_PORT, rpkirtr_handle);
         initialized = TRUE;
     } else {
-
-        dissector_delete_uint("tcp.port", rpki_rtr_port, rpkirtr_handle);
-        dissector_delete_uint("tcp.port", rpki_rtr_tls_port, ssl_handle);
+        ssl_dissector_delete(rpki_rtr_tls_port, rpkirtr_handle);
     }
 
-    rpki_rtr_port = g_port_rpkirtr;
     rpki_rtr_tls_port = g_port_rpkirtr_tls;
-
-    dissector_add_uint("tcp.port", rpki_rtr_port, rpkirtr_handle);
-    dissector_add_uint("tcp.port", rpki_rtr_tls_port, ssl_handle);
+    ssl_dissector_add(rpki_rtr_tls_port, rpkirtr_handle);
 }
 
 

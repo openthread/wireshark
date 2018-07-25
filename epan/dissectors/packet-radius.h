@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <epan/proto.h>
@@ -78,10 +66,28 @@
  */
 #define RADIUS_ATTR_TYPE_VENDOR_SPECIFIC			26
 #define RADIUS_ATTR_TYPE_EAP_MESSAGE				79
+#define RADIUS_ATTR_TYPE_EXTENDED_1				241
+#define RADIUS_ATTR_TYPE_EXTENDED_2				242
+#define RADIUS_ATTR_TYPE_EXTENDED_3				243
+#define RADIUS_ATTR_TYPE_EXTENDED_4				244
+#define RADIUS_ATTR_TYPE_EXTENDED_5				245
+#define RADIUS_ATTR_TYPE_EXTENDED_6				246
+
+#define RADIUS_ATTR_TYPE_IS_EXTENDED(avp_type)			\
+	((avp_type) == RADIUS_ATTR_TYPE_EXTENDED_1 ||		\
+		(avp_type) == RADIUS_ATTR_TYPE_EXTENDED_2 ||	\
+		(avp_type) == RADIUS_ATTR_TYPE_EXTENDED_3 ||	\
+		(avp_type) == RADIUS_ATTR_TYPE_EXTENDED_4 ||	\
+		(avp_type) == RADIUS_ATTR_TYPE_EXTENDED_5 ||	\
+		(avp_type) == RADIUS_ATTR_TYPE_EXTENDED_6)
+
+#define RADIUS_ATTR_TYPE_IS_EXTENDED_LONG(avp_type)		\
+	((avp_type) == RADIUS_ATTR_TYPE_EXTENDED_5 ||		\
+		(avp_type) == RADIUS_ATTR_TYPE_EXTENDED_6)
 
 
 typedef struct _radius_vendor_info_t {
-	const gchar *name;
+	gchar *name;
 	guint code;
 	GHashTable* attrs_by_id;
 	gint ett;
@@ -95,9 +101,14 @@ typedef void (radius_attr_dissector_t)(radius_attr_info_t*, proto_tree*, packet_
 
 typedef const gchar* (radius_avp_dissector_t)(proto_tree*,tvbuff_t*, packet_info*);
 
+typedef union _radius_attr_type_t {
+	guint8 u8_code[2];
+	guint  value;
+} radius_attr_type_t;
+
 struct _radius_attr_info_t {
-	const gchar *name;
-	guint code;
+	gchar *name;
+	radius_attr_type_t code;
 	guint encrypt;  /* 0 or value for "encrypt=" option */
 	gboolean tagged;
 	radius_attr_dissector_t* type;
@@ -108,15 +119,23 @@ struct _radius_attr_info_t {
 	int hf_alt;     /* 64-bit version for integers, encrypted version for strings, IPv6 for radius_combo_ip */
 	int hf_tag;
 	int hf_len;
-	GHashTable* tlvs_by_id;
+	GHashTable* tlvs_by_id; /**< Owns the data (see also radius_dictionary_t). */
 };
 
+/*
+ * Attributes and Vendors are a mapping between IDs and names. Names
+ * are normally uniquely identified by a number. Identifiers for
+ * Vendor-Specific Attributes (VSA) are scoped within the vendor.
+ *
+ * The attribute/vendor structures are owned by the by_id tables,
+ * the by_name tables point to the same data.
+ */
 typedef struct _radius_dictionary_t {
 	GHashTable* attrs_by_id;
 	GHashTable* attrs_by_name;
 	GHashTable* vendors_by_id;
 	GHashTable* vendors_by_name;
-	GHashTable* tlvs_by_name;
+	GHashTable* tlvs_by_name;   /**< Used for debugging duplicate assignments, does not own the data. */
 } radius_dictionary_t;
 
 radius_attr_dissector_t radius_integer;
@@ -138,6 +157,7 @@ radius_attr_dissector_t radius_tlv;
 
 extern void radius_register_avp_dissector(guint32 vendor_id, guint32 attribute_id, radius_avp_dissector_t dissector);
 void dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, int offset, guint length);
+extern void free_radius_attr_info(gpointer data);
 
 /* from radius_dict.l */
 gboolean radius_load_dictionary (radius_dictionary_t* dict, gchar* directory, const gchar* filename, gchar** err_str);

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 # include "config.h"
@@ -27,6 +15,7 @@
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/proto_data.h>
+#include <epan/exceptions.h>
 
 #include "packet-smb.h"
 #include "packet-smb2.h"
@@ -213,7 +202,7 @@ struct CFullPropSpec {
 	enum PRSPEC_Kind kind;
 	union {
 		guint32 propid;
-		char *name;
+		const guint8 *name;
 	} u;
 };
 
@@ -259,7 +248,7 @@ struct CCoercionRestriction {
 /* 2.2.1.3 */
 struct CContentRestriction {
 	struct CFullPropSpec property;
-	const char *phrase;
+	const guint8 *phrase;
 	guint32 lcid;
 	guint32 method;
 };
@@ -272,11 +261,42 @@ struct CReuseWhere /*Restriction*/ {
 /* 2.2.1.5 */
 struct CNatLanguageRestriction {
 	struct CFullPropSpec property;
-	const char *phrase;
+	const guint8 *phrase;
 	guint32 lcid;
 };
 
 #define PROP_LENGTH 255
+
+enum aggtype {
+	DBAGGTTYPE_BYNONE = 0x0,
+	DBAGGTTYPE_SUM,
+	DBAGGTTYPE_MAX,
+	DBAGGTTYPE_MIN,
+	DBAGGTTYPE_AVG,
+	DBAGGTTYPE_COUNT,
+	DBAGGTTYPE_CHILDCOUNT,
+	DBAGGTTYPE_BYFREQ,
+	DBAGGTTYPE_FIRST,
+	DBAGGTTYPE_DATERANGE,
+	DBAGGTTYPE_REPRESENTATIVEOF,
+	DBAGGTTYPE_EDITDISTANCE,
+};
+
+static const value_string DBAGGTTYPE[] = {
+	{DBAGGTTYPE_BYNONE, "DBAGGTTYPE_BYNONE"},
+	{DBAGGTTYPE_SUM, "DBAGGTTYPE_SUM"},
+	{DBAGGTTYPE_MAX, "DBAGGTTYPE_MAX"},
+	{DBAGGTTYPE_MIN, "DBAGGTTYPE_MIN"},
+	{DBAGGTTYPE_AVG, "DBAGGTTYPE_AVG"},
+	{DBAGGTTYPE_COUNT, "DBAGGTTYPE_COUNT"},
+	{DBAGGTTYPE_CHILDCOUNT, "DBAGGTTYPE_CHILDCOUNT"},
+	{DBAGGTTYPE_BYFREQ, "DBAGGTTYPE_BYFREQ"},
+	{DBAGGTTYPE_FIRST, "DBAGGTTYPE_FIRST"},
+	{DBAGGTTYPE_DATERANGE, "DBAGGTTYPE_DATERANGE"},
+	{DBAGGTTYPE_REPRESENTATIVEOF, "DBAGGTTYPE_REPRESENTATIVEOF"},
+	{DBAGGTTYPE_EDITDISTANCE, "DBAGGTTYPE_EDITDISTANCE"},
+	{0, NULL}
+};
 
 /* 2.2.1.44 */
 struct CTableColumn {
@@ -293,6 +313,8 @@ struct CTableColumn {
 	guint16 lengthoffset;
 	char name[PROP_LENGTH];
 };
+/* minimum size in bytes on the wire CTableColumn can be */
+#define MIN_CTABLECOL_SIZE 32
 
 /* 2.2.3.10 */
 
@@ -427,6 +449,8 @@ static int hf_mswsp_caggregspec_type = -1;
 static int hf_mswsp_caggregspec_ccalias = -1;
 static int hf_mswsp_caggregspec_alias = -1;
 static int hf_mswsp_caggregspec_idcolumn = -1;
+static int hf_mswsp_caggregspec_ulmaxnumtoreturn = -1;
+static int hf_mswsp_caggregspec_idrepresentative = -1;
 static int hf_mswsp_caggregset_count = -1;
 static int hf_mswsp_caggregsortkey_order = -1;
 static int hf_mswsp_csortaggregset_count = -1;
@@ -468,7 +492,6 @@ static int hf_mswsp_msg_cpmcreatequery_size = -1;
 static int hf_mswsp_msg_cpmcreatequery_ccolumnsetpresent = -1;
 static int hf_mswsp_msg_cpmcreatequery_crestrictionpresent = -1;
 static int hf_mswsp_msg_cpmcreatequery_csortpresent = -1;
-static int hf_mswsp_msg_cpmcreatequery_csortset_xxx = -1;
 static int hf_mswsp_msg_cpmcreatequery_ccategpresent = -1;
 static int hf_mswsp_msg_cpmcreatequery_ccateg_count = -1;
 static int hf_mswsp_msg_cpmcreatequery_trueseq = -1;
@@ -716,25 +739,6 @@ static gboolean get_fid_and_frame(packet_info *pinfo, guint32 *fid, guint *frame
 	return result;
 }
 
-static GSList *conv_tables = NULL;
-
-static void
-mswsp_init_protocol(void)
-{
-	GSList *table_iter;
-	if (conv_tables) {
-		for(table_iter = conv_tables; table_iter;
-			table_iter = table_iter->next) {
-			struct mswsp_ct  *ct = (struct mswsp_ct *)table_iter->data;
-			/* should we free the elements the GSL_message_data */
-			g_slist_free(ct->GSL_message_data);
-			g_free(ct);
-		}
-		g_slist_free(conv_tables);
-		conv_tables = NULL;
-	}
-}
-
 static struct message_data *find_or_create_message_data(struct mswsp_ct *conv_data, packet_info *pinfo, guint16 msg_id, gboolean is_request, void *data)
 {
 	struct message_data to_find;
@@ -764,20 +768,17 @@ static struct mswsp_ct *get_create_converstation_data(packet_info *pinfo)
 	struct mswsp_ct *ct = NULL;
 	conversation_t *conversation;
 
-
 	conversation = find_or_create_conversation(pinfo);
 	if (!conversation) {
-		goto out;
+		return NULL;
 	}
 	ct = (struct mswsp_ct*)conversation_get_proto_data(conversation, proto_mswsp);
 	if (!ct) {
-		ct = (struct mswsp_ct *)g_malloc(sizeof(struct mswsp_ct));
+		ct = wmem_new(wmem_file_scope(), struct mswsp_ct);
 		ct->GSL_message_data = NULL;
-		/* store ct so it can be deallocated later */
-		conv_tables = g_slist_prepend(conv_tables, ct);
 		conversation_add_proto_data(conversation, proto_mswsp, ct);
 	}
-out:
+
 	return ct;
 }
 
@@ -3232,21 +3233,7 @@ static int parse_CSortSet(tvbuff_t *tvb, int offset, proto_tree *parent_tree, pr
 
 static int parse_CTableColumn(tvbuff_t *tvb, int offset, proto_tree *parent_tree, proto_tree *pad_tree, struct CTableColumn *col, const char *fmt, ...)
 {
-	static const value_string DBAGGTTYPE[] = {
-		{0x0, "DBAGGTTYPE_BYNONE"},
-		{0x1, "DBAGGTTYPE_SUM"},
-		{0x2, "DBAGGTTYPE_MAX"},
-		{0x3, "DBAGGTTYPE_MIN"},
-		{0x4, "DBAGGTTYPE_AVG"},
-		{0x5, "DBAGGTTYPE_COUNT"},
-		{0x6, "DBAGGTTYPE_CHILDCOUNT"},
-		{0x7, "DBAGGTTYPE_BYFREQ"},
-		{0x8, "DBAGGTTYPE_FIRST"},
-		{0x9, "DBAGGTTYPE_DATERANGE"},
-		{0xA, "DBAGGTTYPE_REPRESENTATIVEOF"},
-		{0xB, "DBAGGTTYPE_EDITDISTANCE"},
-		{0, NULL}
-	};
+
 
 	proto_item *item;
 	proto_tree *tree;
@@ -3312,7 +3299,7 @@ static int parse_CTableColumn(tvbuff_t *tvb, int offset, proto_tree *parent_tree
 
 	used = tvb_get_guint8(tvb, offset);
 	col->statusused = used;
-	proto_tree_add_uint(tree, hf_mswsp_ctablecolumn_statused, tvb, offset, 2, used);
+	proto_tree_add_uint(tree, hf_mswsp_ctablecolumn_statused, tvb, offset, 1, used);
 	offset += 1;
 
 	if (used) {
@@ -3324,12 +3311,12 @@ static int parse_CTableColumn(tvbuff_t *tvb, int offset, proto_tree *parent_tree
 	}
 
 	used = tvb_get_guint8(tvb, offset);
-	proto_tree_add_uint(tree, hf_mswsp_ctablecolumn_lenused, tvb, offset, 2, used);
+	proto_tree_add_uint(tree, hf_mswsp_ctablecolumn_lenused, tvb, offset, 1, used);
 	col->lengthused = used;
 	offset += 1;
 
 	if (used) {
-		offset = parse_padding(tvb, offset, 2, pad_tree, "padding_Lenght");
+		offset = parse_padding(tvb, offset, 2, pad_tree, "padding_Length");
 
 		col->lengthoffset = tvb_get_letohs(tvb, offset);
 		proto_tree_add_uint(tree, hf_mswsp_ctablecolumn_lenoffset, tvb, offset, 2, col->lengthoffset);
@@ -3387,8 +3374,7 @@ static int parse_CFullPropSpec(tvbuff_t *tvb, int offset, proto_tree *parent_tre
 
 	if (v->kind == PRSPEC_LPWSTR) {
 		int len = 2*v->u.propid;
-		v->u.name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, len, ENC_LITTLE_ENDIAN | ENC_UCS_2);
-		proto_tree_add_string(tree, hf_mswsp_cfullpropspec_propname, tvb, offset, len, v->u.name);
+		proto_tree_add_item_ret_string(tree, hf_mswsp_cfullpropspec_propname, tvb, offset, len, ENC_LITTLE_ENDIAN | ENC_UCS_2, wmem_packet_scope(), &v->u.name);
 		offset += len;
 	}
 
@@ -3561,7 +3547,7 @@ static int parse_CContentRestriction(tvbuff_t *tvb, int offset, proto_tree *pare
 	proto_item *item;
 	va_list ap;
 	guint32 cc;
-	const char *str, *txt;
+	const char *txt;
 
 
 	va_start(ap, fmt);
@@ -3578,9 +3564,7 @@ static int parse_CContentRestriction(tvbuff_t *tvb, int offset, proto_tree *pare
 	proto_tree_add_uint(tree, hf_mswsp_ccontentrestrict_cc, tvb, offset, 4, cc);
 	offset += 4;
 
-	str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 2*cc, ENC_LITTLE_ENDIAN | ENC_UCS_2);
-	v->phrase = str;
-	proto_tree_add_string(tree, hf_mswsp_ccontentrestrict_phrase, tvb, offset, 2*cc, str);
+	proto_tree_add_item_ret_string(tree, hf_mswsp_ccontentrestrict_phrase, tvb, offset, 2*cc, ENC_LITTLE_ENDIAN | ENC_UCS_2, wmem_packet_scope(), &v->phrase);
 	offset += 2*cc;
 
 	offset = parse_padding(tvb, offset, 4, pad_tree, "Padding2");
@@ -3602,7 +3586,7 @@ int parse_CNatLanguageRestriction(tvbuff_t *tvb, int offset, proto_tree *parent_
 	proto_item *item;
 	va_list ap;
 	guint32 cc;
-	const char *str, *txt;
+	const char *txt;
 
 
 	va_start(ap, fmt);
@@ -3619,9 +3603,7 @@ int parse_CNatLanguageRestriction(tvbuff_t *tvb, int offset, proto_tree *parent_
 	proto_tree_add_uint(tree, hf_mswsp_natlangrestrict_cc, tvb, offset, 4, cc);
 	offset += 4;
 
-	str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 2*cc, ENC_LITTLE_ENDIAN | ENC_UCS_2);
-	v->phrase = str;
-	proto_tree_add_string(tree, hf_mswsp_natlangrestrict_phrase, tvb, offset, 2*cc, str);
+	proto_tree_add_item_ret_string(tree, hf_mswsp_natlangrestrict_phrase, tvb, offset, 2*cc, ENC_LITTLE_ENDIAN | ENC_UCS_2, wmem_packet_scope(), &v->phrase);
 	offset += 2*cc;
 
 	offset = parse_padding(tvb, offset, 4, pad_tree, "padding_lcid");
@@ -3934,10 +3916,9 @@ static int vvalue_tvb_blob(tvbuff_t *tvb, int offset, void *val)
 {
 	struct data_blob *blob = (struct data_blob*)val;
 	guint32 len = tvb_get_letohl(tvb, offset);
-	const guint8 *data = tvb_get_ptr(tvb, offset + 4, len);
 
 	blob->size = len;
-	blob->data = (guint8*)wmem_memdup(wmem_packet_scope(), data, len);
+	blob->data = (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset + 4, len);
 
 	return 4 + len;
 }
@@ -3982,13 +3963,39 @@ static int vvalue_tvb_lpwstr(tvbuff_t *tvb, int offset, void *val)
 	return 4 + vvalue_tvb_lpwstr_len(tvb, offset + 4, 0, val);
 }
 
-static int vvalue_tvb_vector_internal(tvbuff_t *tvb, int offset, struct vt_vector *val, struct vtype_data *type, int num)
+static int vvalue_tvb_vector_internal(tvbuff_t *tvb, int offset, struct vt_vector *val, struct vtype_data *type, guint num)
 {
 	const int offset_in = offset;
 	const gboolean varsize = (type->size == -1);
-	const int elsize = varsize ? (int)sizeof(struct data_blob) : type->size;
-	guint8 *data = (guint8*)wmem_alloc(wmem_packet_scope(), elsize * num);
-	int len, i;
+	const guint elsize = varsize ? (guint)sizeof(struct data_blob) : (guint)type->size;
+	guint8 *data;
+	int len;
+	guint i;
+
+	/*
+	 * Make sure we actually *have* the data we're going to fetch
+	 * here, before making a possibly-doomed attempt to allocate
+	 * memory for it.
+	 *
+	 * First, check for an overflow.
+	 */
+	if ((guint64)elsize * (guint64)num > G_MAXUINT) {
+		/*
+		 * We never have more than G_MAXUINT bytes in a tvbuff,
+		 * so this will *definitely* fail.
+		 */
+		THROW(ReportedBoundsError);
+	}
+
+	/*
+	 * No overflow; now make sure we at least have that data.
+	 */
+	tvb_ensure_bytes_exist(tvb, offset, elsize * num);
+
+	/*
+	 * OK, it exists; allocate a buffer into which to fetch it.
+	 */
+	data = (guint8*)wmem_alloc(wmem_packet_scope(), elsize * num);
 
 	val->len = num;
 	val->u.vt_ui1 = data;
@@ -4010,7 +4017,7 @@ static int vvalue_tvb_vector_internal(tvbuff_t *tvb, int offset, struct vt_vecto
 
 static int vvalue_tvb_vector(tvbuff_t *tvb, int offset, struct vt_vector *val, struct vtype_data *type)
 {
-	const int num = tvb_get_letohl(tvb, offset);
+	const guint num = tvb_get_letohl(tvb, offset);
 	return 4 + vvalue_tvb_vector_internal(tvb, offset+4, val, type, num);
 }
 
@@ -4324,8 +4331,8 @@ static int parse_CBaseStorageVariant(tvbuff_t *tvb, int offset, proto_tree *pare
 
 	parse_vType(tvb, offset, &value->vType);
 	value->type = vType_get_type(value->vType);
-
 	DISSECTOR_ASSERT(value->type != NULL);
+
 	ti_type = proto_tree_add_string(tree, hf_mswsp_cbasestorvariant_vtype, tvb, offset, 2, value->type->str);
 	offset += 2;
 
@@ -4338,10 +4345,6 @@ static int parse_CBaseStorageVariant(tvbuff_t *tvb, int offset, proto_tree *pare
 	offset += 1;
 
 	highType = (enum vType)(value->vType & 0xFF00);
-
-	if (value->type == NULL) {
-		goto not_supported;
-	}
 
 	ti_val = proto_tree_add_string(tree, hf_mswsp_cbasestorvariant_vvalue, tvb, offset, 0, "");
 
@@ -4400,11 +4403,6 @@ static int parse_CBaseStorageVariant(tvbuff_t *tvb, int offset, proto_tree *pare
 	proto_item_append_text(ti_val, " %s", str_CBaseStorageVariant(value, FALSE));
 	proto_item_append_text(ti, " %s", str_CBaseStorageVariant(value, TRUE));
 
-	goto done;
-
-not_supported:
-	proto_item_append_text(ti, ": sorry, vType %02x not handled yet!", (unsigned)value->vType);
-done:
 	return offset;
 }
 
@@ -4632,14 +4630,15 @@ int parse_RANGEBOUNDARY(tvbuff_t *tvb, int offset, proto_tree *parent_tree, prot
 
 	if (labelPresent) {
 		guint32 ccLabel;
+		const guint8* label;
 		offset = parse_padding(tvb, offset, 4, pad_tree, "paddingLabelPresent");
 
 		ccLabel = tvb_get_letohl(tvb, offset);
 		proto_tree_add_item_ret_uint(tree, hf_mswsp_rangeboundry_cclabel, tvb, offset, 4, ENC_LITTLE_ENDIAN, &ccLabel);
 		offset += 4;
 
-		proto_tree_add_item(tree, hf_mswsp_rangeboundry_label, tvb, offset, 2*ccLabel, ENC_LITTLE_ENDIAN | ENC_UCS_2);
-		proto_item_append_text(item, " Label: \"%s\"", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 2*ccLabel, ENC_LITTLE_ENDIAN | ENC_UCS_2));
+		proto_tree_add_item_ret_string(tree, hf_mswsp_rangeboundry_label, tvb, offset, 2*ccLabel, ENC_LITTLE_ENDIAN | ENC_UCS_2, wmem_packet_scope(), &label);
+		proto_item_append_text(item, " Label: \"%s\"", label);
 		offset += 2*ccLabel;
 	}
 
@@ -4713,33 +4712,40 @@ static int parse_CAggregSpec(tvbuff_t *tvb, int offset, proto_tree *parent_tree,
 	proto_item *item;
 	proto_tree *tree;
 	va_list ap;
-	guint8 type;
-	guint32 ccAlias, idColumn;
-	const char *alias, *txt;
+	guint32 type, ccAlias, idColumn;
+	const char *txt;
 
 	va_start(ap, fmt);
 	txt = wmem_strdup_vprintf(wmem_packet_scope(), fmt, ap);
 	va_end(ap);
 	tree = proto_tree_add_subtree(parent_tree, tvb, offset, 0, ett_CAggregSpec, &item, txt);
 
-	type = tvb_get_guint8(tvb, offset);
-	proto_tree_add_uint(tree, hf_mswsp_caggregspec_type, tvb, offset, 1, type);
-	proto_item_append_text(item, "type: %u", type);
+	proto_tree_add_item_ret_uint(tree, hf_mswsp_caggregspec_type, tvb, offset, 1, ENC_LITTLE_ENDIAN, &type);
 	offset += 1;
 
 	offset = parse_padding(tvb, offset, 4, pad_tree, "padding");
 
-	ccAlias = tvb_get_letohl(tvb, offset);
-	proto_tree_add_uint(tree, hf_mswsp_caggregspec_ccalias, tvb, offset, 1, ccAlias);
+	proto_tree_add_item_ret_uint(tree, hf_mswsp_caggregspec_ccalias, tvb, offset, 4, ENC_LITTLE_ENDIAN, &ccAlias);
 	offset += 4;
 
-	alias = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 2*ccAlias, ENC_LITTLE_ENDIAN | ENC_UCS_2);
-	proto_tree_add_string(tree, hf_mswsp_caggregspec_alias, tvb, offset, 2*ccAlias, alias);
+	proto_tree_add_item(tree, hf_mswsp_caggregspec_alias, tvb, offset, 2*ccAlias, ENC_LITTLE_ENDIAN | ENC_UCS_2);
 	offset += 2*ccAlias;
 
-	idColumn = tvb_get_letohl(tvb, offset);
-	proto_tree_add_uint(tree, hf_mswsp_caggregspec_idcolumn, tvb, offset, 1, idColumn);
+	proto_tree_add_item_ret_uint(tree, hf_mswsp_caggregspec_idcolumn, tvb, offset, 4, ENC_LITTLE_ENDIAN, &idColumn);
 	offset += 4;
+	if (type == DBAGGTTYPE_REPRESENTATIVEOF
+	    || type == DBAGGTTYPE_BYFREQ
+	    || type == DBAGGTTYPE_FIRST) {
+		proto_tree_add_uint(tree,
+				    hf_mswsp_caggregspec_ulmaxnumtoreturn,
+				    tvb, offset, 4, idColumn);
+		offset += 4;
+		if (type == DBAGGTTYPE_REPRESENTATIVEOF) {
+			proto_tree_add_uint(tree,
+				    hf_mswsp_caggregspec_idrepresentative,
+				    tvb, offset, 4, idColumn);
+		}
+	}
 	/* Optional ???
 	   ulMaxNumToReturn, idRepresentative;
 	*/
@@ -4882,7 +4888,7 @@ static int parse_CInGroupSortAggregSet(tvbuff_t *tvb, int offset, proto_tree *pa
 		offset = parse_CBaseStorageVariant(tvb, offset, tree, pad_tree, &id, "inGroupId");
 	}
 
-	offset = parse_CSortAggregSet(tvb, offset, tree, pad_tree, "SortAggregSet");
+	offset = parse_CSortSet(tvb, offset, tree, pad_tree, "SortSet");
 
 	proto_item_set_end(item, tvb, offset);
 	return offset;
@@ -5291,17 +5297,19 @@ static int parse_VariantColVector(tvbuff_t *tvb, int offset, proto_tree *tree, g
 	sub_tree = proto_tree_add_subtree(tree, tvb, buf_offset, 0, ett_CRowVariant_Vector, NULL, "values");
 	for (i = 0; i < count; i++) {
 		guint64 item_address = 0;
+		gint address_of_address = 0;
 		int size;
 		union vt_single value;
 		int len;
 		if (is_64bit) {
 			size = 8;
-			item_address = tvb_get_letoh64(tvb, buf_offset + (i * size));
-			proto_tree_add_uint64_format(sub_tree, hf_mswsp_rowvariant_item_address64, tvb, buf_offset, size, item_address, "address[%d] 0x%" G_GINT64_MODIFIER "x", i, item_address);
+			address_of_address = buf_offset + (i * size);
+			item_address = tvb_get_letoh64(tvb, address_of_address);
+			proto_tree_add_uint64_format(sub_tree, hf_mswsp_rowvariant_item_address64, tvb, address_of_address, size, item_address, "address[%d] 0x%" G_GINT64_MODIFIER "x", i, item_address);
 		} else {
 			size = 4;
 			item_address = tvb_get_letohl(tvb, buf_offset + (i * size));
-			proto_tree_add_uint_format(sub_tree, hf_mswsp_rowvariant_item_address32, tvb, buf_offset, size, (guint32)item_address, "address[%d] 0x%x", i, (guint32)item_address);
+			proto_tree_add_uint_format(sub_tree, hf_mswsp_rowvariant_item_address32, tvb, address_of_address, size, (guint32)item_address, "address[%d] 0x%x", i, (guint32)item_address);
 		}
 		strbuf = wmem_strbuf_new(wmem_packet_scope(), "");
 		if (vt_list_type->size == -1) {
@@ -5617,11 +5625,8 @@ static int dissect_CPMCreateQuery(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
 		if (CSortSetPresent) {
 			offset = parse_padding(tvb, offset, 4, tree, "paddingCSortSetPresent");
+			offset = parse_CInGroupSortAggregSets(tvb, offset, tree, pad_tree, "GroupSortAggregSets");
 
-			proto_tree_add_item(tree, hf_mswsp_msg_cpmcreatequery_csortset_xxx, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-			offset += 8;
-
-			offset = parse_CSortSet(tvb, offset, tree, pad_tree, "SortSet");
 		}
 
 		CCategorizationSetPresent = tvb_get_guint8(tvb, offset);
@@ -5932,7 +5937,7 @@ static int dissect_CPMSetBindings(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 		proto_tree_add_item(tree, hf_mswsp_msg_cpmsetbinding_acolumns, tvb, offset, size-4, ENC_NA);
 
 		/* Sanity check size value */
-		column_size = num*sizeof(struct CTableColumn);
+		column_size = num*MIN_CTABLECOL_SIZE;
 		if (column_size > tvb_reported_length_remaining(tvb, offset))
 		{
 			expert_add_info(pinfo, ti, &ei_mswsp_msg_cpmsetbinding_ccolumns);
@@ -6334,8 +6339,7 @@ dissect_mswsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean in, 
 										  "(Unknown: 0x%x)"));
 	}
 
-	proto_tree_add_item(hdr_tree, hf_mswsp_hdr_checksum, tvb,
-						8, 4, ENC_LITTLE_ENDIAN);
+	proto_tree_add_checksum(hdr_tree, tvb, 8, hf_mswsp_hdr_checksum, -1, NULL, pinfo, 0, ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 	/* todo: validate checksum */
 
 	proto_tree_add_item(hdr_tree, hf_mswsp_hdr_reserved, tvb,
@@ -7010,14 +7014,14 @@ proto_register_mswsp(void)
 			&hf_mswsp_caggregspec_type,
 			{
 				"type", "mswsp.caggregspec.type",
-				FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL
+				FT_UINT8, BASE_DEC, VALS(DBAGGTTYPE), 0, NULL, HFILL
 			}
 		},
 		{
 			&hf_mswsp_caggregspec_ccalias,
 			{
 				"ccAlias", "mswsp.caggregspec.ccalias",
-				FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL
+				FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL
 			}
 		},
 		{
@@ -7031,7 +7035,23 @@ proto_register_mswsp(void)
 			&hf_mswsp_caggregspec_idcolumn,
 			{
 				"idColumn", "mswsp.caggregspec.idcolumn",
-				FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL
+				FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL
+			}
+		},
+		{
+			&hf_mswsp_caggregspec_ulmaxnumtoreturn,
+			{
+				"ulMaxNumToReturn",
+				"mswsp.caggregspec.ulmaxnumtoreturn",
+				FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL
+			}
+		},
+		{
+			&hf_mswsp_caggregspec_idrepresentative,
+			{
+				"idRepresentative",
+				"mswsp.caggregspec.idrepresentative",
+				FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL
 			}
 		},
 		{
@@ -7319,13 +7339,6 @@ proto_register_mswsp(void)
 			{
 				"CSortPresent", "mswsp.cpmcreatequery.csortpresent",
 				FT_BOOLEAN, 8, NULL, 0x01, NULL, HFILL
-			}
-		},
-		{
-			&hf_mswsp_msg_cpmcreatequery_csortset_xxx,
-			{
-				"XXX - (undocumented bytes)", "mswsp.cpmcreatequery.csortset.xxx",
-				FT_UINT64, BASE_HEX, NULL, 0, NULL, HFILL
 			}
 		},
 		{
@@ -8053,9 +8066,6 @@ proto_register_mswsp(void)
 	for (i=0; i<(int)array_length(GuidPropertySet); i++) {
 		guids_add_guid(&GuidPropertySet[i].guid, GuidPropertySet[i].def);
 	}
-
-	register_init_routine(&mswsp_init_protocol);
-
 }
 
 static int dissect_mswsp_smb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)

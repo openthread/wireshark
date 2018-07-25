@@ -8,24 +8,13 @@
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/strutil.h>
 #include "packet-smb-common.h"
 
 #include "packet-dns.h"
@@ -125,11 +114,12 @@ int dissect_ms_compressed_string(tvbuff_t *tvb, proto_tree *tree, int offset, in
 				 const char **data)
 {
 	int           compr_len;
+	guint         str_len;
 	const guchar *str = NULL;
 
 	/* The name data MUST start at offset 0 of the tvb */
-	compr_len = expand_dns_name(tvb, offset, MAX_UNICODE_STR_LEN+3+1, 0, &str);
-	proto_tree_add_string(tree, hf_index, tvb, offset, compr_len, str);
+	compr_len = get_dns_name(tvb, offset, MAX_UNICODE_STR_LEN+3+1, 0, &str, &str_len);
+	proto_tree_add_string(tree, hf_index, tvb, offset, compr_len, format_text(wmem_packet_scope(), str, str_len));
 
 	if (data)
 		*data = str;

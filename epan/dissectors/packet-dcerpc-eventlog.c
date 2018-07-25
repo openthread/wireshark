@@ -40,7 +40,6 @@ static gint hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_FAILURE = -1;
 static gint hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_SUCCESS = -1;
 static gint hf_eventlog_eventlogEventTypes_EVENTLOG_ERROR_TYPE = -1;
 static gint hf_eventlog_eventlogEventTypes_EVENTLOG_INFORMATION_TYPE = -1;
-static gint hf_eventlog_eventlogEventTypes_EVENTLOG_SUCCESS = -1;
 static gint hf_eventlog_eventlogEventTypes_EVENTLOG_WARNING_TYPE = -1;
 static gint hf_eventlog_eventlogReadFlags_EVENTLOG_BACKWARDS_READ = -1;
 static gint hf_eventlog_eventlogReadFlags_EVENTLOG_FORWARDS_READ = -1;
@@ -149,10 +148,6 @@ static const true_false_string eventlogReadFlags_EVENTLOG_FORWARDS_READ_tfs = {
 static const true_false_string eventlogReadFlags_EVENTLOG_BACKWARDS_READ_tfs = {
    "EVENTLOG_BACKWARDS_READ is SET",
    "EVENTLOG_BACKWARDS_READ is NOT SET",
-};
-static const true_false_string eventlogEventTypes_EVENTLOG_SUCCESS_tfs = {
-   "EVENTLOG_SUCCESS is SET",
-   "EVENTLOG_SUCCESS is NOT SET",
 };
 static const true_false_string eventlogEventTypes_EVENTLOG_ERROR_TYPE_tfs = {
    "EVENTLOG_ERROR_TYPE is SET",
@@ -292,7 +287,7 @@ eventlog_dissect_element_ReadEventLogW_data_(tvbuff_t *tvb, int offset, packet_i
 	 * NDR encoded at all and there are byte offsets into this buffer
 	 * encoded therein.
 	 */
-	record_tvb=tvb_new_subset(tvb, offset, MIN((gint)len, tvb_captured_length_remaining(tvb, offset)), len);
+	record_tvb=tvb_new_subset_length_caplen(tvb, offset, MIN((gint)len, tvb_captured_length_remaining(tvb, offset)), len);
 	eventlog_dissect_struct_Record(record_tvb, 0, pinfo, tree, di, drep, hf_eventlog_Record, 0);
 	offset+=len;
 	return offset;
@@ -317,7 +312,7 @@ eventlog_dissect_element_Record_sid_offset(tvbuff_t *tvb, int offset, packet_inf
 		/* this blob contains an NT SID.
 		 * tvb starts at the beginning of the record.
 		 */
-		sid_tvb=tvb_new_subset(tvb, sid_offset, MIN((gint)sid_length, tvb_captured_length_remaining(tvb, offset)), sid_length);
+		sid_tvb=tvb_new_subset_length_caplen(tvb, sid_offset, MIN((gint)sid_length, tvb_captured_length_remaining(tvb, offset)), sid_length);
 		dissect_nt_sid(sid_tvb, 0, tree, "SID", NULL, -1);
 	}
 	return offset;
@@ -380,56 +375,27 @@ eventlog_dissect_element_Record_strings(tvbuff_t *tvb, int offset, packet_info *
 int
 eventlog_dissect_bitmap_eventlogReadFlags(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * eventlog_eventlogReadFlags_fields[] = {
+		&hf_eventlog_eventlogReadFlags_EVENTLOG_SEQUENTIAL_READ,
+		&hf_eventlog_eventlogReadFlags_EVENTLOG_SEEK_READ,
+		&hf_eventlog_eventlogReadFlags_EVENTLOG_FORWARDS_READ,
+		&hf_eventlog_eventlogReadFlags_EVENTLOG_BACKWARDS_READ,
+		NULL
+	};
 	guint32 flags;
 	ALIGN_TO_4_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 4, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_eventlog_eventlogReadFlags);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_eventlog_eventlogReadFlags, eventlog_eventlogReadFlags_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint32(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogReadFlags_EVENTLOG_SEQUENTIAL_READ, tvb, offset-4, 4, flags);
-	if (flags&( 0x0001 )){
-		proto_item_append_text(item, "EVENTLOG_SEQUENTIAL_READ");
-		if (flags & (~( 0x0001 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0001 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogReadFlags_EVENTLOG_SEEK_READ, tvb, offset-4, 4, flags);
-	if (flags&( 0x0002 )){
-		proto_item_append_text(item, "EVENTLOG_SEEK_READ");
-		if (flags & (~( 0x0002 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0002 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogReadFlags_EVENTLOG_FORWARDS_READ, tvb, offset-4, 4, flags);
-	if (flags&( 0x0004 )){
-		proto_item_append_text(item, "EVENTLOG_FORWARDS_READ");
-		if (flags & (~( 0x0004 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0004 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogReadFlags_EVENTLOG_BACKWARDS_READ, tvb, offset-4, 4, flags);
-	if (flags&( 0x0008 )){
-		proto_item_append_text(item, "EVENTLOG_BACKWARDS_READ");
-		if (flags & (~( 0x0008 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0008 ));
-
-	if (flags) {
+	if (flags & (~0x0000000f)) {
+		flags &= (~0x0000000f);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -449,72 +415,28 @@ eventlog_dissect_bitmap_eventlogReadFlags(tvbuff_t *tvb _U_, int offset _U_, pac
 int
 eventlog_dissect_bitmap_eventlogEventTypes(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * eventlog_eventlogEventTypes_fields[] = {
+		&hf_eventlog_eventlogEventTypes_EVENTLOG_ERROR_TYPE,
+		&hf_eventlog_eventlogEventTypes_EVENTLOG_WARNING_TYPE,
+		&hf_eventlog_eventlogEventTypes_EVENTLOG_INFORMATION_TYPE,
+		&hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_SUCCESS,
+		&hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_FAILURE,
+		NULL
+	};
 	guint32 flags;
 	ALIGN_TO_4_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 4, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_eventlog_eventlogEventTypes);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_eventlog_eventlogEventTypes, eventlog_eventlogEventTypes_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint32(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogEventTypes_EVENTLOG_SUCCESS, tvb, offset-4, 4, flags);
-	if (flags&( 0x0000 )){
-		proto_item_append_text(item, "EVENTLOG_SUCCESS");
-		if (flags & (~( 0x0000 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0000 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogEventTypes_EVENTLOG_ERROR_TYPE, tvb, offset-4, 4, flags);
-	if (flags&( 0x0001 )){
-		proto_item_append_text(item, "EVENTLOG_ERROR_TYPE");
-		if (flags & (~( 0x0001 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0001 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogEventTypes_EVENTLOG_WARNING_TYPE, tvb, offset-4, 4, flags);
-	if (flags&( 0x0002 )){
-		proto_item_append_text(item, "EVENTLOG_WARNING_TYPE");
-		if (flags & (~( 0x0002 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0002 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogEventTypes_EVENTLOG_INFORMATION_TYPE, tvb, offset-4, 4, flags);
-	if (flags&( 0x0004 )){
-		proto_item_append_text(item, "EVENTLOG_INFORMATION_TYPE");
-		if (flags & (~( 0x0004 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0004 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_SUCCESS, tvb, offset-4, 4, flags);
-	if (flags&( 0x0008 )){
-		proto_item_append_text(item, "EVENTLOG_AUDIT_SUCCESS");
-		if (flags & (~( 0x0008 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0008 ));
-
-	proto_tree_add_boolean(tree, hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_FAILURE, tvb, offset-4, 4, flags);
-	if (flags&( 0x0010 )){
-		proto_item_append_text(item, "EVENTLOG_AUDIT_FAILURE");
-		if (flags & (~( 0x0010 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x0010 ));
-
-	if (flags) {
+	if (flags & (~0x0000001f)) {
+		flags &= (~0x0000001f);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -2096,7 +2018,7 @@ eventlog_dissect_element_GetLogIntormation_cbBufSize(tvbuff_t *tvb _U_, int offs
 static int
 eventlog_dissect_element_GetLogIntormation_cbBytesNeeded(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_)
 {
-	offset = dissect_ndr_toplevel_pointer(tvb, offset, pinfo, tree, di, drep, eventlog_dissect_element_GetLogIntormation_cbBytesNeeded_, NDR_POINTER_REF, "Pointer to Cbbytesneeded (int32)",hf_eventlog_eventlog_GetLogIntormation_cbBytesNeeded);
+	offset = dissect_ndr_toplevel_pointer(tvb, offset, pinfo, tree, di, drep, eventlog_dissect_element_GetLogIntormation_cbBytesNeeded_, NDR_POINTER_REF, "Pointer to CbBytesNeeded (int32)",hf_eventlog_eventlog_GetLogIntormation_cbBytesNeeded);
 
 	return offset;
 }
@@ -2250,189 +2172,187 @@ void proto_register_dcerpc_eventlog(void)
 {
 	static hf_register_info hf[] = {
 	{ &hf_eventlog_Record,
-		{ "Record", "eventlog.Record", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Record", "eventlog.Record", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_Record_computer_name,
-		{ "Computer Name", "eventlog.Record.computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Computer Name", "eventlog.Record.computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_Record_length,
-		{ "Record Length", "eventlog.Record.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Record Length", "eventlog.Record.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_Record_source_name,
-		{ "Source Name", "eventlog.Record.source_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Source Name", "eventlog.Record.source_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_Record_string,
-		{ "string", "eventlog.Record.string", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "string", "eventlog.Record.string", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_FAILURE,
-		{ "Eventlog Audit Failure", "eventlog.eventlogEventTypes.EVENTLOG_AUDIT_FAILURE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_AUDIT_FAILURE_tfs), ( 0x0010 ), NULL, HFILL }},
+	  { "EVENTLOG AUDIT FAILURE", "eventlog.eventlogEventTypes.EVENTLOG_AUDIT_FAILURE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_AUDIT_FAILURE_tfs), ( 0x0010 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogEventTypes_EVENTLOG_AUDIT_SUCCESS,
-		{ "Eventlog Audit Success", "eventlog.eventlogEventTypes.EVENTLOG_AUDIT_SUCCESS", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_AUDIT_SUCCESS_tfs), ( 0x0008 ), NULL, HFILL }},
+	  { "EVENTLOG AUDIT SUCCESS", "eventlog.eventlogEventTypes.EVENTLOG_AUDIT_SUCCESS", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_AUDIT_SUCCESS_tfs), ( 0x0008 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogEventTypes_EVENTLOG_ERROR_TYPE,
-		{ "Eventlog Error Type", "eventlog.eventlogEventTypes.EVENTLOG_ERROR_TYPE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_ERROR_TYPE_tfs), ( 0x0001 ), NULL, HFILL }},
+	  { "EVENTLOG ERROR TYPE", "eventlog.eventlogEventTypes.EVENTLOG_ERROR_TYPE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_ERROR_TYPE_tfs), ( 0x0001 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogEventTypes_EVENTLOG_INFORMATION_TYPE,
-		{ "Eventlog Information Type", "eventlog.eventlogEventTypes.EVENTLOG_INFORMATION_TYPE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_INFORMATION_TYPE_tfs), ( 0x0004 ), NULL, HFILL }},
-	{ &hf_eventlog_eventlogEventTypes_EVENTLOG_SUCCESS,
-		{ "Eventlog Success", "eventlog.eventlogEventTypes.EVENTLOG_SUCCESS", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_SUCCESS_tfs), ( 0x0000 ), NULL, HFILL }},
+	  { "EVENTLOG INFORMATION TYPE", "eventlog.eventlogEventTypes.EVENTLOG_INFORMATION_TYPE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_INFORMATION_TYPE_tfs), ( 0x0004 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogEventTypes_EVENTLOG_WARNING_TYPE,
-		{ "Eventlog Warning Type", "eventlog.eventlogEventTypes.EVENTLOG_WARNING_TYPE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_WARNING_TYPE_tfs), ( 0x0002 ), NULL, HFILL }},
+	  { "EVENTLOG WARNING TYPE", "eventlog.eventlogEventTypes.EVENTLOG_WARNING_TYPE", FT_BOOLEAN, 32, TFS(&eventlogEventTypes_EVENTLOG_WARNING_TYPE_tfs), ( 0x0002 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogReadFlags_EVENTLOG_BACKWARDS_READ,
-		{ "Eventlog Backwards Read", "eventlog.eventlogReadFlags.EVENTLOG_BACKWARDS_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_BACKWARDS_READ_tfs), ( 0x0008 ), NULL, HFILL }},
+	  { "EVENTLOG BACKWARDS READ", "eventlog.eventlogReadFlags.EVENTLOG_BACKWARDS_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_BACKWARDS_READ_tfs), ( 0x0008 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogReadFlags_EVENTLOG_FORWARDS_READ,
-		{ "Eventlog Forwards Read", "eventlog.eventlogReadFlags.EVENTLOG_FORWARDS_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_FORWARDS_READ_tfs), ( 0x0004 ), NULL, HFILL }},
+	  { "EVENTLOG FORWARDS READ", "eventlog.eventlogReadFlags.EVENTLOG_FORWARDS_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_FORWARDS_READ_tfs), ( 0x0004 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogReadFlags_EVENTLOG_SEEK_READ,
-		{ "Eventlog Seek Read", "eventlog.eventlogReadFlags.EVENTLOG_SEEK_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_SEEK_READ_tfs), ( 0x0002 ), NULL, HFILL }},
+	  { "EVENTLOG SEEK READ", "eventlog.eventlogReadFlags.EVENTLOG_SEEK_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_SEEK_READ_tfs), ( 0x0002 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlogReadFlags_EVENTLOG_SEQUENTIAL_READ,
-		{ "Eventlog Sequential Read", "eventlog.eventlogReadFlags.EVENTLOG_SEQUENTIAL_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_SEQUENTIAL_READ_tfs), ( 0x0001 ), NULL, HFILL }},
+	  { "EVENTLOG SEQUENTIAL READ", "eventlog.eventlogReadFlags.EVENTLOG_SEQUENTIAL_READ", FT_BOOLEAN, 32, TFS(&eventlogReadFlags_EVENTLOG_SEQUENTIAL_READ_tfs), ( 0x0001 ), NULL, HFILL }},
 	{ &hf_eventlog_eventlog_BackupEventLogW_backupfilename,
-		{ "Backupfilename", "eventlog.eventlog_BackupEventLogW.backupfilename", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Backupfilename", "eventlog.eventlog_BackupEventLogW.backupfilename", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_BackupEventLogW_handle,
-		{ "Handle", "eventlog.eventlog_BackupEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_BackupEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ChangeNotify_handle,
-		{ "Handle", "eventlog.eventlog_ChangeNotify.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_ChangeNotify.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ChangeNotify_unknown2,
-		{ "Unknown2", "eventlog.eventlog_ChangeNotify.unknown2", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Unknown2", "eventlog.eventlog_ChangeNotify.unknown2", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ChangeNotify_unknown3,
-		{ "Unknown3", "eventlog.eventlog_ChangeNotify.unknown3", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown3", "eventlog.eventlog_ChangeNotify.unknown3", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ChangeUnknown0_unknown0,
-		{ "Unknown0", "eventlog.eventlog_ChangeUnknown0.unknown0", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown0", "eventlog.eventlog_ChangeUnknown0.unknown0", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ChangeUnknown0_unknown1,
-		{ "Unknown1", "eventlog.eventlog_ChangeUnknown0.unknown1", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown1", "eventlog.eventlog_ChangeUnknown0.unknown1", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ClearEventLogW_backupfilename,
-		{ "Backupfilename", "eventlog.eventlog_ClearEventLogW.backupfilename", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Backupfilename", "eventlog.eventlog_ClearEventLogW.backupfilename", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ClearEventLogW_handle,
-		{ "Handle", "eventlog.eventlog_ClearEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_ClearEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_CloseEventLog_handle,
-		{ "Handle", "eventlog.eventlog_CloseEventLog.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_CloseEventLog.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_DeregisterEventSource_handle,
-		{ "Handle", "eventlog.eventlog_DeregisterEventSource.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_DeregisterEventSource.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_FlushEventLog_handle,
-		{ "Handle", "eventlog.eventlog_FlushEventLog.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_FlushEventLog.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetLogIntormation_cbBufSize,
-		{ "Cbbufsize", "eventlog.eventlog_GetLogIntormation.cbBufSize", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "CbBufSize", "eventlog.eventlog_GetLogIntormation.cbBufSize", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetLogIntormation_cbBytesNeeded,
-		{ "Cbbytesneeded", "eventlog.eventlog_GetLogIntormation.cbBytesNeeded", FT_INT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "CbBytesNeeded", "eventlog.eventlog_GetLogIntormation.cbBytesNeeded", FT_INT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetLogIntormation_dwInfoLevel,
-		{ "Dwinfolevel", "eventlog.eventlog_GetLogIntormation.dwInfoLevel", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "DwInfoLevel", "eventlog.eventlog_GetLogIntormation.dwInfoLevel", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetLogIntormation_handle,
-		{ "Handle", "eventlog.eventlog_GetLogIntormation.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_GetLogIntormation.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetLogIntormation_lpBuffer,
-		{ "Lpbuffer", "eventlog.eventlog_GetLogIntormation.lpBuffer", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "LpBuffer", "eventlog.eventlog_GetLogIntormation.lpBuffer", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetNumRecords_handle,
-		{ "Handle", "eventlog.eventlog_GetNumRecords.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_GetNumRecords.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetNumRecords_number,
-		{ "Number", "eventlog.eventlog_GetNumRecords.number", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Number", "eventlog.eventlog_GetNumRecords.number", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetOldestRecord_handle,
-		{ "Handle", "eventlog.eventlog_GetOldestRecord.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_GetOldestRecord.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_GetOldestRecord_oldest,
-		{ "Oldest", "eventlog.eventlog_GetOldestRecord.oldest", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Oldest", "eventlog.eventlog_GetOldestRecord.oldest", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenBackupEventLogW_handle,
-		{ "Handle", "eventlog.eventlog_OpenBackupEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_OpenBackupEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenBackupEventLogW_logname,
-		{ "Logname", "eventlog.eventlog_OpenBackupEventLogW.logname", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Logname", "eventlog.eventlog_OpenBackupEventLogW.logname", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenBackupEventLogW_unknown0,
-		{ "Unknown0", "eventlog.eventlog_OpenBackupEventLogW.unknown0", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Unknown0", "eventlog.eventlog_OpenBackupEventLogW.unknown0", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenBackupEventLogW_unknown2,
-		{ "Unknown2", "eventlog.eventlog_OpenBackupEventLogW.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown2", "eventlog.eventlog_OpenBackupEventLogW.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenBackupEventLogW_unknown3,
-		{ "Unknown3", "eventlog.eventlog_OpenBackupEventLogW.unknown3", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown3", "eventlog.eventlog_OpenBackupEventLogW.unknown3", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenEventLogW_MajorVersion,
-		{ "Majorversion", "eventlog.eventlog_OpenEventLogW.MajorVersion", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "MajorVersion", "eventlog.eventlog_OpenEventLogW.MajorVersion", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenEventLogW_MinorVersion,
-		{ "Minorversion", "eventlog.eventlog_OpenEventLogW.MinorVersion", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "MinorVersion", "eventlog.eventlog_OpenEventLogW.MinorVersion", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenEventLogW_Module,
-		{ "Module", "eventlog.eventlog_OpenEventLogW.Module", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Module", "eventlog.eventlog_OpenEventLogW.Module", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenEventLogW_RegModuleName,
-		{ "Regmodulename", "eventlog.eventlog_OpenEventLogW.RegModuleName", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "RegModuleName", "eventlog.eventlog_OpenEventLogW.RegModuleName", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenEventLogW_handle,
-		{ "Handle", "eventlog.eventlog_OpenEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_OpenEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenEventLogW_unknown0,
-		{ "Unknown0", "eventlog.eventlog_OpenEventLogW.unknown0", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Unknown0", "eventlog.eventlog_OpenEventLogW.unknown0", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenUnknown0_unknown0,
-		{ "Unknown0", "eventlog.eventlog_OpenUnknown0.unknown0", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown0", "eventlog.eventlog_OpenUnknown0.unknown0", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_OpenUnknown0_unknown1,
-		{ "Unknown1", "eventlog.eventlog_OpenUnknown0.unknown1", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown1", "eventlog.eventlog_OpenUnknown0.unknown1", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_data,
-		{ "Data", "eventlog.eventlog_ReadEventLogW.data", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Data", "eventlog.eventlog_ReadEventLogW.data", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_flags,
-		{ "Flags", "eventlog.eventlog_ReadEventLogW.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Flags", "eventlog.eventlog_ReadEventLogW.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_handle,
-		{ "Handle", "eventlog.eventlog_ReadEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_ReadEventLogW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_number_of_bytes,
-		{ "Number Of Bytes", "eventlog.eventlog_ReadEventLogW.number_of_bytes", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Number Of Bytes", "eventlog.eventlog_ReadEventLogW.number_of_bytes", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_offset,
-		{ "Offset", "eventlog.eventlog_ReadEventLogW.offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Offset", "eventlog.eventlog_ReadEventLogW.offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_real_size,
-		{ "Real Size", "eventlog.eventlog_ReadEventLogW.real_size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Real Size", "eventlog.eventlog_ReadEventLogW.real_size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReadEventLogW_sent_size,
-		{ "Sent Size", "eventlog.eventlog_ReadEventLogW.sent_size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Sent Size", "eventlog.eventlog_ReadEventLogW.sent_size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_closing_record_number,
-		{ "Closing Record Number", "eventlog.eventlog_Record.closing_record_number", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Closing Record Number", "eventlog.eventlog_Record.closing_record_number", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_computer_name,
-		{ "Computer Name", "eventlog.eventlog_Record.computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Computer Name", "eventlog.eventlog_Record.computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_data_length,
-		{ "Data Length", "eventlog.eventlog_Record.data_length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Data Length", "eventlog.eventlog_Record.data_length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_data_offset,
-		{ "Data Offset", "eventlog.eventlog_Record.data_offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Data Offset", "eventlog.eventlog_Record.data_offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_event_category,
-		{ "Event Category", "eventlog.eventlog_Record.event_category", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Event Category", "eventlog.eventlog_Record.event_category", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_event_id,
-		{ "Event Id", "eventlog.eventlog_Record.event_id", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Event Id", "eventlog.eventlog_Record.event_id", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_event_type,
-		{ "Event Type", "eventlog.eventlog_Record.event_type", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Event Type", "eventlog.eventlog_Record.event_type", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_num_of_strings,
-		{ "Num Of Strings", "eventlog.eventlog_Record.num_of_strings", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Num Of Strings", "eventlog.eventlog_Record.num_of_strings", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_raw_data,
-		{ "Raw Data", "eventlog.eventlog_Record.raw_data", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Raw Data", "eventlog.eventlog_Record.raw_data", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_record_number,
-		{ "Record Number", "eventlog.eventlog_Record.record_number", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Record Number", "eventlog.eventlog_Record.record_number", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_reserved,
-		{ "Reserved", "eventlog.eventlog_Record.reserved", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Reserved", "eventlog.eventlog_Record.reserved", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_reserved_flags,
-		{ "Reserved Flags", "eventlog.eventlog_Record.reserved_flags", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Reserved Flags", "eventlog.eventlog_Record.reserved_flags", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_sid_length,
-		{ "Sid Length", "eventlog.eventlog_Record.sid_length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Sid Length", "eventlog.eventlog_Record.sid_length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_sid_offset,
-		{ "Sid Offset", "eventlog.eventlog_Record.sid_offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Sid Offset", "eventlog.eventlog_Record.sid_offset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_size,
-		{ "Size", "eventlog.eventlog_Record.size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Size", "eventlog.eventlog_Record.size", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_source_name,
-		{ "Source Name", "eventlog.eventlog_Record.source_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Source Name", "eventlog.eventlog_Record.source_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_stringoffset,
-		{ "Stringoffset", "eventlog.eventlog_Record.stringoffset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Stringoffset", "eventlog.eventlog_Record.stringoffset", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_strings,
-		{ "Strings", "eventlog.eventlog_Record.strings", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Strings", "eventlog.eventlog_Record.strings", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_time_generated,
-		{ "Time Generated", "eventlog.eventlog_Record.time_generated", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Time Generated", "eventlog.eventlog_Record.time_generated", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_Record_time_written,
-		{ "Time Written", "eventlog.eventlog_Record.time_written", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Time Written", "eventlog.eventlog_Record.time_written", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_RegisterEventSourceW_handle,
-		{ "Handle", "eventlog.eventlog_RegisterEventSourceW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_RegisterEventSourceW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_RegisterEventSourceW_logname,
-		{ "Logname", "eventlog.eventlog_RegisterEventSourceW.logname", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Logname", "eventlog.eventlog_RegisterEventSourceW.logname", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_RegisterEventSourceW_servername,
-		{ "Servername", "eventlog.eventlog_RegisterEventSourceW.servername", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Servername", "eventlog.eventlog_RegisterEventSourceW.servername", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_RegisterEventSourceW_unknown0,
-		{ "Unknown0", "eventlog.eventlog_RegisterEventSourceW.unknown0", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Unknown0", "eventlog.eventlog_RegisterEventSourceW.unknown0", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_RegisterEventSourceW_unknown2,
-		{ "Unknown2", "eventlog.eventlog_RegisterEventSourceW.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown2", "eventlog.eventlog_RegisterEventSourceW.unknown2", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_RegisterEventSourceW_unknown3,
-		{ "Unknown3", "eventlog.eventlog_RegisterEventSourceW.unknown3", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Unknown3", "eventlog.eventlog_RegisterEventSourceW.unknown3", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_Type,
-		{ "Type", "eventlog.eventlog_ReportEventW.Type", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Type", "eventlog.eventlog_ReportEventW.Type", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_computer_name,
-		{ "Computer Name", "eventlog.eventlog_ReportEventW.computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Computer Name", "eventlog.eventlog_ReportEventW.computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_data_length,
-		{ "Data Length", "eventlog.eventlog_ReportEventW.data_length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Data Length", "eventlog.eventlog_ReportEventW.data_length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_event_category,
-		{ "Event Category", "eventlog.eventlog_ReportEventW.event_category", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Event Category", "eventlog.eventlog_ReportEventW.event_category", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_event_id,
-		{ "Event Id", "eventlog.eventlog_ReportEventW.event_id", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Event Id", "eventlog.eventlog_ReportEventW.event_id", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_handle,
-		{ "Handle", "eventlog.eventlog_ReportEventW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Handle", "eventlog.eventlog_ReportEventW.handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_num_of_strings,
-		{ "Num Of Strings", "eventlog.eventlog_ReportEventW.num_of_strings", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Num Of Strings", "eventlog.eventlog_ReportEventW.num_of_strings", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_eventlog_ReportEventW_time,
-		{ "Time", "eventlog.eventlog_ReportEventW.time", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Time", "eventlog.eventlog_ReportEventW.time", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_opnum,
-		{ "Operation", "eventlog.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Operation", "eventlog.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_eventlog_status,
-		{ "NT Error", "eventlog.status", FT_UINT32, BASE_HEX, VALS(NT_errors), 0, NULL, HFILL }},
+	  { "NT Error", "eventlog.status", FT_UINT32, BASE_HEX, VALS(NT_errors), 0, NULL, HFILL }},
 	};
 
 

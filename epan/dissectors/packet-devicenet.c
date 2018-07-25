@@ -1,5 +1,9 @@
 /* packet-devicenet.c
  * Routines for dissection of DeviceNet
+ * DeviceNet Home: www.odva.org
+ *
+ * This dissector includes items from:
+ *    CIP Volume 3: DeviceNet Adaptation of CIP, Edition 1.14
  *
  * Michael Mann
  * Erik Ivarsson <eriki@student.chalmers.se>
@@ -10,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "config.h"
 
@@ -32,7 +24,9 @@
 #include <epan/expert.h>
 #include <epan/address_types.h>
 #include <epan/to_str.h>
+
 #include "packet-cip.h"
+#include "packet-socketcan.h"
 
 void proto_register_devicenet(void);
 void proto_reg_handoff_devicenet(void);
@@ -133,7 +127,7 @@ static gboolean uat_devicenet_record_update_cb(void* r, char** err) {
     uat_devicenet_record_t* rec = (uat_devicenet_record_t *)r;
 
     if (rec->mac_id > 63) {
-        *err = g_strdup_printf("MAC ID must be between 0-63");
+        *err = g_strdup("MAC ID must be between 0-63");
         return FALSE;
     }
     return TRUE;
@@ -406,11 +400,6 @@ static gint body_type_16_over_16_dissection(guint8 data_length, proto_tree *devi
 
     return offset;
 }
-
-struct can_identifier
-{
-    guint32 id;
-};
 
 static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
@@ -786,14 +775,12 @@ static int dissect_devicenet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     return tvb_captured_length(tvb);
 }
 
-static int devicenet_addr_to_str(const address* addr, gchar *buf, int buf_len _U_)
+static int devicenet_addr_to_str(const address* addr, gchar *buf, int buf_len)
 {
-    guint8 addrdata = *((const guint8*)addr->data) & 0x3F;
-    gchar *start_buf = buf;
+    const guint8 *addrdata = (const guint8 *)addr->data;
 
-    buf = uint_to_str_back(buf, addrdata);
-    *buf = '\0';
-    return (int)(buf-start_buf+1);
+    guint32_to_str_buf(*addrdata, buf, buf_len);
+    return (int)strlen(buf);
 }
 
 static int devicenet_addr_str_len(const address* addr _U_)
@@ -1034,7 +1021,7 @@ void proto_register_devicenet(void)
     expert_devicenet = expert_register_protocol(proto_devicenet);
     expert_register_field_array(expert_devicenet, ei, array_length(ei));
 
-    devicenet_address_type = address_type_dissector_register("AT_DEVICENET", "DeviceNet Address", devicenet_addr_to_str, devicenet_addr_str_len, NULL, devicenet_addr_len, NULL, NULL);
+    devicenet_address_type = address_type_dissector_register("AT_DEVICENET", "DeviceNet Address", devicenet_addr_to_str, devicenet_addr_str_len, NULL, NULL, devicenet_addr_len, NULL, NULL);
 
     devicenet_module = prefs_register_protocol(proto_devicenet, NULL);
 
@@ -1050,6 +1037,7 @@ void proto_register_devicenet(void)
                             uat_devicenet_record_update_cb, /* update callback       */
                             NULL,   /* free callback         */
                             NULL,    /* post update callback  */
+                            NULL,   /* reset callback */
                             devicenet_uat_flds);    /* UAT field definitions */
 
     prefs_register_uat_preference(devicenet_module,

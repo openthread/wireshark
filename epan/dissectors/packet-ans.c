@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2003 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * The following information was graciously provided by Intel:
  * Offset    Size (bytes)    Contents
@@ -67,7 +55,7 @@ static int
 dissect_ans(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	proto_item  *ti;
-	proto_tree  *ans_tree = NULL;
+	proto_tree  *ans_tree;
 	guint16      sender_id;
 	guint32      seq_num;
 
@@ -79,16 +67,15 @@ dissect_ans(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	col_add_fstr(pinfo->cinfo, COL_INFO, "Sequence: %u, Sender ID %u, Team ID %s",
 		seq_num, sender_id, tvb_ether_to_str(tvb, 10));
 
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_ans, tvb, 0, -1, ENC_NA);
-		ans_tree = proto_item_add_subtree(ti, ett_ans);
+	ti = proto_tree_add_item(tree, proto_ans, tvb, 0, -1, ENC_NA);
+	ans_tree = proto_item_add_subtree(ti, ett_ans);
 
-		proto_tree_add_item(ans_tree, hf_ans_app_id, tvb, 0, 2, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ans_tree, hf_ans_rev_id, tvb, 2, 2, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ans_tree, hf_ans_seq_num, tvb, 4, 4, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ans_tree, hf_ans_sender_id, tvb, 8, 2, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ans_tree, hf_ans_team_id, tvb, 10, 6, ENC_NA);
-	}
+	proto_tree_add_item(ans_tree, hf_ans_app_id, tvb, 0, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_item(ans_tree, hf_ans_rev_id, tvb, 2, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_item(ans_tree, hf_ans_seq_num, tvb, 4, 4, ENC_BIG_ENDIAN);
+	proto_tree_add_item(ans_tree, hf_ans_sender_id, tvb, 8, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_item(ans_tree, hf_ans_team_id, tvb, 10, 6, ENC_NA);
+
 	return tvb_captured_length(tvb);
 }
 

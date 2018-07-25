@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,9 +18,9 @@
 
 #include "wireshark_application.h"
 #include "wireshark_dialog.h"
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "ui/recent.h"
-#include "ui/ui_util.h"
+#include "ui/ws_ui_util.h"
 
 #include <QMessageBox>
 
@@ -41,8 +29,8 @@
 // - Use a dynamic property + Q_PROPERTY for the subtitle.
 // - Make our nested event loop more robust. See tryDeleteLater for details.
 
-WiresharkDialog::WiresharkDialog(QWidget &, CaptureFile &capture_file) :
-    GeometryStateDialog(NULL, Qt::Window),
+WiresharkDialog::WiresharkDialog(QWidget &parent, CaptureFile &capture_file) :
+    GeometryStateDialog(&parent, Qt::Window),
     cap_file_(capture_file),
     file_closed_(false),
     retap_depth_(0),
@@ -51,10 +39,8 @@ WiresharkDialog::WiresharkDialog(QWidget &, CaptureFile &capture_file) :
     setWindowIcon(wsApp->normalIcon());
     setWindowTitleFromSubtitle();
 
-    connect(&cap_file_, SIGNAL(captureFileRetapStarted()), this, SLOT(beginRetapPackets()));
-    connect(&cap_file_, SIGNAL(captureFileRetapFinished()), this, SLOT(endRetapPackets()));
-    connect(&cap_file_, SIGNAL(captureFileClosing()), this, SLOT(captureFileClosing()));
-    connect(&cap_file_, SIGNAL(captureFileClosed()), this, SLOT(captureFileClosed()));
+    connect(&cap_file_, SIGNAL(captureEvent(CaptureEvent)),
+            this, SLOT(captureEvent(CaptureEvent)));
 }
 
 void WiresharkDialog::accept()
@@ -117,7 +103,7 @@ void WiresharkDialog::updateWidgets()
 bool WiresharkDialog::registerTapListener(const char *tap_name, void *tap_data, const char *filter, guint flags, void(*tap_reset)(void *), gboolean(*tap_packet)(void *, struct _packet_info *, struct epan_dissect *, const void *), void(*tap_draw)(void *))
 {
     GString *error_string = register_tap_listener(tap_name, tap_data, filter, flags,
-                                                  tap_reset, tap_packet, tap_draw);
+                                                  tap_reset, tap_packet, tap_draw, NULL);
     if (error_string) {
         QMessageBox::warning(this, tr("Failed to attach to tap \"%1\"").arg(tap_name),
                              error_string->str);
@@ -127,6 +113,47 @@ bool WiresharkDialog::registerTapListener(const char *tap_name, void *tap_data, 
 
     tap_listeners_ << tap_data;
     return true;
+}
+
+void WiresharkDialog::captureEvent(CaptureEvent e)
+{
+    switch (e.captureContext())
+    {
+    case CaptureEvent::Retap:
+        switch (e.eventType())
+        {
+        case CaptureEvent::Started:
+            beginRetapPackets();
+            break;
+        case CaptureEvent::Finished:
+            endRetapPackets();
+            break;
+        default:
+            break;
+        }
+        break;
+    case CaptureEvent::File:
+        switch (e.eventType())
+        {
+        case CaptureEvent::Closing:
+            captureFileClosing();
+            break;
+        case CaptureEvent::Closed:
+            captureFileClosed();
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+
+}
+
+void WiresharkDialog::beginRetapPackets()
+{
+    retap_depth_++;
 }
 
 void WiresharkDialog::endRetapPackets()

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -291,20 +279,21 @@ static gboolean
 test_skype_udp(tvbuff_t *tvb)
 {
 	/* Minimum of 3 bytes, check for valid message type */
-	guint length = tvb_captured_length(tvb);
-	guint8 type = tvb_get_guint8(tvb, 2) & 0xF;
-	if ( length >= 3 &&
-		    ( type == 0   ||
+	if (tvb_captured_length(tvb) > 3)
+	{
+		guint8 type = tvb_get_guint8(tvb, 2) & 0xF;
+		if ( type == 0   ||
 			/* FIXME: Extend this by minimum or exact length per message type */
-		      type == 2   ||
-		      type == 3   ||
-		      type == 5   ||
-		      type == 7   ||
-		      type == 0xd ||
-		      type == 0xf
-		    )
-	) {
-		return TRUE;
+			type == 2   ||
+			type == 3   ||
+			type == 5   ||
+			type == 7   ||
+			type == 0xd ||
+			type == 0xf
+			)
+		{
+			return TRUE;
+		}
 	}
 	return FALSE;
 }
@@ -312,12 +301,11 @@ test_skype_udp(tvbuff_t *tvb)
 static gboolean
 dissect_skype_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-	if (pinfo->ptype == PT_UDP) {
-		if ( !test_skype_udp(tvb) ) {
-			return FALSE;
-		}
-		dissect_skype_udp(tvb, pinfo, tree);
+	if ( !test_skype_udp(tvb) ) {
+		return FALSE;
 	}
+
+	dissect_skype_udp(tvb, pinfo, tree);
 	return TRUE;
 }
 
@@ -444,10 +432,9 @@ proto_reg_handoff_skype(void)
 	dissector_handle_t skype_handle;
 
 	skype_handle = create_dissector_handle(dissect_skype_static, proto_skype);
-	dissector_add_for_decode_as("tcp.port", skype_handle);
-	dissector_add_for_decode_as("udp.port", skype_handle);
+	dissector_add_for_decode_as_with_preference("tcp.port", skype_handle);
+	dissector_add_for_decode_as_with_preference("udp.port", skype_handle);
 
-	heur_dissector_add("tcp", dissect_skype_heur, "Skype over TCP", "skype_tcp", proto_skype, HEURISTIC_DISABLE);
 	heur_dissector_add("udp", dissect_skype_heur, "Skype over UDP", "skype_udp", proto_skype, HEURISTIC_DISABLE);
 }
 

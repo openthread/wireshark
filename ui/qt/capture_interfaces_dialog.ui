@@ -106,7 +106,7 @@
           </spacer>
          </item>
          <item>
-          <widget class="QPushButton" name="manage">
+          <widget class="QPushButton" name="manageButton">
            <property name="enabled">
             <bool>true</bool>
            </property>
@@ -221,7 +221,7 @@
          <item>
           <widget class="QRadioButton" name="rbPcapng">
            <property name="text">
-            <string>pcap-ng</string>
+            <string>pcapng</string>
            </property>
           </widget>
          </item>
@@ -492,7 +492,7 @@ PLEASE NOTE: One option MUST be selected.</string>
                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Show the capture info dialog while capturing.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
               </property>
               <property name="text">
-               <string>Show extra capture information dialog</string>
+               <string>Show capture information during live capture</string>
               </property>
              </widget>
             </item>
@@ -791,7 +791,7 @@ PLEASE NOTE: One option MUST be selected.</string>
    <item>
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="standardButtons">
-      <set>QDialogButtonBox::Close|QDialogButtonBox::Help</set>
+      <set>QDialogButtonBox::Close|QDialogButtonBox::Help|QDialogButtonBox::Ok</set>
      </property>
     </widget>
    </item>
@@ -801,7 +801,7 @@ PLEASE NOTE: One option MUST be selected.</string>
   <customwidget>
    <class>CaptureFilterCombo</class>
    <extends>QComboBox</extends>
-   <header>capture_filter_combo.h</header>
+   <header>widgets/capture_filter_combo.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

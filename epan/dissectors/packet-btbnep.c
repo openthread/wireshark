@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -629,7 +617,7 @@ proto_register_btbnep(void)
     expert_btbnep = expert_register_protocol(proto_btbnep);
     expert_register_field_array(expert_btbnep, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_btbnep, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btbnep, NULL);
     prefs_register_static_text_preference(module, "bnep.version",
             "Bluetooth Protocol BNEP version: 1.0",
             "Version of protocol supported by this dissector.");

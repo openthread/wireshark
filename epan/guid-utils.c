@@ -6,19 +6,7 @@
  *
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,6 +22,7 @@
 #ifdef _WIN32
 #include <tchar.h>
 #include <windows.h>
+#include <strsafe.h>
 #endif
 
 static wmem_tree_t *guid_to_name_tree = NULL;
@@ -42,7 +31,7 @@ static wmem_tree_t *guid_to_name_tree = NULL;
 #ifdef _WIN32
 /* try to resolve an DCE/RPC interface name to its name using the Windows registry entries */
 /* XXX - might be better to fill all interfaces into our database at startup instead of searching each time */
-int
+static int
 ResolveWin32UUID(e_guid_t if_id, char *uuid_name, int uuid_name_max_len)
 {
 	TCHAR *reg_uuid_name;
@@ -57,7 +46,7 @@ ResolveWin32UUID(e_guid_t if_id, char *uuid_name, int uuid_name_max_len)
 		return 0;
 	}
 	reg_uuid_name[0] = '\0';
-	_snwprintf(reg_uuid_str, MAX_PATH, _T("SOFTWARE\\Classes\\Interface\\{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}"),
+	StringCchPrintf(reg_uuid_str, MAX_PATH, _T("SOFTWARE\\Classes\\Interface\\{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}"),
 			if_id.data1, if_id.data2, if_id.data3,
 			if_id.data4[0], if_id.data4[1],
 			if_id.data4[2], if_id.data4[3],

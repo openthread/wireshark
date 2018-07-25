@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This module provides Protocol Column Info tap for tshark */
@@ -59,7 +47,7 @@ protocolinfo_packet(void *prs, packet_info *pinfo, epan_dissect_t *edt, const vo
 	 * To prevent a crash, we check whether INFO column is writable
 	 * and, if not, we report that error and exit.
 	 */
-	if (!col_get_writable(pinfo->cinfo)) {
+	if (!col_get_writable(pinfo->cinfo, COL_INFO)) {
 		fprintf(stderr, "tshark: the proto,colinfo tap doesn't work if the INFO column isn't being printed.\n");
 		exit(1);
 	}
@@ -116,7 +104,7 @@ protocolinfo_init(const char *opt_arg, void *userdata _U_)
 		rs->filter = NULL;
 	}
 
-	error_string = register_tap_listener("frame", rs, rs->filter, TL_REQUIRES_PROTO_TREE, NULL, protocolinfo_packet, NULL);
+	error_string = register_tap_listener("frame", rs, rs->filter, TL_REQUIRES_PROTO_TREE, NULL, protocolinfo_packet, NULL, NULL);
 	if (error_string) {
 		/* error, we failed to attach to the tap. complain and clean up */
 		fprintf(stderr, "tshark: Couldn't register proto,colinfo tap: %s\n",

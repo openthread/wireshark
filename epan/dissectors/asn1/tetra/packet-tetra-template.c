@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * REF: ETSI EN 300 392-2 V3.2.1
  */
@@ -48,7 +36,7 @@ static int proto_tetra = -1;
 
 static dissector_handle_t tetra_handle;
 
-static int global_tetra_port = 7074;
+#define TETRA_UDP_PORT  7074 /* Not IANA assigned */
 
 /* Whether the capture data include carrier numbers */
 static gboolean include_carrier_number = TRUE;
@@ -546,13 +534,8 @@ dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
 void proto_reg_handoff_tetra(void)
 {
-	static gboolean initialized=FALSE;
-
-	if (!initialized) {
-		tetra_handle = create_dissector_handle(dissect_tetra, proto_tetra);
-		dissector_add_uint("udp.port", global_tetra_port, tetra_handle);
-	}
-
+	tetra_handle = create_dissector_handle(dissect_tetra, proto_tetra);
+	dissector_add_uint_with_preference("udp.port", TETRA_UDP_PORT, tetra_handle);
 }
 
 
@@ -635,7 +618,7 @@ void proto_register_tetra (void)
 		{ &ei_tetra_channels_incorrect, { "tetra.channels.incorrect", PI_MALFORMED, PI_WARN, "Channel count incorrect, must be <= 3", EXPFILL }},
 	};
 
-	proto_tetra = proto_register_protocol("TETRA Protocol", "tetra", "tetra");
+	proto_tetra = proto_register_protocol("TETRA Protocol", "TETRA", "tetra");
 	proto_register_field_array (proto_tetra, hf, array_length (hf));
 	proto_register_subtree_array (ett, array_length (ett));
 	register_dissector("tetra", dissect_tetra, proto_tetra);

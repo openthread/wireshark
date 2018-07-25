@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -220,7 +208,7 @@ dissect_mpls_y1711(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 
         proto_tree_add_item(mpls_y1711_tree, hf_mpls_y1711_defect_type, tvb,
                             offset, 2,
-                            ENC_LITTLE_ENDIAN);
+                            ENC_BIG_ENDIAN);
         offset += 2;
 
         /*
@@ -251,7 +239,7 @@ dissect_mpls_y1711(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
         /* defect location */
         proto_tree_add_item(mpls_y1711_tree, hf_mpls_y1711_defect_location, tvb,
                             offset, 4,
-                            ENC_LITTLE_ENDIAN);
+                            ENC_BIG_ENDIAN);
         offset += 4;
 
         /* 14 octets of padding (all 0x00) */
@@ -307,7 +295,7 @@ dissect_mpls_y1711(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 
     /* BIP16 */
     proto_tree_add_item(mpls_y1711_tree, hf_mpls_y1711_bip16, tvb, offset, 2,
-                        ENC_LITTLE_ENDIAN);
+                        ENC_BIG_ENDIAN);
     offset += 2;
 
     return offset;
@@ -397,13 +385,12 @@ proto_register_mpls_y1711(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_mpls_y1711 = expert_register_protocol(proto_mpls_y1711);
     expert_register_field_array(expert_mpls_y1711, ei, array_length(ei));
-    register_dissector("mpls_y1711", dissect_mpls_y1711, proto_mpls_y1711);
+    mpls_y1711_handle = register_dissector("mpls_y1711", dissect_mpls_y1711, proto_mpls_y1711);
 }
 
 void
 proto_reg_handoff_mpls_y1711(void)
 {
-    mpls_y1711_handle = find_dissector("mpls_y1711");
     dissector_add_uint("mpls.label",
                        MPLS_LABEL_OAM_ALERT /* 14 */,
                        mpls_y1711_handle);

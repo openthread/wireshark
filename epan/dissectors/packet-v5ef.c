@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
  * V5 bitstream over HDLC handling
@@ -48,7 +36,8 @@ static int hf_v5ef_ea2 = -1;
 static gint ett_v5ef = -1;
 static gint ett_v5ef_address = -1;
 
-static dissector_handle_t v5dl_handle, lapd_handle;
+static dissector_handle_t v5dl_handle, lapd_handle, v5ef_handle;
+
 
 /*
  * Bits in the address field.
@@ -183,16 +172,12 @@ proto_register_v5ef(void)
 	proto_register_field_array (proto_v5ef, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	register_dissector("v5ef", dissect_v5ef, proto_v5ef);
-
+	v5ef_handle = register_dissector("v5ef", dissect_v5ef, proto_v5ef);
 }
 
 void
 proto_reg_handoff_v5ef(void)
 {
-	dissector_handle_t v5ef_handle;
-
-	v5ef_handle = find_dissector("v5ef");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_V5_EF, v5ef_handle);
 
 	lapd_handle = find_dissector_add_dependency("lapd", proto_v5ef);

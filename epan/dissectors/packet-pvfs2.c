@@ -14,19 +14,7 @@
  *    - Add filename snooping (match file handles with file names),
  *      similar to how packet-rpc.c/packet-nfs.c implements it
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -39,7 +27,7 @@
 #include <epan/expert.h>
 #include "packet-tcp.h"
 
-#define TCP_PORT_PVFS2 3334
+#define TCP_PORT_PVFS2 3334 /* Not IANA registered */
 
 #define PVFS2_FH_LENGTH 8
 
@@ -893,7 +881,7 @@ dissect_pvfs_opaque_data(tvbuff_t *tvb, int offset,
 				size_t string_buffer_size = 0;
 				char *string_buffer_temp;
 
-				formatted = format_text((guint8 *)string_buffer,
+				formatted = format_text(wmem_packet_scope(), (guint8 *)string_buffer,
 						(int)strlen(string_buffer));
 
 				string_buffer_size = strlen(formatted) + 12 + 1;
@@ -917,9 +905,8 @@ dissect_pvfs_opaque_data(tvbuff_t *tvb, int offset,
 			}
 		} else {
 			if (string_data) {
-				string_buffer_print =
-				    wmem_strdup(wmem_packet_scope(), format_text((guint8 *) string_buffer,
-								 (int)strlen(string_buffer)));
+				string_buffer_print = format_text(wmem_packet_scope(), (guint8 *) string_buffer,
+								 (int)strlen(string_buffer));
 			} else {
 				string_buffer_print="<DATA>";
 			}
@@ -1147,11 +1134,12 @@ int dissect_pvfs_uint64(tvbuff_t *tvb, proto_tree *tree, int offset,
 static int
 dissect_pvfs_distribution(tvbuff_t *tvb, proto_tree *tree, int offset)
 {
-	proto_item *dist_item = NULL;
-	proto_tree *dist_tree = NULL;
-	guint32 distlen = 0;
-	char *tmpstr = NULL;
+	proto_item *dist_item;
+	proto_tree *dist_tree;
+	guint32 distlen;
+	char *tmpstr;
 	guint8 issimplestripe = 0;
+	guint32 total_len;
 
 	/* Get distribution name length */
 	distlen = tvb_get_letohl(tvb, offset);
@@ -1159,27 +1147,22 @@ dissect_pvfs_distribution(tvbuff_t *tvb, proto_tree *tree, int offset)
 	/* Get distribution name */
 	tmpstr = (char *) tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 4, distlen, ENC_ASCII);
 
-	if (tree)
+	/* 'distlen' does not include the NULL terminator */
+	total_len = roundup8(4 + distlen + 1);
+
+	if (((distlen + 1) == PVFS_DIST_SIMPLE_STRIPE_NAME_SIZE) &&
+			(g_ascii_strncasecmp(tmpstr, PVFS_DIST_SIMPLE_STRIPE_NAME,
+					     distlen) == 0))
 	{
-		guint32 total_len;
+		/* Parameter for 'simple_stripe' is 8 bytes */
+		total_len += 8;
 
-		/* 'distlen' does not include the NULL terminator */
-		total_len = roundup8(4 + distlen + 1);
-
-		if (((distlen + 1) == PVFS_DIST_SIMPLE_STRIPE_NAME_SIZE) &&
-				(g_ascii_strncasecmp(tmpstr, PVFS_DIST_SIMPLE_STRIPE_NAME,
-								 distlen) == 0))
-		{
-			/* Parameter for 'simple_stripe' is 8 bytes */
-			total_len += 8;
-
-			issimplestripe = 1;
-		}
-
-		dist_item = proto_tree_add_string(tree, hf_pvfs_distribution, tvb, offset,
-											total_len + 8, tmpstr);
-		dist_tree = proto_item_add_subtree(dist_item, ett_pvfs_distribution);
+		issimplestripe = 1;
 	}
+
+	dist_item = proto_tree_add_string(tree, hf_pvfs_distribution,
+			tvb, offset, total_len + 8, tmpstr);
+	dist_tree = proto_item_add_subtree(dist_item, ett_pvfs_distribution);
 
 	/* io_dist */
 	offset = dissect_pvfs_string(tvb, dist_tree, hf_pvfs_io_dist, offset,
@@ -2879,7 +2862,7 @@ dissect_pvfs2_response(tvbuff_t *tvb, proto_tree *tree, int offset,
 	return offset;
 }
 
-static GHashTable *pvfs2_io_tracking_value_table = NULL;
+static wmem_map_t *pvfs2_io_tracking_value_table = NULL;
 
 typedef struct pvfs2_io_tracking_key
 {
@@ -2911,19 +2894,6 @@ pvfs2_io_tracking_hash(gconstpointer k)
 	return (guint) ((key->tag >> 32) ^ ((guint32) key->tag));
 }
 
-static void
-pvfs2_io_tracking_init(void)
-{
-	pvfs2_io_tracking_value_table = g_hash_table_new(pvfs2_io_tracking_hash,
-			pvfs2_io_tracking_equal);
-}
-
-static void
-pvfs2_io_tracking_cleanup(void)
-{
-	g_hash_table_destroy(pvfs2_io_tracking_value_table);
-}
-
 static pvfs2_io_tracking_value_t *
 pvfs2_io_tracking_new_with_tag(guint64 tag, guint32 num)
 {
@@ -2935,7 +2905,7 @@ pvfs2_io_tracking_new_with_tag(guint64 tag, guint32 num)
 
 	value = wmem_new0(wmem_file_scope(), pvfs2_io_tracking_value_t);
 
-	g_hash_table_insert(pvfs2_io_tracking_value_table, newkey, value);
+	wmem_map_insert(pvfs2_io_tracking_value_table, newkey, value);
 
 	value->request_frame_num = num;
 
@@ -2998,7 +2968,7 @@ dissect_pvfs_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
 		memset(&key, 0, sizeof(key));
 		key.tag = tag;
 
-		val = (pvfs2_io_tracking_value_t *)g_hash_table_lookup(pvfs2_io_tracking_value_table, &key);
+		val = (pvfs2_io_tracking_value_t *)wmem_map_lookup(pvfs2_io_tracking_value_table, &key);
 
 		/* If this frame contains a known PVFS_SERV_IO tag, track it */
 		if (val && !pinfo->fd->flags.visited)
@@ -3611,8 +3581,7 @@ proto_register_pvfs(void)
 	expert_pvfs = expert_register_protocol(proto_pvfs);
 	expert_register_field_array(expert_pvfs, ei, array_length(ei));
 
-	register_init_routine(pvfs2_io_tracking_init);
-	register_cleanup_routine(pvfs2_io_tracking_cleanup);
+	pvfs2_io_tracking_value_table = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), pvfs2_io_tracking_hash, pvfs2_io_tracking_equal);
 
 	pvfs_module = prefs_register_protocol(proto_pvfs, NULL);
 	prefs_register_bool_preference(pvfs_module, "desegment",
@@ -3628,7 +3597,7 @@ proto_reg_handoff_pvfs(void)
 	dissector_handle_t pvfs_handle;
 
 	pvfs_handle = create_dissector_handle(dissect_pvfs_heur, proto_pvfs);
-	dissector_add_uint("tcp.port", TCP_PORT_PVFS2, pvfs_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_PVFS2, pvfs_handle);
 
 	heur_dissector_add("tcp", dissect_pvfs_heur, "PVFS over TCP", "pvfs_tcp", proto_pvfs, HEURISTIC_ENABLE);
 }

@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,8 +19,9 @@
 /* WSLUA_MODULE Listener Post-dissection packet analysis */
 
 #include "wslua.h"
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
-WSLUA_CLASS_DEFINE(Listener,FAIL_ON_NULL("Listener"),NOP);
+WSLUA_CLASS_DEFINE(Listener,FAIL_ON_NULL("Listener"));
 /*
     A `Listener` is called once for every packet that matches a certain filter or has a certain tap.
     It can read the tree, the packet's `Tvb` buffer as well as the tapped data, but it cannot
@@ -111,7 +100,7 @@ static gboolean lua_tap_packet(void *tapdata, packet_info *pinfo, epan_dissect_t
         case LUA_ERRRUN:
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling listener tap callback packet");
+            ws_g_warning("Memory alloc error while calling listener tap callback packet");
             break;
         default:
             g_assert_not_reached();
@@ -146,10 +135,10 @@ static void lua_tap_reset(void *tapdata) {
         case 0:
             break;
         case LUA_ERRRUN:
-            g_warning("Runtime error while calling a listener's init()");
+            ws_g_warning("Runtime error while calling a listener's init()");
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling a listener's init()");
+            ws_g_warning("Memory alloc error while calling a listener's init()");
             break;
         default:
             g_assert_not_reached();
@@ -171,10 +160,10 @@ static void lua_tap_draw(void *tapdata) {
             break;
         case LUA_ERRRUN:
             error = lua_tostring(tap->L,-1);
-            g_warning("Runtime error while calling a listener's draw(): %s",error);
+            ws_g_warning("Runtime error while calling a listener's draw(): %s",error);
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling a listener's draw()");
+            ws_g_warning("Memory alloc error while calling a listener's draw()");
             break;
         default:
             g_assert_not_reached();
@@ -204,7 +193,7 @@ WSLUA_CONSTRUCTOR Listener_new(lua_State* L) {
 #define WSLUA_OPTARG_Listener_new_FILTER 2 /* A filter that when matches the `tap.packet` function gets
                                               called (use nil to be called for every packet). */
 #define WSLUA_OPTARG_Listener_new_ALLFIELDS 3 /* Whether to generate all fields. (default=false)
-                                                 Note: this impacts performance. */
+                                                 Note: This impacts performance. */
 
     const gchar* tap_type = luaL_optstring(L,WSLUA_OPTARG_Listener_new_TAP,"frame");
     const gchar* filter = luaL_optstring(L,WSLUA_OPTARG_Listener_new_FILTER,NULL);
@@ -215,7 +204,7 @@ WSLUA_CONSTRUCTOR Listener_new(lua_State* L) {
     tap = (Listener)g_malloc(sizeof(struct _wslua_tap));
 
     tap->name = g_strdup(tap_type);
-    tap->filter = filter ? g_strdup(filter) : NULL;
+    tap->filter = g_strdup(filter);
     tap->extractor = wslua_get_tap_extractor(tap_type);
     tap->L = L;
     tap->packet_ref = LUA_NOREF;
@@ -230,7 +219,7 @@ WSLUA_CONSTRUCTOR Listener_new(lua_State* L) {
      * XXX - do any Lua taps require the columns?  If so, we either need
      * to request them for this tap, or do so if any Lua taps require them.
      */
-    error = register_tap_listener(tap_type, tap, tap->filter, TL_REQUIRES_PROTO_TREE, lua_tap_reset, lua_tap_packet, lua_tap_draw);
+    error = register_tap_listener(tap_type, tap, tap->filter, TL_REQUIRES_PROTO_TREE, lua_tap_reset, lua_tap_packet, lua_tap_draw, NULL);
 
     if (error) {
         g_free(tap->filter);
@@ -239,7 +228,7 @@ WSLUA_CONSTRUCTOR Listener_new(lua_State* L) {
         /* WSLUA_ERROR(new_tap,"tap registration error"); */
         lua_pushfstring(L,"Error while registering tap:\n%s",error->str);
         g_string_free(error,TRUE);
-        luaL_error(L,lua_tostring(L,-1));
+        return luaL_error(L,lua_tostring(L,-1));
     }
 
     if (all_fields) {
@@ -262,7 +251,7 @@ compare_dissector_key_name(gconstpointer dissector_a, gconstpointer dissector_b)
 WSLUA_CONSTRUCTOR Listener_list (lua_State *L) {
     /* Gets a Lua array table of all registered `Listener` tap names.
 
-       Note: this is an expensive operation, and should only be used for troubleshooting.
+       Note: This is an expensive operation, and should only be used for troubleshooting.
 
        @since 1.11.3
      */
@@ -278,7 +267,7 @@ WSLUA_CONSTRUCTOR Listener_list (lua_State *L) {
     lua_newtable(L);
     for (i=1; elist; i++, elist = g_list_next(elist)) {
         lua_pushstring(L,(const char *) elist->data);
-        lua_rawseti(L,1,i);
+        lua_rawseti(L,-2,i);
     }
 
     g_list_free(list);
@@ -314,9 +303,15 @@ WSLUA_METAMETHOD Listener__tostring(lua_State* L) {
       2. A `Tvb` object
       3. A `tapinfo` table
 
-    @code function tap.packet(pinfo,tvb,tapinfo) ... end @endcode
+    [source,lua]
+    ----
+    function tap.packet(pinfo,tvb,tapinfo) ... end
+    ----
 
-    @note `tapinfo` is a table of info based on the `Listener`'s type, or nil.
+    [NOTE]
+    ====
+    `tapinfo` is a table of info based on the `Listener`'s type, or nil.
+    ====
 */
 WSLUA_ATTRIBUTE_FUNC_SETTER(Listener,packet);
 
@@ -326,7 +321,10 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(Listener,packet);
 
     When later called by Wireshark, the `draw` function will not be given any arguments.
 
-    @code function tap.draw() ... end @endcode
+    [source,lua]
+    ----
+    function tap.draw() ... end
+    ----
 */
 WSLUA_ATTRIBUTE_FUNC_SETTER(Listener,draw);
 
@@ -334,7 +332,10 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(Listener,draw);
 
     When later called by Wireshark, the `reset` function will not be given any arguments.
 
-    @code function tap.reset() ... end @endcode
+    [source,lua]
+    ----
+    function tap.reset() ... end
+    ----
 */
 WSLUA_ATTRIBUTE_FUNC_SETTER(Listener,reset);
 
@@ -385,7 +386,7 @@ static void deregister_tap_listener (gpointer data, gpointer userdata) {
 
 int wslua_deregister_listeners(lua_State* L) {
     g_ptr_array_foreach(listeners, deregister_tap_listener, L);
-    g_ptr_array_free(listeners, FALSE);
+    g_ptr_array_free(listeners, TRUE);
     listeners = NULL;
 
     return 0;

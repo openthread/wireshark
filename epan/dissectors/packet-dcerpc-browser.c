@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* The IDL file for this interface can be extracted by grepping for idl
@@ -90,7 +78,6 @@ dissect_browser_TYPE_4_data(tvbuff_t *tvb, int offset,
 			dcerpc_info *di, guint8 *drep)
 {
 	guint32 len;
-	int old_offset = offset;
 
 	if(di->conformant_run){
 		/* this call is to make wireshark eat the array header for the conformant run */
@@ -104,10 +91,8 @@ dissect_browser_TYPE_4_data(tvbuff_t *tvb, int offset,
 	proto_tree_add_item(tree, hf_browser_unknown_bytes, tvb, offset, len,
 		ENC_NA);
 	offset += len;
-	if (offset < old_offset)
-		THROW(ReportedBoundsError);
 
-	return len;
+	return offset;
 }
 static int
 dissect_browser_TYPE_4(tvbuff_t *tvb, int offset,
@@ -137,7 +122,6 @@ dissect_browser_TYPE_3_data(tvbuff_t *tvb, int offset,
 			dcerpc_info *di, guint8 *drep)
 {
 	guint32 len;
-	int old_offset = offset;
 
 	if(di->conformant_run){
 		/* this call is to make wireshark eat the array header for the conformant run */
@@ -152,10 +136,8 @@ dissect_browser_TYPE_3_data(tvbuff_t *tvb, int offset,
 	proto_tree_add_item(tree, hf_browser_unknown_bytes, tvb, offset, len,
 		ENC_NA);
 	offset += len;
-	if (offset < old_offset)
-		THROW(ReportedBoundsError);
 
-	return len;
+	return offset;
 }
 static int
 dissect_browser_TYPE_3(tvbuff_t *tvb, int offset,
@@ -741,7 +723,6 @@ dissect_browser_TYPE_9_data(tvbuff_t *tvb, int offset,
 			dcerpc_info *di, guint8 *drep)
 {
 	guint32 len;
-	int old_offset = offset;
 
 	if(di->conformant_run){
 		/* this call is to make wireshark eat the array header for the conformant run */
@@ -757,10 +738,8 @@ dissect_browser_TYPE_9_data(tvbuff_t *tvb, int offset,
 	proto_tree_add_item(tree, hf_browser_unknown_bytes, tvb, offset, len,
 		ENC_NA);
 	offset += len;
-	if (offset < old_offset)
-		THROW(ReportedBoundsError);
 
-	return len;
+	return offset;
 }
 static int
 dissect_browser_TYPE_9(tvbuff_t *tvb, int offset,
@@ -931,7 +910,6 @@ dissect_browser_TYPE_12_data(tvbuff_t *tvb, int offset,
 			dcerpc_info *di, guint8 *drep)
 {
 	guint32 len;
-	int old_offset = offset;
 
 	if(di->conformant_run){
 		/* this call is to make wireshark eat the array header for the conformant run */
@@ -947,8 +925,6 @@ dissect_browser_TYPE_12_data(tvbuff_t *tvb, int offset,
 	proto_tree_add_item(tree, hf_browser_unknown_bytes, tvb, offset, len,
 		ENC_NA);
 	offset += len;
-	if (offset < old_offset)
-		THROW(ReportedBoundsError);
 
 	return offset;
 }

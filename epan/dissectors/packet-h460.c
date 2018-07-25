@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -254,7 +242,7 @@ static int hf_h460_21_capability = -1;            /* Capability */
 static int hf_h460_21_sourceAddress = -1;         /* UnicastAddress */
 
 /*--- End of included file: packet-h460-hf.c ---*/
-#line 45 "./asn1/h460/packet-h460-template.c"
+#line 33 "./asn1/h460/packet-h460-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -351,7 +339,7 @@ static gint ett_h460_21_SEQUENCE_SIZE_1_256_OF_Capability = -1;
 static gint ett_h460_21_TransmitCapabilities = -1;
 
 /*--- End of included file: packet-h460-ett.c ---*/
-#line 48 "./asn1/h460/packet-h460-template.c"
+#line 36 "./asn1/h460/packet-h460-template.c"
 
 /* Subdissectors */
 static dissector_handle_t q931_ie_handle = NULL;
@@ -1962,7 +1950,7 @@ static int dissect_h460_21_CapabilityAdvertisement_PDU(tvbuff_t *tvb _U_, packet
 
 
 /*--- End of included file: packet-h460-fn.c ---*/
-#line 54 "./asn1/h460/packet-h460-template.c"
+#line 42 "./asn1/h460/packet-h460-template.c"
 
 static int
 dissect_ies(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_) {
@@ -2871,7 +2859,7 @@ void proto_register_h460(void) {
         "UnicastAddress", HFILL }},
 
 /*--- End of included file: packet-h460-hfarr.c ---*/
-#line 248 "./asn1/h460/packet-h460-template.c"
+#line 236 "./asn1/h460/packet-h460-template.c"
   };
 
   /* List of subtrees */
@@ -2970,7 +2958,7 @@ void proto_register_h460(void) {
     &ett_h460_21_TransmitCapabilities,
 
 /*--- End of included file: packet-h460-ettarr.c ---*/
-#line 253 "./asn1/h460/packet-h460-template.c"
+#line 241 "./asn1/h460/packet-h460-template.c"
   };
 
   /* Register protocol */
@@ -2981,10 +2969,10 @@ void proto_register_h460(void) {
   proto_register_subtree_array(ett, array_length(ett));
 
   for (ftr=h460_feature_tab; ftr->id; ftr++) {
-    if (ftr->opt & GD) ftr->key_gd = g_strdup_printf("GenericData/%s", ftr->id);
-    if (ftr->opt & FD) ftr->key_fd = g_strdup_printf("FeatureDescriptor/%s", ftr->id);
-    if (ftr->opt & GM) ftr->key_gm = g_strdup_printf("GenericMessage/%s", ftr->id);
-    if (ftr->opt & GI) ftr->key_gi = g_strdup_printf("GenericInformation/%s", ftr->id);
+    if (ftr->opt & GD) ftr->key_gd = wmem_strdup_printf(wmem_epan_scope(), "GenericData/%s", ftr->id);
+    if (ftr->opt & FD) ftr->key_fd = wmem_strdup_printf(wmem_epan_scope(), "FeatureDescriptor/%s", ftr->id);
+    if (ftr->opt & GM) ftr->key_gm = wmem_strdup_printf(wmem_epan_scope(), "GenericMessage/%s", ftr->id);
+    if (ftr->opt & GI) ftr->key_gi = wmem_strdup_printf(wmem_epan_scope(), "GenericInformation/%s", ftr->id);
     if (ftr->content_pdu) ftr->content_hnd = create_dissector_handle(ftr->content_pdu, proto_h460);
   }
 }

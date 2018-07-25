@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref https://www.opennetworking.org/sdn-resources/onf-specifications/openflow
  */
@@ -44,6 +32,7 @@ static dissector_handle_t openflow_handle;
 static dissector_handle_t openflow_v1_handle;
 static dissector_handle_t openflow_v4_handle;
 static dissector_handle_t openflow_v5_handle;
+static dissector_handle_t openflow_v6_handle;
 
 /* Initialize the protocol and registered fields */
 static int proto_openflow = -1;
@@ -58,13 +47,15 @@ static gboolean openflow_desegment = TRUE;
 #define OFP_VERSION_1_2 3
 #define OFP_VERSION_1_3 4
 #define OFP_VERSION_1_4 5
+#define OFP_VERSION_1_5 6
 
 static const value_string openflow_version_values[] = {
-    { 0x01, "1.0" },
-    { 0x02, "1.1" },
-    { 0x03, "1.2" },
-    { 0x04, "1.3" },
-    { 0x05, "1.4" },
+    { OFP_VERSION_1_0, "1.0" },
+    { OFP_VERSION_1_1, "1.1" },
+    { OFP_VERSION_1_2, "1.2" },
+    { OFP_VERSION_1_3, "1.3" },
+    { OFP_VERSION_1_4, "1.4" },
+    { OFP_VERSION_1_5, "1.5" },
     { 0, NULL }
 };
 
@@ -96,6 +87,9 @@ dissect_openflow_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
         break;
     case OFP_VERSION_1_4:
         call_dissector(openflow_v5_handle, tvb, pinfo, tree);
+        break;
+    case OFP_VERSION_1_5:
+        call_dissector(openflow_v6_handle, tvb, pinfo, tree);
         break;
     default:
         ti = proto_tree_add_item(tree, hf_openflow_version, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -134,6 +128,13 @@ dissect_openflow_heur(tvbuff_t *tvb, packet_info *pinfo,
     return TRUE;
 }
 
+static void
+apply_openflow_prefs(void)
+{
+    /* Openflow uses the port preference for heuristics */
+    g_openflow_port = prefs_get_uint_value("openflow", "tcp.port");
+}
+
 /*
  * Register the protocol with Wireshark.
  */
@@ -166,12 +167,7 @@ proto_register_openflow(void)
     expert_openflow = expert_register_protocol(proto_openflow);
     expert_register_field_array(expert_openflow, ei, array_length(ei));
 
-    openflow_module = prefs_register_protocol(proto_openflow, proto_reg_handoff_openflow);
-
-    /* Register port preference */
-    prefs_register_uint_preference(openflow_module, "tcp.port", "OpenFlow TCP port",
-                                   "OpenFlow TCP port (6653 is the IANA assigned port)",
-                                   10, &g_openflow_port);
+    openflow_module = prefs_register_protocol(proto_openflow, apply_openflow_prefs);
 
     /* Register heuristic preference */
     prefs_register_obsolete_preference(openflow_module, "heuristic");
@@ -187,23 +183,14 @@ proto_register_openflow(void)
 void
 proto_reg_handoff_openflow(void)
 {
-    static gboolean initialized = FALSE;
-    static int currentPort;
+    heur_dissector_add("tcp", dissect_openflow_heur, "OpenFlow over TCP", "openflow_tcp", proto_openflow, HEURISTIC_ENABLE);
 
-    if (!initialized) {
-        heur_dissector_add("tcp", dissect_openflow_heur, "OpenFlow over TCP", "openflow_tcp", proto_openflow, HEURISTIC_ENABLE);
-        initialized = TRUE;
-    } else {
-        dissector_delete_uint("tcp.port", currentPort, openflow_handle);
-    }
-
-    currentPort = g_openflow_port;
-
-    dissector_add_uint("tcp.port", currentPort, openflow_handle);
+    dissector_add_uint_with_preference("tcp.port", OFP_IANA_PORT, openflow_handle);
 
     openflow_v1_handle = find_dissector_add_dependency("openflow_v1", proto_openflow);
     openflow_v4_handle = find_dissector_add_dependency("openflow_v4", proto_openflow);
     openflow_v5_handle = find_dissector_add_dependency("openflow_v5", proto_openflow);
+    openflow_v6_handle = find_dissector_add_dependency("openflow_v6", proto_openflow);
 }
 
 /*

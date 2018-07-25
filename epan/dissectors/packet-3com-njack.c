@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -97,6 +85,7 @@ static int hf_njack_getresp_unknown1 = -1;
 #define PROTO_SHORT_NAME "NJACK"
 #define PROTO_LONG_NAME "3com Network Jack"
 
+#define NJACK_PORT_RANGE	"5264-5265"
 #define PORT_NJACK_PC	5264
 #define PORT_NJACK_SWITCH	5265
 
@@ -507,7 +496,7 @@ dissect_tlvs(tvbuff_t *tvb, proto_tree *njack_tree, guint32 offset)
 }
 
 #if 0
-#include <wsutil/md5.h>
+#include <wsutil/wsgcrypt.h>
 
 static gboolean
 verify_password(tvbuff_t *tvb, const char *password)
@@ -524,8 +513,8 @@ verify_password(tvbuff_t *tvb, const char *password)
 	guint8       *workbuffer;
 	guint         i;
 	guint8        byte;
-	md5_state_t   md_ctx;
-	md5_byte_t   *digest;
+	gcry_md_hd_t  md5_handle;
+	guint8       *digest;
 
 	workbuffer=wmem_alloc(wmem_packet_scope(), 32);
 	digest=wmem_alloc(wmem_packet_scope(), 16);
@@ -538,14 +527,20 @@ verify_password(tvbuff_t *tvb, const char *password)
 	for (byte = 1; i<32; i++, byte++) {
 		workbuffer[i] = byte;
 	}
-	md5_init(&md_ctx);
-	md5_append(&md_ctx, workbuffer, 32);
-	md5_finish(&md_ctx, digest);
-	md5_init(&md_ctx);
-	md5_append(&md_ctx, packetdata, 12);
-	md5_append(&md_ctx, digest, 16);
-	md5_append(&md_ctx, packetdata + 28, length - 28);
-	md5_finish(&md_ctx, digest);
+
+	if (gcry_md_open (&md5_handle, GCRY_MD_MD5, 0)) {
+		return FALSE;
+	}
+	gcry_md_write(md5_handle, workbuffer, 32);
+	memcpy(digest, gcry_md_read(md5_handle, 0), 16);
+	gcry_md_reset(md5_handle);
+
+	gcry_md_write(md5_handle, packetdata, 12);
+	gcry_md_write(md5_handle, digest, 16);
+	gcry_md_write(md5_handle, packetdata + 28, length - 28);
+	memcpy(digest, gcry_md_read(md5_handle, 0), 16);
+	gcry_md_close(md5_handle);
+
 	fprintf(stderr, "Calculated digest: "); /* debugging */
 	for (i = 0; i < 16; i++) {
 		fprintf(stderr, "%02X", digest[i]); /* debugging */
@@ -784,10 +779,9 @@ proto_reg_handoff_njack(void)
 	dissector_handle_t njack_handle;
 
 	njack_handle = create_dissector_handle(dissect_njack_static, proto_njack);
-	dissector_add_uint("udp.port", PORT_NJACK_PC, njack_handle);
-	/* dissector_add_uint("tcp.port", PORT_NJACK_PC, njack_handle); */
-	dissector_add_uint("udp.port", PORT_NJACK_SWITCH, njack_handle);
-	/* dissector_add_uint("tcp.port", PORT_NJACK_SWITCH, njack_handle); */
+	dissector_add_uint_range_with_preference("udp.port", NJACK_PORT_RANGE, njack_handle);
+	/* dissector_add_uint_with_preference("tcp.port", PORT_NJACK_PC, njack_handle); */
+	/* dissector_add_uint_with_preference("tcp.port", PORT_NJACK_SWITCH, njack_handle); */
 
 	heur_dissector_add("udp", dissect_njack_heur, "NJACK over UDP", "njack_udp", proto_njack, HEURISTIC_ENABLE);
 	heur_dissector_add("tcp", dissect_njack_heur, "NJACK over TCP", "njack_tcp", proto_njack, HEURISTIC_DISABLE);

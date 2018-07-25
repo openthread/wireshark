@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -77,15 +65,23 @@ static const value_string gmhdr_ftype_timestamp[] = {
 #define GMHDR_SRCPORT_H_PID_SHFT    0
 
 static const value_string gmhdr_plfm_str[] = {
-  { 0, "Reserved" },
-  { 1, "GV-2404" },
-  { 2, "GV-420" },
-  { 3, "GV-MP" },
-  { 4, "HD4" },
-  { 5, "HD8" },
-  { 6, "GV-212" },
-  { 7, "HB1" },
-  { 8, "HC2" },
+  { 0,  "Reserved" },
+  { 1,  "GV-2404" },
+  { 2,  "GV-420" },
+  { 3,  "GV-MP" },
+  { 4,  "HD4" },
+  { 5,  "HD8" },
+  { 6,  "GV-212" },
+  { 7,  "HB1" },
+  { 8,  "HC2" },
+  { 9,  "TA1" },
+  { 10, "TA10" },
+  { 11, "TA40" },
+  { 12, "LY2" },
+  { 13, "TA100" },
+  { 14, "TACX" },
+  { 15, "HC1" },
+  { 16, "HC3" },
   { 0, NULL }
 };
 
@@ -128,7 +124,7 @@ static expert_field ei_gmhdr_field_length_invalid = EI_INIT;
 static expert_field ei_gmhdr_len = EI_INIT;
 
 static void
-dissect_gmtlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *gmhdr_tree, guint offset, guint16 length)
+dissect_gmtlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *gmhdr_tree, guint offset, guint16 length)
 {
   proto_tree *ti;
   proto_tree *srcport_tree;
@@ -177,7 +173,7 @@ dissect_gmtlv(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *gmhdr_tree, gui
           expert_add_info_format(pinfo, gmhdr_tree, &ei_gmhdr_field_length_invalid, "Field length %u invalid", fl);
           break;
         }
-        ti = proto_tree_add_item(gmhdr_tree, hf_gmhdr_timestamp, tvb, offset, fl, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
+        ti = proto_tree_add_item(gmhdr_tree, hf_gmhdr_timestamp, tvb, offset, fl, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
         proto_item_append_text(ti, "; Source: %s", val_to_str_const(tl>>8, gmhdr_ftype_timestamp, "Unknown"));
         break;
       case GMHDR_FTYPE_FCS: {
@@ -332,14 +328,14 @@ dissect_gmtimestamp_trailer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
     gmtrailer_tree = proto_item_add_subtree(ti, ett_gmtrailer);
     proto_tree_add_item(gmtrailer_tree, hf_gmtrailer_origcrc, tvb, offset, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item(gmtrailer_tree, hf_gmtrailer_portid, tvb, offset+4, 2, ENC_BIG_ENDIAN);
-    proto_tree_add_item(gmtrailer_tree, hf_gmtrailer_timestamp, tvb, offset+6, 8, ENC_TIME_TIMESPEC|ENC_BIG_ENDIAN);
+    proto_tree_add_item(gmtrailer_tree, hf_gmtrailer_timestamp, tvb, offset+6, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
   }
 
   return 14;
 }
 
 static int
-dissect_gmtrailer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
+dissect_gmtrailer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
   proto_tree *ti;
   guint tvblen, length;

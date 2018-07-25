@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /* Telnet authentication options as per     RFC2941
  * Kerberos v5 telnet authentication as per RFC2942
@@ -225,7 +213,6 @@ static void
 check_tn3270_model(packet_info *pinfo _U_, const char *terminaltype)
 {
   int  model;
-  char str_model[2];
 
   if ((strcmp(terminaltype,"IBM-3278-2-E") == 0) || (strcmp(terminaltype,"IBM-3278-2") == 0) ||
       (strcmp(terminaltype,"IBM-3278-3") == 0) || (strcmp(terminaltype,"IBM-3278-4") == 0) ||
@@ -233,9 +220,7 @@ check_tn3270_model(packet_info *pinfo _U_, const char *terminaltype)
       (strcmp(terminaltype,"IBM-3279-3") == 0) || (strcmp(terminaltype,"IBM-3279-4") == 0) ||
       (strcmp(terminaltype,"IBM-3279-2-E") == 0) || (strcmp(terminaltype,"IBM-3279-2") == 0) ||
       (strcmp(terminaltype,"IBM-3279-4-E") == 0)) {
-    str_model[0] = terminaltype[9];
-    str_model[1] = '\0';
-    model = atoi(str_model);
+    model = terminaltype[9] - '0';
     add_tn3270_conversation(pinfo, 0, model);
   }
 }
@@ -334,7 +319,6 @@ dissect_tn3270_regime_subopt(packet_info *pinfo, const char *optname _U_, tvbuff
         proto_tree_add_uint_format(tree, hf_tn3270_regime_cmd, tvb, offset, 1, cmd, "IS");
       }
       proto_tree_add_item(tree, hf_tn3270_regime_subopt_value, tvb, offset + 1, len - 1, ENC_NA|ENC_ASCII);
-      len -= len;
       return;
     default:
       proto_tree_add_uint_format(tree, hf_tn3270_regime_cmd, tvb, offset, 1, cmd, "Bogus value: %u", cmd);
@@ -492,13 +476,13 @@ dissect_starttls_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_
 }
 
 static const value_string telnet_outmark_subopt_cmd_vals[] = {
-  { 6,   "ACK" },
-  { 21,  "NAK" },
-  { 'D', "Default" },
-  { 'T', "Top" },
-  { 'B', "Bottom" },
-  { 'L', "Left" },
-  { 'R', "Right" },
+  { '\x06', "ACK" },
+  { '\x15', "NAK" },
+  { 'D',    "Default" },
+  { 'T',    "Top" },
+  { 'B',    "Bottom" },
+  { 'L',    "Left" },
+  { 'R',    "Right" },
   { 0, NULL }
 };
 
@@ -509,7 +493,7 @@ dissect_outmark_subopt(packet_info *pinfo _U_, const char *optname _U_, tvbuff_t
   int    gs_offset, datalen;
 
   while (len > 0) {
-    proto_tree_add_item(tree, hf_telnet_outmark_subopt_cmd, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_telnet_outmark_subopt_cmd, tvb, offset, 1, ENC_ASCII | ENC_NA);
 
     offset++;
     len--;
@@ -1050,7 +1034,7 @@ unescape_and_tvbuffify_telnet_option(packet_info *pinfo, tvbuff_t *tvb, int offs
     return NULL;
 
   spos=tvb_get_ptr(tvb, offset, len);
-  buf=(guint8 *)g_malloc(len);
+  buf=(guint8 *)wmem_alloc(pinfo->pool, len);
   dpos=buf;
   skip=0;
   l=len;
@@ -1066,7 +1050,6 @@ unescape_and_tvbuffify_telnet_option(packet_info *pinfo, tvbuff_t *tvb, int offs
     l--;
   }
   krb5_tvb = tvb_new_child_real_data(tvb, buf, len-skip, len-skip);
-  tvb_set_free_cb(krb5_tvb, g_free);
   add_new_data_source(pinfo, krb5_tvb, "Unpacked Telnet Option");
 
   return krb5_tvb;
@@ -1990,7 +1973,7 @@ proto_register_telnet(void)
         NULL, 0, NULL, HFILL }
     },
     { &hf_telnet_outmark_subopt_cmd,
-      { "Command", "telnet.outmark_subopt.cmd", FT_UINT8, BASE_DEC,
+      { "Command", "telnet.outmark_subopt.cmd", FT_CHAR, BASE_HEX,
         VALS(telnet_outmark_subopt_cmd_vals), 0, NULL, HFILL }
     },
     { &hf_telnet_outmark_subopt_banner,
@@ -2195,7 +2178,7 @@ proto_register_telnet(void)
 void
 proto_reg_handoff_telnet(void)
 {
-  dissector_add_uint("tcp.port", TCP_PORT_TELNET, telnet_handle);
+  dissector_add_uint_with_preference("tcp.port", TCP_PORT_TELNET, telnet_handle);
   tn3270_handle = find_dissector_add_dependency("tn3270", proto_telnet);
   tn5250_handle = find_dissector_add_dependency("tn5250", proto_telnet);
   ssl_handle = find_dissector("ssl");

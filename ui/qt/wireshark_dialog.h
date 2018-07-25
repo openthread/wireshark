@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef WIRESHARK_DIALOG_H
@@ -47,11 +35,8 @@ class WiresharkDialog : public GeometryStateDialog
 
 public:
     // XXX Unlike the entire QWidget API, parent is mandatory here.
-    explicit WiresharkDialog(QWidget &, CaptureFile &capture_file);
+    explicit WiresharkDialog(QWidget &parent, CaptureFile &capture_file);
 
-signals:
-
-public slots:
     /**
      * @brief Mark the start of a code block that retaps packets. If the user
      * closes the dialog while tapping, the dialog will not be destroyed until
@@ -62,7 +47,7 @@ public slots:
      * accessed after tapping is finished.
      */
 
-    void beginRetapPackets() { retap_depth_++; }
+    void beginRetapPackets();
     /**
      * @brief Mark the end of a code block that retaps packets. If the user
      * has closed the dialog it will be desroyed at this point.
@@ -114,7 +99,7 @@ protected:
     /**
      * @brief Remove all tap listeners registered via registerTapListener.
      */
-    void removeTapListeners();
+    virtual void removeTapListeners();
 
     /**
      * @brief true if the file has been closed, false otherwise.
@@ -122,7 +107,12 @@ protected:
     // XXX Needs a getter?
     bool file_closed_;
 
-protected slots:
+    /**
+     * @brief Check to see if the user has closed (and not minimized) the dialog.
+     * @return true if the dialog has been closed, false otherwise.
+     */
+    bool dialogClosed() { return dialog_closed_; }
+
     /**
      * @brief Called when the capture file is about to close. This can be
      * used to enable or disable widgets according to the state of
@@ -130,6 +120,9 @@ protected slots:
      */
     virtual void captureFileClosing();
     virtual void captureFileClosed();
+
+protected slots:
+    void captureEvent(CaptureEvent);
 
 private:
     void setWindowTitleFromSubtitle();
@@ -139,7 +132,7 @@ private:
     QString subtitle_;
     QList<void *> tap_listeners_;
     int retap_depth_;
-    int dialog_closed_;
+    bool dialog_closed_;
 
 private slots:
 };

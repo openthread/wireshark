@@ -1,25 +1,7 @@
 /*
  * Copyright (c) 2003 Markus Friedl.  All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "config.h"
@@ -41,7 +23,7 @@ static expert_field ei_etherip_ver_3 = EI_INIT;
 static expert_field ei_etherip_reserved_0 = EI_INIT;
 
 static dissector_handle_t eth_withoutfcs_handle;
-
+static dissector_handle_t etherip_handle;
 
 /*
  * RFC 3378: EtherIP: Tunneling Ethernet Frames in IP Datagrams
@@ -125,16 +107,13 @@ proto_register_etherip(void)
   expert_etherip = expert_register_protocol(proto_etherip);
   expert_register_field_array(expert_etherip, ei, array_length(ei));
 
-  register_dissector("etherip", dissect_etherip, proto_etherip);
+  etherip_handle = register_dissector("etherip", dissect_etherip, proto_etherip);
 }
 
 void
 proto_reg_handoff_etherip(void)
 {
-  dissector_handle_t etherip_handle;
-
   eth_withoutfcs_handle = find_dissector_add_dependency("eth_withoutfcs", proto_etherip);
-  etherip_handle = find_dissector("etherip");
   dissector_add_uint("ip.proto", IP_PROTO_ETHERIP, etherip_handle);
 }
 

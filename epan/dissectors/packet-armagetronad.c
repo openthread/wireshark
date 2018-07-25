@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -40,8 +28,9 @@ static int hf_armagetronad_msg_subtree = -1;
 static gint ett_armagetronad = -1;
 static gint ett_message = -1;
 
-#define UDP_PORT_ARMAGETRONAD 4534
-#define UDP_PORT_MASTER 4533
+static dissector_handle_t armagetronad_handle = NULL;
+
+#define ARMAGETRONAD_UDP_PORT_RANGE "4533-4534" /* 4533 is not IANA registered, 4534 is */
 
 /*
  * The ACK packet is so common that we treat it
@@ -306,24 +295,16 @@ void proto_register_armagetronad(void)
 		&ett_message
 	};
 
-	proto_armagetronad =
-	    proto_register_protocol("The Armagetron Advanced OpenGL Tron clone",
-				    "Armagetronad", "armagetronad");
+	proto_armagetronad = proto_register_protocol("The Armagetron Advanced OpenGL Tron clone", "Armagetronad", "armagetronad");
 
 	proto_register_field_array(proto_armagetronad, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	register_dissector("armagetronad", dissect_armagetronad,
-			       proto_armagetronad);
+	armagetronad_handle = register_dissector("armagetronad", dissect_armagetronad, proto_armagetronad);
 }
 
 void proto_reg_handoff_armagetronad(void)
 {
-	dissector_handle_t armagetronad_handle;
-
-	armagetronad_handle = find_dissector("armagetronad");
-
-	dissector_add_uint("udp.port", UDP_PORT_ARMAGETRONAD, armagetronad_handle);
-	dissector_add_uint("udp.port", UDP_PORT_MASTER, armagetronad_handle);
+	dissector_add_uint_range_with_preference("udp.port", ARMAGETRONAD_UDP_PORT_RANGE, armagetronad_handle);
 }
 
 /*

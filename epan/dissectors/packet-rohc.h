@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref:
  * http://www.ietf.org/rfc/rfc3095.txt         RObust Header Compression (ROHC): Framework and four profiles: RTP, UDP, ESP, and uncompressed
@@ -49,7 +37,7 @@ enum rohc_d_mode
 typedef struct rohc_info
 {
     gboolean           rohc_compression;
-    guint16            rohc_ip_version;
+    guint8             rohc_ip_version;
     gboolean           cid_inclusion_info;
     gboolean           large_cid_present;
     enum rohc_mode     mode;
@@ -62,7 +50,7 @@ typedef struct rohc_info
 
 typedef struct rohc_context
 {
-    guint16            rohc_ip_version[MAX_CID+1];
+    guint8             rohc_ip_version[MAX_CID+1];
     gboolean           large_cid_present[MAX_CID+1];
     enum rohc_mode     mode[MAX_CID+1];
     enum rohc_d_mode   d_mode[MAX_CID+1];

@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -179,7 +167,7 @@ static gint dissect_etf_dist_header(packet_info *pinfo _U_, tvbuff_t *tvb, gint 
   gboolean new_entry, long_atom;
   proto_item *ti_acrs, *ti_acr, *ti_tmp;
   proto_tree *flags_tree, *acrs_tree, *acr_tree;
-  const gchar *str;
+  const guint8 *str;
 
   num = tvb_get_guint8(tvb, offset);
   proto_tree_add_item(tree, hf_erldp_num_atom_cache_refs, tvb, offset, 1, ENC_BIG_ENDIAN );
@@ -229,8 +217,7 @@ static gint dissect_etf_dist_header(packet_info *pinfo _U_, tvbuff_t *tvb, gint 
       proto_tree_add_uint(acr_tree, hf_erldp_atom_length, tvb, offset, 1, atom_txt_len);
       offset++;
     }
-    str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, atom_txt_len, ENC_ASCII);
-    proto_tree_add_item(acr_tree, hf_erldp_atom_text, tvb, offset, atom_txt_len, ENC_NA|ENC_ASCII);
+    proto_tree_add_item_ret_string(acr_tree, hf_erldp_atom_text, tvb, offset, atom_txt_len, ENC_NA|ENC_ASCII, wmem_packet_scope(), &str);
     proto_item_append_text(ti_acr, " - '%s'", str);
     offset += atom_txt_len;
     proto_item_set_len(ti_acr, offset - acr_offset);
@@ -410,7 +397,7 @@ static void dissect_erldp_handshake(tvbuff_t *tvb, packet_info *pinfo, proto_tre
   gint i;
   gboolean is_challenge = FALSE;
   guint32 str_len;
-  const gchar *str;
+  const guint8 *str;
 
   proto_tree_add_item(tree, hf_erldp_length_2, tvb, offset, 2, ENC_BIG_ENDIAN);
   offset += 2;
@@ -436,8 +423,7 @@ static void dissect_erldp_handshake(tvbuff_t *tvb, packet_info *pinfo, proto_tre
         offset += 4;
       }
       str_len = tvb_captured_length_remaining(tvb, offset);
-      str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, str_len, ENC_ASCII);
-      proto_tree_add_item(tree, hf_erldp_name, tvb, offset, str_len, ENC_ASCII|ENC_NA);
+      proto_tree_add_item_ret_string(tree, hf_erldp_name, tvb, offset, str_len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &str);
       col_add_fstr(pinfo->cinfo, COL_INFO, "%s %s", (is_challenge) ? "SEND_CHALLENGE" : "SEND_NAME", str);
       break;
 
@@ -457,8 +443,7 @@ static void dissect_erldp_handshake(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
     case 's' :
       str_len = tvb_captured_length_remaining(tvb, offset);
-      str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, str_len, ENC_ASCII);
-      proto_tree_add_item(tree, hf_erldp_status, tvb, offset, str_len, ENC_ASCII|ENC_NA);
+      proto_tree_add_item_ret_string(tree, hf_erldp_status, tvb, offset, str_len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &str);
       col_add_fstr(pinfo->cinfo, COL_INFO, "SEND_STATUS %s", str);
       break;
   }
@@ -502,7 +487,7 @@ static int dissect_erldp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
       break;
 
     case VERSION_MAGIC:
-      next_tvb = tvb_new_subset(tvb, offset, -1, 4 + msg_len - offset);
+      next_tvb = tvb_new_subset_length_caplen(tvb, offset, -1, 4 + msg_len - offset);
       offset += dissect_etf_pdu(next_tvb, pinfo, erldp_tree, "DistributionHeader");
       if ((tvb_get_guint8(tvb, offset) == SMALL_TUPLE_EXT) && (tvb_get_guint8(tvb, offset + 2) == SMALL_INTEGER_EXT)) {
         ctl_op = tvb_get_guint8(tvb, offset + 3);
@@ -686,7 +671,7 @@ void proto_register_erldp(void) {
 /*--- proto_reg_handoff_erldp -------------------------------------------*/
 void proto_reg_handoff_erldp(void) {
 
-  dissector_add_for_decode_as("tcp.port", erldp_handle);
+  dissector_add_for_decode_as_with_preference("tcp.port", erldp_handle);
 }
 
 /*

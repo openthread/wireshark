@@ -1,13 +1,14 @@
--- 3GPP TS 36.423  V12.2.0 (2014-06)
--- 9.3.8	Container Definitions
+-- 3GPP TS 36.423 V15.2.0 (2018-06)
+-- 9.3.8	Container definitions
 -- **************************************************************
 --
 -- Container definitions
 --
 -- **************************************************************
+
 X2AP-Containers {
 itu-t (0) identified-organization (4) etsi (0) mobileDomain (0) 
-eps-Access (21) modules (3) x2ap (2) version1 (1) x2ap-Containers (5)  }
+eps-Access (21) modules (3) x2ap (2) version1 (1) x2ap-Containers (5) }
 
 DEFINITIONS AUTOMATIC TAGS ::= 
 
@@ -125,7 +126,7 @@ ProtocolIE-Single-Container {X2AP-PROTOCOL-IES : IEsSetParam} ::=
 ProtocolIE-Field {X2AP-PROTOCOL-IES : IEsSetParam} ::= SEQUENCE {
 	id				X2AP-PROTOCOL-IES.&id					({IEsSetParam}),
 	criticality		X2AP-PROTOCOL-IES.&criticality			({IEsSetParam}{@id}),
-	value			X2AP-PROTOCOL-IES.&Value	        	({IEsSetParam}{@id})
+	value			X2AP-PROTOCOL-IES.&Value				({IEsSetParam}{@id})
 }
 
 -- **************************************************************
@@ -141,9 +142,9 @@ ProtocolIE-ContainerPair {X2AP-PROTOCOL-IES-PAIR : IEsSetParam} ::=
 ProtocolIE-FieldPair {X2AP-PROTOCOL-IES-PAIR : IEsSetParam} ::= SEQUENCE {
 	id					X2AP-PROTOCOL-IES-PAIR.&id					({IEsSetParam}),
 	firstCriticality	X2AP-PROTOCOL-IES-PAIR.&firstCriticality	({IEsSetParam}{@id}),
-	firstValue			X2AP-PROTOCOL-IES-PAIR.&FirstValue	        ({IEsSetParam}{@id}),
+	firstValue			X2AP-PROTOCOL-IES-PAIR.&FirstValue			({IEsSetParam}{@id}),
 	secondCriticality	X2AP-PROTOCOL-IES-PAIR.&secondCriticality	({IEsSetParam}{@id}),
-	secondValue			X2AP-PROTOCOL-IES-PAIR.&SecondValue	        ({IEsSetParam}{@id})
+	secondValue			X2AP-PROTOCOL-IES-PAIR.&SecondValue			({IEsSetParam}{@id})
 }
 
 -- **************************************************************

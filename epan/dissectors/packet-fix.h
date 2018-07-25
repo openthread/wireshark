@@ -130,7 +130,7 @@ typedef struct _fix_field {
         { "CE", "StreamAssignmentReportACK" },
         { "CF", "PartyDetailsListRequest" },
         { "CG", "PartyDetailsListReport" },
-        { "", NULL }
+        { 0, NULL }
     };
 
     static const  value_string AdvSide_val[] = {
@@ -1459,7 +1459,7 @@ typedef struct _fix_field {
         { "AK", "PRIOR REFERENCE PRICE" },
         { "AL", "STOPPED SOLD LAST" },
         { "AM", "STOPPED OUT OF SEQUENCE" },
-        { "AN", "OFFICAL CLOSING PRICE" },
+        { "AN", "OFFICIAL CLOSING PRICE" },
         { "AO", "CROSSED AO" },
         { "AP", "FAST MARKET" },
         { "AQ", "AUTOMATIC EXECUTION" },
@@ -2473,14 +2473,14 @@ typedef struct _fix_field {
     static const  value_string MassCancelRejectReason_val[] = {
         { 0, "MASS CANCEL NOT SUPPORTED" },
         { 1, "INVALID OR UNKNOWN SECURITY" },
-        { 2, "INVALID OR UNKOWN UNDERLYING SECURITY" },
+        { 2, "INVALID OR UNKNOWN UNDERLYING SECURITY" },
         { 3, "INVALID OR UNKNOWN PRODUCT" },
         { 4, "INVALID OR UNKNOWN CFICODE" },
         { 5, "INVALID OR UNKNOWN SECURITYTYPE" },
         { 6, "INVALID OR UNKNOWN TRADING SESSION" },
         { 99, "OTHER" },
         { 7, "INVALID OR UNKNOWN MARKET" },
-        { 8, "INVALID OR UNKOWN MARKET SEGMENT" },
+        { 8, "INVALID OR UNKNOWN MARKET SEGMENT" },
         { 9, "INVALID OR UNKNOWN SECURITY GROUP" },
         { 10, "INVALID OR UNKNOWN SECURITY ISSUER" },
         { 11, "INVALID OR UNKNOWN ISSUER OF UNDERLYING SECURITY" },

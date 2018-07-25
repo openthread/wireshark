@@ -673,15 +673,14 @@ MessageToken						B	"2.6.1.7.36"	"id-hat-forwarded-token"
 		break;
 	}
 
-#.FN_BODY Content
+#.FN_BODY Content VAL_PTR = &next_tvb
 	tvbuff_t *next_tvb;
 	p1_address_ctx_t* ctx = (p1_address_ctx_t*)actx->subtree.tree_ctx;
 
-	/* we can do this now constructed octet strings are supported */
-	offset = dissect_ber_octet_string(FALSE, actx, tree, tvb, offset, hf_index, &next_tvb);
-	proto_item_set_text(actx->created_item, "content (%%u bytes)", tvb_reported_length (next_tvb));
+	%(DEFAULT_BODY)s
 
 	if (next_tvb) {
+		proto_item_set_text(actx->created_item, "content (%%u bytes)", tvb_reported_length (next_tvb));
 		if (ctx && ctx->content_type_id) {
 			(void) call_ber_oid_callback(ctx->content_type_id, next_tvb, 0, actx->pinfo, actx->subtree.top_tree ? actx->subtree.top_tree : tree, actx->private_data);
 		} else if (ctx && ctx->report_unknown_content_type) {
@@ -1255,5 +1254,51 @@ MessageToken						B	"2.6.1.7.36"	"id-hat-forwarded-token"
 #.FN_HDR MTSBindResult
 	/* TODO: there may be other entry points where this global should be initialized... */
 	actx->subtree.tree = NULL;
+
+#.TYPE_ATTR
+RecipientNumberForAdvice DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexCommonName DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexOrganizationName DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexPersonalName/surname DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexPersonalName/given-name DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexPersonalName/initials DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexPersonalName/generation-qualifier DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexOrganizationalUnitName DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+UnformattedPostalAddress/teletex-string DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+PDSParameter/teletex-string DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexDomainDefinedAttribute/type DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexDomainDefinedAttribute/value DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexNonBasicParameters/graphic-character-sets DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexNonBasicParameters/control-character-sets DISPLAY = STR_UNICODE
+
+#.TYPE_ATTR
+TeletexNonBasicParameters/miscellaneous-terminal-capabilities DISPLAY = STR_UNICODE
+
 #.END
 

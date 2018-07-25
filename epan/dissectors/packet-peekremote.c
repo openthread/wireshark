@@ -26,19 +26,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -60,6 +48,8 @@
 #include <epan/expert.h>
 
 #define IS_ARUBA 0x01
+
+#define PEEKREMOTE_PORT 5000 /* Not IANA registered */
 
 void proto_register_peekremote(void);
 void proto_reg_handoff_peekremote(void);
@@ -114,6 +104,28 @@ static const value_string peekremote_mcs_index_vals[] = {
 
 static value_string_ext peekremote_mcs_index_vals_ext = VALUE_STRING_EXT_INIT(peekremote_mcs_index_vals);
 
+static const value_string peekremote_mcs_index_vals_ac[] = {
+  { 0, "Modulation type: BPSK, Codingrate: 1/2" },
+  { 1, "Modulation type: QPSK, Codingrate: 1/2" },
+  { 2, "Modulation type: QPSK, Codingrate: 3/4" },
+  { 3, "Modulation type: 16-QAM, Codingrate: 1/2" },
+  { 4, "Modulation type: 16-QAM, Codingrate: 3/4" },
+  { 5, "Modulation type: 64-QAM, Codingrate: 2/3" },
+  { 6, "Modulation type: 64-QAM, Codingrate: 3/4" },
+  { 7, "Modulation type: 64-QAM, Codingrate: 5/6" },
+  { 8, "Modulation type: 256-QAM, Codingrate: 3/4" },
+  { 9, "Modulation type: 256-QAM, Codingrate: 5/6" },
+  { 0, NULL }
+};
+
+static const value_string spatialstreams_vals[] = {
+  { 0, "1" },
+  { 1, "2" },
+  { 2, "3" },
+  { 3, "4" },
+  { 0, NULL }
+};
+
 static const value_string peekremote_type_vals[] = {
   { 6, "kMediaSpecificHdrType_Wireless3" },
   { 0, NULL }
@@ -139,7 +151,10 @@ static const value_string peekremote_type_vals[] = {
 #define EXT_FLAG_AMSDU                          0x00000040
 #define EXT_FLAG_802_11ac                       0x00000080
 #define EXT_FLAG_MCS_INDEX_USED                 0x00000100
-#define EXT_FLAGS_RESERVED                      0xFFFFFE00
+#define EXT_FLAG_80MHZ                          0x00000200
+#define EXT_FLAG_SHORTPREAMBLE                  0x00000400
+#define EXT_FLAG_SPATIALSTREAMS                 0x0001C000
+#define EXT_FLAGS_RESERVED                      0xFFFE0000
 
 /* hfi elements */
 #define THIS_HF_INIT HFI_INIT(proto_peekremote)
@@ -212,6 +227,10 @@ static header_field_info hfi_peekremote_timestamp THIS_HF_INIT =
 
 static header_field_info hfi_peekremote_mcs_index THIS_HF_INIT =
       { "MCS index",         "peekremote.mcs_index", FT_UINT16,  BASE_DEC|BASE_EXT_STRING, &peekremote_mcs_index_vals_ext,
+        0x0, NULL, HFILL };
+
+static header_field_info hfi_peekremote_mcs_index_ac THIS_HF_INIT =
+      { "11ac MCS index",         "peekremote.mcs_index_ac", FT_UINT16,  BASE_DEC, VALS(peekremote_mcs_index_vals_ac),
         0x0, NULL, HFILL };
 
 static header_field_info hfi_peekremote_signal_percent THIS_HF_INIT =
@@ -292,6 +311,18 @@ static header_field_info hfi_peekremote_extflags_future_use THIS_HF_INIT =
       { "MCS index used",     "peekremote.extflags.future_use", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
         EXT_FLAG_MCS_INDEX_USED, NULL, HFILL };
 
+static header_field_info hfi_peekremote_extflags_80mhz THIS_HF_INIT =
+      { "80 Mhz",     "peekremote.extflags.80mhz", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
+        EXT_FLAG_80MHZ, NULL, HFILL };
+
+static header_field_info hfi_peekremote_extflags_shortpreamble THIS_HF_INIT =
+      { "Short preamble",     "peekremote.extflags.shortpreamble", FT_BOOLEAN, 32, TFS(&tfs_yes_no),
+        EXT_FLAG_SHORTPREAMBLE, NULL, HFILL };
+
+static header_field_info hfi_peekremote_extflags_spatialstreams THIS_HF_INIT =
+      { "Spatial streams",     "peekremote.extflags.spatialstreams", FT_UINT32, BASE_DEC, VALS(spatialstreams_vals),
+        EXT_FLAG_SPATIALSTREAMS, NULL, HFILL };
+
 static header_field_info hfi_peekremote_extflags_reserved THIS_HF_INIT =
       { "Reserved",     "peekremote.extflags.reserved", FT_UINT32, BASE_HEX, NULL,
         EXT_FLAGS_RESERVED, "Must be zero", HFILL };
@@ -357,6 +388,9 @@ dissect_peekremote_extflags(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
   proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_amsdu, tvb, offset, 4, ENC_BIG_ENDIAN);
   proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_11ac, tvb, offset, 4, ENC_BIG_ENDIAN);
   proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_future_use, tvb, offset, 4, ENC_BIG_ENDIAN);
+  proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_80mhz, tvb, offset, 4, ENC_BIG_ENDIAN);
+  proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_shortpreamble, tvb, offset, 4, ENC_BIG_ENDIAN);
+  proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_spatialstreams, tvb, offset, 4, ENC_BIG_ENDIAN);
   proto_tree_add_item(extflags_tree, &hfi_peekremote_extflags_reserved, tvb, offset, 4, ENC_BIG_ENDIAN);
 
   return 4;
@@ -403,7 +437,7 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
   proto_item *ti = NULL;
   proto_item *ti_header_version, *ti_header_size;
   guint8 header_version;
-  guint header_size;
+  gint header_size;
   struct ieee_802_11_phdr phdr;
   guint32 extflags;
   guint16 frequency;
@@ -450,7 +484,16 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_type, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
       mcs_index = tvb_get_ntohs(tvb, offset);
-      proto_tree_add_item(peekremote_tree, &hfi_peekremote_mcs_index, tvb, offset, 2, ENC_BIG_ENDIAN);
+      extflags = tvb_get_ntohl(tvb, offset+12);
+      if (extflags & EXT_FLAG_802_11ac) {
+        proto_tree_add_item(peekremote_tree, &hfi_peekremote_mcs_index_ac, tvb, offset, 2, ENC_BIG_ENDIAN);
+        phdr.phy = PHDR_802_11_PHY_11AC;
+      } else {
+        proto_tree_add_item(peekremote_tree, &hfi_peekremote_mcs_index, tvb, offset, 2, ENC_BIG_ENDIAN);
+        phdr.phy = PHDR_802_11_PHY_11N;
+        phdr.phy_info.info_11n.has_mcs_index = TRUE;
+        phdr.phy_info.info_11n.mcs_index = mcs_index;
+      }
       offset += 2;
       phdr.has_channel = TRUE;
       phdr.channel = tvb_get_ntohs(tvb, offset);
@@ -465,22 +508,6 @@ dissect_peekremote_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
       offset += 4;
       proto_tree_add_item(peekremote_tree, &hfi_peekremote_band, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset +=4;
-      extflags = tvb_get_ntohl(tvb, offset);
-      if (extflags & EXT_FLAG_802_11ac) {
-        guint i;
-        phdr.phy = PHDR_802_11_PHY_11AC;
-        /*
-         * XXX - this probably has only one user, so only one MCS index
-         * and only one NSS, but where's the NSS?
-         */
-        for (i = 0; i < 4; i++) {
-          phdr.phy_info.info_11ac.nss[i] = 0;
-        }
-      } else {
-        phdr.phy = PHDR_802_11_PHY_11N;
-        phdr.phy_info.info_11n.has_mcs_index = TRUE;
-        phdr.phy_info.info_11n.mcs_index = mcs_index;
-      }
       offset += dissect_peekremote_extflags(tvb, pinfo, peekremote_tree, offset);
       phdr.has_signal_percent = TRUE;
       phdr.signal_percent = tvb_get_guint8(tvb, offset);
@@ -635,6 +662,7 @@ proto_register_peekremote(void)
     &hfi_peekremote_header_size,
     &hfi_peekremote_type,
     &hfi_peekremote_mcs_index,
+    &hfi_peekremote_mcs_index_ac,
     &hfi_peekremote_signal_percent,
     &hfi_peekremote_noise_percent,
     &hfi_peekremote_frequency,
@@ -649,6 +677,9 @@ proto_register_peekremote(void)
     &hfi_peekremote_extflags_amsdu,
     &hfi_peekremote_extflags_11ac,
     &hfi_peekremote_extflags_future_use,
+    &hfi_peekremote_extflags_80mhz,
+    &hfi_peekremote_extflags_shortpreamble,
+    &hfi_peekremote_extflags_spatialstreams,
     &hfi_peekremote_extflags_reserved,
     &hfi_peekremote_signal_1_dbm,
     &hfi_peekremote_signal_2_dbm,
@@ -688,7 +719,7 @@ proto_reg_handoff_peekremote(void)
 {
   wlan_radio_handle = find_dissector_add_dependency("wlan_radio", proto_peekremote);
 
-  dissector_add_uint("udp.port", 5000, peekremote_handle);
+  dissector_add_uint_with_preference("udp.port", PEEKREMOTE_PORT, peekremote_handle);
 
   heur_dissector_add("udp", dissect_peekremote_new, "OmniPeek Remote over UDP", "peekremote_udp", proto_peekremote, HEURISTIC_ENABLE);
 }

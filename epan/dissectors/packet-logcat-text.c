@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -175,6 +163,7 @@ static int get_time(const gchar *frame, const gchar *token, tvbuff_t *tvb,
                     &date.tm_hour, &date.tm_min, &date.tm_sec, &ms)) {
         date.tm_year = 70;
         date.tm_mon -= 1;
+        date.tm_isdst = -1;
         seconds = mktime(&date);
         ts.secs = seconds;
         ts.nsecs = (int) (ms * 1e6);
@@ -191,7 +180,7 @@ static int dissect_logcat_text(tvbuff_t *tvb, proto_tree *tree, packet_info *pin
     gchar **tokens;
     guint i;
     gchar *frame = tvb_get_string_enc(wmem_packet_scope(), tvb, 0, tvb_captured_length(tvb),
-            ENC_ASCII);
+            ENC_UTF_8);
     proto_item *mainitem = proto_tree_add_item(tree, proto_logcat_text, tvb, 0, -1, ENC_NA);
     proto_tree *maintree = proto_item_add_subtree(mainitem, ett_logcat);
     gint offset = 0;
@@ -224,7 +213,8 @@ static void add_exported_pdu(tvbuff_t *tvb, packet_info *pinfo, const char * sub
     if (have_tap_listener(exported_pdu_tap)) {
         exp_pdu_data_t *exp_pdu_data;
 
-        exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, subdissector_name, NULL, 0);
+        exp_pdu_data = export_pdu_create_tags(pinfo, subdissector_name, EXP_PDU_TAG_PROTO_NAME, NULL);
+
         exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
         exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
         exp_pdu_data->pdu_tvb = tvb;
@@ -256,8 +246,8 @@ static int dissect_logcat_text_process(tvbuff_t *tvb, packet_info *pinfo, proto_
     dissect_info_t dinfo = { &process_regex, getters, array_length(getters) };
 
     add_exported_pdu(tvb,pinfo,"logcat_text_process");
-    set_address(&pinfo->dst, AT_STRINGZ, 0, "");
-    set_address(&pinfo->src, AT_STRINGZ, 0, "");
+    set_address(&pinfo->dst, AT_STRINGZ, 1, "");
+    set_address(&pinfo->src, AT_STRINGZ, 1, "");
 
     return dissect_logcat_text(tvb, tree, pinfo, &dinfo);
 }
@@ -277,8 +267,8 @@ static int dissect_logcat_text_thread(tvbuff_t *tvb, packet_info *pinfo, proto_t
     dissect_info_t dinfo = { &thread_regex, getters, array_length(getters) };
 
     add_exported_pdu(tvb,pinfo,"logcat_text_brief");
-    set_address(&pinfo->dst, AT_STRINGZ, 0, "");
-    set_address(&pinfo->src, AT_STRINGZ, 0, "");
+    set_address(&pinfo->dst, AT_STRINGZ, 1, "");
+    set_address(&pinfo->src, AT_STRINGZ, 1, "");
 
     return dissect_logcat_text(tvb, tree, pinfo, &dinfo);
 }
@@ -301,6 +291,30 @@ static int dissect_logcat_text_long(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     return dissect_logcat_text(tvb, tree, pinfo, &dinfo);
 }
 
+static void logcat_text_init(void)
+{
+    special_regex =    g_regex_new(SPECIAL_STRING,    (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    brief_regex =      g_regex_new(BRIEF_STRING,      (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    tag_regex =        g_regex_new(TAG_STRING,        (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    time_regex =       g_regex_new(TIME_STRING,       (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    thread_regex =     g_regex_new(THREAD_STRING,     (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    threadtime_regex = g_regex_new(THREADTIME_STRING, (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    process_regex =    g_regex_new(PROCESS_STRING,    (GRegexCompileFlags)(G_REGEX_ANCHORED | G_REGEX_OPTIMIZE),  G_REGEX_MATCH_NOTEMPTY, NULL);
+    long_regex =       g_regex_new(LONG_STRING,       (GRegexCompileFlags)(G_REGEX_MULTILINE | G_REGEX_OPTIMIZE), G_REGEX_MATCH_NOTEMPTY, NULL);
+}
+
+static void logcat_text_cleanup(void)
+{
+    g_regex_unref(special_regex);
+    g_regex_unref(brief_regex);
+    g_regex_unref(tag_regex);
+    g_regex_unref(time_regex);
+    g_regex_unref(thread_regex);
+    g_regex_unref(threadtime_regex);
+    g_regex_unref(process_regex);
+    g_regex_unref(long_regex);
+}
+
 void proto_register_logcat_text(void) {
     expert_module_t  *expert_module;
     static hf_register_info hf[] = {
@@ -311,12 +325,12 @@ void proto_register_logcat_text(void) {
             },
             { &hf_logcat_text_tag,
                 { "Tag",       "logcat_text.tag",
-                FT_STRING, STR_ASCII, NULL, 0x00, NULL, HFILL
+                FT_STRING, STR_UNICODE, NULL, 0x00, NULL, HFILL
                 }
             },
             { &hf_logcat_text_log,
                 { "Log",       "logcat_text.log",
-                FT_STRING, STR_ASCII, NULL, 0x00, NULL, HFILL
+                FT_STRING, STR_UNICODE, NULL, 0x00, NULL, HFILL
                 }
             },
             { &hf_logcat_text_priority,
@@ -363,14 +377,8 @@ void proto_register_logcat_text(void) {
     logcat_text_long_handle =       register_dissector("logcat_text_long",
             dissect_logcat_text_long, proto_logcat_text);
 
-    special_regex =    g_regex_new(SPECIAL_STRING,    G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    brief_regex =      g_regex_new(BRIEF_STRING,      G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    tag_regex =        g_regex_new(TAG_STRING,        G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    time_regex =       g_regex_new(TIME_STRING,       G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    thread_regex =     g_regex_new(THREAD_STRING,     G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    threadtime_regex = g_regex_new(THREADTIME_STRING, G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    process_regex =    g_regex_new(PROCESS_STRING,    G_REGEX_ANCHORED,  G_REGEX_MATCH_NOTEMPTY, NULL);
-    long_regex =       g_regex_new(LONG_STRING,       G_REGEX_MULTILINE, G_REGEX_MATCH_NOTEMPTY, NULL);
+    register_init_routine(logcat_text_init);
+    register_cleanup_routine(logcat_text_cleanup);
 
     expert_module = expert_register_protocol(proto_logcat_text);
     expert_register_field_array(expert_module, ei, array_length(ei));

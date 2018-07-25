@@ -141,6 +141,13 @@
     </layout>
    </item>
    <item>
+    <widget class="QLabel" name="hintLabel">
+     <property name="text">
+      <string>%1 items; Right click for more option; Double click for device details</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
@@ -169,6 +176,22 @@
   <action name="actionSave_as_image">
    <property name="text">
     <string>Save as image</string>
+   </property>
+  </action>
+  <action name="actionMark_Unmark_Row">
+   <property name="text">
+    <string>Mark/Unmark Row</string>
+   </property>
+   <property name="toolTip">
+    <string>Mark/Unmark Row</string>
+   </property>
+   <property name="shortcut">
+    <string>CtrlM</string>
+   </property>
+  </action>
+  <action name="actionMark_Unmark_Cell">
+   <property name="text">
+    <string>Mark/Unmark Cell</string>
    </property>
   </action>
  </widget>

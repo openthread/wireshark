@@ -8,19 +8,7 @@
  *
  * Based on BSD rexecd code/man page and parts of packet-rlogin.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -280,12 +268,6 @@ dissect_exec(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 		if(length != 1 && length <= EXEC_PASSWORD_LEN
 		&& isprint_string(field_stringz)){
 			proto_tree_add_string(exec_tree, hf_exec_password, tvb, offset, length, (gchar*)field_stringz);
-
-			/* Next field we need */
-			hash_info->state = WAIT_FOR_COMMAND;
-		} else {
-			/* Since the data doesn't match this field, it must be data only */
-			hash_info->state = WAIT_FOR_DATA;
 		}
 
 		/* Used if the next field is in the same packet */
@@ -408,7 +390,7 @@ proto_reg_handoff_exec(void)
 	dissector_handle_t exec_handle;
 
 	exec_handle = create_dissector_handle(dissect_exec, proto_exec);
-	dissector_add_uint("tcp.port", EXEC_PORT, exec_handle);
+	dissector_add_uint_with_preference("tcp.port", EXEC_PORT, exec_handle);
 }
 
 /*

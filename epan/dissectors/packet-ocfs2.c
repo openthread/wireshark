@@ -12,19 +12,7 @@
  * Sunil Mushran	<sunil.mushran@oracle.com>
  * Jeff Liu		<jeff.liu@oracle.com>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -430,6 +418,13 @@ static const value_string dlm_proxy_ast_types[] = {
 	{ 0x0000,  NULL }
 };
 
+/* DLM lock flag types */
+enum {
+	DLM_LOCK_FLAGS_PUT_LVB = 0x20000000,
+	DLM_LOCK_FLAGS_GET_LVB = 0x40000000
+};
+
+
 static int dlm_cookie_handler(proto_tree *tree, tvbuff_t *tvb, guint offset, int hf_cookie)
 {
 	proto_item *item;
@@ -449,7 +444,8 @@ static int dlm_cookie_handler(proto_tree *tree, tvbuff_t *tvb, guint offset, int
 	return offset + 8;
 }
 
-static int dlm_lkm_flags_handler(proto_tree *tree, tvbuff_t *tvb, guint offset)
+static int dlm_lkm_flags_handler(proto_tree *tree, tvbuff_t *tvb, guint offset,
+				 guint32 *dlm_lock_flags_ptr)
 {
 	static const int *flags[] = {
 		&hf_dlm_lock_flag_unused1,
@@ -482,6 +478,9 @@ static int dlm_lkm_flags_handler(proto_tree *tree, tvbuff_t *tvb, guint offset)
 		NULL
 	};
 
+	if(dlm_lock_flags_ptr != NULL){
+		*dlm_lock_flags_ptr = tvb_get_ntohl(tvb, offset);
+	}
 	proto_tree_add_bitmask_with_flags(tree, tvb, offset, hf_dlm_lock_flags,
 					ett_dtm_lock_flags, flags, ENC_BIG_ENDIAN, BMT_NO_INT | BMT_NO_FALSE | BMT_NO_TFS);
 	return offset + 4;
@@ -796,12 +795,13 @@ static int dissect_master_msg(proto_tree *tree, tvbuff_t *tvb, int offset, int h
 	return dlm_name_handler(tree, tvb, offset, namelen);
 }
 
-static int dissect_create_lock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
+static int dissect_create_lock_msg(proto_tree *tree, tvbuff_t *tvb, int offset,
+				   guint32 *dlm_lock_flags_ptr)
 {
 	guint32 namelen;
 
 	offset = dlm_cookie_handler(tree, tvb, offset, hf_dlm_cookie);
-	offset = dlm_lkm_flags_handler(tree, tvb, offset);
+	offset = dlm_lkm_flags_handler(tree, tvb, offset, dlm_lock_flags_ptr);
 
 	proto_tree_add_item(tree, hf_dlm_pad8, tvb, offset, 1, ENC_NA);
 	offset += 1;
@@ -821,16 +821,19 @@ static int dissect_create_lock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 
 static int dissect_convert_lock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 {
-	offset = dissect_create_lock_msg(tree, tvb, offset);
+	guint32 dlm_lock_flags;
+	offset = dissect_create_lock_msg(tree, tvb, offset, &dlm_lock_flags);
 
-	proto_tree_add_item(tree, hf_dlm_lvb1, tvb, offset, 24, ENC_NA);
-	offset += 24;
+	if(dlm_lock_flags & DLM_LOCK_FLAGS_PUT_LVB){
+		proto_tree_add_item(tree, hf_dlm_lvb1, tvb, offset, 24, ENC_NA);
+		offset += 24;
 
-	proto_tree_add_item(tree, hf_dlm_lvb2, tvb, offset, 24, ENC_NA);
-	offset += 24;
+		proto_tree_add_item(tree, hf_dlm_lvb2, tvb, offset, 24, ENC_NA);
+		offset += 24;
 
-	proto_tree_add_item(tree, hf_dlm_lvb3, tvb, offset, 16, ENC_NA);
-	offset += 16;
+		proto_tree_add_item(tree, hf_dlm_lvb3, tvb, offset, 16, ENC_NA);
+		offset += 16;
+	}
 
 	return offset;
 }
@@ -838,9 +841,10 @@ static int dissect_convert_lock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 static int dissect_unlock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 {
 	guint32 namelen;
+	guint32 dlm_lock_flags;
 
 	offset = dlm_cookie_handler(tree, tvb, offset, hf_dlm_cookie);
-	offset = dlm_lkm_flags_handler(tree, tvb, offset);
+	offset = dlm_lkm_flags_handler(tree, tvb, offset, &dlm_lock_flags);
 
 	proto_tree_add_item(tree, hf_dlm_pad16, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset += 2;
@@ -854,14 +858,16 @@ static int dissect_unlock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 	dlm_name_handler(tree, tvb, offset, namelen);
 	offset += O2NM_MAX_NAME_LEN;
 
-	proto_tree_add_item(tree, hf_dlm_lvb1, tvb, offset, 24, ENC_NA);
-	offset += 24;
+	if(dlm_lock_flags & DLM_LOCK_FLAGS_PUT_LVB){
+		proto_tree_add_item(tree, hf_dlm_lvb1, tvb, offset, 24, ENC_NA);
+		offset += 24;
 
-	proto_tree_add_item(tree, hf_dlm_lvb2, tvb, offset, 24, ENC_NA);
-	offset += 24;
+		proto_tree_add_item(tree, hf_dlm_lvb2, tvb, offset, 24, ENC_NA);
+		offset += 24;
 
-	proto_tree_add_item(tree, hf_dlm_lvb3, tvb, offset, 16, ENC_NA);
-	offset += 16;
+		proto_tree_add_item(tree, hf_dlm_lvb3, tvb, offset, 16, ENC_NA);
+		offset += 16;
+	}
 
 	return offset;
 }
@@ -869,9 +875,10 @@ static int dissect_unlock_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 static int dissect_proxy_ast_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 {
 	guint32 namelen;
+	guint32 dlm_lock_flags;
 
 	offset = dlm_cookie_handler(tree, tvb, offset, hf_dlm_cookie);
-	offset = dlm_lkm_flags_handler(tree, tvb, offset);
+	offset = dlm_lkm_flags_handler(tree, tvb, offset, &dlm_lock_flags);
 
 	proto_tree_add_item(tree, hf_dlm_node_idx, tvb, offset, 1, ENC_NA);
 	offset += 1;
@@ -888,15 +895,16 @@ static int dissect_proxy_ast_msg(proto_tree *tree, tvbuff_t *tvb, int offset)
 	dlm_name_handler(tree, tvb, offset, namelen);
 	offset += O2NM_MAX_NAME_LEN;
 
-	proto_tree_add_item(tree, hf_dlm_lvb1, tvb, offset, 24, ENC_NA);
-	offset += 24;
+	if(dlm_lock_flags & DLM_LOCK_FLAGS_GET_LVB){
+		proto_tree_add_item(tree, hf_dlm_lvb1, tvb, offset, 24, ENC_NA);
+		offset += 24;
 
-	proto_tree_add_item(tree, hf_dlm_lvb2, tvb, offset, 24, ENC_NA);
-	offset += 24;
+		proto_tree_add_item(tree, hf_dlm_lvb2, tvb, offset, 24, ENC_NA);
+		offset += 24;
 
-	proto_tree_add_item(tree, hf_dlm_lvb3, tvb, offset, 16, ENC_NA);
-	offset += 16;
-
+		proto_tree_add_item(tree, hf_dlm_lvb3, tvb, offset, 16, ENC_NA);
+		offset += 16;
+	}
 	return offset;
 }
 
@@ -1052,8 +1060,19 @@ static int dissect_ocfs2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 	proto_tree_add_item_ret_uint(subtree, hf_msg_msg_type, tvb, 4, 2, ENC_BIG_ENDIAN, &msg_type);
 	offset += 2;
 
-	col_append_sep_fstr(pinfo->cinfo, COL_INFO, " | ", "%s",
-		val_to_str_ext(msg_type, &ext_dlm_magic, "Unknown Type (0x%02x)") );
+	switch(magic){
+	case O2NET_MSG_KEEP_REQ_MAGIC:
+		col_append_sep_str(pinfo->cinfo, COL_INFO, " | ", "Keepalive Request");
+		break;
+	case O2NET_MSG_KEEP_RESP_MAGIC:
+		col_append_sep_str(pinfo->cinfo, COL_INFO, " | ", "Keepalive Response");
+		break;
+	default:
+		col_append_sep_str(pinfo->cinfo, COL_INFO, " | ",
+			val_to_str_ext(msg_type, &ext_dlm_magic, "Unknown Type (0x%02x)") );
+		break;
+	}
+
 	col_set_fence(pinfo->cinfo, COL_INFO);
 
 	proto_tree_add_item(subtree, hf_msg_pad, tvb, 4, 2, ENC_BIG_ENDIAN);
@@ -1080,7 +1099,7 @@ static int dissect_ocfs2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 			dissect_master_msg(subtree, tvb, offset, hf_dlm_am_flags);
 			break;
 		case DLM_CREATE_LOCK_MSG:
-			dissect_create_lock_msg(subtree, tvb, offset);
+			dissect_create_lock_msg(subtree, tvb, offset, NULL);
 			break;
 		case DLM_CONVERT_LOCK_MSG:
 			dissect_convert_lock_msg(subtree, tvb, offset);
@@ -1147,13 +1166,13 @@ get_ocfs2_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data 
 	guint16 plen;
 
 	/* Get the length of the data from header. */
-	plen = tvb_get_letohs(tvb, offset + 2);
+	plen = tvb_get_ntohs(tvb, offset + 2);
 
 	/* That length doesn't include the header itself, add that in. */
 	return plen + 24;
 }
 
-static int dissect_ocfs2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
+static int dissect_ocfs2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 {
 	guint32 magic;
 	int offset = 0;
@@ -1655,7 +1674,7 @@ void proto_reg_handoff_ocfs2(void)
 
 	ocfs2_handle = create_dissector_handle(dissect_ocfs2, proto_ocfs2);
 
-	dissector_add_for_decode_as("tcp.port", ocfs2_handle);
+	dissector_add_for_decode_as_with_preference("tcp.port", ocfs2_handle);
 }
 
 

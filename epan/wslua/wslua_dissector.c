@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -38,7 +26,7 @@
 /* WSLUA_CONTINUE_MODULE Proto */
 
 
-WSLUA_CLASS_DEFINE(Dissector,NOP,NOP);
+WSLUA_CLASS_DEFINE(Dissector,NOP);
 /*
    A refererence to a dissector, used to call a dissector against a packet or a part of it.
  */
@@ -68,7 +56,7 @@ compare_dissector_key_name(gconstpointer dissector_a, gconstpointer dissector_b)
 WSLUA_CONSTRUCTOR Dissector_list (lua_State *L) {
     /* Gets a Lua array table of all registered Dissector names.
 
-       Note: this is an expensive operation, and should only be used for troubleshooting.
+       Note: This is an expensive operation, and should only be used for troubleshooting.
 
        @since 1.11.3
      */
@@ -84,7 +72,7 @@ WSLUA_CONSTRUCTOR Dissector_list (lua_State *L) {
     lua_newtable(L);
     for (i=1; elist; i++, elist = g_list_next(elist)) {
         lua_pushstring(L,(const char *) elist->data);
-        lua_rawseti(L,1,i);
+        lua_rawseti(L,-2,i);
     }
 
     g_list_free(list);
@@ -160,7 +148,7 @@ int Dissector_register(lua_State* L) {
     return 0;
 }
 
-WSLUA_CLASS_DEFINE(DissectorTable,NOP,NOP);
+WSLUA_CLASS_DEFINE(DissectorTable,NOP);
 /*
  A table of subdissectors of a particular protocol (e.g. TCP subdissectors like http, smtp,
  sip are added to table "tcp.port").
@@ -202,7 +190,7 @@ WSLUA_CONSTRUCTOR DissectorTable_new (lua_State *L) {
             ui_name = g_strdup(ui_name);
 
             /* XXX - can't determine dependencies of Lua protocols if they don't provide protocol name */
-            dt->table = register_dissector_table(name, ui_name, -1, type, base, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+            dt->table = register_dissector_table(name, ui_name, -1, type, base);
             dt->name = name;
             dt->ui_name = ui_name;
             dt->created = TRUE;
@@ -243,7 +231,7 @@ WSLUA_CONSTRUCTOR DissectorTable_list (lua_State *L) {
     /* Gets a Lua array table of all DissectorTable names - i.e., the string names you can
        use for the first argument to DissectorTable.get().
 
-       Note: this is an expensive operation, and should only be used for troubleshooting.
+       Note: This is an expensive operation, and should only be used for troubleshooting.
 
        @since 1.11.3
      */
@@ -271,7 +259,7 @@ WSLUA_CONSTRUCTOR DissectorTable_heuristic_list (lua_State *L) {
     /* Gets a Lua array table of all heuristic list names - i.e., the string names you can
        use for the first argument in Proto:register_heuristic().
 
-       Note: this is an expensive operation, and should only be used for troubleshooting.
+       Note: This is an expensive operation, and should only be used for troubleshooting.
 
        @since 1.11.3
      */
@@ -354,14 +342,14 @@ WSLUA_METHOD DissectorTable_add (lua_State *L) {
             /* Not a number, try as range */
             const gchar* pattern = luaL_checkstring(L,WSLUA_ARG_DissectorTable_add_PATTERN);
             range_t *range = NULL;
-            if (range_convert_str(&range, pattern, G_MAXUINT32) == CVT_NO_ERROR) {
+            if (range_convert_str(NULL, &range, pattern, G_MAXUINT32) == CVT_NO_ERROR) {
                 dissector_add_uint_range(dt->name, range, handle);
             } else {
-                g_free (range);
+                wmem_free (NULL, range);
                 WSLUA_ARG_ERROR(DissectorTable_add,PATTERN,"invalid integer or range");
                 return  0;
             }
-            g_free (range);
+            wmem_free (NULL, range);
         }
     } else {
         luaL_error(L,"Strange type %d for a DissectorTable",type);
@@ -417,15 +405,15 @@ WSLUA_METHOD DissectorTable_set (lua_State *L) {
             /* Not a number, try as range */
             const gchar* pattern = luaL_checkstring(L,WSLUA_ARG_DissectorTable_set_PATTERN);
             range_t *range = NULL;
-            if (range_convert_str(&range, pattern, G_MAXUINT32) == CVT_NO_ERROR) {
+            if (range_convert_str(NULL, &range, pattern, G_MAXUINT32) == CVT_NO_ERROR) {
                 dissector_delete_all(dt->name, handle);
                 dissector_add_uint_range(dt->name, range, handle);
             } else {
-                g_free (range);
+                wmem_free (NULL, range);
                 WSLUA_ARG_ERROR(DissectorTable_set,PATTERN,"invalid integer or range");
                 return 0;
             }
-            g_free (range);
+            wmem_free (NULL, range);
         }
     } else {
         luaL_error(L,"Strange type %d for a DissectorTable",type);
@@ -472,14 +460,14 @@ WSLUA_METHOD DissectorTable_remove (lua_State *L) {
             /* Not a number, try as range */
             const gchar* pattern = luaL_checkstring(L,WSLUA_ARG_DissectorTable_remove_PATTERN);
             range_t *range = NULL;
-            if (range_convert_str(&range, pattern, G_MAXUINT32) == CVT_NO_ERROR)
+            if (range_convert_str(NULL, &range, pattern, G_MAXUINT32) == CVT_NO_ERROR)
                 dissector_delete_uint_range(dt->name, range, handle);
             else {
-                g_free (range);
+                wmem_free (NULL, range);
                 WSLUA_ARG_ERROR(DissectorTable_remove,PATTERN,"invalid integer or range");
                 return 0;
             }
-            g_free (range);
+            wmem_free (NULL, range);
         }
     }
 

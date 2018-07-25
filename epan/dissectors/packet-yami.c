@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -37,8 +25,6 @@ void proto_reg_handoff_yami(void);
 void proto_register_yami(void);
 
 static gboolean yami_desegment = TRUE;
-static guint global_yami_config_tcp_port = 0;
-static guint global_yami_config_udp_port = 0;
 
 static dissector_handle_t yami_handle;
 
@@ -235,7 +221,7 @@ dissect_yami_parameter(tvbuff_t *tvb, proto_tree *tree, int offset, proto_item *
 
 			proto_item_append_text(ti, ", Type: binary, Value: %s", repr);
 			offset += (val_len + 3) & ~3;
-			proto_tree_add_bytes_format_value(yami_param, hfi_yami_param_value_bin.id, tvb, val_offset, offset - val_offset, val, "%s", repr);
+			proto_tree_add_bytes_format_value(yami_param, &hfi_yami_param_value_bin, tvb, val_offset, offset - val_offset, val, "%s", repr);
 			break;
 		}
 
@@ -255,7 +241,7 @@ dissect_yami_parameter(tvbuff_t *tvb, proto_tree *tree, int offset, proto_item *
 				guint32 val = tvb_get_letohl(tvb, offset);
 
 				for (j = 0; j < 32; j++) {
-					int r = !!(val & (1 << j));
+					int r = !!(val & (1U << j));
 
 					proto_item_append_text(ti, "%s, ", r ? "T" : "F");
 					proto_tree_add_boolean(yami_param, &hfi_yami_param_value_bool, tvb, offset+(j/8), 1, r);
@@ -399,7 +385,7 @@ dissect_yami_parameter(tvbuff_t *tvb, proto_tree *tree, int offset, proto_item *
 
 				proto_item_append_text(ti, "%s, ", repr);
 				offset += (val_len + 3) & ~3;
-				proto_tree_add_bytes_format_value(yami_param, hfi_yami_param_value_bin.id, tvb, val_offset, offset - val_offset, val, "%s", repr);
+				proto_tree_add_bytes_format_value(yami_param, &hfi_yami_param_value_bin, tvb, val_offset, offset - val_offset, val, "%s", repr);
 			}
 			proto_item_append_text(ti, "}");
 			break;
@@ -587,9 +573,7 @@ proto_register_yami(void)
 	proto_register_fields(proto_yami, hfi, array_length(hfi));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	yami_module = prefs_register_protocol(proto_yami, proto_reg_handoff_yami);
-	prefs_register_uint_preference(yami_module, "tcp.port", "YAMI TCP Port", "The TCP port on which YAMI messages will be read(3000)", 10, &global_yami_config_tcp_port);
-	prefs_register_uint_preference(yami_module, "udp.port", "YAMI UDP Port", "The UDP port on which YAMI messages will be read(5000)", 10, &global_yami_config_udp_port);
+	yami_module = prefs_register_protocol(proto_yami, NULL);
 	prefs_register_bool_preference(yami_module, "desegment",
 			"Reassemble YAMI messages spanning multiple TCP segments",
 			"Whether the YAMI dissector should reassemble messages spanning multiple TCP segments."
@@ -602,23 +586,8 @@ proto_register_yami(void)
 void
 proto_reg_handoff_yami(void)
 {
-	static int yami_prefs_initialized = FALSE;
-	static guint yami_tcp_port, yami_udp_port;
-
-	if(yami_prefs_initialized == FALSE){
-		yami_prefs_initialized = TRUE;
-		yami_tcp_port = global_yami_config_tcp_port;
-		yami_udp_port = global_yami_config_udp_port;
-	}else{
-		dissector_delete_uint("tcp.port", yami_tcp_port, yami_handle);
-		dissector_delete_uint("udp.port", yami_udp_port, yami_handle);
-	}
-
-	yami_tcp_port = global_yami_config_tcp_port;
-	yami_udp_port = global_yami_config_udp_port;
-
-	dissector_add_uint("tcp.port", yami_tcp_port, yami_handle);
-	dissector_add_uint("udp.port", yami_udp_port, yami_handle);
+	dissector_add_for_decode_as_with_preference("tcp.port", yami_handle);
+	dissector_add_for_decode_as_with_preference("udp.port", yami_handle);
 }
 
 /*

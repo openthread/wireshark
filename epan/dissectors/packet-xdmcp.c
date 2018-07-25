@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -610,8 +598,7 @@ void proto_register_xdmcp(void)
   expert_module_t* expert_xdmcp;
 
   /* Register the protocol name and description */
-  proto_xdmcp = proto_register_protocol("X Display Manager Control Protocol",
-                                        "XDMCP", "xdmcp");
+  proto_xdmcp = proto_register_protocol("X Display Manager Control Protocol", "XDMCP", "xdmcp");
 
   /* Required function calls to register the header fields and subtrees used */
   proto_register_field_array(proto_xdmcp, hf, array_length(hf));
@@ -626,7 +613,7 @@ proto_reg_handoff_xdmcp(void)
   dissector_handle_t xdmcp_handle;
 
   xdmcp_handle = create_dissector_handle(dissect_xdmcp, proto_xdmcp);
-  dissector_add_uint("udp.port", UDP_PORT_XDMCP, xdmcp_handle);
+  dissector_add_uint_with_preference("udp.port", UDP_PORT_XDMCP, xdmcp_handle);
 }
 /*
  * Editor modelines

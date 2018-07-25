@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation,  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TAP_IAX2_ANALYSIS_H__
@@ -53,10 +41,10 @@ typedef struct _iax2_bw_history_item {
 #define BUFF_BW 300
 
 typedef struct _tap_iax2_stat_t {
-    gboolean first_packet;     /* do not use in code that is called after rtp_packet_analyse */
+    gboolean first_packet;     /* do not use in code that is called after iax2_packet_analyse */
     /* use (flags & STAT_FLAG_FIRST) instead */
     /* all of the following fields will be initialized after
-       rtp_packet_analyse has been called */
+       iax2_packet_analyse has been called */
     guint32 flags;             /* see STAT_FLAG-defines below */
     guint16 seq_num;
     guint32 timestamp;

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __NSTIME_H__
@@ -40,6 +28,26 @@ typedef struct {
 	time_t	secs;
 	int	nsecs;
 } nstime_t;
+
+/* Macros that expand to nstime_t initializers */
+
+/* Initialize to zero */
+#define NSTIME_INIT_ZERO {0, 0}
+
+/* Initialize to a specified number of seconds and nanoseconds */
+#define NSTIME_INIT_SECS_NSECS(secs, nsecs)	{secs, nsecs}
+
+/* Initialize to a specified number of seconds and microseconds */
+#define NSTIME_INIT_SECS_USECS(secs, usecs)	{secs, usecs*1000}
+
+/* Initialize to a specified number of seconds and milliseconds */
+#define NSTIME_INIT_SECS_MSECS(secs, msecs)	{secs, msecs*1000000}
+
+/* Initialize to a specified number of seconds */
+#define NSTIME_INIT_SECS(secs)			{secs, 0}
+
+/* Initialize to the maxximum possible value */
+#define NSTIME_INIT_MAX	{sizeof(time_t) > sizeof(int) ? LONG_MAX : INT_MAX, INT_MAX}
 
 /* functions */
 

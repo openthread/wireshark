@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -137,7 +125,7 @@ dissect_string_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, pr
 {
 	proto_item	*string_item;
 	proto_tree	*string_tree;
-	guint8		*string_value;
+	const guint8	*string_value;
 
 	string_item = proto_tree_add_protocol_format(tree, hf_fdp_string,
 		tvb, offset, length, "%s", type_string);
@@ -148,12 +136,10 @@ dissect_string_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, pr
 	offset += 4;
 	length -= 4;
 
-	string_value = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_ASCII);
-	proto_item_append_text(string_item, ": \"%s\"",
-		format_text(string_value, strlen(string_value)));
-
 	proto_tree_add_item(string_tree, hf_fdp_string_data, tvb, offset, length, ENC_NA);
-	proto_tree_add_item(string_tree, hf_fdp_string_text, tvb, offset, length, ENC_ASCII|ENC_NA);
+	proto_tree_add_item_ret_string(string_tree, hf_fdp_string_text, tvb, offset, length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &string_value);
+	proto_item_append_text(string_item, ": \"%s\"",
+		format_text(wmem_packet_scope(), string_value, strlen(string_value)));
 
 	return offset;
 }
@@ -286,7 +272,7 @@ dissect_fdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		offset += 1;
 		proto_tree_add_item(fdp_tree, hf_fdp_holdtime, tvb, offset, 1, ENC_BIG_ENDIAN);
 		offset += 1;
-		proto_tree_add_item(fdp_tree, hf_fdp_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_checksum(fdp_tree, tvb, offset, hf_fdp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		offset += 2;
 
 		/* Decode the individual TLVs */

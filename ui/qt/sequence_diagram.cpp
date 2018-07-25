@@ -4,28 +4,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "sequence_diagram.h"
 
 #include "epan/addr_resolv.h"
+#include "epan/sequence_analysis.h"
 
-#include "ui/tap-sequence-analysis.h"
-
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/qt_ui_utils.h>
 
 #include <QFont>
 #include <QFontMetrics>
@@ -57,7 +45,8 @@ SequenceDiagram::SequenceDiagram(QCPAxis *keyAxis, QCPAxis *valueAxis, QCPAxis *
     comment_axis_(commentAxis),
     data_(NULL),
     sainfo_(NULL),
-    selected_packet_(0)
+    selected_packet_(0),
+    selected_key_(-1.0)
 {
     data_ = new WSCPSeqDataMap();
     // xaxis (value): Address
@@ -100,6 +89,52 @@ SequenceDiagram::SequenceDiagram(QCPAxis *keyAxis, QCPAxis *valueAxis, QCPAxis *
 SequenceDiagram::~SequenceDiagram()
 {
     delete data_;
+}
+
+int SequenceDiagram::adjacentPacket(bool next)
+{
+    int adjacent_packet = -1;
+    WSCPSeqDataMap::const_iterator it;
+
+    if (data_->size() < 1) return adjacent_packet;
+
+    if (selected_packet_ < 1) {
+        if (next) {
+            it = data_->constBegin();
+        } else {
+            it = data_->constEnd();
+            --it;
+        }
+        selected_key_ = it.value().key;
+        return it.value().value->frame_number;
+    }
+
+    if (next) {
+        for (it = data_->constBegin(); it != data_->constEnd(); ++it) {
+            if (it.value().value->frame_number == selected_packet_) {
+                ++it;
+                if (it != data_->constEnd()) {
+                    adjacent_packet = it.value().value->frame_number;
+                    selected_key_ = it.value().key;
+                }
+                break;
+            }
+        }
+    } else {
+        it = data_->constEnd();
+        --it;
+        while (it != data_->constBegin()) {
+            guint32 prev_frame = it.value().value->frame_number;
+            --it;
+            if (prev_frame == selected_packet_) {
+                adjacent_packet = it.value().value->frame_number;
+                selected_key_ = it.value().key;
+                break;
+            }
+        }
+    }
+
+    return adjacent_packet;
 }
 
 void SequenceDiagram::setData(_seq_analysis_info *sainfo)
@@ -153,6 +188,7 @@ void SequenceDiagram::setData(_seq_analysis_info *sainfo)
 
 void SequenceDiagram::setSelectedPacket(int selected_packet)
 {
+    selected_key_ = -1;
     if (selected_packet > 0) {
         selected_packet_ = selected_packet;
     } else {
@@ -187,7 +223,7 @@ void SequenceDiagram::draw(QCPPainter *painter)
     QPen fg_pen;
     qreal alpha = 0.50;
 
-    // Lifelines (node lines)
+    // Lifelines (node lines). Will likely be overdrawn below.
     painter->save();
     painter->setOpacity(alpha);
     fg_pen = mainPen();
@@ -207,36 +243,46 @@ void SequenceDiagram::draw(QCPPainter *painter)
     for (it = data_->constBegin(); it != data_->constEnd(); ++it) {
         double cur_key = it.key();
         seq_analysis_item_t *sai = it.value().value;
-        QPen fg_pen(mainPen());
+        QColor bg_color;
 
         if (sai->frame_number == selected_packet_) {
-            // Highlighted background
-            painter->save();
-            QRect bg_rect(
-                        QPoint(coordsToPixels(cur_key - 0.5, value_axis_->range().lower).toPoint()),
-                        QPoint(coordsToPixels(cur_key + 0.5, value_axis_->range().upper).toPoint()));
             QPalette sel_pal;
-            painter->fillRect(bg_rect, sel_pal.brush(QPalette::Highlight));
             fg_pen.setColor(sel_pal.color(QPalette::HighlightedText));
-
-            // Highlighted lifelines
-            painter->save();
-            QPen hl_pen = fg_pen;
-            hl_pen.setStyle(Qt::DashLine);
-            painter->setPen(hl_pen);
-            painter->setOpacity(alpha);
-            for (int ll_x = value_axis_->range().lower; ll_x < value_axis_->range().upper; ll_x++) {
-                // Only draw where we have arrows.
-                if (ll_x < 0 || ll_x >= value_axis_->tickVector().size()) continue;
-                QPoint ll_start(coordsToPixels(cur_key - 0.5, ll_x).toPoint());
-                QPoint ll_end(coordsToPixels(cur_key + 0.5, ll_x).toPoint());
-                hl_pen.setDashOffset(bg_rect.top() - ll_start.x());
-                painter->drawLine(ll_start, ll_end);
-            }
-            painter->restore();
-
-            painter->restore();
+            bg_color = sel_pal.color(QPalette::Highlight);
+            selected_key_ = cur_key;
+        } else if (sai->has_color_filter) {
+            fg_pen.setColor(QColor().fromRgb(sai->fg_color));
+            bg_color = QColor().fromRgb(sai->bg_color);
+        } else {
+            fg_pen.setColor(Qt::black);
+            bg_color = ColorUtils::sequenceColor(sai->conv_num);
         }
+
+        // Highlighted background
+//        painter->save();
+        QRect bg_rect(
+                    QPoint(coordsToPixels(cur_key - 0.5, value_axis_->range().lower).toPoint()),
+                    QPoint(coordsToPixels(cur_key + 0.5, value_axis_->range().upper).toPoint()));
+        if (bg_color.isValid()) {
+            painter->fillRect(bg_rect, bg_color);
+        }
+//        painter->restore();
+
+        // Highlighted lifelines
+        painter->save();
+        QPen hl_pen = fg_pen;
+        hl_pen.setStyle(Qt::DashLine);
+        painter->setPen(hl_pen);
+        painter->setOpacity(alpha);
+        for (int ll_x = value_axis_->range().lower; ll_x < value_axis_->range().upper; ll_x++) {
+            // Only draw where we have arrows.
+            if (ll_x < 0 || ll_x >= value_axis_->tickVector().size()) continue;
+            QPoint ll_start(coordsToPixels(cur_key - 0.5, ll_x).toPoint());
+            QPoint ll_end(coordsToPixels(cur_key + 0.5, ll_x).toPoint());
+            hl_pen.setDashOffset(bg_rect.top() - ll_start.x());
+            painter->drawLine(ll_start, ll_end);
+        }
+        painter->restore();
 
         if (cur_key < key_axis_->range().lower || cur_key > key_axis_->range().upper) {
             continue;
@@ -283,14 +329,17 @@ void SequenceDiagram::draw(QCPPainter *painter)
             painter->drawText(text_pt, arrow_label);
 
             if (sai->port_src && sai->port_dst) {
-                QString port_num = QString::number(sai->port_src);
-                text_pt = QPoint(arrow_start.x() - en_w - (cfm.width(port_num) * dir_mul),
-                                arrow_start.y() + (en_w / 2));
-                painter->drawText(text_pt, port_num);
+                int left_x = dir_mul > 0 ? arrow_start.x() : arrow_end.x();
+                int right_x = dir_mul > 0 ? arrow_end.x() : arrow_start.x();
+                QString port_left = QString::number(dir_mul > 0 ? sai->port_src : sai->port_dst);
+                QString port_right = QString::number(dir_mul > 0 ? sai->port_dst : sai->port_src);
 
-                port_num = QString::number(sai->port_dst);
-                text_pt.setX(arrow_end.x() - en_w + (cfm.width(port_num) * dir_mul));
-                painter->drawText(text_pt, port_num);
+                text_pt = QPoint(left_x - en_w - cfm.width(port_left),
+                                arrow_start.y() + (en_w / 2));
+                painter->drawText(text_pt, port_left);
+
+                text_pt.setX(right_x + en_w);
+                painter->drawText(text_pt, port_right);
             }
             painter->restore();
         }
@@ -330,7 +379,7 @@ QCPRange SequenceDiagram::getValueRange(bool &validRange, QCPAbstractPlottable::
 
     if (sainfo_) {
         range.lower = 0;
-        range.upper = sainfo_->num_nodes;
+        range.upper = data_->size();
         valid = true;
     }
     validRange = valid;

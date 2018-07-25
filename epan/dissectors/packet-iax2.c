@@ -13,26 +13,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 
 #include <epan/packet.h>
-#include <epan/circuit.h>
+#include <epan/conversation.h>
 #include <epan/exceptions.h>
 #include <epan/reassemble.h>
 #include <epan/expert.h>
@@ -189,6 +177,8 @@ static expert_field ei_iax_too_many_transfers = EI_INIT;
 static expert_field ei_iax_circuit_id_conflict = EI_INIT;
 static expert_field ei_iax_peer_address_unsupported = EI_INIT;
 static expert_field ei_iax_invalid_len = EI_INIT;
+
+static dissector_handle_t iax2_handle;
 
 static const fragment_items iax2_fragment_items = {
   &ett_iax2_fragment,
@@ -735,17 +725,20 @@ typedef struct iax_call_data {
   /* the absolute start time of the call */
   nstime_t start_time;
 
+  /* time stamp from last full frame, in the first pass */
+  guint32 last_full_frame_ts;
+
   iax_call_dirdata dirdata[2];
 } iax_call_data;
 
 
 
-/* creates a new CT_IAX2 circuit with a specified circuit id for a call
+/* creates a new ENDPOINT_IAX2 circuit with a specified circuit id for a call
  *
  * typically a call has up to three associated circuits: an original source, an
  * original destination, and the result of a transfer.
  *
- * For each endpoint, a CT_IAX2 circuit is created and added to the call_data
+ * For each endpoint, a ENDPOINT_IAX2 circuit is created and added to the call_data
  * by this function
  *
  * 'reversed' should be true if this end is the one which would have _received_
@@ -753,11 +746,11 @@ typedef struct iax_call_data {
  * transferred.
  *
  */
-static circuit_t *iax2_new_circuit_for_call(packet_info *pinfo, proto_item * item,
+static conversation_t *iax2_new_circuit_for_call(packet_info *pinfo, proto_item * item,
                                             guint circuit_id, guint framenum,
                                             iax_call_data *iax_call, gboolean reversed)
 {
-  circuit_t *res;
+  conversation_t *conv;
 
   if(!iax_call){
     return NULL;
@@ -768,18 +761,17 @@ static circuit_t *iax2_new_circuit_for_call(packet_info *pinfo, proto_item * ite
     return NULL;
   }
 
-  res = circuit_new(CT_IAX2,
-                    circuit_id,
-                    framenum);
+  conv = conversation_new_by_id(framenum, ENDPOINT_IAX2,
+                    circuit_id, 0);
 
-  circuit_add_proto_data(res, proto_iax2, iax_call);
+  conversation_add_proto_data(conv, proto_iax2, iax_call);
 
   if (reversed)
     iax_call -> reverse_circuit_ids[iax_call->n_reverse_circuit_ids++] = circuit_id;
   else
     iax_call -> forward_circuit_ids[iax_call->n_forward_circuit_ids++] = circuit_id;
 
-  return res;
+  return conv;
 }
 
 
@@ -818,15 +810,13 @@ static iax_call_data *iax_lookup_call_from_dest(packet_info *pinfo, proto_item *
                                                  guint framenum,
                                                  gboolean *reversed_p)
 {
-  circuit_t     *dst_circuit;
+  conversation_t  *dst_conv;
   iax_call_data *iax_call;
   gboolean       reversed = FALSE;
 
-  dst_circuit = find_circuit(CT_IAX2,
-                             dst_circuit_id,
-                             framenum);
+  dst_conv = find_conversation_by_id(framenum, ENDPOINT_IAX2, dst_circuit_id, 0);
 
-  if (!dst_circuit) {
+  if (!dst_conv) {
 #ifdef DEBUG_HASHING
     g_debug("++ destination circuit not found, must have missed NEW packet");
 #endif
@@ -839,9 +829,9 @@ static iax_call_data *iax_lookup_call_from_dest(packet_info *pinfo, proto_item *
   g_debug("++ found destination circuit");
 #endif
 
-  iax_call = (iax_call_data *)circuit_get_proto_data(dst_circuit, proto_iax2);
+  iax_call = (iax_call_data *)conversation_get_proto_data(dst_conv, proto_iax2);
 
-  /* there's no way we can create a CT_IAX2 circuit without adding
+  /* there's no way we can create a ENDPOINT_IAX2 circuit without adding
      iax call data to it; assert this */
   DISSECTOR_ASSERT(iax_call);
 
@@ -947,21 +937,19 @@ static iax_call_data *iax_lookup_call( packet_info *pinfo,
     iax_call = iax_lookup_call_from_dest(pinfo, NULL, src_circuit_id, dst_circuit_id,
                                          pinfo->num, &reversed);
   } else {
-    circuit_t *src_circuit;
+    conversation_t *src_conv;
 
     /* in all other circumstances, the source circuit should already
      * exist: its absence indicates that we missed the all-important NEW
      * packet.
      */
 
-    src_circuit = find_circuit(CT_IAX2,
-                               src_circuit_id,
-                               pinfo->num);
+    src_conv = find_conversation_by_id(pinfo->num, ENDPOINT_IAX2, src_circuit_id, 0);
 
-    if (src_circuit) {
-      iax_call = (iax_call_data *)circuit_get_proto_data(src_circuit, proto_iax2);
+    if (src_conv) {
+      iax_call = (iax_call_data *)conversation_get_proto_data(src_conv, proto_iax2);
 
-      /* there's no way we can create a CT_IAX2 circuit without adding
+      /* there's no way we can create a ENDPOINT_IAX2 circuit without adding
          iax call data to it; assert this */
       DISSECTOR_ASSERT(iax_call);
 
@@ -1009,7 +997,7 @@ static iax_call_data *iax_new_call( packet_info *pinfo,
 {
   iax_call_data         *call;
   guint                  circuit_id;
-  static const nstime_t  millisecond = {0, 1000000};
+  static const nstime_t  millisecond = NSTIME_INIT_SECS_MSECS(0, 1);
 
 #ifdef DEBUG_HASHING
   g_debug("+ new_circuit: Handling NEW packet, frame %u", pinfo->num);
@@ -1022,10 +1010,13 @@ static iax_call_data *iax_new_call( packet_info *pinfo,
   call -> dataformat = AST_DATAFORMAT_NULL;
   call -> src_codec = 0;
   call -> dst_codec = 0;
+  call -> src_vformat = 0;
+  call -> dst_vformat = 0;
   call -> n_forward_circuit_ids = 0;
   call -> n_reverse_circuit_ids = 0;
   call -> subdissector = NULL;
   call -> start_time = pinfo->abs_ts;
+  call -> last_full_frame_ts = 0;
   nstime_delta(&call -> start_time, &call -> start_time, &millisecond);
   init_dir_data(&call->dirdata[0]);
   init_dir_data(&call->dirdata[1]);
@@ -1517,14 +1508,13 @@ static guint32 dissect_iax2_command(tvbuff_t *tvb, guint32 offset,
                                     iax_packet_data *iax_packet)
 {
   guint8         csub = tvb_get_guint8(tvb, offset);
-  guint8         address_data[MAX_ADDRESS];
   proto_item*    ti;
   iax2_ie_data   ie_data;
   iax_call_data *iax_call;
 
   ie_data.peer_address.type = AT_NONE;
   ie_data.peer_address.len  = 0;
-  ie_data.peer_address.data = address_data;
+  ie_data.peer_address.data = NULL;
   ie_data.peer_ptype        = PT_NONE;
   ie_data.peer_port         = 0;
   ie_data.peer_callno       = 0;
@@ -1564,10 +1554,10 @@ static guint32 dissect_iax2_command(tvbuff_t *tvb, guint32 offset,
   return offset;
 }
 
-static void iax2_add_ts_fields(packet_info *pinfo, proto_tree *iax2_tree, iax_packet_data *iax_packet, guint16 shortts)
+static void iax2_add_ts_fields(packet_info *pinfo, proto_tree *iax2_tree, tvbuff_t *tvb, iax_packet_data *iax_packet, packet_type type, guint32 relts)
 {
-  guint32     longts =shortts;
-  nstime_t    ts;
+  guint32     full_relts = relts;
+  nstime_t    lateness;
   proto_item *item;
 
   if (iax_packet->call_data == NULL) {
@@ -1576,33 +1566,94 @@ static void iax2_add_ts_fields(packet_info *pinfo, proto_tree *iax2_tree, iax_pa
   }
 
   if (iax_packet->abstime.secs == -1) {
-    time_t start_secs = iax_packet->call_data->start_time.secs;
-    time_t abs_secs = start_secs + longts/1000;
+    nstime_t rel;
 
-    /* deal with short timestamps by assuming that packets are never more than
-     * 16 seconds late */
-    while(abs_secs < pinfo->abs_ts.secs - 16) {
-      longts += 32768;
-      abs_secs = start_secs + longts/1000;
+    switch (type) {
+    case IAX2_MINI_VOICE_PACKET:
+      /* RFC 5456 says
+       *
+       *   Abbreviated 'Mini Frames' are normally used for audio and
+       *   video; however, each time the time-stamp is a multiple of
+       *   32,768 (0x8000 hex), a standard or 'Full Frame' MUST be sent.
+       *
+       * and, for what it later calls "Mini Frames", by which it means
+       * what we're calling "mini voice packets", it says:
+       *
+       *   Mini frames carry a 16-bit time-stamp, which is the lower 16 bits
+       *   of the transmitting peer's full 32-bit time-stamp for the call.
+       *   The time-stamp allows synchronization of incoming frames so that
+       *   they MAY be processed in chronological order instead of the
+       *   (possibly different) order in which they are received.  The 16-bit
+       *   time-stamp wraps after 65.536 seconds, at which point a full frame
+       *   SHOULD be sent to notify the remote peer that its time-stamp has
+       *   been reset.  A call MUST continue to send mini frames starting
+       *   with time-stamp 0 even if acknowledgment of the resynchronization
+       *   is not received.
+       *
+       * *If* we see all the full frames, that means we *should* be able
+       * to convert the 16-bit time stamp to a full 32-bit time stamp by
+       * ORing the upper 16 bits of the last full frame time stamp we saw
+       * in above the 16-bit time stamp.
+       *
+       * XXX - what, if anything, should we do about full frames we've
+       * missed? */
+      full_relts = (iax_packet->call_data->last_full_frame_ts & 0xFFFF0000) | relts;
+      break;
+
+    case IAX2_FULL_PACKET:
+    case IAX2_TRUNK_PACKET:
+      /* Timestamps have the full 32 bits of the timestamp.
+       * Save it, to add to the mini-packet time stamps.
+       *
+       * XXX - that's a maximum of 4294967296 milliseconds
+       * or about 4294967 seconds or about 49 days.
+       * Do we need to worry about that overflowing? */
+      full_relts = relts;
+      iax_packet->call_data->last_full_frame_ts = full_relts;
+      break;
+
+    case IAX2_MINI_VIDEO_PACKET:
+      /* See the comment above in the IAX2_MINI_VOICE_PACKET case.
+       * Note also that RFC 5456 says, in section 8.1.3.1 "Meta Video
+       * Frames", which covers what we're calling "mini video packets":
+       *
+       *   Meta video frames carry a 16-bit time-stamp, which is the lower 16
+       *   bits of the transmitting peer's full 32-bit time-stamp for the
+       *   call.  When this time-stamp wraps, a Full Frame SHOULD be sent to
+       *   notify the remote peer that the time-stamp has been reset to 0.
+       *
+       * *but* it also shows the uppermost bit of that time stamp as "?",
+       * with a 15-bit time stamp, in the ASCII-art packet diagram after
+       * it.  dissect_minivideopacket() says "bit 15 of the ts is used to
+       * represent the rtp 'marker' bit"; presumably that's what's going
+       * on, but the RFC doesn't say that.
+       *
+       * So we assume that the time stamp is only 15 bits, and that the
+       * upper *17* bits of the last full frame's time stamp need to be
+       * ORed in above the 15 bits of time stamp.
+       *
+       * XXX - do we need to worry about overflows or missed packets
+       * with full timestamps? */
+      full_relts = (iax_packet->call_data->last_full_frame_ts & 0xFFFF8000) | relts;
+      break;
     }
 
-    iax_packet->abstime.secs=abs_secs;
-    iax_packet->abstime.nsecs=iax_packet->call_data->start_time.nsecs + (longts % 1000) * 1000000;
-    if (iax_packet->abstime.nsecs >= 1000000000) {
-      iax_packet->abstime.nsecs -= 1000000000;
-      iax_packet->abstime.secs ++;
-    }
+    /* Convert the full relative time stamp to an nstime_t */
+    rel.secs = full_relts / 1000;
+    rel.nsecs = (full_relts % 1000) * 1000000;
+
+    /* Add it to the start time to get the absolute time. */
+    nstime_sum(&iax_packet->abstime, &iax_packet->call_data->start_time, &rel);
   }
-  iax2_info->timestamp = longts;
+  iax2_info->timestamp = relts; /* raw time stamp; nobody uses it */
 
   if (iax2_tree) {
-    item = proto_tree_add_time(iax2_tree, hf_iax2_absts, NULL, 0, 0, &iax_packet->abstime);
+    item = proto_tree_add_time(iax2_tree, hf_iax2_absts, tvb, 0, 0, &iax_packet->abstime);
     PROTO_ITEM_SET_GENERATED(item);
 
-    ts  = pinfo->abs_ts;
-    nstime_delta(&ts, &ts, &iax_packet->abstime);
+    nstime_delta(&lateness, &pinfo->abs_ts, &iax_packet->abstime);
 
-    item = proto_tree_add_time(iax2_tree, hf_iax2_lateness, NULL, 0, 0, &ts);
+    item = proto_tree_add_time(iax2_tree, hf_iax2_lateness, tvb, 0, 0, &lateness);
     PROTO_ITEM_SET_GENERATED(item);
   }
 }
@@ -1662,34 +1713,34 @@ dissect_fullpacket(tvbuff_t *tvb, guint32 offset,
   iax2_populate_pinfo_from_packet_data(pinfo, iax_packet);
 
   if (iax2_tree) {
-      proto_item *packet_type_base;
+    proto_item *packet_type_base;
 
-      proto_tree_add_item(iax2_tree, hf_iax2_dcallno, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(iax2_tree, hf_iax2_dcallno, tvb, offset, 2, ENC_BIG_ENDIAN);
 
-      proto_tree_add_item(iax2_tree, hf_iax2_retransmission, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(iax2_tree, hf_iax2_retransmission, tvb, offset, 2, ENC_BIG_ENDIAN);
 
-      if (iax_call) {
-        proto_item *item =
-          proto_tree_add_uint(iax2_tree, hf_iax2_callno, tvb, 0, 4,
-                              iax_call->forward_circuit_ids[0]);
-        PROTO_ITEM_SET_GENERATED(item);
-      }
+    if (iax_call) {
+      proto_item *item =
+        proto_tree_add_uint(iax2_tree, hf_iax2_callno, tvb, 0, 4,
+                            iax_call->forward_circuit_ids[0]);
+      PROTO_ITEM_SET_GENERATED(item);
+    }
 
-      proto_tree_add_uint(iax2_tree, hf_iax2_ts, tvb, offset+2, 4, ts);
-      iax2_add_ts_fields(pinfo, iax2_tree, iax_packet, (guint16)ts);
+    proto_tree_add_uint(iax2_tree, hf_iax2_ts, tvb, offset+2, 4, ts);
+    iax2_add_ts_fields(pinfo, iax2_tree, tvb, iax_packet, IAX2_FULL_PACKET, ts);
 
-      proto_tree_add_item(iax2_tree, hf_iax2_oseqno, tvb, offset+6, 1,
-                          ENC_BIG_ENDIAN);
+    proto_tree_add_item(iax2_tree, hf_iax2_oseqno, tvb, offset+6, 1,
+                        ENC_BIG_ENDIAN);
 
-      proto_tree_add_item(iax2_tree, hf_iax2_iseqno, tvb, offset+7, 1,
-                          ENC_BIG_ENDIAN);
-      packet_type_base = proto_tree_add_uint(iax2_tree, hf_iax2_type, tvb,
-                                             offset+8, 1, type);
+    proto_tree_add_item(iax2_tree, hf_iax2_iseqno, tvb, offset+7, 1,
+                        ENC_BIG_ENDIAN);
+    packet_type_base = proto_tree_add_uint(iax2_tree, hf_iax2_type, tvb,
+                                           offset+8, 1, type);
 
-      /* add the type-specific subtree */
-      packet_type_tree = proto_item_add_subtree(packet_type_base, ett_iax2_type);
+    /* add the type-specific subtree */
+    packet_type_tree = proto_item_add_subtree(packet_type_base, ett_iax2_type);
   } else {
-    iax2_add_ts_fields(pinfo, iax2_tree, iax_packet, (guint16)ts);
+    iax2_add_ts_fields(pinfo, iax2_tree, tvb, iax_packet, IAX2_FULL_PACKET, ts);
   }
 
 
@@ -1893,10 +1944,10 @@ static guint32 dissect_minivideopacket(tvbuff_t *tvb, guint32 offset,
     }
 
     proto_tree_add_item(iax2_tree, hf_iax2_minividts, tvb, offset, 2, ENC_BIG_ENDIAN);
-    iax2_add_ts_fields(pinfo, iax2_tree, iax_packet, (guint16)ts);
+    iax2_add_ts_fields(pinfo, iax2_tree, tvb, iax_packet, IAX2_MINI_VIDEO_PACKET, ts);
     proto_tree_add_item(iax2_tree, hf_iax2_minividmarker, tvb, offset, 2, ENC_BIG_ENDIAN);
   } else {
-    iax2_add_ts_fields(pinfo, iax2_tree, iax_packet, (guint16)ts);
+    iax2_add_ts_fields(pinfo, iax2_tree, tvb, iax_packet, IAX2_MINI_VIDEO_PACKET, ts);
   }
 
   offset += 2;
@@ -1935,9 +1986,9 @@ static guint32 dissect_minipacket(tvbuff_t *tvb, guint32 offset, guint16 scallno
     }
 
     proto_tree_add_uint(iax2_tree, hf_iax2_minits, tvb, offset, 2, ts);
-    iax2_add_ts_fields(pinfo, iax2_tree, iax_packet, (guint16)ts);
+    iax2_add_ts_fields(pinfo, iax2_tree, tvb, iax_packet, IAX2_MINI_VOICE_PACKET, ts);
   } else {
-    iax2_add_ts_fields(pinfo, iax2_tree, iax_packet, (guint16)ts);
+    iax2_add_ts_fields(pinfo, iax2_tree, tvb, iax_packet, IAX2_MINI_VOICE_PACKET, ts);
   }
 
 
@@ -2167,7 +2218,7 @@ static void process_iax_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
       * tbd what the best thing to do here is. */
       memset(&dissector_info, 0, sizeof(dissector_info));
     } else {
-      dissector_info.ctype = CT_IAX2;
+      dissector_info.etype = ENDPOINT_IAX2;
       dissector_info.circuit_id = (guint32)iax_packet->call_data->forward_circuit_ids[0];
     }
 
@@ -2428,9 +2479,6 @@ iax_init_protocol(void)
   circuitcount = 0;
 
   iax_fid_table = g_hash_table_new(g_direct_hash, g_direct_equal);
-
-  reassembly_table_init(&iax_reassembly_table,
-                        &addresses_reassembly_table_functions);
 }
 
 static void
@@ -2438,7 +2486,6 @@ iax_cleanup_protocol(void)
 {
   g_hash_table_destroy(iax_circuit_hashtab);
   g_hash_table_destroy(iax_fid_table);
-  reassembly_table_destroy(&iax_reassembly_table);
 }
 
 
@@ -2517,7 +2564,7 @@ proto_register_iax2(void)
       HFILL}},
 
     {&hf_iax2_minividmarker,
-     {"Marker", "iax2.video.marker",
+     {"Marker", "iax2.video.mini_marker",
       FT_UINT16, BASE_DEC, NULL, 0x8000,
       "RTP end-of-frame marker",
       HFILL}},
@@ -3183,7 +3230,7 @@ proto_register_iax2(void)
     { &ei_iax_too_many_transfers, { "iax2.too_many_transfers", PI_PROTOCOL, PI_WARN, "Too many transfers for iax_call", EXPFILL }},
     { &ei_iax_circuit_id_conflict, { "iax2.circuit_id_conflict", PI_PROTOCOL, PI_WARN, "Circuit ID conflict", EXPFILL }},
     { &ei_iax_peer_address_unsupported, { "iax2.peer_address_unsupported", PI_PROTOCOL, PI_WARN, "Peer address unsupported", EXPFILL }},
-    { &ei_iax_invalid_len, { "iax2.invalid_len", PI_PROTOCOL, PI_WARN, "Invalid length", EXPFILL }}
+    { &ei_iax_invalid_len, { "iax2.invalid_len", PI_PROTOCOL, PI_WARN, "Invalid length", EXPFILL }},
   };
 
   expert_module_t* expert_iax;
@@ -3198,17 +3245,20 @@ proto_register_iax2(void)
   expert_iax = expert_register_protocol(proto_iax2);
   expert_register_field_array(expert_iax, ei, array_length(ei));
 
-  register_dissector("iax2", dissect_iax2, proto_iax2);
+  iax2_handle = register_dissector("iax2", dissect_iax2, proto_iax2);
 
   iax2_codec_dissector_table = register_dissector_table(
-    "iax2.codec", "IAX codec number", proto_iax2, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    "iax2.codec", "IAX codec number", proto_iax2, FT_UINT32, BASE_HEX);
   iax2_dataformat_dissector_table = register_dissector_table(
-    "iax2.dataformat", "IAX dataformat number", proto_iax2, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    "iax2.dataformat", "IAX dataformat number", proto_iax2, FT_UINT32, BASE_HEX);
 
   /* register our init routine to be called at the start of a capture,
      to clear out our hash tables etc */
   register_init_routine(&iax_init_protocol);
   register_cleanup_routine(&iax_cleanup_protocol);
+  reassembly_table_register(&iax_reassembly_table,
+                        &addresses_reassembly_table_functions);
+
   iax2_tap = register_tap("IAX2");
 }
 
@@ -3217,7 +3267,7 @@ proto_reg_handoff_iax2(void)
 {
   dissector_handle_t v110_handle;
 
-  dissector_add_uint("udp.port", IAX2_PORT, find_dissector("iax2"));
+  dissector_add_uint_with_preference("udp.port", IAX2_PORT, iax2_handle);
   v110_handle =  find_dissector("v110");
   if (v110_handle)
     dissector_add_uint("iax2.dataformat", AST_DATAFORMAT_V110, v110_handle);

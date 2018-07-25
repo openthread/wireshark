@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef SEQUENCE_DIAGRAM_H
@@ -30,12 +18,12 @@
 
 #include <QObject>
 #include <QMultiMap>
-#include "qcustomplot.h"
+#include <ui/qt/widgets/qcustomplot.h>
 
 struct _seq_analysis_info;
 struct _seq_analysis_item;
 
-// Most of this is probably unnecessary
+// Some of this is probably unnecessary
 class WSCPSeqData
 {
 public:
@@ -44,11 +32,8 @@ public:
   double key;
   struct _seq_analysis_item *value;
 };
-Q_DECLARE_TYPEINFO(WSCPSeqData, Q_MOVABLE_TYPE);
 
 typedef QMap<double, WSCPSeqData> WSCPSeqDataMap;
-typedef QMapIterator<double, WSCPSeqData> WSCPSeqDataMapIterator;
-typedef QMutableMapIterator<double, WSCPSeqData> WSCPSeqDataMutableMapIterator;
 
 class SequenceDiagram : public QCPAbstractPlottable
 {
@@ -58,6 +43,10 @@ public:
     virtual ~SequenceDiagram();
 
     // getters:
+    // Next / previous packet.
+    int adjacentPacket(bool next);
+
+    double selectedKey() { return selected_key_; }
 
     // setters:
     void setData(struct _seq_analysis_info *sainfo);
@@ -85,6 +74,7 @@ private:
     WSCPSeqDataMap *data_;
     struct _seq_analysis_info *sainfo_;
     guint32 selected_packet_;
+    double selected_key_;
 };
 
 #endif // SEQUENCE_DIAGRAM_H

@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -314,8 +302,7 @@ proto_register_ziop (void)
 
   expert_module_t* expert_ziop;
 
-  proto_ziop = proto_register_protocol("Zipped Inter-ORB Protocol", "ZIOP",
-                                       "ziop");
+  proto_ziop = proto_register_protocol("Zipped Inter-ORB Protocol", "ZIOP", "ziop");
   proto_register_field_array (proto_ziop, hf, array_length (hf));
   proto_register_subtree_array (ett, array_length (ett));
   expert_ziop = expert_register_protocol(proto_ziop);
@@ -329,7 +316,7 @@ void
 proto_reg_handoff_ziop (void)
 {
   ziop_tcp_handle = create_dissector_handle(dissect_ziop_tcp, proto_ziop);
-  dissector_add_for_decode_as("udp.port", ziop_tcp_handle);
+  dissector_add_for_decode_as_with_preference("udp.port", ziop_tcp_handle);
 
   heur_dissector_add("tcp", dissect_ziop_heur, "ZIOP over TCP", "ziop_tcp", proto_ziop, HEURISTIC_ENABLE);
 }

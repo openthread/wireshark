@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_GSM_MAP_H
@@ -30,9 +18,9 @@
 #define	GSM_MAP_MAX_NUM_OPR_CODES	256
 
 typedef struct _gsm_map_tap_rec_t {
-    gboolean		invoke;
-    guint32		opcode;
-    guint16		size;
+  gboolean invoke;
+  guint32  opcode;
+  guint16  size;
 } gsm_map_tap_rec_t;
 
 
@@ -52,6 +40,28 @@ extern const value_string gsm_map_etsi_defined_pdp_vals[];
 
 guint8 dissect_cbs_data_coding_scheme(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint16 offset);
 void dissect_gsm_map_msisdn(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree);
+
+typedef enum {
+  GSM_MAP_SM_RP_OA_NO_ID = 0,
+  GSM_MAP_SM_RP_OA_MSISDN,
+  GSM_MAP_SM_RP_OA_SERVICE_CENTER_ADDRESS
+} gsm_map_sm_rp_oa_id;
+
+typedef enum {
+  GSM_MAP_SM_RP_DA_NO_ID = 0,
+  GSM_MAP_SM_RP_DA_IMSI,
+  GSM_MAP_SM_RP_DA_LMSI,
+  GSM_MAP_SM_RP_DA_SERVICE_CENTER_ADDRESS
+} gsm_map_sm_rp_da_id;
+
+/* structure accessible via p_get_proto_data(wmem_file_scope(), pinfo, proto_gsm_map, 0) */
+typedef struct {
+  gsm_map_sm_rp_oa_id sm_rp_oa_id;
+  const gchar *sm_rp_oa_str;
+  gsm_map_sm_rp_da_id sm_rp_da_id;
+  const gchar *sm_rp_da_str;
+  guint32 tcap_src_tid;
+} gsm_map_packet_info_t;
 
 #include "packet-gsm_map-exp.h"
 

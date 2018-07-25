@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,6 +17,8 @@
 #include <epan/addr_resolv.h>
 #include <epan/reassemble.h>
 #include <epan/expert.h>
+
+#include <wsutil/crc32.h>
 
 /* Start content from packet-batadv.h */
 #define ETH_P_BATMAN  0x4305
@@ -435,6 +425,10 @@ struct unicast_tvlv_packet_v15 {
 	guint16 align;
 };
 #define UNICAST_TVLV_PACKET_V15_SIZE 20
+
+#define TLVLV_TT_VLAN_V15_SIZE 8
+#define TLVLV_TT_CHANGE_V15_SIZE 12
+
 /* End content from packet-batadv.h */
 
 /* trees */
@@ -469,6 +463,8 @@ static gint ett_msg_fragment = -1;
 static gint ett_msg_fragments = -1;
 
 static expert_field ei_batadv_tvlv_unknown_version = EI_INIT;
+static expert_field ei_batadv_tvlv_tt_vlan_crc = EI_INIT;
+static expert_field ei_batadv_tvlv_tt_vlan_empty = EI_INIT;
 
 /* hfs */
 static int hf_batadv_packet_type = -1;
@@ -621,6 +617,7 @@ static int hf_batadv_tvlv_tt_flags_full_table = -1;
 static int hf_batadv_tvlv_tt_ttvn = -1;
 static int hf_batadv_tvlv_tt_num_vlan = -1;
 static int hf_batadv_tvlv_tt_vlan_crc = -1;
+static int hf_batadv_tvlv_tt_vlan_crc_status = -1;
 static int hf_batadv_tvlv_tt_vlan_vid = -1;
 static int hf_batadv_tvlv_tt_change_flags = -1;
 static int hf_batadv_tvlv_tt_change_vid = -1;
@@ -824,7 +821,7 @@ static void dissect_batadv_tvlv_v15_mcast(tvbuff_t *tvb, packet_info *pinfo _U_,
 static void dissect_batadv_tvlv_v15_gw(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint8 version);
 static void dissect_batadv_tvlv_v15_roam(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint8 version);
 static void dissect_batadv_tvlv_v15_tt(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint8 version);
-static int dissect_batadv_tvlv_v15_tt_vlan(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset);
+static int dissect_batadv_tvlv_v15_tt_vlan(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, guint8 tt_flags, int changes_offset);
 static int dissect_batadv_tvlv_v15_tt_change(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset);
 
 
@@ -949,7 +946,7 @@ static void dissect_batadv_v15(tvbuff_t *tvb, packet_info *pinfo,
 
 		col_set_str(pinfo->cinfo, COL_PROTOCOL, "BATADV_???");
 
-		length_remaining = tvb_captured_length_remaining(tvb, 0);
+		length_remaining = tvb_reported_length_remaining(tvb, 0);
 		if (length_remaining > 0) {
 			next_tvb = tvb_new_subset_remaining(tvb, 0);
 			call_data_dissector(next_tvb, pinfo, tree);
@@ -1027,8 +1024,8 @@ static void dissect_batadv_gwflags(tvbuff_t *tvb, guint8 gwflags, int offset, pr
 	}
 
 	gwflags_tree =  proto_item_add_subtree(tgw, ett_batadv_batman_gwflags);
-	proto_tree_add_uint_format_value(gwflags_tree, hf_batadv_batman_gwflags_dl_speed, tvb, offset, 1, down, "%dkbit", down);
-	proto_tree_add_uint_format_value(gwflags_tree, hf_batadv_batman_gwflags_ul_speed, tvb, offset, 1, up, "%dkbit", up);
+	proto_tree_add_uint(gwflags_tree, hf_batadv_batman_gwflags_dl_speed, tvb, offset, 1, down);
+	proto_tree_add_uint(gwflags_tree, hf_batadv_batman_gwflags_ul_speed, tvb, offset, 1, up);
 }
 
 static int dissect_batadv_batman_v5(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree)
@@ -1621,7 +1618,7 @@ static void dissect_batadv_iv_ogm(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 	switch (version) {
 	case 15:
 		while (offset != -1 &&
-		       tvb_captured_length_remaining(tvb, offset) >= IV_OGM_PACKET_V15_SIZE) {
+		       tvb_reported_length_remaining(tvb, offset) >= IV_OGM_PACKET_V15_SIZE) {
 			offset = dissect_batadv_iv_ogm_v15(tvb, offset, pinfo, tree);
 		}
 		break;
@@ -2301,7 +2298,7 @@ static void dissect_batadv_icmp_v14(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
 	length_remaining = tvb_reported_length_remaining(tvb, offset);
 	if (length_remaining > 0) {
-		next_tvb = tvb_new_subset(tvb, offset, length_remaining, -1);
+		next_tvb = tvb_new_subset_remaining(tvb, offset);
 		call_data_dissector(next_tvb, pinfo, tree);
 	}
 }
@@ -2393,7 +2390,7 @@ static void dissect_batadv_icmp_v15(tvbuff_t *tvb, packet_info *pinfo,
 	offset += 2;
 
 	/* rr data available? */
-	length_remaining = tvb_captured_length_remaining(tvb, offset);
+	length_remaining = tvb_reported_length_remaining(tvb, offset);
 	if (length_remaining >= BAT_RR_LEN * 6) {
 		dissect_batadv_icmp_rr_v15(batadv_icmp_tree, tvb, offset,
 					   icmp_packeth->rr_ptr);
@@ -2402,9 +2399,9 @@ static void dissect_batadv_icmp_v15(tvbuff_t *tvb, packet_info *pinfo,
 
 	tap_queue_packet(batadv_tap, pinfo, icmp_packeth);
 
-	length_remaining = tvb_captured_length_remaining(tvb, offset);
+	length_remaining = tvb_reported_length_remaining(tvb, offset);
 	if (length_remaining > 0) {
-		next_tvb = tvb_new_subset(tvb, offset, length_remaining, -1);
+		next_tvb = tvb_new_subset_remaining(tvb, offset);
 		call_data_dissector(next_tvb, pinfo, tree);
 	}
 }
@@ -3741,7 +3738,7 @@ static void dissect_batadv_coded_v15(tvbuff_t *tvb, packet_info *pinfo,
 
 	tap_queue_packet(batadv_tap, pinfo, coded_packeth);
 
-	length_remaining = tvb_captured_length_remaining(tvb, offset);
+	length_remaining = tvb_reported_length_remaining(tvb, offset);
 	if (length_remaining > 0) {
 		next_tvb = tvb_new_subset_remaining(tvb, offset);
 
@@ -3874,7 +3871,7 @@ static void dissect_batadv_tvlv_v15(tvbuff_t *tvb, packet_info *pinfo,
 	tvbuff_t *next_tvb;
 	proto_tree *batadv_tvlv_tree = NULL;
 
-	while (offset != -1 && tvb_captured_length_remaining(tvb, offset) >= 4) {
+	while (offset != -1 && tvb_reported_length_remaining(tvb, offset) >= 4) {
 
 		type = tvb_get_guint8(tvb, offset + 0);
 		version = tvb_get_guint8(tvb, offset + 1);
@@ -3994,7 +3991,7 @@ static void dissect_batadv_tvlv_v15_mcast(tvbuff_t *tvb, packet_info *pinfo,
 		NULL
 	};
 
-	if (version != 0x01) {
+	if (version != 0x01 && version != 0x02) {
 		proto_tree_add_expert_format(
 			tree, pinfo, &ei_batadv_tvlv_unknown_version, tvb,
 			offset, 0, "Unknown version (0x%02x)", version);
@@ -4069,6 +4066,10 @@ static void dissect_batadv_tvlv_v15_tt(tvbuff_t *tvb, packet_info *pinfo,
 		&hf_batadv_tvlv_tt_flags_full_table,
 		NULL
 	};
+	guint8 tt_flags;
+	int changes_offset;
+
+	tt_flags = tvb_get_guint8(tvb, offset);
 
 	if (version != 0x01) {
 		proto_tree_add_expert_format(
@@ -4090,24 +4091,89 @@ static void dissect_batadv_tvlv_v15_tt(tvbuff_t *tvb, packet_info *pinfo,
 			    ENC_BIG_ENDIAN);
 	offset += 2;
 
+	changes_offset = offset + num_vlan * TLVLV_TT_VLAN_V15_SIZE;
+
 	for (i = 0; i < num_vlan; i++)
 		offset = dissect_batadv_tvlv_v15_tt_vlan(tvb, pinfo, tree,
-							 offset);
+							 offset, tt_flags,
+							 changes_offset);
 
-	length_remaining = tvb_captured_length_remaining(tvb, offset);
+	length_remaining = tvb_reported_length_remaining(tvb, offset);
 	while (length_remaining > 0) {
 		offset = dissect_batadv_tvlv_v15_tt_change(tvb, pinfo, tree,
 							   offset);
-		length_remaining = tvb_captured_length_remaining(tvb, offset);
+		length_remaining = tvb_reported_length_remaining(tvb, offset);
 	}
 }
 
+static void dissect_batadv_tvlv_v15_tt_vlan_checksum(tvbuff_t *tvb,
+						     proto_item *ti,
+						     packet_info *pinfo,
+						     proto_tree *tree,
+						     guint16 vlan_id,
+						     int crc_offset,
+						     guint8 tt_flags,
+						     int offset)
+{
+	const guint8 *buf;
+	guint32 crc32;
+	guint32 crc = 0;
+	gint length_remaining;
+	guint16 vid;
+	unsigned int num_entries = 0;
+	guint8 full_response = (BATADV_TVLVL_TT_RESPONSE | BATADV_TVLVL_TT_FULL_TABLE);
+
+	/* checksum checks are not possible with non full responses */
+	if (tt_flags != full_response) {
+		proto_tree_add_item(tree, hf_batadv_tvlv_tt_vlan_crc, tvb,
+				    crc_offset, 4, ENC_BIG_ENDIAN);
+		return;
+	}
+
+	length_remaining = tvb_reported_length_remaining(tvb, offset);
+	while (length_remaining >= TLVLV_TT_CHANGE_V15_SIZE) {
+
+		vid = tvb_get_ntohs(tvb, offset + 10);
+		if (vid != vlan_id)
+			goto skip;
+
+		buf = tvb_get_ptr(tvb, offset, TLVLV_TT_CHANGE_V15_SIZE);
+		if (!buf)
+			goto skip;
+
+		num_entries++;
+
+		/* checksum over vid, flags, address */
+		crc32 = 0;
+		crc32 = crc32c_calculate_no_swap(&buf[10], 2, crc32);
+		crc32 = crc32c_calculate_no_swap(buf, 1, crc32);
+		crc32 = crc32c_calculate_no_swap(&buf[4], 6, crc32);
+		crc ^= crc32;
+
+skip:
+		offset += TLVLV_TT_CHANGE_V15_SIZE;
+		length_remaining = tvb_reported_length_remaining(tvb, offset);
+	}
+
+        proto_tree_add_checksum(tree, tvb, crc_offset,
+				hf_batadv_tvlv_tt_vlan_crc,
+				hf_batadv_tvlv_tt_vlan_crc_status,
+				&ei_batadv_tvlv_tt_vlan_crc, pinfo, crc,
+				ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
+
+	if (num_entries == 0)
+		expert_add_info(pinfo, ti, &ei_batadv_tvlv_tt_vlan_empty);
+}
+
 static int dissect_batadv_tvlv_v15_tt_vlan(tvbuff_t *tvb,
-					   packet_info *pinfo _U_,
-					   proto_tree *tree, int offset)
+					   packet_info *pinfo,
+					   proto_tree *tree, int offset,
+					   guint8 tt_flags,
+					   int changes_offset)
 {
 	proto_tree *vlan_tree = NULL;
 	guint16 vid;
+	proto_item *ti = NULL;
 	static const int * flags[] = {
 		&hf_batadv_tvlv_vid_vlan,
 		&hf_batadv_tvlv_vid_tagged,
@@ -4118,7 +4184,6 @@ static int dissect_batadv_tvlv_v15_tt_vlan(tvbuff_t *tvb,
 
 	/* Set tree info */
 	if (tree) {
-		proto_item *ti;
 
 		ti = proto_tree_add_protocol_format(tree, proto_batadv_plugin,
 						    tvb, offset, 8,
@@ -4126,8 +4191,9 @@ static int dissect_batadv_tvlv_v15_tt_vlan(tvbuff_t *tvb,
 		vlan_tree = proto_item_add_subtree(ti, ett_batadv_tvlv_tt_vlan);
 	}
 
-	proto_tree_add_item(vlan_tree, hf_batadv_tvlv_tt_vlan_crc, tvb, offset,
-			    4, ENC_BIG_ENDIAN);
+	dissect_batadv_tvlv_v15_tt_vlan_checksum(tvb, ti, pinfo, vlan_tree, vid,
+						 offset, tt_flags,
+						 changes_offset);
 	offset += 4;
 
 	proto_tree_add_bitmask(vlan_tree, tvb, offset,
@@ -4190,17 +4256,6 @@ static int dissect_batadv_tvlv_v15_tt_change(tvbuff_t *tvb,
 	return offset;
 }
 
-static void batadv_init_routine(void)
-{
-	reassembly_table_init(&msg_reassembly_table,
-			      &addresses_reassembly_table_functions);
-}
-
-static void batadv_cleanup_routine(void)
-{
-	reassembly_table_destroy(&msg_reassembly_table);
-}
-
 void proto_register_batadv(void)
 {
 	module_t *batadv_module;
@@ -4234,12 +4289,12 @@ void proto_register_batadv(void)
 		},
 		{ &hf_batadv_batman_gwflags_dl_speed,
 		  { "Download Speed", "batadv.batman.gwflags.dl_speed",
-		    FT_UINT32, BASE_DEC, NULL, 0x0,
+		    FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_kbit, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_batadv_batman_gwflags_ul_speed,
 		  { "Upload Speed", "batadv.batman.gwflags.ul_speed",
-		    FT_UINT32, BASE_DEC, NULL, 0x0,
+		    FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_kbit, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_batadv_batman_tq,
@@ -4558,7 +4613,7 @@ void proto_register_batadv(void)
 		    NULL, HFILL }
 		},
 		{ &hf_batadv_unicast_tvlv_src,
-		  { "Destination", "batadv.unicast_tvlv.src",
+		  { "Source", "batadv.unicast_tvlv.src",
 		    FT_ETHER, BASE_NONE, NULL, 0x0,
 		    NULL, HFILL }
 		},
@@ -4931,6 +4986,11 @@ void proto_register_batadv(void)
 		    FT_UINT32, BASE_HEX, NULL, 0x0,
 		    NULL, HFILL }
 		},
+		{ &hf_batadv_tvlv_tt_vlan_crc_status,
+		  { "Checksum Status", "batadv.tvlv.tt.vlan.crc.status",
+		    FT_UINT8,   BASE_NONE, VALS(proto_checksum_vals), 0x0,
+		    NULL, HFILL }
+		},
 		{ &hf_batadv_tvlv_tt_vlan_vid,
 		  { "VID", "batadv.tvlv.tt.vlan.vid",
 		    FT_UINT16, BASE_HEX, NULL, 0x0,
@@ -5012,6 +5072,8 @@ void proto_register_batadv(void)
 
 	static ei_register_info ei[] = {
 		{ &ei_batadv_tvlv_unknown_version, { "batadv.error.tvlv_version_unknown", PI_UNDECODED, PI_ERROR, "BATADV Error: unknown TVLV version", EXPFILL }},
+		{ &ei_batadv_tvlv_tt_vlan_crc, { "batadv.tvlv_tt_crc_bad", PI_UNDECODED, PI_ERROR, "BATADV Error: bad TT VLAN crc", EXPFILL }},
+		{ &ei_batadv_tvlv_tt_vlan_empty, { "batadv.tvlv_tt_vlan_empty", PI_SEQUENCE, PI_WARN, "BATADV Warn: empty VLAN", EXPFILL }},
 	};
 
 	proto_batadv_plugin = proto_register_protocol(
@@ -5036,8 +5098,8 @@ void proto_register_batadv(void)
 	expert_batadv = expert_register_protocol(proto_batadv_plugin);
 	expert_register_field_array(expert_batadv, ei, array_length(ei));
 
-	register_init_routine(&batadv_init_routine);
-	register_cleanup_routine(&batadv_cleanup_routine);
+	reassembly_table_register(&msg_reassembly_table,
+			      &addresses_reassembly_table_functions);
 }
 
 void proto_reg_handoff_batadv(void)

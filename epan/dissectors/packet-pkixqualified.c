@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -75,7 +63,7 @@ static int hf_pkixqualified_nameRegistrationAuthorities = -1;  /* NameRegistrati
 static int hf_pkixqualified_NameRegistrationAuthorities_item = -1;  /* GeneralName */
 
 /*--- End of included file: packet-pkixqualified-hf.c ---*/
-#line 46 "./asn1/pkixqualified/packet-pkixqualified-template.c"
+#line 34 "./asn1/pkixqualified/packet-pkixqualified-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -90,7 +78,7 @@ static gint ett_pkixqualified_SemanticsInformation = -1;
 static gint ett_pkixqualified_NameRegistrationAuthorities = -1;
 
 /*--- End of included file: packet-pkixqualified-ett.c ---*/
-#line 49 "./asn1/pkixqualified/packet-pkixqualified-template.c"
+#line 37 "./asn1/pkixqualified/packet-pkixqualified-template.c"
 
 static const char *object_identifier_id;
 
@@ -366,7 +354,7 @@ static int dissect_XmppAddr_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto
 
 
 /*--- End of included file: packet-pkixqualified-fn.c ---*/
-#line 53 "./asn1/pkixqualified/packet-pkixqualified-template.c"
+#line 41 "./asn1/pkixqualified/packet-pkixqualified-template.c"
 
 
 /*--- proto_register_pkixqualified ----------------------------------------------*/
@@ -459,7 +447,7 @@ void proto_register_pkixqualified(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-pkixqualified-hfarr.c ---*/
-#line 61 "./asn1/pkixqualified/packet-pkixqualified-template.c"
+#line 49 "./asn1/pkixqualified/packet-pkixqualified-template.c"
   };
 
   /* List of subtrees */
@@ -476,7 +464,7 @@ void proto_register_pkixqualified(void) {
     &ett_pkixqualified_NameRegistrationAuthorities,
 
 /*--- End of included file: packet-pkixqualified-ettarr.c ---*/
-#line 66 "./asn1/pkixqualified/packet-pkixqualified-template.c"
+#line 54 "./asn1/pkixqualified/packet-pkixqualified-template.c"
   };
 
   /* Register protocol */
@@ -507,6 +495,6 @@ void proto_reg_handoff_pkixqualified(void) {
 
 
 /*--- End of included file: packet-pkixqualified-dis-tab.c ---*/
-#line 81 "./asn1/pkixqualified/packet-pkixqualified-template.c"
+#line 69 "./asn1/pkixqualified/packet-pkixqualified-template.c"
 }
 

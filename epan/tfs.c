@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -44,17 +32,22 @@ const true_false_string tfs_ack_nack = { "Ack", "Nack" };
 const true_false_string tfs_odd_even = { "Odd", "Even" };
 const true_false_string tfs_allow_block = { "Allow", "Block" };
 const true_false_string tfs_restricted_allowed = { "Restricted", "Allowed" };
+const true_false_string tfs_restricted_not_restricted = { "Restricted", "Not restricted" };
 const true_false_string tfs_accept_reject = { "Accept", "Reject" };
 const true_false_string tfs_more_nomore = { "More", "No more" };
 const true_false_string tfs_present_absent = { "Present", "Absent" };
 const true_false_string tfs_present_not_present = { "Present", "Not Present" };
 const true_false_string tfs_active_inactive = { "Active", "Inactive" };
+const true_false_string tfs_activated_deactivated = { "Activated", "Deactivated" };
 const true_false_string tfs_found_not_found = { "Found", "Not found" };
 const true_false_string tfs_command_response = { "Command", "Response" };
+const true_false_string tfs_response_command = { "Response", "Command" };
 const true_false_string tfs_capable_not_capable = { "Capable", "Not capable" };
 const true_false_string tfs_supported_not_supported = { "Supported", "Not supported" };
 const true_false_string tfs_used_notused = { "Used", "Not used" };
 const true_false_string tfs_high_low = { "High", "Low" };
+const true_false_string tfs_high_normal = { "High", "Normal" };
+const true_false_string tfs_low_normal = { "Low", "Normal" };
 const true_false_string tfs_pressed_not_pressed = { "Pressed", "Not pressed" };
 const true_false_string tfs_implemented_not_implemented = { "Implemented", "Not Implemented" };
 const true_false_string tfs_requested_not_requested = { "Requested", "Not Requested" };
@@ -85,10 +78,18 @@ const true_false_string tfs_asynchronous_synchronous = { "Asynchronous", "Synchr
 const true_false_string tfs_protocol_sensative_bit_transparent = { "Protocol sensitive", "Bit transparent" };
 const true_false_string tfs_full_half = { "Full", "Half" };
 const true_false_string tfs_acknowledged_not_acknowledged = { "Acknowledged", "Not Acknowledged" };
+const true_false_string tfs_segmentation_no_segmentation = { "Segmentation", "No segmentation" };
 const true_false_string tfs_response_request = { "Response", "Request" };
 const true_false_string tfs_defined_not_defined = { "Defined", "Not defined" };
 const true_false_string tfs_constructed_primitive = { "Constructed", "Primitive" };
 const true_false_string tfs_client_server = { "Client", "Server" };
 const true_false_string tfs_server_client = { "Server", "Client" };
 const true_false_string tfs_preferred_no_preference = { "Preferred", "No preference" };
-
+const true_false_string tfs_encrypt_do_not_encrypt = { "Encrypt", "Do Not Encrypt" };
+const true_false_string tfs_down_up = { "Down", "Up" };
+const true_false_string tfs_up_down = { "Up", "Down" };
+const true_false_string tfs_downlink_uplink = { "Downlink", "Uplink" };
+const true_false_string tfs_uplink_downlink = { "Uplink", "Downlink" };
+const true_false_string tfs_s2c_c2s = { "Server to Client", "Client to Server" };
+const true_false_string tfs_c2s_s2c = { "Client to Server", "Server to Client" };
+const true_false_string tfs_open_closed = { "Open", "Closed" };

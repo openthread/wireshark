@@ -12,19 +12,7 @@
  *
  * Copied from packet-syslog.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -126,7 +114,7 @@ static int dissect_igrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     ti = proto_tree_add_item(igrp_tree, hf_igrp_interior_routes, tvb, 4, 2, ENC_BIG_ENDIAN);
     for( ; ninterior>0 ; ninterior-- ) {
       igrp_vektor_tree =  proto_item_add_subtree(ti,ett_igrp_vektor);
-      next_tvb = tvb_new_subset(tvb, offset, IGRP_ENTRY_LENGTH, -1);
+      next_tvb = tvb_new_subset_length_caplen(tvb, offset, IGRP_ENTRY_LENGTH, -1);
       dissect_vektor_igrp (next_tvb,igrp_vektor_tree,network);
       offset+=IGRP_ENTRY_LENGTH;
     }
@@ -134,7 +122,7 @@ static int dissect_igrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     ti = proto_tree_add_item(igrp_tree, hf_igrp_system_routes, tvb, 6, 2, ENC_BIG_ENDIAN);
     for( ; nsystem>0 ; nsystem-- ) {
       igrp_vektor_tree =  proto_item_add_subtree(ti,ett_igrp_vektor);
-      next_tvb = tvb_new_subset(tvb, offset, IGRP_ENTRY_LENGTH, -1);
+      next_tvb = tvb_new_subset_length_caplen(tvb, offset, IGRP_ENTRY_LENGTH, -1);
       dissect_vektor_igrp (next_tvb,igrp_vektor_tree,0);
       offset+=IGRP_ENTRY_LENGTH;
     }
@@ -142,12 +130,12 @@ static int dissect_igrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
     ti = proto_tree_add_item(igrp_tree, hf_igrp_exterior_routes, tvb, 8, 2, ENC_BIG_ENDIAN);
     for( ; nexterior>0 ; nexterior-- ) {
       igrp_vektor_tree =  proto_item_add_subtree(ti,ett_igrp_vektor);
-      next_tvb = tvb_new_subset(tvb, offset, IGRP_ENTRY_LENGTH, -1);
+      next_tvb = tvb_new_subset_length_caplen(tvb, offset, IGRP_ENTRY_LENGTH, -1);
       dissect_vektor_igrp (next_tvb,igrp_vektor_tree,0);
       offset+=IGRP_ENTRY_LENGTH;
     }
 
-    proto_tree_add_item(igrp_tree, hf_igrp_checksum, tvb, 10, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_checksum(igrp_tree, tvb, 10, hf_igrp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
   }
   return tvb_captured_length(tvb);
 }
@@ -186,7 +174,7 @@ static void dissect_vektor_igrp (tvbuff_t *tvb, proto_tree *igrp_vektor_tree, gu
   proto_tree_add_ipv4(igrp_vektor_tree, hf_igrp_network, tvb, 0, 3, addr.addr_word);
   proto_tree_add_item(igrp_vektor_tree, hf_igrp_delay, tvb, 3, 3, ENC_BIG_ENDIAN);
   proto_tree_add_item(igrp_vektor_tree, hf_igrp_bandwidth, tvb, 6, 3, ENC_BIG_ENDIAN);
-  proto_tree_add_uint_format_value(igrp_vektor_tree, hf_igrp_mtu, tvb, 9, 2, tvb_get_ntohs(tvb,9), "%d  bytes", tvb_get_ntohs(tvb,9));
+  proto_tree_add_item(igrp_vektor_tree, hf_igrp_mtu, tvb, 9, 2, ENC_BIG_ENDIAN);
   proto_tree_add_item(igrp_vektor_tree, hf_igrp_reliability, tvb, 11, 1, ENC_BIG_ENDIAN);
   proto_tree_add_item(igrp_vektor_tree, hf_igrp_load, tvb, 12, 1, ENC_BIG_ENDIAN);
   proto_tree_add_item(igrp_vektor_tree, hf_igrp_hop_count, tvb, 13, 1, ENC_BIG_ENDIAN);
@@ -221,7 +209,7 @@ void proto_register_igrp(void)
     { &hf_igrp_network, { "Network", "igrp.network", FT_IPv4, BASE_NONE, NULL, 0x0, NULL, HFILL }},
     { &hf_igrp_delay, { "Delay", "igrp.delay", FT_UINT24, BASE_DEC, NULL, 0x0, NULL, HFILL }},
     { &hf_igrp_bandwidth, { "Bandwidth", "igrp.bandwidth", FT_UINT24, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-    { &hf_igrp_mtu, { "MTU", "igrp.mtu", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_igrp_mtu, { "MTU", "igrp.mtu", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
     { &hf_igrp_reliability, { "Reliability", "igrp.reliability", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
     { &hf_igrp_load, { "Load", "igrp.load", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
     { &hf_igrp_hop_count, { "Hop count", "igrp.hop_count", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},

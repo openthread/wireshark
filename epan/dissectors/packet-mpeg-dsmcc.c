@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -620,7 +608,7 @@ dissect_dsmcc_un_session(tvbuff_t *tvb, packet_info *pinfo,
     sub_tree = proto_tree_add_subtree_format(tree, tvb, offset, -1,
             ett_dsmcc_payload, &pi, "User Network Message (Session) - %s",
             val_to_str(msg_id, dsmcc_un_sess_message_id_vals, "0x%x"));
-    col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
             val_to_str(msg_id, dsmcc_un_sess_message_id_vals, "0x%x"));
 
     switch (msg_id) {
@@ -800,8 +788,8 @@ dissect_dsmcc_ts(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree_in, void *d
         }
     } else {
         /* TODO: actually check the checksum */
-        proto_tree_add_item(tree, hf_dsmcc_checksum, tvb,
-            crc_len, 4, ENC_BIG_ENDIAN);
+        proto_tree_add_checksum(tree, tvb, crc_len, hf_dsmcc_checksum,
+            -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
 
     return tvb_reported_length(tvb);
@@ -1230,7 +1218,7 @@ proto_reg_handoff_dsmcc(void)
     dissector_add_uint("mpeg_sect.tid", DSMCC_TID_DESC_LIST, dsmcc_ts_handle);
     dissector_add_uint("mpeg_sect.tid", DSMCC_TID_PRIVATE, dsmcc_ts_handle);
 
-    dissector_add_uint("tcp.port", DSMCC_TCP_PORT, dsmcc_tcp_handle);
+    dissector_add_uint_with_preference("tcp.port", DSMCC_TCP_PORT, dsmcc_tcp_handle);
 }
 
 /*

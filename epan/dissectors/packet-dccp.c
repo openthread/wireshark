@@ -12,19 +12,7 @@
  *
  * Copied from packet-udp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* NOTES:
@@ -165,6 +153,8 @@ static const range_string dccp_feature_numbers_rvals[] = {
     {0, 0,   NULL}
 };
 
+static const unit_name_string units_bytes_sec = { "bytes/sec", NULL };
+
 static int proto_dccp = -1;
 static int dccp_tap = -1;
 
@@ -175,7 +165,7 @@ static int hf_dccp_data_offset = -1;
 static int hf_dccp_ccval = -1;
 static int hf_dccp_cscov = -1;
 static int hf_dccp_checksum = -1;
-static int hf_dccp_checksum_bad = -1;
+static int hf_dccp_checksum_status = -1;
 static int hf_dccp_res1 = -1;
 static int hf_dccp_type = -1;
 static int hf_dccp_x = -1;
@@ -223,6 +213,7 @@ static gint ett_dccp_feature = -1;
 static expert_field ei_dccp_option_len_bad = EI_INIT;
 static expert_field ei_dccp_advertised_header_length_bad = EI_INIT;
 static expert_field ei_dccp_packet_type_reserved = EI_INIT;
+static expert_field ei_dccp_checksum = EI_INIT;
 
 static dissector_table_t dccp_subdissector_table;
 static heur_dissector_list_t heur_subdissector_list;
@@ -246,8 +237,8 @@ decode_dccp_ports(tvbuff_t *tvb, int offset, packet_info *pinfo,
      * determine if this packet is part of a conversation and call dissector
      * for the conversation if available
      */
-    if (try_conversation_dissector(&pinfo->src, &pinfo->dst, PT_DCCP, sport,
-                                   dport, next_tvb, pinfo, tree, NULL)) {
+    if (try_conversation_dissector(&pinfo->src, &pinfo->dst, ENDPOINT_DCCP, sport,
+                                   dport, next_tvb, pinfo, tree, NULL, 0)) {
         return;
     }
 
@@ -312,24 +303,35 @@ decode_dccp_ports(tvbuff_t *tvb, int offset, packet_info *pinfo,
  * a concept by Arnaldo de Melo
  */
 static guint64
-tvb_get_ntoh_var(tvbuff_t *tvb, gint offset, guint nbytes)
+dccp_ntoh_var(tvbuff_t *tvb, gint offset, guint nbytes)
 {
-    const guint8 *ptr;
     guint64       value = 0;
 
-    ptr = tvb_get_ptr(tvb, offset, nbytes);
-    if (nbytes > 5)
-        value += ((guint64) * ptr++) << 40;
-    if (nbytes > 4)
-        value += ((guint64) * ptr++) << 32;
-    if (nbytes > 3)
-        value += ((guint64) * ptr++) << 24;
-    if (nbytes > 2)
-        value += ((guint64) * ptr++) << 16;
-    if (nbytes > 1)
-        value += ((guint64) * ptr++) << 8;
-    if (nbytes > 0)
-        value += *ptr;
+    switch (nbytes)
+    {
+    case 5:
+        value = tvb_get_ntoh40(tvb, offset);
+        break;
+    case 4:
+        value = tvb_get_ntohl(tvb, offset);
+        break;
+    case 3:
+        value = tvb_get_ntoh24(tvb, offset);
+        break;
+    case 2:
+        value = tvb_get_ntohs(tvb, offset);
+        break;
+    case 1:
+        value = tvb_get_guint8(tvb, offset);
+        break;
+    case 0:
+        // do nothing
+        break;
+    case 6:
+    default:
+        value = tvb_get_ntoh48(tvb, offset);
+        break;
+    }
 
     return value;
 }
@@ -382,7 +384,7 @@ dissect_feature_options(proto_tree *dccp_options_tree, tvbuff_t *tvb,
 
         if (option_len > 0) /* could be empty Confirm */
             proto_item_append_text(dccp_item, " %" G_GINT64_MODIFIER "u",
-                                   tvb_get_ntoh_var(tvb, offset, option_len));
+                                   dccp_ntoh_var(tvb, offset, option_len));
         break;
 
     /* Reserved, specific, or unknown features */
@@ -466,8 +468,7 @@ dissect_options(tvbuff_t *tvb, packet_info *pinfo,
                 expert_add_info_format(pinfo, option_item, &ei_dccp_option_len_bad,
                                         "NDP Count too long (max 6 bytes)");
             else
-                proto_tree_add_uint64(option_tree, hf_dccp_ndp_count, tvb, offset, option_len,
-                                    tvb_get_ntoh_var(tvb, offset, option_len));
+                proto_tree_add_item(option_tree, hf_dccp_ndp_count, tvb, offset, option_len, ENC_BIG_ENDIAN);
             break;
         case 38:
             proto_tree_add_item(option_tree, hf_dccp_ack_vector_nonce_0, tvb, offset, option_len, ENC_NA);
@@ -600,7 +601,6 @@ dissect_dccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     proto_item *hidden_item, *offset_item;
     vec_t      cksum_vec[4];
     guint32    phdr[2];
-    guint16    computed_cksum;
     guint      offset                     = 0;
     guint      len                        = 0;
     guint      reported_len               = 0;
@@ -695,30 +695,11 @@ dissect_dccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
             break;
         }
         SET_CKSUM_VEC_TVB(cksum_vec[3], tvb, 0, csum_coverage_len);
-        computed_cksum = in_cksum(&cksum_vec[0], 4);
-        if (computed_cksum == 0) {
-            proto_tree_add_uint_format_value(dccp_tree,
-                                             hf_dccp_checksum, tvb,
-                                             offset, 2,
-                                             dccph->checksum,
-                                             "0x%04x [correct]",
-                                             dccph->checksum);
-        } else {
-            hidden_item =
-                proto_tree_add_boolean(dccp_tree, hf_dccp_checksum_bad,
-                                       tvb, offset, 2, TRUE);
-            PROTO_ITEM_SET_HIDDEN(hidden_item);
-            proto_tree_add_uint_format_value(
-                dccp_tree, hf_dccp_checksum, tvb, offset, 2,
-                dccph->checksum,
-                "0x%04x [incorrect, should be 0x%04x]",
-                dccph->checksum,
-                in_cksum_shouldbe(dccph->checksum, computed_cksum));
-        }
+        proto_tree_add_checksum(dccp_tree, tvb, offset, hf_dccp_checksum, hf_dccp_checksum_status, &ei_dccp_checksum, pinfo, in_cksum(&cksum_vec[0], 4),
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
     } else {
-        proto_tree_add_uint_format_value(dccp_tree, hf_dccp_checksum, tvb,
-                                         offset, 2, dccph->checksum,
-                                         "0x%04x", dccph->checksum);
+        proto_tree_add_checksum(dccp_tree, tvb, offset, hf_dccp_checksum, hf_dccp_checksum_status, &ei_dccp_checksum, pinfo, 0,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
     offset += 2;
 
@@ -785,7 +766,7 @@ dissect_dccp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                     " Seq=%" G_GINT64_MODIFIER "u",
                     dccph->seq);
 
-    /* dissecting type dependant additional fields */
+    /* dissecting type dependent additional fields */
     switch (dccph->type) {
     case 0x0: /* DCCP-Request */
     case 0xA: /* DCCP-Listen */
@@ -1078,10 +1059,10 @@ proto_register_dccp(void)
             }
         },
         {
-            &hf_dccp_checksum_bad,
+            &hf_dccp_checksum_status,
             {
-                "Bad Checksum", "dccp.checksum_bad",
-                FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+                "Checksum Status", "dccp.checksum.status",
+                FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
                 NULL, HFILL
             }
         },
@@ -1264,7 +1245,7 @@ proto_register_dccp(void)
         { &hf_dccp_data_dropped, { "Data Dropped", "dccp.data_dropped", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_dccp_ccid3_loss_event_rate, { "CCID3 Loss Event Rate", "dccp.ccid3_loss_event_rate", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_dccp_ccid3_loss_intervals, { "CCID3 Loss Intervals", "dccp.ccid3_loss_intervals", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-        { &hf_dccp_ccid3_receive_rate, { "CCID3 Receive Rate", "dccp.ccid3_receive_rate", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_dccp_ccid3_receive_rate, { "CCID3 Receive Rate", "dccp.ccid3_receive_rate", FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_bytes_sec, 0x0, NULL, HFILL }},
         { &hf_dccp_option_reserved, { "Reserved", "dccp.option_reserved", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_dccp_ccid_option_data, { "CCID option", "dccp.ccid_option_data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
         { &hf_dccp_option_unknown, { "Unknown", "dccp.option_unknown", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -1281,6 +1262,7 @@ proto_register_dccp(void)
         { &ei_dccp_option_len_bad, { "dccp.option.len.bad", PI_PROTOCOL, PI_WARN, "Bad option length", EXPFILL }},
         { &ei_dccp_advertised_header_length_bad, { "dccp.advertised_header_length.bad", PI_MALFORMED, PI_ERROR, "Advertised header length bad", EXPFILL }},
         { &ei_dccp_packet_type_reserved, { "dccp.packet_type.reserved", PI_PROTOCOL, PI_WARN, "Reserved packet type: unable to dissect further", EXPFILL }},
+        { &ei_dccp_checksum, { "dccp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
     };
 
     expert_module_t* expert_dccp;
@@ -1296,7 +1278,7 @@ proto_register_dccp(void)
     /* subdissectors */
     dccp_subdissector_table =
         register_dissector_table("dccp.port", "DCCP port", proto_dccp, FT_UINT16,
-                                 BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                 BASE_DEC);
     heur_subdissector_list = register_heur_dissector_list("dccp", proto_dccp);
 
     /* reg preferences */

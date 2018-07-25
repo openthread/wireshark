@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -107,19 +95,6 @@ static gboolean smb_direct_reassemble = TRUE;
 static reassembly_table smb_direct_reassembly_table;
 
 static void
-smb_direct_reassemble_init(void)
-{
-	reassembly_table_init(&smb_direct_reassembly_table,
-	    &addresses_ports_reassembly_table_functions);
-}
-
-static void
-smb_direct_reassemble_cleanup(void)
-{
-	reassembly_table_destroy(&smb_direct_reassembly_table);
-}
-
-static void
 dissect_smb_direct_payload(tvbuff_t *tvb, packet_info *pinfo,
 			   proto_tree *tree, guint32 remaining_length)
 {
@@ -150,7 +125,7 @@ dissect_smb_direct_payload(tvbuff_t *tvb, packet_info *pinfo,
 		pinfo->fd->flags.visited = 0;
 		fd_head = fragment_add_seq_next(&smb_direct_reassembly_table,
 						tvb, 0, pinfo,
-						conversation->index,
+						conversation->conv_index,
 						NULL, tvb_captured_length(tvb),
 						more_frags);
 	}
@@ -165,7 +140,7 @@ dissect_smb_direct_payload(tvbuff_t *tvb, packet_info *pinfo,
 		 */
 		fd_head = fragment_get_reassembled_id(&smb_direct_reassembly_table,
 						      pinfo,
-						      conversation->index);
+						      conversation->conv_index);
 	}
 
 	if (fd_head == NULL) {
@@ -514,15 +489,15 @@ dissect_smb_direct_iwarp_heur(tvbuff_t *tvb, packet_info *pinfo,
 	return TRUE;
 }
 
-static gboolean
-dissect_smb_direct_infiniband_heur(tvbuff_t *tvb, packet_info *pinfo,
+static int
+dissect_smb_direct_infiniband(tvbuff_t *tvb, packet_info *pinfo,
 				   proto_tree *parent_tree, void *data)
 {
 	struct infinibandinfo *info = (struct infinibandinfo *)data;
 	enum SMB_DIRECT_HDR_TYPE hdr_type;
 
 	if (info == NULL) {
-		return FALSE;
+		return 0;
 	}
 
 	switch (info->opCode) {
@@ -536,16 +511,23 @@ dissect_smb_direct_infiniband_heur(tvbuff_t *tvb, packet_info *pinfo,
 	case RC_SEND_ONLY_INVAL:
 		break;
 	default:
-		return FALSE;
+		return 0;
 	}
 
 	hdr_type = is_smb_direct(tvb, pinfo);
 	if (hdr_type == SMB_DIRECT_HDR_UNKNOWN) {
-		return FALSE;
+		return 0;
 	}
 
 	dissect_smb_direct(tvb, pinfo, parent_tree, hdr_type);
-	return TRUE;
+	return tvb_captured_length(tvb);
+}
+
+static gboolean
+dissect_smb_direct_infiniband_heur(tvbuff_t *tvb, packet_info *pinfo,
+				proto_tree *parent_tree, void *data)
+{
+	return (dissect_smb_direct_infiniband(tvb, pinfo, parent_tree, data) > 0);
 }
 
 void proto_register_smb_direct(void)
@@ -692,21 +674,22 @@ void proto_register_smb_direct(void)
 				       "Reassemble SMB Direct fragments",
 				       "Whether the SMB Direct dissector should reassemble fragmented payloads",
 				       &smb_direct_reassemble);
-	register_init_routine(smb_direct_reassemble_init);
-	register_cleanup_routine(smb_direct_reassemble_cleanup);
+	reassembly_table_register(&smb_direct_reassembly_table,
+	    &addresses_ports_reassembly_table_functions);
 }
 
 void
 proto_reg_handoff_smb_direct(void)
 {
 	heur_dissector_add("iwarp_ddp_rdmap",
-			   dissect_smb_direct_iwarp_heur,
-               "SMB Direct over iWARP", "smb_direct_iwarp",
-			   proto_smb_direct, HEURISTIC_ENABLE);
+				dissect_smb_direct_iwarp_heur,
+				"SMB Direct over iWARP", "smb_direct_iwarp",
+				proto_smb_direct, HEURISTIC_ENABLE);
 	heur_dissector_add("infiniband.payload",
-			   dissect_smb_direct_infiniband_heur,
-			   "SMB Direct Infiniband", "smb_direct_infiniband",
-			   proto_smb_direct, HEURISTIC_ENABLE);
+				dissect_smb_direct_infiniband_heur,
+				"SMB Direct Infiniband", "smb_direct_infiniband",
+				proto_smb_direct, HEURISTIC_ENABLE);
+	dissector_add_for_decode_as("infiniband", create_dissector_handle( dissect_smb_direct_infiniband, proto_smb_direct ) );
 
 }
 

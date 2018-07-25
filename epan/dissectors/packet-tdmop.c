@@ -6,28 +6,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
  * TDMoP protocol is proprietary protocol developed by "NSC Communication Siberia Ltd."
  */
 #include "config.h"
 #include <epan/packet.h>
+#include <epan/conversation.h>
 #include <epan/prefs.h>
 
-#define TDMOP_PORT            0
 /*Using of ethertype 0x0808(assigned to Frame Realy ARP) was implemented in hardware, when ethertype was not assigned*/
 #define ETHERTYPE_TDMOP       0
 
@@ -61,7 +49,6 @@ static dissector_handle_t lapd_handle    = NULL;
 static gint pref_tdmop_d_channel      = 16;
 static guint32 pref_tdmop_mask        = 0xFFFFFFFFUL;
 static guint32 pref_tdmop_ethertype   = ETHERTYPE_TDMOP;
-static guint32 pref_tdmop_udpport     = TDMOP_PORT;
 
 #define TDMOP_FLAG_NO_DATA (1<<3)
 #define TDMOP_FLAG_REMOTE_NO_DATA (1<<2)
@@ -96,8 +83,7 @@ static int dissect_tdmop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     gint offset;
     proto_item    *ti;
     proto_tree    *tdmop_tree;
-    guint32 dstch;
-    guint32 srcch;
+    guint32 dstch, srcch;
     flags = tvb_get_guint8(tvb, 4);
     offset = 0;
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "TDMoP");
@@ -106,21 +92,20 @@ static int dissect_tdmop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     {
         col_add_fstr(pinfo->cinfo, COL_INFO, "Lost Request");
     }
-    /*conversation*/
-    dstch = tvb_get_guint8(tvb, offset + 2);
-    srcch = tvb_get_guint8(tvb, offset + 3);
-    pinfo->destport = dstch;
-    pinfo->srcport = srcch;
-    pinfo->ptype = PT_TDMOP;
+
     ti = proto_tree_add_item(tree, proto_tdmop, tvb, 0, -1, ENC_NA);
     tdmop_tree = proto_item_add_subtree(ti, ett_tdmop);
     /*path info*/
     proto_tree_add_item(tdmop_tree, hf_tdmop_TransferID, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 2;
-    proto_tree_add_item(tdmop_tree, hf_tdmop_DstCh, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint(tdmop_tree, hf_tdmop_DstCh, tvb, offset, 1, ENC_LITTLE_ENDIAN, &dstch);
     offset += 1;
-    proto_tree_add_item(tdmop_tree, hf_tdmop_SrcCh, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_item_ret_uint(tdmop_tree, hf_tdmop_SrcCh, tvb, offset, 1, ENC_LITTLE_ENDIAN, &srcch);
     offset += 1;
+
+    /*conversation*/
+    conversation_create_endpoint(pinfo, &pinfo->src, &pinfo->dst, ENDPOINT_TDMOP, srcch, dstch, 0);
+
     /*flags*/
     proto_tree_add_item(tdmop_tree, hf_tdmop_Flags, tvb, offset, 1, ENC_NA);
     proto_tree_add_item(tdmop_tree, hf_tdmop_Flags_no_data, tvb, offset, 1, ENC_NA);
@@ -160,7 +145,7 @@ static int dissect_tdmop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
             {
                 mask = tvb_get_letohl(tvb,offset);
                 mask = ((mask >> 16) & 0xFFFF)|((mask & 0xFFFF) << 16);
-                proto_tree_add_uint_format_value(currentblock, hf_tdmop_Compression_mask, tvb, offset, 4, mask, "%08X", mask);
+                proto_tree_add_uint(currentblock, hf_tdmop_Compression_mask, tvb, offset, 4, mask);
                 offset+=4;
             }
             for (i=0; i<32; i++)
@@ -191,10 +176,9 @@ static int dissect_tdmop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
         }
         if (dchannel_len>0)
         {
-            guint8 *buff = (guint8 *)g_memdup(dchannel_data, dchannel_len);
+            guint8 *buff = (guint8 *)wmem_memdup(pinfo->pool, dchannel_data, dchannel_len);
             tvbuff_t *new_tvb;
             new_tvb = tvb_new_child_real_data(tvb, buff, dchannel_len, dchannel_len);
-            tvb_set_free_cb(new_tvb, g_free);
             call_dissector(lapd_handle, new_tvb, pinfo, tree);
         }
     }
@@ -316,11 +300,7 @@ void proto_register_tdmop(void)
         &ett_tdmop,
         &ett_tdmop_channel
     };
-    proto_tdmop = proto_register_protocol (
-        "TDMoP protocol",
-        "TDMoP",
-        "tdmop"
-        );
+    proto_tdmop = proto_register_protocol ("TDMoP protocol", "TDMoP", "tdmop");
     proto_register_field_array(proto_tdmop, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
     tdmop_module = prefs_register_protocol(proto_tdmop, proto_reg_handoff_tdmop);
@@ -336,10 +316,6 @@ void proto_register_tdmop(void)
                     "Ethertype for TDMoP stream(Usually 0808)",
                     "The ethertype assigned to TDMoP (without IP/UDP) stream",
                     16, &pref_tdmop_ethertype);
-    prefs_register_uint_preference(tdmop_module, "udpport",
-                    "UDP Port of TDMoP stream(Usually 41000)",
-                    "The udp port assigned to TDMoP stream",
-                    10, &pref_tdmop_udpport);
 }
 
 void proto_reg_handoff_tdmop(void)
@@ -347,19 +323,16 @@ void proto_reg_handoff_tdmop(void)
     static dissector_handle_t tdmop_handle;
     static gboolean init = FALSE;
     static guint32 current_tdmop_ethertype;
-    static guint32 current_tdmop_udpport;
     if (!init)
     {
         tdmop_handle = create_dissector_handle(dissect_tdmop, proto_tdmop);
-        if (pref_tdmop_udpport) {
-            dissector_add_uint("udp.port", pref_tdmop_udpport, tdmop_handle);
-        }
+        dissector_add_for_decode_as_with_preference("udp.port", tdmop_handle);
+
         if (pref_tdmop_ethertype) {
             dissector_add_uint("ethertype", pref_tdmop_ethertype, tdmop_handle);
         }
         lapd_handle = find_dissector_add_dependency("lapd-bitstream", proto_tdmop);
         current_tdmop_ethertype = pref_tdmop_ethertype;
-        current_tdmop_udpport = pref_tdmop_udpport;
         init = TRUE;
     }
     if (current_tdmop_ethertype != pref_tdmop_ethertype)
@@ -369,14 +342,6 @@ void proto_reg_handoff_tdmop(void)
             dissector_add_uint("ethertype", pref_tdmop_ethertype, tdmop_handle);
         }
         current_tdmop_ethertype = pref_tdmop_ethertype;
-    }
-    if (current_tdmop_udpport != pref_tdmop_udpport)
-    {
-        dissector_delete_uint("udp.port", current_tdmop_udpport, tdmop_handle);
-        if (pref_tdmop_udpport) {
-            dissector_add_uint("udp.port", pref_tdmop_udpport, tdmop_handle);
-        }
-        current_tdmop_udpport = pref_tdmop_udpport;
     }
 }
 

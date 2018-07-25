@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -46,7 +34,7 @@ wmem_simple_alloc(void *private_data, const size_t size)
 
     allocator = (wmem_simple_allocator_t*) private_data;
 
-    if G_UNLIKELY(allocator->count == allocator->size) {
+    if (G_UNLIKELY(allocator->count == allocator->size)) {
         allocator->size *= 2;
         allocator->ptrs = (void**)wmem_realloc(NULL, allocator->ptrs,
                 sizeof(void*) * allocator->size);
@@ -133,9 +121,9 @@ wmem_simple_allocator_init(wmem_allocator_t *allocator)
 
     simple_allocator = wmem_new(NULL, wmem_simple_allocator_t);
 
-    allocator->alloc   = &wmem_simple_alloc;
-    allocator->realloc = &wmem_simple_realloc;
-    allocator->free    = &wmem_simple_free;
+    allocator->walloc   = &wmem_simple_alloc;
+    allocator->wrealloc = &wmem_simple_realloc;
+    allocator->wfree    = &wmem_simple_free;
 
     allocator->free_all = &wmem_simple_free_all;
     allocator->gc       = &wmem_simple_gc;

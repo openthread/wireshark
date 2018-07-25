@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *------------------------------------------------------------
 */
 
@@ -149,6 +137,8 @@ static expert_field ei_lwm_empty_payload = EI_INIT;
 static expert_field ei_lwm_no_decryption_key = EI_INIT;
 static expert_field ei_lwm_decryption_failed = EI_INIT;
 
+static dissector_handle_t lwm_handle;
+
 static const value_string lwm_cmd_names[] = {
     { LWM_CMD_ACK,          "LwMesh ACK" },
     { LWM_CMD_ROUTE_ERR,    "Route Error" },
@@ -179,12 +169,23 @@ static const value_string lwm_cmd_multi_names[] = {
 static gboolean
 dissect_lwm_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
+    guint8 endpt, srcep, dstep;
+
     /* 1) first byte must have bits 0000xxxx */
     if(tvb_get_guint8(tvb, 0) & LWM_FCF_RESERVED)
         return (FALSE);
 
     /* The header should be at least long enough for the base header. */
     if (tvb_reported_length(tvb) < LWM_HEADER_BASE_LEN)
+        return (FALSE);
+
+    /* The endpoints should either both be zero, or both non-zero. */
+    endpt = tvb_get_guint8(tvb, 6);
+    srcep = (endpt & LWM_SRC_ENDP_MASK) >> LWM_SRC_ENDP_OFFSET;
+    dstep = (endpt & LWM_DST_ENDP_MASK) >> LWM_DST_ENDP_OFFSET;
+    if ((srcep == 0) && (dstep != 0))
+        return (FALSE);
+    if ((srcep != 0) && (dstep == 0))
         return (FALSE);
 
     dissect_lwm(tvb, pinfo, tree, data);
@@ -401,7 +402,6 @@ static int dissect_lwm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
         /*An exception will occur if there are not enough bytes for the MIC */
         proto_tree_add_item_ret_uint(lwm_tree, hf_lwm_mic, new_tvb, start, LWM_MIC_LEN, ENC_LITTLE_ENDIAN, &lwm_mic);
 
-#ifdef HAVE_LIBGCRYPT
         if(lwmes_key_valid)
         {
             ieee802154_packet *ieee_packet = NULL;
@@ -429,7 +429,7 @@ static int dissect_lwm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
             payload_length=tvb_reported_length(new_tvb) - LWM_MIC_LEN;
 
             /* ECB - Nwk security vector*/
-            text = (guint8 *)tvb_memdup(NULL, new_tvb, 0, payload_length);
+            text = (guint8 *)tvb_memdup(pinfo->pool, new_tvb, 0, payload_length);
             payload_offset=0;
 
             /*Decrypt the actual data */
@@ -478,7 +478,6 @@ static int dissect_lwm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                 decrypted_tvb = tvb_new_real_data(text,length, length);
                 call_data_dissector(decrypted_tvb, pinfo, lwm_tree);
                 /* XXX - needed?
-                   tvb_set_free_cb(decrypted_tvb, g_free);
                    add_new_data_source(pinfo, decrypted_tvb, "Decrypted LWmesh Payload"); */
                 col_append_fstr(pinfo->cinfo, COL_INFO, ",  MIC SUCCESS");
 
@@ -502,15 +501,6 @@ static int dissect_lwm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
             tvb_set_reported_length(new_tvb, tvb_reported_length(new_tvb) - LWM_MIC_LEN);
             call_data_dissector(new_tvb, pinfo, lwm_tree);
         }
-#else /* ! HAVE_LIBGCRYPT */
-        col_add_fstr(pinfo->cinfo, COL_INFO,
-                 "Encrypted data (%i byte(s)): libgcrypt not present, cannot decrypt",
-                  tvb_reported_length(new_tvb) - LWM_MIC_LEN);
-
-        expert_add_info(pinfo, lwm_tree, &ei_lwm_no_decryption_key);
-        tvb_set_reported_length(new_tvb, tvb_reported_length(new_tvb) - LWM_MIC_LEN);
-        call_data_dissector(new_tvb, pinfo, lwm_tree);
-#endif /* ! HAVE_LIBGCRYPT */
     }
     /*stack command endpoint 0 and not secured*/
     else if( (lwm_src_endp == 0) && (lwm_dst_endp == 0) ){
@@ -906,7 +896,7 @@ void proto_register_lwm(void)
             "128-bit decryption key in hexadecimal format", (const char **)&lwmes_key_str);
 
     /*  Register dissector with Wireshark. */
-    register_dissector("lwm", dissect_lwm, proto_lwm);
+    lwm_handle = register_dissector("lwm", dissect_lwm, proto_lwm);
 
 } /* proto_register_lwm */
 
@@ -938,7 +928,7 @@ void proto_reg_handoff_lwm(void)
 
 
     /* Register our dissector with IEEE 802.15.4 */
-    dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, find_dissector("lwm"));
+    dissector_add_for_decode_as(IEEE802154_PROTOABBREV_WPAN_PANID, lwm_handle);
     heur_dissector_add(IEEE802154_PROTOABBREV_WPAN, dissect_lwm_heur, "Lightweight Mesh over IEEE 802.15.4", "lwm_wlan", proto_lwm, HEURISTIC_ENABLE);
 
 } /* proto_reg_handoff_lwm */

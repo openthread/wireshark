@@ -20,19 +20,7 @@
  *
  * Copied from packet-mtp3.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -427,6 +415,8 @@ static gint ett_mtp3mg_rsm_apc = -1;
 static gint ett_mtp3mg_upu_apc = -1;
 
 static expert_field ei_mtp3mg_unknown_message = EI_INIT;
+
+static dissector_handle_t mtp3mg_handle;
 
 static void
 dissect_mtp3mg_unknown_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
@@ -1399,7 +1389,7 @@ proto_register_mtp3mg(void)
     /* Register the protocol name and description */
     proto_mtp3mg = proto_register_protocol("Message Transfer Part Level 3 Management",
                                            "MTP3MG", "mtp3mg");
-    register_dissector("mtp3mg", dissect_mtp3mg, proto_mtp3mg);
+    mtp3mg_handle = register_dissector("mtp3mg", dissect_mtp3mg, proto_mtp3mg);
 
     /* Required calls to register the header fields and subtrees used */
     proto_register_field_array(proto_mtp3mg, hf, array_length(hf));
@@ -1412,10 +1402,6 @@ proto_register_mtp3mg(void)
 void
 proto_reg_handoff_mtp3mg(void)
 {
-    dissector_handle_t mtp3mg_handle;
-
-    mtp3mg_handle = find_dissector("mtp3mg");
-
     dissector_add_uint("mtp3.service_indicator", MTP_SI_SNM, mtp3mg_handle);
 
     /*  SI 1 is unused in ANSI and SI 2 is unused in ITU, so it's okay for us

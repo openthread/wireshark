@@ -12,47 +12,10 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_2">
    <item>
-    <widget class="QTreeWidget" name="decodeAsTreeWidget">
+    <widget class="TabnavTreeView" name="decodeAsTreeView">
      <property name="indentation">
       <number>0</number>
      </property>
-     <column>
-      <property name="text">
-       <string>Field</string>
-      </property>
-      <property name="toolTip">
-       <string>Match using this field</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Value</string>
-      </property>
-      <property name="toolTip">
-       <string>Current &quot;Decode As&quot; behavior</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Type</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Default</string>
-      </property>
-      <property name="toolTip">
-       <string>Default &quot;Decode As&quot; behavior</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Current</string>
-      </property>
-      <property name="toolTip">
-       <string>Change behavior when the protocol field matches this value</string>
-      </property>
-     </column>
     </widget>
    </item>
    <item>
@@ -66,7 +29,7 @@
         <string/>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/plus-8.png</normaloff>:/stock/plus-8.png</iconset>
        </property>
       </widget>
@@ -76,8 +39,11 @@
        <property name="toolTip">
         <string>Remove this dissection behavior.</string>
        </property>
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/minus-8.png</normaloff>:/stock/minus-8.png</iconset>
        </property>
       </widget>
@@ -91,7 +57,7 @@
         <string/>
        </property>
        <property name="icon">
-        <iconset resource="../../image/toolbar.qrc">
+        <iconset resource="../../image/stock_icons.qrc">
          <normaloff>:/stock/copy-8.png</normaloff>:/stock/copy-8.png</iconset>
        </property>
       </widget>
@@ -146,11 +112,16 @@
   <customwidget>
    <class>ElidedLabel</class>
    <extends>QLabel</extends>
-   <header>elided_label.h</header>
+   <header>widgets/elided_label.h</header>
+  </customwidget>
+  <customwidget>
+    <class>TabnavTreeView</class>
+    <extends>QTreeView</extends>
+    <header>widgets/tabnav_tree_view.h</header>
   </customwidget>
  </customwidgets>
  <resources>
-  <include location="../../image/toolbar.qrc"/>
+  <include location="../../image/stock_icons.qrc"/>
  </resources>
  <connections>
   <connection>

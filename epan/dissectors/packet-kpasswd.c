@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -42,7 +30,6 @@ static int hf_kpasswd_message_len = -1;
 static int hf_kpasswd_version = -1;
 static int hf_kpasswd_result = -1;
 static int hf_kpasswd_result_string = -1;
-static int hf_kpasswd_newpassword = -1;
 static int hf_kpasswd_ap_req_len = -1;
 static int hf_kpasswd_ap_req_data = -1;
 static int hf_kpasswd_krb_priv_message = -1;
@@ -69,12 +56,10 @@ static void
 dissect_kpasswd_ap_req_data(packet_info *pinfo _U_, tvbuff_t *tvb, proto_tree *parent_tree)
 {
     proto_item *it;
-    proto_tree *tree=NULL;
+    proto_tree *tree;
 
-    if(parent_tree){
-        it=proto_tree_add_item(parent_tree, hf_kpasswd_ap_req_data, tvb, 0, -1, ENC_NA);
-        tree=proto_item_add_subtree(it, ett_ap_req_data);
-    }
+    it=proto_tree_add_item(parent_tree, hf_kpasswd_ap_req_data, tvb, 0, -1, ENC_NA);
+    tree=proto_item_add_subtree(it, ett_ap_req_data);
     dissect_kerberos_main(tvb, pinfo, tree, FALSE, NULL);
 }
 
@@ -285,9 +270,6 @@ proto_register_kpasswd(void)
     { &hf_kpasswd_result_string,
         { "Result String", "kpasswd.result_string", FT_STRING, BASE_NONE,
         NULL, 0, NULL, HFILL }},
-    { &hf_kpasswd_newpassword,
-        { "New Password", "kpasswd.new_password", FT_STRING, BASE_NONE,
-        NULL, 0, NULL, HFILL }},
     { &hf_kpasswd_ap_req_data,
         { "AP_REQ", "kpasswd.ap_req", FT_NONE, BASE_NONE,
         NULL, 0, "AP_REQ structure", HFILL }},
@@ -328,8 +310,8 @@ proto_reg_handoff_kpasswd(void)
 
     kpasswd_handle_udp = create_dissector_handle(dissect_kpasswd_udp, proto_kpasswd);
     kpasswd_handle_tcp = create_dissector_handle(dissect_kpasswd_tcp, proto_kpasswd);
-    dissector_add_uint("udp.port", UDP_PORT_KPASSWD, kpasswd_handle_udp);
-    dissector_add_uint("tcp.port", TCP_PORT_KPASSWD, kpasswd_handle_tcp);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_KPASSWD, kpasswd_handle_udp);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_KPASSWD, kpasswd_handle_tcp);
 }
 
 /*

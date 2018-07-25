@@ -7,29 +7,19 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef EXPORTED_PDU_H
 #define EXPORTED_PDU_H
 
-#include <config.h>
-
 #include "ws_symbol_export.h"
+#include "ws_attributes.h"
 
 #include <glib.h>
+
+#include <epan/tvbuff.h>
+#include <epan/packet_info.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +31,7 @@ extern "C" {
  * if all taps are run.
  */
 #define EXPORT_PDU_TAP_NAME_LAYER_3 "OSI layer 3"
+#define EXPORT_PDU_TAP_NAME_LAYER_4 "OSI layer 4"
 #define EXPORT_PDU_TAP_NAME_LAYER_7 "OSI layer 7"
 
 /* To add dynamically an export name, call the following function
@@ -93,6 +84,12 @@ WS_DLL_PUBLIC GSList *get_export_pdu_tap_list(void);
                                           * during registration, e.g "sip_udp"
                                           * Will be used to call the next dissector.
                                           */
+#define EXP_PDU_TAG_DISSECTOR_TABLE_NAME 14 /**< The value part should be an ASCII non NULL terminated string
+                                          * containing the dissector table name given
+                                          * during registration, e.g "gsm_map.v3.arg.opcode"
+                                          * Will be used to call the next dissector.
+                                          */
+
 /* Add protocol type related tags here.
  * NOTE Only one protocol type tag may be present in a packet, the first one
  * found will be used*/
@@ -113,6 +110,24 @@ WS_DLL_PUBLIC GSList *get_export_pdu_tap_list(void);
 
 #define EXP_PDU_TAG_DVBCI_EVT       31
 
+#define EXP_PDU_TAG_DISSECTOR_TABLE_NAME_NUM_VAL 32 /**< value part is the numeric value to be used calling the dissector table
+                                                      *  given with tag EXP_PDU_TAG_DISSECTOR_TABLE_NAME, must follow immediately after the table tag.
+                                                      */
+
+#define EXP_PDU_TAG_COL_PROT_TEXT   33 /**< Text string to put in COL_PROTOCOL, one use case is in conjunction with dissector tables where
+                                        *   COL_PROTOCOL might not be filled in.
+                                        */
+
+/**< value part is structure passed into TCP subdissectors.  Format is:
+    guint16 version          Export PDU version of structure (for backwards/forwards compatibility)
+    guint32 seq              Sequence number of first byte in the data
+    guint32 nxtseq           Sequence number of first byte after data
+    guint32 lastackseq       Sequence number of last ack
+    guint8 is_reassembled    This is reassembled data.
+    guint16 flags            TCP flags
+    guint16 urgent_pointer   Urgent pointer value for the current packet.
+*/
+#define EXP_PDU_TAG_TCP_INFO_DATA  34
 
 typedef struct _exp_pdu_data_t {
     guint        tlv_buffer_len;
@@ -122,26 +137,11 @@ typedef struct _exp_pdu_data_t {
     tvbuff_t    *pdu_tvb;
 } exp_pdu_data_t;
 
-/* 1st byte of optional tags bitmap */
-#define EXP_PDU_TAG_IP_SRC_BIT          0x01
-#define EXP_PDU_TAG_IP_DST_BIT          0x02
-#define EXP_PDU_TAG_SRC_PORT_BIT        0x04
-#define EXP_PDU_TAG_DST_PORT_BIT        0x08
-#define EXP_PDU_TAG_SS7_OPC_BIT         0x20
-#define EXP_PDU_TAG_SS7_DPC_BIT         0x40
-#define EXP_PDU_TAG_ORIG_FNO_BIT        0x80
-
-/* 2nd byte of optional tags bitmap */
-#define EXP_PDU_TAG_DVBCI_EVT_BIT       0x01
-
-#define EXP_PDU_TAG_IPV4_SRC_LEN        4
-#define EXP_PDU_TAG_IPV4_DST_LEN        4
-#define EXP_PDU_TAG_IPV6_SRC_LEN        16
-#define EXP_PDU_TAG_IPV6_DST_LEN        16
+#define EXP_PDU_TAG_IPV4_LEN            4
+#define EXP_PDU_TAG_IPV6_LEN            16
 
 #define EXP_PDU_TAG_PORT_TYPE_LEN       4
-#define EXP_PDU_TAG_SRC_PORT_LEN        4
-#define EXP_PDU_TAG_DST_PORT_LEN        4
+#define EXP_PDU_TAG_PORT_LEN            4
 
 #define EXP_PDU_TAG_SS7_OPC_LEN         8 /* 4 bytes PC, 2 bytes standard type, 1 byte NI, 1 byte padding */
 #define EXP_PDU_TAG_SS7_DPC_LEN         8 /* 4 bytes PC, 2 bytes standard type, 1 byte NI, 1 byte padding */
@@ -150,16 +150,99 @@ typedef struct _exp_pdu_data_t {
 
 #define EXP_PDU_TAG_DVBCI_EVT_LEN       1
 
+#define EXP_PDU_TAG_DISSECTOR_TABLE_NUM_VAL_LEN     4
+
+/* Port types are no longer used for conversation/endpoints so
+   many of the enumerated values have been eliminated
+   Since export PDU functionality is serializing them,
+   keep the old values around for conversion */
+#define OLD_PT_NONE         0
+#define OLD_PT_SCTP         1
+#define OLD_PT_TCP          2
+#define OLD_PT_UDP          3
+#define OLD_PT_DCCP         4
+#define OLD_PT_IPX          5
+#define OLD_PT_NCP          6
+#define OLD_PT_EXCHG        7
+#define OLD_PT_DDP          8
+#define OLD_PT_SBCCS        9
+#define OLD_PT_IDP          10
+#define OLD_PT_TIPC         11
+#define OLD_PT_USB          12
+#define OLD_PT_I2C          13
+#define OLD_PT_IBQP         14
+#define OLD_PT_BLUETOOTH    15
+#define OLD_PT_TDMOP        16
+
+
+/** Compute the size (in bytes) of a pdu item
+*
+@param pinfo Packet info that may contain data for the pdu item
+@param data optional data of the pdu item
+@return the size of the pdu item
+*/
+typedef int (*exp_pdu_get_size)(packet_info *pinfo, void* data);
+
+/** Populate a buffer with pdu item data
+*
+@param pinfo Packet info that may contain data for the PDU item
+@param data optional data of the PDU item
+@param tlv_buffer buffer to be populated with PDU item
+@param tlv_buffer_size size of buffer to be populated
+@return the number of bytes populated to the buffer (typically PDU item size)
+*/
+typedef int (*exp_pdu_populate_data)(packet_info *pinfo, void* data, guint8 *tlv_buffer, guint32 tlv_buffer_size);
+
+typedef struct exp_pdu_data_item
+{
+    exp_pdu_get_size size_func;
+    exp_pdu_populate_data populate_data;
+    void* data;
+} exp_pdu_data_item_t;
+
 /**
- * Allocates and fills the exp_pdu_data_t struct according to the wanted_exp_tags
- * bit field of wanted_exp_tags_len bytes length
- * tag_type should be either EXP_PDU_TAG_PROTO_NAME or EXP_PDU_TAG_HEUR_PROTO_NAME
- * proto_name interpretation depends on tag_type value
- *
- * The tags in the tag buffer SHOULD be added in numerical order.
- */
-WS_DLL_PUBLIC exp_pdu_data_t *load_export_pdu_tags(packet_info *pinfo, guint tag_type, const char* proto_name,
-                                                   guint8 *wanted_exp_tags, guint16 wanted_exp_tags_len);
+ Allocates and fills the exp_pdu_data_t struct according to the list of items
+
+ The tags in the tag buffer SHOULD be added in numerical order.
+
+ @param pinfo Packet info that may contain data for the PDU items
+ @param proto_name Name of protocol that is exporting PDU
+ @param tag_type Tag type for protocol's PDU. Must be EXP_PDU_TAG_PROTO_NAME or EXP_PDU_TAG_HEUR_PROTO_NAME.
+ @param items PDU items to be exported
+ @return filled exp_pdu_data_t struct
+*/
+WS_DLL_PUBLIC exp_pdu_data_t *export_pdu_create_tags(packet_info *pinfo, const char* proto_name, guint16 tag_type, const exp_pdu_data_item_t **items);
+
+/**
+ Allocates and fills the exp_pdu_data_t struct with a common list of items
+ The items that will be exported as the PDU are:
+ 1. Source IP
+ 2. Destintaiton IP
+ 3. Port type
+ 4. Source Port
+ 5. Destination Port
+ 6. Original frame number
+
+ @param pinfo Packet info that may contain data for the PDU items
+ @param tag_type Tag type for protocol's PDU. Must be EXP_PDU_TAG_PROTO_NAME, EXP_PDU_TAG_HEUR_PROTO_NAME or EXP_PDU_TAG_DISSECTOR_TABLE_NAME
+ @param proto_name Name of protocol that is exporting PDU
+ @return filled exp_pdu_data_t struct
+*/
+WS_DLL_PUBLIC exp_pdu_data_t *export_pdu_create_common_tags(packet_info *pinfo, const char *proto_name, guint16 tag_type);
+
+WS_DLL_PUBLIC int exp_pdu_data_dissector_table_num_value_size(packet_info *pinfo, void* data);
+WS_DLL_PUBLIC int exp_pdu_data_dissector_table_num_value_populate_data(packet_info *pinfo, void* data, guint8 *tlv_buffer, guint32 buffer_size);
+
+WS_DLL_PUBLIC exp_pdu_data_item_t exp_pdu_data_src_ip;
+WS_DLL_PUBLIC exp_pdu_data_item_t exp_pdu_data_dst_ip;
+WS_DLL_PUBLIC exp_pdu_data_item_t exp_pdu_data_port_type;
+WS_DLL_PUBLIC exp_pdu_data_item_t exp_pdu_data_src_port;
+WS_DLL_PUBLIC exp_pdu_data_item_t exp_pdu_data_dst_port;
+WS_DLL_PUBLIC exp_pdu_data_item_t exp_pdu_data_orig_frame_num;
+
+extern void export_pdu_init(void);
+
+extern void export_pdu_cleanup(void);
 
 #ifdef __cplusplus
 }

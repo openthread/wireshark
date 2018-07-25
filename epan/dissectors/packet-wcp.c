@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * ToDo:
  *	Add preference to allow/disallow decompression
@@ -102,7 +90,7 @@
 
 #include <wiretap/wtap.h>
 #include <wsutil/pint.h>
-#include <epan/circuit.h>
+#include <epan/conversation.h>
 #include <epan/etypes.h>
 #include <epan/nlpid.h>
 #include <epan/expert.h>
@@ -175,7 +163,7 @@ static gint ett_wcp_field = -1;
 static expert_field ei_wcp_compressed_data_exceeds = EI_INIT;
 static expert_field ei_wcp_uncompressed_data_exceeds = EI_INIT;
 static expert_field ei_wcp_invalid_window_offset = EI_INIT;
-static expert_field ei_wcp_invalid_match_length = EI_INIT;
+/* static expert_field ei_wcp_invalid_match_length = EI_INIT; */
 
 static dissector_handle_t fr_uncompressed_handle;
 
@@ -222,8 +210,8 @@ static const value_string ext_cmd_string[] = {
 
 
 
-static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pinfo, proto_tree *tree, circuit_type ctype, guint32 circuit_id);
-static wcp_window_t *get_wcp_window_ptr(packet_info *pinfo, circuit_type ctype, guint32 circuit_id);
+static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pinfo, proto_tree *tree);
+static wcp_window_t *get_wcp_window_ptr(packet_info *pinfo);
 
 static void
 dissect_wcp_con_req(tvbuff_t *tvb, int offset, proto_tree *tree) {
@@ -278,14 +266,14 @@ dissect_wcp_reset( tvbuff_t *tvb, int offset, proto_tree *tree){
 }
 
 
-static void wcp_save_data( tvbuff_t *tvb, packet_info *pinfo, circuit_type ctype, guint32 circuit_id){
+static void wcp_save_data( tvbuff_t *tvb, packet_info *pinfo) {
 
 	wcp_window_t *buf_ptr = 0;
 	size_t len;
 
 	/* discard first 2 bytes, header and last byte (check byte) */
 	len = tvb_reported_length( tvb)-3;
-	buf_ptr = get_wcp_window_ptr(pinfo, ctype, circuit_id);
+	buf_ptr = get_wcp_window_ptr(pinfo);
 
 	if (( buf_ptr->buf_cur + len) <= (buf_ptr->buffer + MAX_WIN_BUF_LEN)){
 		tvb_memcpy( tvb, buf_ptr->buf_cur, 2, len);
@@ -337,8 +325,7 @@ static int dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
 	proto_tree_add_item(wcp_tree, hf_wcp_cmd, tvb, 0, 1, ENC_NA);
 	if ( cmd == 0xf){
-		proto_tree_add_uint(wcp_tree, hf_wcp_ext_cmd, tvb, 1, 1,
-				tvb_get_guint8( tvb, 0));
+		proto_tree_add_item(wcp_tree, hf_wcp_ext_cmd, tvb, 1, 1, ENC_NA);
 		switch (ext_cmd){
 		case CONNECT_REQ:
 			dissect_wcp_con_req( tvb, 1, wcp_tree);
@@ -369,13 +356,13 @@ static int dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
 	if ( cmd == 1) {		/* uncompressed data */
 		if ( !pinfo->fd->flags.visited){	/* if first pass */
-			wcp_save_data( tvb, pinfo, pinfo->ctype, pinfo->circuit_id);
+			wcp_save_data( tvb, pinfo);
 		}
 		next_tvb = tvb_new_subset_remaining(tvb, wcp_header_len);
 	}
 	else {		/* cmd == 0 || (cmd == 0xf && ext_cmd == 0) */
 
-		next_tvb = wcp_uncompress( tvb, wcp_header_len, pinfo, wcp_tree, pinfo->ctype, pinfo->circuit_id);
+		next_tvb = wcp_uncompress( tvb, wcp_header_len, pinfo, wcp_tree);
 
 		if ( !next_tvb){
 			return tvb_captured_length(tvb);
@@ -383,8 +370,7 @@ static int dissect_wcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	}
 
 	    /* add the check byte */
-	proto_tree_add_item(wcp_tree, hf_wcp_chksum, tvb,
-			tvb_reported_length( tvb)-1, 1, ENC_NA);
+    proto_tree_add_checksum(wcp_tree, tvb, tvb_reported_length( tvb)-1, hf_wcp_chksum, -1, NULL, pinfo, 0, ENC_NA, PROTO_CHECKSUM_NO_FLAGS);
 
 	call_dissector(fr_uncompressed_handle, next_tvb, pinfo, tree);
 
@@ -429,29 +415,25 @@ decompressed_entry(guint8 *dst, guint16 data_offset,
 
 
 static
-wcp_window_t *get_wcp_window_ptr(packet_info *pinfo, circuit_type ctype, guint32 circuit_id){
+wcp_window_t *get_wcp_window_ptr(packet_info *pinfo){
 
 /* find the circuit for this DLCI, create one if needed */
 /* and return the wcp_window data structure pointer */
 /* for the direction of this packet */
 
-	circuit_t *circuit;
+	conversation_t *conv;
 	wcp_circuit_data_t *wcp_circuit_data;
 
-	circuit = find_circuit( ctype, circuit_id,
-		pinfo->num);
-	if ( !circuit){
-		circuit = circuit_new( ctype, circuit_id,
-			pinfo->num);
-	}
-	wcp_circuit_data = (wcp_circuit_data_t *)circuit_get_proto_data(circuit, proto_wcp);
+	conv = find_or_create_conversation(pinfo);
+
+	wcp_circuit_data = (wcp_circuit_data_t *)conversation_get_proto_data(conv, proto_wcp);
 	if ( !wcp_circuit_data){
 		wcp_circuit_data = wmem_new(wmem_file_scope(), wcp_circuit_data_t);
 		wcp_circuit_data->recv.buf_cur = wcp_circuit_data->recv.buffer;
 		wcp_circuit_data->recv.initialized = 0;
 		wcp_circuit_data->send.buf_cur = wcp_circuit_data->send.buffer;
 		wcp_circuit_data->send.initialized = 0;
-		circuit_add_proto_data(circuit, proto_wcp, wcp_circuit_data);
+		conversation_add_proto_data(conv, proto_wcp, wcp_circuit_data);
 	}
 	if (pinfo->pseudo_header->x25.flags & FROM_DCE)
 		return &wcp_circuit_data->recv;
@@ -460,7 +442,7 @@ wcp_window_t *get_wcp_window_ptr(packet_info *pinfo, circuit_type ctype, guint32
 }
 
 
-static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pinfo, proto_tree *tree, circuit_type ctype, guint32 circuit_id) {
+static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pinfo, proto_tree *tree) {
 
 /* do the packet data uncompression and load it into the dst buffer */
 
@@ -477,7 +459,7 @@ static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pin
 	wcp_window_t *buf_ptr = 0;
 	wcp_pdata_t *pdata_ptr;
 
-	buf_ptr = get_wcp_window_ptr(pinfo, ctype, circuit_id);
+	buf_ptr = get_wcp_window_ptr(pinfo);
 
 	buf_start = buf_ptr->buffer;
 	buf_end = buf_start + MAX_WIN_BUF_LEN;
@@ -650,10 +632,16 @@ static tvbuff_t *wcp_uncompress( tvbuff_t *src_tvb, int offset, packet_info *pin
 		}
 		len = pdata_ptr->len;
 	} else {
+		if (buf_ptr->buf_cur + len > buf_end) {
+			expert_add_info_format(pinfo, cd_item, &ei_wcp_invalid_window_offset,
+				"Uncompressed data exceeds available buffer length (%d > %d)",
+				len, (int) (buf_end - buf_ptr->buf_cur));
+			return NULL;
+		}
 
-	/* save the new data as per packet data */
+		/* save the new data as per packet data */
 		pdata_ptr = wmem_new(wmem_file_scope(), wcp_pdata_t);
-		memcpy( &pdata_ptr->buffer, buf_ptr->buf_cur,  len);
+		memcpy( &pdata_ptr->buffer, buf_ptr->buf_cur, len);
 		pdata_ptr->len = len;
 
 		p_add_proto_data(wmem_file_scope(), pinfo, proto_wcp, 0, (void*)pdata_ptr);
@@ -770,7 +758,9 @@ proto_register_wcp(void)
 		{ &ei_wcp_compressed_data_exceeds, { "wcp.compressed_data.exceeds", PI_MALFORMED, PI_ERROR, "Compressed data exceeds maximum buffer length", EXPFILL }},
 		{ &ei_wcp_uncompressed_data_exceeds, { "wcp.uncompressed_data.exceeds", PI_MALFORMED, PI_ERROR, "Uncompressed data exceeds maximum buffer length", EXPFILL }},
 		{ &ei_wcp_invalid_window_offset, { "wcp.off.invalid", PI_MALFORMED, PI_ERROR, "Offset points outside of visible window", EXPFILL }},
+#if 0
 		{ &ei_wcp_invalid_match_length, { "wcp.len.invalid", PI_MALFORMED, PI_ERROR, "Length greater than offset", EXPFILL }},
+#endif
 	};
 
 	expert_module_t* expert_wcp;

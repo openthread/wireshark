@@ -11,25 +11,7 @@
 Copyright (C) 2013 Hadriel Kaplan <hadrielk@yahoo.com>
 All rights reserved.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+SPDX-License-Identifier: BSD-2-Clause
 
 The views and conclusions contained in the software and documentation are those
 of the authors and should not be interpreted as representing official policies,
@@ -46,7 +28,7 @@ either expressed or implied, of the FreeBSD Project.
   it is often set to IEEE 754 double precision floating point, one cannot store a 64 bit integer
   with full precision.
 
-  For details, see [[https://wiki.wireshark.org/LuaAPI/Int64]].
+  For details, see https://wiki.wireshark.org/LuaAPI/Int64.
  */
 
 #define LUATYPE64_STRING_SIZE 21  /* string to hold 18446744073709551615 */
@@ -57,11 +39,11 @@ either expressed or implied, of the FreeBSD Project.
 #define IS_LITTLE_ENDIAN FALSE
 #endif
 
-WSLUA_CLASS_DEFINE_BASE(Int64,NOP,NOP,0);
+WSLUA_CLASS_DEFINE_BASE(Int64,NOP,0);
 /*
   `Int64` represents a 64 bit signed integer.
 
-  For details, see [[https://wiki.wireshark.org/LuaAPI/Int64]].
+  For details, see https://wiki.wireshark.org/LuaAPI/Int64.
  */
 
 /* A checkInt64 but that also auto-converts numbers, strings, and UINT64 to a gint64 */
@@ -611,10 +593,10 @@ LUALIB_API int Int64_register(lua_State* L) {
 
 
 
-WSLUA_CLASS_DEFINE_BASE(UInt64,NOP,NOP,0);
+WSLUA_CLASS_DEFINE_BASE(UInt64,NOP,0);
 /* `UInt64` represents a 64 bit unsigned integer, similar to `Int64`.
 
-   For details, see: [[https://wiki.wireshark.org/LuaAPI/Int64]].
+   For details, see: https://wiki.wireshark.org/LuaAPI/Int64.
 */
 
 /* A checkUInt64 but that also auto-converts numbers, strings, and `Int64` to a guint64. */

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_RLC_LTE_H
@@ -45,11 +33,18 @@
 #define CHANNEL_TYPE_MCCH 7
 #define CHANNEL_TYPE_MTCH 8
 
-/* UMSequenceNumberLength */
+/* sequenceNumberLength */
 #define UM_SN_LENGTH_5_BITS 5
 #define UM_SN_LENGTH_10_BITS 10
 #define AM_SN_LENGTH_10_BITS 10
 #define AM_SN_LENGTH_16_BITS 16
+
+
+typedef enum rlc_lte_nb_mode {
+    rlc_no_nb_mode = 0,
+    rlc_nb_mode = 1
+} rlc_lte_nb_mode;
+
 
 /* Info attached to each LTE RLC frame */
 typedef struct rlc_lte_info
@@ -60,9 +55,10 @@ typedef struct rlc_lte_info
     guint8          sequenceNumberLength;
     guint16         ueid;
     guint16         channelType;
-    guint16         channelId;
+    guint16         channelId; /* for SRB: 1=SRB1, 2=SRB2, 3=SRB1bis; for DRB: DRB ID */
     guint16         pduLength;
     gboolean        extendedLiField;
+    rlc_lte_nb_mode nbMode;
 } rlc_lte_info;
 
 
@@ -105,9 +101,9 @@ void set_rlc_lte_drb_li_field(packet_info *pinfo, guint16 ueid, guint8 drbid, gb
 /* and implemented by this dissector, using the definitions      */
 /* below. A link to an example program showing you how to encode */
 /* these headers and send LTE RLC PDUs on a UDP socket is        */
-/* provided at https://wiki.wireshark.org/RLC-LTE                 */
+/* provided at https://wiki.wireshark.org/RLC-LTE                */
 /*                                                               */
-/* A heuristic dissecter (enabled by a preference) will          */
+/* A heuristic dissector (enabled by a preference) will          */
 /* recognise a signature at the beginning of these frames.       */
 /* Until someone is using this format, suggestions for changes   */
 /* are welcome.                                                  */
@@ -155,9 +151,24 @@ void set_rlc_lte_drb_li_field(packet_info *pinfo, guint16 ueid, guint8 drbid, gb
 #define RLC_LTE_EXT_LI_FIELD_TAG    0x08
 /* 0 byte, tag presence indicates that AM DRB PDU is using an extended LI field of 15 bits */
 
+#define RLC_LTE_NB_MODE_TAG         0x09
+/* 1 byte containing rlc_lte_nb_mode enum value */
+
 /* RLC PDU. Following this tag comes the actual RLC PDU (there is no length, the PDU
    continues until the end of the frame) */
 #define RLC_LTE_PAYLOAD_TAG         0x01
 
 #endif
 
+/*
+ * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ *
+ * Local variables:
+ * c-basic-offset: 4
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
+ */

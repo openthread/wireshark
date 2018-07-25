@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TO_STR_H__
@@ -26,6 +14,7 @@
 #include <glib.h>
 
 #include "wsutil/nstime.h"
+#include <wsutil/inet_addr.h>
 #include "time_fmt.h"
 #include <epan/packet_info.h>
 #include <epan/ipv6.h>
@@ -33,8 +22,6 @@
 #include "wmem/wmem.h"
 
 #define GUID_STR_LEN     37
-#define MAX_IP_STR_LEN   16
-#define MAX_IP6_STR_LEN  40
 #define MAX_ADDR_STR_LEN 256
 #define VINES_ADDR_LEN   6
 #define EUI64_STR_LEN    24
@@ -92,22 +79,29 @@ WS_DLL_PUBLIC void     address_to_str_buf(const address *addr, gchar *buf, int b
 
 void	ip_to_str_buf(const guint8 *ad, gchar *buf, const int buf_len);
 
-void	ip6_to_str_buf(const struct e_in6_addr *, gchar *);
+/* Returns length of the result. */
+int ip6_to_str_buf(const ws_in6_addr *ad, gchar *buf, int buf_size);
+
+/* Returns length of the result. Takes a prefix to be inserted before the address. */
+int ip6_to_str_buf_with_pfx(const ws_in6_addr *ad, gchar *buf, int buf_size, const char *prefix);
+
 extern gchar*	ipxnet_to_str_punct(wmem_allocator_t *scope, const guint32 ad, const char punct);
 WS_DLL_PUBLIC gchar*	eui64_to_str(wmem_allocator_t *scope, const guint64 ad);
 
-WS_DLL_PUBLIC gchar*	time_secs_to_str(wmem_allocator_t *scope, const gint32 time_val);
-gchar*	time_secs_to_str_unsigned(wmem_allocator_t *scope, const guint32);
-WS_DLL_PUBLIC gchar*	time_msecs_to_str(wmem_allocator_t *scope, gint32 time_val);
 WS_DLL_PUBLIC gchar*	abs_time_to_str(wmem_allocator_t *scope, const nstime_t*, const absolute_time_display_e fmt,
     gboolean show_zone);
 WS_DLL_PUBLIC gchar*	abs_time_secs_to_str(wmem_allocator_t *scope, const time_t, const absolute_time_display_e fmt,
     gboolean show_zone);
-WS_DLL_PUBLIC void	display_signed_time(gchar *, int, const gint32, gint32, const to_str_time_res_t);
 WS_DLL_PUBLIC void	display_epoch_time(gchar *, int, const time_t,  gint32, const to_str_time_res_t);
 
-extern void	guint32_to_str_buf(guint32 u, gchar *buf, int buf_len);
-extern void	guint64_to_str_buf(guint64 u, gchar *buf, int buf_len);
+WS_DLL_PUBLIC void	display_signed_time(gchar *, int, const gint32, gint32, const to_str_time_res_t);
+
+WS_DLL_PUBLIC gchar*	signed_time_secs_to_str(wmem_allocator_t *scope, const gint32 time_val);
+WS_DLL_PUBLIC gchar*	unsigned_time_secs_to_str(wmem_allocator_t *scope, const guint32);
+WS_DLL_PUBLIC gchar*	signed_time_msecs_to_str(wmem_allocator_t *scope, gint32 time_val);
+
+WS_DLL_PUBLIC void guint32_to_str_buf(guint32 u, gchar *buf, int buf_len);
+WS_DLL_PUBLIC void guint64_to_str_buf(guint64 u, gchar *buf, int buf_len);
 
 WS_DLL_PUBLIC gchar*	rel_time_to_str(wmem_allocator_t *scope, const nstime_t*);
 WS_DLL_PUBLIC gchar*	rel_time_to_secs_str(wmem_allocator_t *scope, const nstime_t*);
@@ -140,6 +134,17 @@ WS_DLL_PUBLIC gchar* tvb_address_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, 
  *
  */
 WS_DLL_PUBLIC gchar* tvb_address_var_to_str(wmem_allocator_t *scope, tvbuff_t *tvb, address_type type, const gint offset, int length);
+
+/**
+ * guint8_to_hex()
+ *
+ * Output guint8 hex represetation to 'out', and return pointer after last character (out + 4).
+ * It always output full representation (padded with 0).
+ *
+ * String is not NUL terminated by this routine.
+ * There needs to be at least 2 bytes in the buffer.
+ */
+WS_DLL_PUBLIC char *guint8_to_hex(char *out, guint8 val);
 
 /**
  * word_to_hex()

@@ -32,15 +32,11 @@
 	</avp>
 
 	<!-- 324 Unassigned -->
-	<avp name="Unassigned" code="324" mandatory="may">
-		<type type-name="OctetString"/>
-	</avp>
 	<avp name="MIP-MN-to-FA-MSA" code="325" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
 		<grouped>
 			<gavp name="MIP-MN-AAA-SPI"/>
 			<gavp name="MIP-Algorithm-Type"/>
 			<gavp name="MIP-Nonce"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 	<avp name="MIP-FA-to-MN-MSA" code="326" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
@@ -48,20 +44,15 @@
 			<gavp name="MIP-MN-AAA-SPI"/>
 			<gavp name="MIP-Algorithm-Type"/>
 			<gavp name="MIP-Session-Key"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 
 	<!-- 327 Unassigned -->
-	<avp name="Unassigned" code="327" mandatory="may">
-		<type type-name="OctetString"/>
-	</avp>
 	<avp name="MIP-FA-to-HA-MSA" code="328" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
 		<grouped>
 			<gavp name="MIP-FA-to-HA-SPI"/>
 			<gavp name="MIP-Algorithm-Type"/>
 			<gavp name="MIP-Session-Key"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 	<avp name="MIP-HA-to-FA-MSA" code="329" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
@@ -69,14 +60,10 @@
 			<gavp name="MIP-HA-to-FA-SPI"/>
 			<gavp name="MIP-Algorithm-Type"/>
 			<gavp name="MIP-Session-Key"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 
 	<!-- 330 Unassigned -->
-	<avp name="Unassigned" code="330" mandatory="may">
-		<type type-name="OctetString"/>
-	</avp>
 
 	<avp name="MIP-MN-to-HA-MSA" code="331" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
 		<grouped>
@@ -84,16 +71,13 @@
 			<gavp name="MIP-Algorithm-Type"/>
 			<gavp name="MIP-Session-Key"/>
 			<gavp name="MIP-Nonce"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 	<avp name="MIP-HA-to-MN-MSA" code="332" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
 		<grouped>
-			<gavp name="MIP-HA-to-MN-SPI"/>
 			<gavp name="MIP-Algorithm-Type"/>
 			<gavp name="MIP-Replay-Mode"/>
 			<gavp name="MIP-Session-Key"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 	<avp name="MIP-Mobile-Node-Address" code="333" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="yes">
@@ -155,14 +139,12 @@
 		<grouped>
 			<gavp name="Origin-Realm"/>
 			<gavp name="Origin-Host"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 	<avp name="MIP-Home-Agent-Host" code="348" mandatory="must" protected="may" vendor-bit="mustnot" may-encrypt="no">
 		<grouped>
 			<gavp name="Destination-Realm"/>
 			<gavp name="Destination-Host"/>
-			<gavp name="AVP"/>
 		</grouped>
 	</avp>
 	<!--

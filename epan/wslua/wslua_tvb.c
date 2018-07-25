@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -59,16 +47,19 @@
  *
  */
 
-WSLUA_CLASS_DEFINE(Tvb,FAIL_ON_NULL_OR_EXPIRED("Tvb"),NOP);
+WSLUA_CLASS_DEFINE(Tvb,FAIL_ON_NULL_OR_EXPIRED("Tvb"));
 /* A `Tvb` represents the packet's buffer. It is passed as an argument to listeners and dissectors,
    and can be used to extract information (via `TvbRange`) from the packet's data.
 
    To create a `TvbRange` the `Tvb` must be called with offset and length as optional arguments;
    the offset defaults to 0 and the length to `tvb:len()`.
 
-   @warning Tvbs are usable only by the current listener or dissector call and are destroyed
+   [WARNING]
+   ====
+   Tvbs are usable only by the current listener or dissector call and are destroyed
    as soon as the listener/dissector returns, so references to them are unusable once the function
    has returned.
+   ====
 */
 
 static GPtrArray* outstanding_Tvb = NULL;
@@ -330,7 +321,7 @@ int Tvb_register(lua_State* L) {
 
 
 
-WSLUA_CLASS_DEFINE(TvbRange,FAIL_ON_NULL("TvbRange"),NOP);
+WSLUA_CLASS_DEFINE(TvbRange,FAIL_ON_NULL("TvbRange"));
 /*
   A `TvbRange` represents a usable range of a `Tvb` and is used to extract data from the `Tvb` that generated it.
 
@@ -391,11 +382,10 @@ gboolean push_TvbRange(lua_State* L, tvbuff_t* ws_tvb, int offset, int len) {
 }
 
 
-WSLUA_CONSTRUCTOR TvbRange_tvb (lua_State *L) {
+WSLUA_METHOD TvbRange_tvb(lua_State *L) {
     /* Creates a (sub)`Tvb` from a `TvbRange`. */
-#define WSLUA_ARG_Tvb_new_subset_RANGE 1 /* The `TvbRange` from which to create the new `Tvb`. */
 
-    TvbRange tvbr = checkTvbRange(L,WSLUA_ARG_Tvb_new_subset_RANGE);
+    TvbRange tvbr = checkTvbRange(L,1);
     Tvb tvb;
 
     if (! (tvbr && tvbr->tvb)) return 0;
@@ -408,7 +398,7 @@ WSLUA_CONSTRUCTOR TvbRange_tvb (lua_State *L) {
         tvb = (Tvb)g_malloc(sizeof(struct _wslua_tvb));
         tvb->expired = FALSE;
         tvb->need_free = FALSE;
-        tvb->ws_tvb = tvb_new_subset(tvbr->tvb->ws_tvb,tvbr->offset,tvbr->len, tvbr->len);
+        tvb->ws_tvb = tvb_new_subset_length_caplen(tvbr->tvb->ws_tvb,tvbr->offset,tvbr->len, tvbr->len);
         return push_wsluaTvb(L, tvb);
     } else {
         luaL_error(L,"Out Of Bounds");
@@ -422,7 +412,7 @@ WSLUA_CONSTRUCTOR TvbRange_tvb (lua_State *L) {
  */
 WSLUA_METHOD TvbRange_uint(lua_State* L) {
     /* Get a Big Endian (network order) unsigned integer from a `TvbRange`.
-       The range must be 1, 2, 3 or 4 octets long. */
+       The range must be 1-4 octets long. */
     TvbRange tvbr = checkTvbRange(L,1);
     if (!(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -454,7 +444,7 @@ WSLUA_METHOD TvbRange_uint(lua_State* L) {
  */
 WSLUA_METHOD TvbRange_le_uint(lua_State* L) {
     /* Get a Little Endian unsigned integer from a `TvbRange`.
-       The range must be 1, 2, 3 or 4 octets long. */
+       The range must be 1-4 octets long. */
     TvbRange tvbr = checkTvbRange(L,1);
     if (!(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -575,7 +565,7 @@ WSLUA_METHOD TvbRange_le_uint64(lua_State* L) {
  */
 WSLUA_METHOD TvbRange_int(lua_State* L) {
     /* Get a Big Endian (network order) signed integer from a `TvbRange`.
-       The range must be 1, 2 or 4 octets long. */
+       The range must be 1-4 octets long. */
     TvbRange tvbr = checkTvbRange(L,1);
     if (!(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -585,13 +575,16 @@ WSLUA_METHOD TvbRange_int(lua_State* L) {
 
     switch (tvbr->len) {
         case 1:
-            lua_pushnumber(L,(gchar)tvb_get_guint8(tvbr->tvb->ws_tvb,tvbr->offset));
+            lua_pushnumber(L,tvb_get_gint8(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 2:
-            lua_pushnumber(L,(gshort)tvb_get_ntohs(tvbr->tvb->ws_tvb,tvbr->offset));
+            lua_pushnumber(L,tvb_get_ntohis(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 3:
+            lua_pushnumber(L,tvb_get_ntohi24(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 4:
-            lua_pushnumber(L,(gint)tvb_get_ntohl(tvbr->tvb->ws_tvb,tvbr->offset));
+            lua_pushnumber(L,tvb_get_ntohil(tvbr->tvb->ws_tvb,tvbr->offset));
             WSLUA_RETURN(1); /* The signed integer value */
             /*
              * XXX:
@@ -611,7 +604,7 @@ WSLUA_METHOD TvbRange_int(lua_State* L) {
  */
 WSLUA_METHOD TvbRange_le_int(lua_State* L) {
     /* Get a Little Endian signed integer from a `TvbRange`.
-       The range must be 1, 2 or 4 octets long. */
+       The range must be 1-4 octets long. */
     TvbRange tvbr = checkTvbRange(L,1);
     if (!(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -621,13 +614,16 @@ WSLUA_METHOD TvbRange_le_int(lua_State* L) {
 
     switch (tvbr->len) {
         case 1:
-            lua_pushnumber(L,(gchar)tvb_get_guint8(tvbr->tvb->ws_tvb,tvbr->offset));
+            lua_pushnumber(L,tvb_get_gint8(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 2:
-            lua_pushnumber(L,(gshort)tvb_get_letohs(tvbr->tvb->ws_tvb,tvbr->offset));
+            lua_pushnumber(L,tvb_get_letohis(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 3:
+            lua_pushnumber(L,tvb_get_letohi24(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 4:
-            lua_pushnumber(L,(gint)tvb_get_letohl(tvbr->tvb->ws_tvb,tvbr->offset));
+            lua_pushnumber(L,tvb_get_letohil(tvbr->tvb->ws_tvb,tvbr->offset));
             WSLUA_RETURN(1); /* The signed integer value. */
         default:
             luaL_error(L,"TvbRange:le_int() does not handle %d byte integers",tvbr->len);
@@ -640,7 +636,7 @@ WSLUA_METHOD TvbRange_le_int(lua_State* L) {
  */
 WSLUA_METHOD TvbRange_int64(lua_State* L) {
     /* Get a Big Endian (network order) signed 64 bit integer from a `TvbRange`, as an `Int64` object.
-       The range must be 1, 2, 4 or 8 octets long. */
+       The range must be 1-8 octets long. */
     TvbRange tvbr = checkTvbRange(L,1);
     if (!(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -650,16 +646,28 @@ WSLUA_METHOD TvbRange_int64(lua_State* L) {
 
     switch (tvbr->len) {
         case 1:
-            pushInt64(L,(gint8)tvb_get_guint8(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_gint8(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 2:
-            pushInt64(L,(gint16)tvb_get_ntohs(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_ntohis(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 3:
+            pushInt64(L,tvb_get_ntohi24(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 4:
-            pushInt64(L,(gint32)tvb_get_ntohl(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_ntohil(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 5:
+            pushInt64(L,tvb_get_ntohi40(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 6:
+            pushInt64(L,tvb_get_ntohi48(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 7:
+            pushInt64(L,tvb_get_ntohi56(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 8:
-            pushInt64(L,(gint64)tvb_get_ntoh64(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_ntohi64(tvbr->tvb->ws_tvb,tvbr->offset));
             WSLUA_RETURN(1); /* The `Int64` object. */
         default:
             luaL_error(L,"TvbRange:int64() does not handle %d byte integers",tvbr->len);
@@ -672,7 +680,7 @@ WSLUA_METHOD TvbRange_int64(lua_State* L) {
  */
 WSLUA_METHOD TvbRange_le_int64(lua_State* L) {
     /* Get a Little Endian signed 64 bit integer from a `TvbRange`, as an `Int64` object.
-       The range must be 1, 2, 4 or 8 octets long. */
+       The range must be 1-8 octets long. */
     TvbRange tvbr = checkTvbRange(L,1);
     if (!(tvbr && tvbr->tvb)) return 0;
     if (tvbr->tvb->expired) {
@@ -682,16 +690,28 @@ WSLUA_METHOD TvbRange_le_int64(lua_State* L) {
 
     switch (tvbr->len) {
         case 1:
-            pushInt64(L,(gint8)tvb_get_guint8(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_gint8(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 2:
-            pushInt64(L,(gint16)tvb_get_letohs(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_letohis(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 3:
+            pushInt64(L,tvb_get_letohi24(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 4:
-            pushInt64(L,(gint32)tvb_get_letohl(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_letohil(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 5:
+            pushInt64(L,tvb_get_letohi40(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 6:
+            pushInt64(L,tvb_get_letohi48(tvbr->tvb->ws_tvb,tvbr->offset));
+            return 1;
+        case 7:
+            pushInt64(L,tvb_get_letohi56(tvbr->tvb->ws_tvb,tvbr->offset));
             return 1;
         case 8:
-            pushInt64(L,(gint64)tvb_get_letoh64(tvbr->tvb->ws_tvb,tvbr->offset));
+            pushInt64(L,tvb_get_letohi64(tvbr->tvb->ws_tvb,tvbr->offset));
             WSLUA_RETURN(1); /* The `Int64` object. */
         default:
             luaL_error(L,"TvbRange:le_int64() does not handle %d byte integers",tvbr->len);
@@ -795,6 +815,29 @@ WSLUA_METHOD TvbRange_le_ipv4(lua_State* L) {
     WSLUA_RETURN(1); /* The IPv4 `Address` object. */
 }
 
+WSLUA_METHOD TvbRange_ipv6(lua_State* L) {
+    /* Get an IPv6 Address from a `TvbRange`, as an `Address` object. */
+    TvbRange tvbr = checkTvbRange(L,1);
+    Address addr;
+
+    if ( !(tvbr && tvbr->tvb)) return 0;
+    if (tvbr->tvb->expired) {
+        luaL_error(L,"expired tvb");
+        return 0;
+    }
+
+    if (tvbr->len != 16) {
+        WSLUA_ERROR(TvbRange_ipv6,"The range must be 16 octets long");
+        return 0;
+    }
+
+    addr = g_new(address,1);
+    alloc_address_tvb(NULL,addr,AT_IPv6,16,tvbr->tvb->ws_tvb,tvbr->offset);
+    pushAddress(L,addr);
+
+    WSLUA_RETURN(1); /* The IPv6 `Address` object. */
+}
+
 WSLUA_METHOD TvbRange_ether(lua_State* L) {
     /* Get an Ethernet Address from a `TvbRange`, as an `Address` object. */
     TvbRange tvbr = checkTvbRange(L,1);
@@ -831,6 +874,11 @@ WSLUA_METHOD TvbRange_nstime(lua_State* L) {
         return 0;
     }
 
+    if (encoding & ~ENC_STR_TIME_MASK) {
+        WSLUA_OPTARG_ERROR(TvbRange_nstime, ENCODING, "invalid encoding value");
+        return 0;
+    }
+
     nstime = g_new(nstime_t,1);
 
     if (encoding == 0) {
@@ -847,9 +895,6 @@ WSLUA_METHOD TvbRange_nstime(lua_State* L) {
         }
         pushNSTime(L, nstime);
         lua_pushinteger(L, tvbr->len);
-    }
-    else if (encoding & ~ENC_STR_TIME_MASK) {
-        WSLUA_OPTARG_ERROR(TvbRange_nstime, ENCODING, "invalid encoding value");
     }
     else {
         gint endoff = 0;
@@ -1089,8 +1134,11 @@ WSLUA_METHOD TvbRange_bytes(lua_State* L) {
 
        On failure or error, nil is returned for both return values.
 
-       @note The encoding type of the hex string should also be set, for example
+       [NOTE]
+       ====
+       The encoding type of the hex string should also be set, for example
        `ENC_ASCII` or `ENC_UTF_8`, along with `ENC_STR_HEX`.
+       ====
      */
 #define WSLUA_OPTARG_TvbRange_bytes_ENCODING 2 /* An optional ENC_* encoding value to use */
     TvbRange tvbr = checkTvbRange(L,1);
@@ -1206,7 +1254,7 @@ WSLUA_METHOD TvbRange_uncompress(lua_State* L) {
     /* Obtain an uncompressed TvbRange from a TvbRange */
 #define WSLUA_ARG_TvbRange_uncompress_NAME 2 /* The name to be given to the new data-source. */
     TvbRange tvbr = checkTvbRange(L,1);
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
     const gchar* name = luaL_optstring(L,WSLUA_ARG_TvbRange_uncompress_NAME,"Uncompressed");
     tvbuff_t *uncompr_tvb;
 #endif
@@ -1218,7 +1266,7 @@ WSLUA_METHOD TvbRange_uncompress(lua_State* L) {
         return 0;
     }
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
     uncompr_tvb = tvb_child_uncompress(tvbr->tvb->ws_tvb, tvbr->tvb->ws_tvb, tvbr->offset, tvbr->len);
     if (uncompr_tvb) {
        add_new_data_source (lua_pinfo, uncompr_tvb, name);
@@ -1373,6 +1421,7 @@ WSLUA_METHODS TvbRange_methods[] = {
     WSLUA_CLASS_FNREG(TvbRange,ether),
     WSLUA_CLASS_FNREG(TvbRange,ipv4),
     WSLUA_CLASS_FNREG(TvbRange,le_ipv4),
+    WSLUA_CLASS_FNREG(TvbRange,ipv6),
     WSLUA_CLASS_FNREG(TvbRange,nstime),
     WSLUA_CLASS_FNREG(TvbRange,le_nstime),
     WSLUA_CLASS_FNREG(TvbRange,string),

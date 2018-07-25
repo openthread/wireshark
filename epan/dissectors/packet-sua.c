@@ -12,24 +12,13 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/address_types.h>
 #include <epan/prefs.h>
 #include <epan/sctpppids.h>
 #include <epan/tap.h>
@@ -374,12 +363,15 @@ static guint16 sua_ri;
 static gchar *sua_source_gt;
 static gchar *sua_destination_gt;
 
+static dissector_handle_t sua_handle;
 static dissector_handle_t sua_info_str_handle;
 static dissector_table_t sua_parameter_table;
 static dissector_table_t sccp_ssn_dissector_table;
 static heur_dissector_list_t heur_subdissector_list;
 
 static guint32  message_class, message_type, drn, srn;
+
+static int ss7pc_address_type = -1;
 
 #define INVALID_SSN 0xff
 static guint next_assoc_id = 1;
@@ -436,8 +428,8 @@ sua_assoc(packet_info* pinfo, address* opc, address* dpc, guint src_rn, guint ds
             return &no_sua_assoc;
     }
 
-    opck = opc->type == AT_SS7PC ? mtp3_pc_hash((const mtp3_addr_pc_t *)opc->data) : g_str_hash(address_to_str(wmem_packet_scope(), opc));
-    dpck = dpc->type == AT_SS7PC ? mtp3_pc_hash((const mtp3_addr_pc_t *)dpc->data) : g_str_hash(address_to_str(wmem_packet_scope(), dpc));
+    opck = opc->type == ss7pc_address_type ? mtp3_pc_hash((const mtp3_addr_pc_t *)opc->data) : g_str_hash(address_to_str(wmem_packet_scope(), opc));
+    dpck = dpc->type == ss7pc_address_type ? mtp3_pc_hash((const mtp3_addr_pc_t *)dpc->data) : g_str_hash(address_to_str(wmem_packet_scope(), dpc));
 
     switch (message_type) {
         case MESSAGE_TYPE_CORE:
@@ -2242,9 +2234,9 @@ dissect_sua_message(tvbuff_t *message_tvb, packet_info *pinfo, proto_tree *sua_t
 
   if (set_addresses) {
     if (sua_opc->type)
-      set_address(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) sua_opc);
+      set_address(&pinfo->src, ss7pc_address_type, sizeof(mtp3_addr_pc_t), (guint8 *) sua_opc);
     if (sua_dpc->type)
-      set_address(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) sua_dpc);
+      set_address(&pinfo->dst, ss7pc_address_type, sizeof(mtp3_addr_pc_t), (guint8 *) sua_dpc);
 
     if (sua_source_gt)
       set_address(&pinfo->src, AT_STRINGZ, 1+(int)strlen(sua_source_gt), wmem_strdup(pinfo->pool, sua_source_gt));
@@ -2453,7 +2445,7 @@ proto_register_sua(void)
 
   /* Register the protocol name and description */
   proto_sua = proto_register_protocol("SS7 SCCP-User Adaptation Layer", "SUA", "sua");
-  register_dissector("sua", dissect_sua, proto_sua);
+  sua_handle = register_dissector("sua", dissect_sua, proto_sua);
 
   /* Required function calls to register the header fields and subtrees used */
   proto_register_field_array(proto_sua, hf, array_length(hf));
@@ -2467,7 +2459,7 @@ proto_register_sua(void)
                                  "  This may affect TCAP's ability to recognize which messages belong to which TCAP session.", &set_addresses);
 
   heur_subdissector_list = register_heur_dissector_list("sua", proto_sua);
-  sua_parameter_table = register_dissector_table("sua.prop.tags", "SUA Proprietary Tags", proto_sua, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  sua_parameter_table = register_dissector_table("sua.prop.tags", "SUA Proprietary Tags", proto_sua, FT_UINT16, BASE_DEC);
   sua_tap = register_tap("sua");
 
   assocs = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
@@ -2476,9 +2468,6 @@ proto_register_sua(void)
 void
 proto_reg_handoff_sua(void)
 {
-  dissector_handle_t sua_handle;
-
-  sua_handle = find_dissector("sua");
   /* Do we have an info string dissector ? */
   sua_info_str_handle = find_dissector("sua.infostring");
   dissector_add_uint("sctp.ppi",  SUA_PAYLOAD_PROTOCOL_ID, sua_handle);
@@ -2486,6 +2475,7 @@ proto_reg_handoff_sua(void)
 
   sccp_ssn_dissector_table = find_dissector_table("sccp.ssn");
 
+  ss7pc_address_type = address_type_get_by_name("AT_SS7PC");
 }
 
 /*

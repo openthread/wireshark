@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /* References:
  * BTNR188
@@ -91,6 +79,8 @@ static const value_string dpnss_link_frameType_vals[] = {
 };
 
 static int ett_dpnss_link = -1;
+
+static dissector_handle_t dpnss_link_handle;
 
 /* Code to actually dissect the packets */
 static int
@@ -206,7 +196,7 @@ proto_register_dpnss_link(void)
 	/* Register the protocol name and description */
 	proto_dpnss_link = proto_register_protocol("Digital Private Signalling System No 1 Link Layer",
 						   "DPNSS Link", "dpnss_link");
-	register_dissector("dpnss_link", dissect_dpnss_link, proto_dpnss_link);
+	dpnss_link_handle = register_dissector("dpnss_link", dissect_dpnss_link, proto_dpnss_link);
 
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_dpnss_link, hf, array_length(hf));
@@ -216,9 +206,6 @@ proto_register_dpnss_link(void)
 void
 proto_reg_handoff_dpnss_link(void)
 {
-	dissector_handle_t dpnss_link_handle;
-
-	dpnss_link_handle = find_dissector("dpnss_link");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_DPNSS, dpnss_link_handle);
 
 	dpnss_handle = find_dissector_add_dependency("dpnss", proto_dpnss_link);

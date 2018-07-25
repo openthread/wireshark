@@ -99,7 +99,7 @@
     <string>Copy the tree as CSV</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+C</string>
+    <string notr="true">Ctrl+C</string>
    </property>
   </action>
   <action name="actionCopyAsYAML">
@@ -110,7 +110,7 @@
     <string>Copy the tree as YAML</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+Y</string>
+    <string notr="true">Ctrl+Y</string>
    </property>
   </action>
  </widget>
@@ -118,7 +118,7 @@
   <customwidget>
    <class>DisplayFilterEdit</class>
    <extends>QLineEdit</extends>
-   <header>display_filter_edit.h</header>
+   <header>widgets/display_filter_edit.h</header>
   </customwidget>
  </customwidgets>
  <connections>

@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Edit this file with 4-space tabs */
@@ -34,6 +22,7 @@
 
 #include <epan/packet.h>
 
+#include "packet-http.h"
 
 /*
  * Media dissector for line-based text media like text/plain, message/http.
@@ -59,6 +48,7 @@ dissect_text_lines(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 	proto_item	*ti;
 	gint		offset = 0, next_offset;
 	gint		len;
+	http_message_info_t *message_info;
 	const char	*data_name;
 	int length = tvb_captured_length(tvb);
 
@@ -78,12 +68,20 @@ dissect_text_lines(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 		/*
 		 * No information from "match_string"
 		 */
-		data_name = (char *)data;
-		if (! (data_name && data_name[0])) {
+		message_info = (http_message_info_t *)data;
+		if (message_info == NULL) {
 			/*
 			 * No information from dissector data
 			 */
 			data_name = NULL;
+		} else {
+			data_name = message_info->media_str;
+			if (! (data_name && data_name[0])) {
+				/*
+				 * No information from dissector data
+				 */
+				data_name = NULL;
+			}
 		}
 	}
 
@@ -92,6 +90,7 @@ dissect_text_lines(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 				data_name);
 
 	if (tree) {
+		guint lines_read = 0;
 		ti = proto_tree_add_item(tree, proto_text_lines,
 				tvb, 0, -1, ENC_NA);
 		if (data_name)
@@ -117,8 +116,10 @@ dissect_text_lines(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 			 * line terminator(s) (\r and/or \n) in the display.
 			 */
 			proto_tree_add_format_text(subtree, tvb, offset, next_offset - offset);
+			lines_read++;
 			offset = next_offset;
 		}
+		proto_item_append_text(subtree, " (%u lines)", lines_read);
 	}
 
 	return length;

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * References:
  * http://www.ietf.org/rfc/rfc3984.txt?number=3984      Obsolete
@@ -259,6 +247,8 @@ static expert_field ei_h264_ms_layout_wrong_length = EI_INIT;
 static expert_field ei_h264_bad_nal_length = EI_INIT;
 static expert_field ei_h264_nal_unit_type_reserved = EI_INIT;
 static expert_field ei_h264_nal_unit_type_unspecified = EI_INIT;
+
+static dissector_handle_t h264_name_handle;
 
 /* The dynamic payload type range which will be dissected as H.264 */
 
@@ -1949,7 +1939,7 @@ dissect_h264_pic_parameter_set_rbsp(proto_tree *tree, tvbuff_t *tvb, packet_info
         /* second_chroma_qp_index_offset 1 se(v)*/
         dissect_h264_exp_golomb_code(tree, hf_h264_second_chroma_qp_index_offset, tvb, &bit_offset, H264_SE_V);
     }
-    bit_offset = dissect_h264_rbsp_trailing_bits(tree, tvb, pinfo, bit_offset);
+    dissect_h264_rbsp_trailing_bits(tree, tvb, pinfo, bit_offset);
 }
 
 /*
@@ -2114,7 +2104,7 @@ dissect_h264_pacsi(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, gint off
         else
         {
             /* Make a new subset of the existing buffer for the NAL unit */
-            nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb,offset), nal_unit_size);
+            nalu_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb,offset), nal_unit_size);
             /* Decode the NAL unit */
             dissect_h264(nalu_tvb, pinfo, tree, NULL);
             offset += nal_unit_size;
@@ -2163,7 +2153,7 @@ dissect_h264_stap(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, gint 
         else
         {
             /* Make a new subset of the existing buffer for the NAL unit */
-            nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
+            nalu_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
             /* Decode the NAL unit */
             dissect_h264(nalu_tvb, pinfo, tree, NULL);
             offset += nal_unit_size;
@@ -2220,7 +2210,7 @@ dissect_h264_mtap(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, gint 
         else
         {
             /* Make a new subset of the existing buffer for the NAL unit */
-            nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
+            nalu_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
             /* Decode the NAL unit */
             dissect_h264(nalu_tvb, pinfo, tree, NULL);
             offset += nal_unit_size;
@@ -2286,7 +2276,7 @@ dissect_h264_nalu_extension (proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo
             else
             {
                 /* Make a new subset of the existing buffer for the NAL unit */
-                nalu_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
+                nalu_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), nal_unit_size);
                 /* Decode the NAL unit */
                 dissect_h264(nalu_tvb, pinfo, nimtap_tree, NULL);
                 offset += nal_unit_size;
@@ -2712,12 +2702,12 @@ dissect_h264_name(tvbuff_t *tvb _U_, packet_info *pinfo, proto_tree *tree, void*
 }
 
 
-static void range_delete_h264_rtp_pt_callback(guint32 rtp_pt) {
+static void range_delete_h264_rtp_pt_callback(guint32 rtp_pt, gpointer ptr _U_) {
     if (rtp_pt >= 96 && rtp_pt <= 127)
         dissector_delete_uint("rtp.pt", rtp_pt, h264_handle);
 }
 
-static void range_add_h264_rtp_pt_callback(guint32 rtp_pt) {
+static void range_add_h264_rtp_pt_callback(guint32 rtp_pt, gpointer ptr _U_) {
     if (rtp_pt >= 96 && rtp_pt <= 127)
         dissector_add_uint("rtp.pt", rtp_pt, h264_handle);
 }
@@ -3700,7 +3690,7 @@ proto_register_h264(void)
                             "; Values must be in the range 96 - 127",
                             &temp_dynamic_payload_type_range, 127);
 
-    register_dissector("h264", dissect_h264, proto_h264);
+    h264_handle = register_dissector("h264", dissect_h264, proto_h264);
 }
 
 
@@ -3712,10 +3702,8 @@ proto_reg_handoff_h264(void)
     static gboolean  h264_prefs_initialized     = FALSE;
 
     if (!h264_prefs_initialized) {
-        dissector_handle_t h264_name_handle;
         h264_capability_t *ftr;
 
-        h264_handle = find_dissector("h264");
         dissector_add_string("rtp_dyn_payload_type","H264", h264_handle);
         dissector_add_string("rtp_dyn_payload_type","H264-SVC", h264_handle);
         dissector_add_string("rtp_dyn_payload_type","X-H264UC", h264_handle);
@@ -3729,12 +3717,12 @@ proto_reg_handoff_h264(void)
         }
         h264_prefs_initialized = TRUE;
     } else {
-        range_foreach(dynamic_payload_type_range, range_delete_h264_rtp_pt_callback);
-        g_free(dynamic_payload_type_range);
+        range_foreach(dynamic_payload_type_range, range_delete_h264_rtp_pt_callback, NULL);
+        wmem_free(wmem_epan_scope(), dynamic_payload_type_range);
     }
 
-    dynamic_payload_type_range = range_copy(temp_dynamic_payload_type_range);
-    range_foreach(dynamic_payload_type_range, range_add_h264_rtp_pt_callback);
+    dynamic_payload_type_range = range_copy(wmem_epan_scope(), temp_dynamic_payload_type_range);
+    range_foreach(dynamic_payload_type_range, range_add_h264_rtp_pt_callback, NULL);
 }
 
 /*

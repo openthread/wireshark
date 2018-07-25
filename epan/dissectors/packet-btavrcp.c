@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,7 +16,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/oui.h>
-#include "packet-wap.h"
+#include <epan/iana_charsets.h>
 #include "packet-btl2cap.h"
 #include "packet-btsdp.h"
 #include "packet-btavctp.h"
@@ -216,7 +204,7 @@ static expert_field ei_btavrcp_unexpected_data = EI_INIT;
 
 static dissector_handle_t btavrcp_handle;
 
-#define OPCODE_VENDOR_DEPENDANT 0x00
+#define OPCODE_VENDOR_DEPENDENT 0x00
 #define OPCODE_UNIT             0x30
 #define OPCODE_SUBUNIT          0x31
 #define OPCODE_PASSTHROUGH      0x7C
@@ -345,7 +333,7 @@ static const value_string ctype_vals[] = {
 };
 
 static const value_string opcode_vals[] = {
-    { OPCODE_VENDOR_DEPENDANT,   "Vendor dependent" },
+    { OPCODE_VENDOR_DEPENDENT,   "Vendor dependent" },
     { OPCODE_UNIT,               "Unit Info" },
     { OPCODE_SUBUNIT,            "Subunit Info" },
     { OPCODE_PASSTHROUGH,        "Pass Through" },
@@ -596,6 +584,11 @@ static const value_string player_subtype_vals[] = {
     { 0, NULL }
 };
 
+static const value_string unique_all_supported_attributes[] = {
+    { 0x00,   "All Supported Attributes" },
+    { 0, NULL }
+};
+
 void proto_register_btavrcp(void);
 void proto_reg_handoff_btavrcp(void);
 
@@ -681,8 +674,8 @@ dissect_item_mediaplayer(tvbuff_t *tvb, proto_tree *tree, gint offset)
     proto_tree *features_not_set_tree;
 
     item_length = tvb_get_ntohs(tvb, offset + 1);
-    displayable_name_length = tvb_get_ntohs(tvb, offset + 1 + 2 + 1 + 1 + 4 + 16 + 1 + 2);
-    displayable_name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 1 + 2 + 1 + 1 + 4 + 16 + 1 + 2 + 2, displayable_name_length, ENC_ASCII);
+    displayable_name_length = tvb_get_ntohs(tvb, offset + 1 + 2 + 2 + 1 + 4 + 16 + 1 + 2);
+    displayable_name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 1 + 2 + 2 + 1 + 4 + 16 + 1 + 2 + 2, displayable_name_length, ENC_ASCII);
 
     pitem = proto_tree_add_none_format(tree, hf_btavrcp_player_item, tvb, offset, 1 + 2 + item_length, "Player: %s", displayable_name);
     ptree = proto_item_add_subtree(pitem, ett_btavrcp_player);
@@ -692,14 +685,17 @@ dissect_item_mediaplayer(tvbuff_t *tvb, proto_tree *tree, gint offset)
     proto_tree_add_item(ptree, hf_btavrcp_item_length, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
-    proto_tree_add_item(ptree, hf_btavrcp_player_id, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    proto_tree_add_item(ptree, hf_btavrcp_player_id, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
 
     proto_tree_add_item(ptree, hf_btavrcp_major_player_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
     proto_tree_add_item(ptree, hf_btavrcp_player_subtype, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+
+    proto_tree_add_item(ptree, hf_btavrcp_play_status, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
 
     /* feature bit mask */
     features_item = proto_tree_add_item(ptree, hf_btavrcp_features, tvb, offset, 16, ENC_NA);
@@ -812,9 +808,6 @@ dissect_item_mediaplayer(tvbuff_t *tvb, proto_tree *tree, gint offset)
         proto_tree_add_item((feature_octet & (1 << 7)) ? features_tree : features_not_set_tree, hf_btavrcp_feature_reserved_7, tvb, offset + i_feature, 1, ENC_BIG_ENDIAN);
     }
     offset += 16;
-
-    proto_tree_add_item(ptree, hf_btavrcp_play_status, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
 
     proto_tree_add_item(ptree, hf_btavrcp_character_set, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
@@ -1004,7 +997,7 @@ dissect_subunit(tvbuff_t *tvb, proto_tree *tree, gint offset, gboolean is_comman
 
 
 static gint
-dissect_vendor_dependant(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+dissect_vendor_dependent(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                          gint offset, guint ctype, guint32 *op, guint32 *op_arg,
                          gboolean is_command, avrcp_proto_data_t *avrcp_proto_data)
 {
@@ -1207,7 +1200,7 @@ dissect_vendor_dependant(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     length += data_fragment->length;
                 }
 
-                reassembled = (guint8 *) wmem_alloc(wmem_file_scope(), length);
+                reassembled = (guint8 *) wmem_alloc(pinfo->pool, length);
 
                 for (i_frame = 1; i_frame <= fragment->count; ++i_frame) {
                     data_fragment = (data_fragment_t *)wmem_tree_lookup32_le(fragment->fragments, i_frame);
@@ -1477,9 +1470,8 @@ dissect_vendor_dependant(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 col_append_fstr(pinfo->cinfo, COL_INFO, " - 0x%08X%08X", (guint) (identifier >> 32), (guint) (identifier & 0xFFFFFFFF));
                 if (identifier == 0x00) col_append_str(pinfo->cinfo, COL_INFO, " (PLAYING)");
 
-                pitem = proto_tree_add_item(tree, hf_btavrcp_number_of_attributes, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tree, hf_btavrcp_number_of_attributes, tvb, offset, 1, ENC_BIG_ENDIAN);
                 number_of_attributes = tvb_get_guint8(tvb, offset);
-                if (number_of_attributes == 0) proto_item_append_text(pitem, " (All Supported Attributes)");
                 offset += 1;
                 offset = dissect_attribute_id_list(tvb, tree, offset, number_of_attributes);
             } else {
@@ -1884,7 +1876,7 @@ dissect_browsing(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 guint         folder_name_length;
                 proto_item    *pitem;
                 proto_tree    *ptree;
-                guint8        *folder_name;
+                const guint8  *folder_name;
 
                 proto_tree_add_item(tree, hf_btavrcp_uid_counter, tvb, offset, 2, ENC_BIG_ENDIAN);
                 offset += 2;
@@ -1904,8 +1896,7 @@ dissect_browsing(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     proto_tree_add_item(ptree, hf_btavrcp_folder_name_length, tvb, offset, 2, ENC_BIG_ENDIAN);
                     folder_name_length = tvb_get_ntohs(tvb, offset);
                     offset += 2;
-                    proto_tree_add_item(ptree, hf_btavrcp_folder_name, tvb, offset, folder_name_length, ENC_NA);
-                    folder_name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, folder_name_length, ENC_ASCII);
+                    proto_tree_add_item_ret_string(ptree, hf_btavrcp_folder_name, tvb, offset, folder_name_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &folder_name);
                     offset += folder_name_length;
                     proto_item_append_text(pitem, "%s/", folder_name);
                     col_append_fstr(pinfo->cinfo, COL_INFO, "%s/", folder_name);
@@ -2005,7 +1996,6 @@ dissect_browsing(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 guint64     uid;
                 guint       uid_counter;
                 guint       scope;
-                proto_item  *pitem = NULL;
 
                 proto_tree_add_item(tree, hf_btavrcp_scope, tvb, offset, 1, ENC_BIG_ENDIAN);
                 scope = tvb_get_guint8(tvb, offset);
@@ -2016,13 +2006,12 @@ dissect_browsing(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 proto_tree_add_item(tree, hf_btavrcp_uid_counter, tvb, offset, 2, ENC_BIG_ENDIAN);
                 uid_counter = tvb_get_ntohs(tvb, offset);
                 offset += 2;
-                pitem = proto_tree_add_item(tree, hf_btavrcp_number_of_attributes, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(tree, hf_btavrcp_number_of_attributes, tvb, offset, 1, ENC_BIG_ENDIAN);
                 number_of_attributes = tvb_get_guint8(tvb, offset);
 
                 col_append_fstr(pinfo->cinfo, COL_INFO, " - Scope: %s, Uid: 0x%016" G_GINT64_MODIFIER "x, UidCounter: 0x%04x",
                         val_to_str_const(scope, scope_vals, "unknown"), uid, uid_counter);
 
-                if (number_of_attributes == 0) proto_item_append_text(pitem, " (All Supported Attributes)");
                 offset += 1;
                 offset = dissect_attribute_id_list(tvb, tree, offset, number_of_attributes);
             } else {
@@ -2151,8 +2140,8 @@ dissect_btavrcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             case OPCODE_SUBUNIT:
                 offset = dissect_subunit(tvb, btavrcp_tree, offset, is_command);
                 break;
-            case OPCODE_VENDOR_DEPENDANT:
-                offset = dissect_vendor_dependant(tvb, pinfo, btavrcp_tree,
+            case OPCODE_VENDOR_DEPENDENT:
+                offset = dissect_vendor_dependent(tvb, pinfo, btavrcp_tree,
                         offset, ctype, &op, &op_arg, is_command, &avrcp_proto_data);
                 break;
         };
@@ -2338,7 +2327,7 @@ proto_register_btavrcp(void)
         },
         { &hf_btavrcp_company_id,
             { "Company ID",                      "btavrcp.company_id",
-            FT_UINT24, BASE_HEX, VALS(oui_vals), 0x00,
+            FT_UINT24, BASE_OUI, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_btavrcp_passthrough_state,
@@ -2363,7 +2352,7 @@ proto_register_btavrcp(void)
         },
         { &hf_btavrcp_passthrough_company_id,
             { "Company ID",                      "btavrcp.passthrough.company_id",
-            FT_UINT24, BASE_HEX, VALS(oui_vals), 0x00,
+            FT_UINT24, BASE_OUI, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_btavrcp_unit_unknown,
@@ -2443,7 +2432,7 @@ proto_register_btavrcp(void)
         },
         { &hf_btavrcp_character_set,
             { "Character Set",                   "btavrcp.character_set",
-            FT_UINT16, BASE_HEX|BASE_EXT_STRING, &wap_mib_enum_vals_character_sets_ext, 0x00,
+            FT_UINT16, BASE_DEC|BASE_EXT_STRING, &mibenum_vals_character_sets_ext, 0x00,
             NULL, HFILL }
         },
         { &hf_btavrcp_number_of_items,
@@ -2468,7 +2457,7 @@ proto_register_btavrcp(void)
         },
         { &hf_btavrcp_folder_name,
             { "Folder Name",                    "btavrcp.folder_name",
-            FT_NONE, BASE_NONE, NULL, 0x00,
+            FT_STRING, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_btavrcp_search_length,
@@ -2483,7 +2472,7 @@ proto_register_btavrcp(void)
         },
         { &hf_btavrcp_number_of_attributes,
             { "Number of Attributes",            "btavrcp.number_of_attributes",
-            FT_UINT8, BASE_DEC, NULL, 0x00,
+            FT_UINT8, BASE_DEC|BASE_SPECIAL_VALS, VALS(unique_all_supported_attributes), 0x00,
             NULL, HFILL }
         },
         { &hf_btavrcp_attribute_count,
@@ -3133,6 +3122,8 @@ proto_register_btavrcp(void)
         &ett_btavrcp_attribute_entries,
         &ett_btavrcp_element,
         &ett_btavrcp_player,
+        &ett_btavrcp_features,
+        &ett_btavrcp_features_not_used,
         &ett_btavrcp_folder,
         &ett_btavrcp_path,
     };
@@ -3155,7 +3146,7 @@ proto_register_btavrcp(void)
     expert_btavrcp = expert_register_protocol(proto_btavrcp);
     expert_register_field_array(expert_btavrcp, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_btavrcp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btavrcp, NULL);
     prefs_register_static_text_preference(module, "avrcp.version",
             "Bluetooth Profile AVRCP version: 1.5",
             "Version of profile supported by this dissector.");

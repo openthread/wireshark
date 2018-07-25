@@ -23,7 +23,7 @@
    <item>
     <widget class="QTabWidget" name="tabWidget">
      <property name="currentIndex">
-      <number>2</number>
+      <number>0</number>
      </property>
      <widget class="QWidget" name="localTab">
       <property name="toolTip">
@@ -34,7 +34,7 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout">
        <item>
-        <widget class="QTreeWidget" name="localList">
+        <widget class="QTreeView" name="localView">
          <property name="focusPolicy">
           <enum>Qt::NoFocus</enum>
          </property>
@@ -50,26 +50,6 @@
          <property name="itemsExpandable">
           <bool>false</bool>
          </property>
-         <column>
-          <property name="text">
-           <string>Show</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Friendly Name</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Interface Name</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Comment</string>
-          </property>
-         </column>
         </widget>
        </item>
       </layout>
@@ -83,7 +63,7 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_2">
        <item>
-        <widget class="QTreeWidget" name="pipeList">
+        <widget class="QTreeView" name="pipeView">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
            <horstretch>0</horstretch>
@@ -111,11 +91,6 @@
          <property name="itemsExpandable">
           <bool>false</bool>
          </property>
-         <column>
-          <property name="text">
-           <string>Named Pipe Path</string>
-          </property>
-         </column>
         </widget>
        </item>
        <item>
@@ -129,7 +104,7 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset resource="../../image/toolbar.qrc">
+            <iconset resource="../../image/stock_icons.qrc">
              <normaloff>:/stock/plus-8.png</normaloff>:/stock/plus-8.png</iconset>
            </property>
           </widget>
@@ -143,7 +118,7 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset resource="../../image/toolbar.qrc">
+            <iconset resource="../../image/stock_icons.qrc">
              <normaloff>:/stock/minus-8.png</normaloff>:/stock/minus-8.png</iconset>
            </property>
           </widget>
@@ -198,7 +173,7 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset resource="../../image/toolbar.qrc">
+            <iconset resource="../../image/stock_icons.qrc">
              <normaloff>:/stock/plus-8.png</normaloff>:/stock/plus-8.png</iconset>
            </property>
           </widget>
@@ -212,7 +187,7 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset resource="../../image/toolbar.qrc">
+            <iconset resource="../../image/stock_icons.qrc">
              <normaloff>:/stock/minus-8.png</normaloff>:/stock/minus-8.png</iconset>
            </property>
           </widget>
@@ -263,7 +238,7 @@
   </layout>
  </widget>
  <resources>
-  <include location="../../image/toolbar.qrc"/>
+  <include location="../../image/stock_icons.qrc"/>
  </resources>
  <connections>
   <connection>

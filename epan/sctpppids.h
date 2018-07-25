@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __SCTPPPIDS_H__
@@ -89,5 +77,12 @@
 #define PROTO_3GPP_PUA_PAYLOAD_PROTOCOL_ID             55
 #define WEBRTC_STRING_EMPTY_PAYLOAD_PROTOCOL_ID        56
 #define WEBRTC_BINARY_EMPTY_PAYLOAD_PROTOCOL_ID        57
+#define XWAP_PROTOCOL_ID                               58
+#define XW_CONTROL_PLANE_PROTOCOL_ID                   59
+#define NGAP_PROTOCOL_ID                               60
+#define XNAP_PROTOCOL_ID                               61
+#define F1AP_PROTOCOL_ID                               62
+#define HTTP_SCTP_PROTOCOL_ID                          63
+#define E1AP_PROTOCOL_ID                               64
 
 #endif /* sctpppids.h */

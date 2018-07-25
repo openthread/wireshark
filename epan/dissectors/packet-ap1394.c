@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -121,12 +109,15 @@ void
 proto_reg_handoff_ap1394(void)
 {
   dissector_handle_t ap1394_handle;
+  capture_dissector_handle_t ap1394_cap_handle;
 
   ethertype_subdissector_table = find_dissector_table("ethertype");
 
   ap1394_handle = create_dissector_handle(dissect_ap1394, proto_ap1394);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_APPLE_IP_OVER_IEEE1394, ap1394_handle);
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_APPLE_IP_OVER_IEEE1394, capture_ap1394, proto_ap1394);
+
+  ap1394_cap_handle = create_capture_dissector_handle(capture_ap1394, proto_ap1394);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_APPLE_IP_OVER_IEEE1394, ap1394_cap_handle);
 }
 
 /*

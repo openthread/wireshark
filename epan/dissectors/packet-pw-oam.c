@@ -1,31 +1,20 @@
 /* packet-pw-oam.c
-*
-* Routines for Pseudowire Status for static pseudowires : RFC 6478
-*
-* (c) Copyright 2012, Krishnamurthy Mayya <krishnamurthymayya@gmail.com>
-*                     Nikitha Malgi <nikitha01@gmail.com>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998 Gerald Combs
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ *
+ * Routines for Pseudowire Status for static pseudowires : RFC 6478
+ *
+ * (c) Copyright 2012, Krishnamurthy Mayya <krishnamurthymayya@gmail.com>
+ *                     Nikitha Malgi <nikitha01@gmail.com>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
 #include "config.h"
 #include <epan/packet.h>
+#include "packet-mpls.h"
 
 void proto_register_pw_oam(void);
 void proto_reg_handoff_pw_oam(void);
@@ -207,7 +196,7 @@ proto_reg_handoff_pw_oam(void)
   dissector_handle_t pw_oam_handle;
 
   pw_oam_handle = create_dissector_handle( dissect_pw_oam, proto_pw_oam );
-  dissector_add_uint("pwach.channel_type", 0x0027, pw_oam_handle); /* KM: MPLSTP PW-OAM, RFC 6478 */
+  dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_PW_OAM, pw_oam_handle);
 }
 
 /*

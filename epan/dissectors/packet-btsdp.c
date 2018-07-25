@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -35,6 +23,7 @@
 #include <epan/prefs.h>
 #include <epan/etypes.h>
 #include <epan/to_str.h>
+#include <epan/iana_charsets.h>
 
 #include "packet-btsdp.h"
 #include "packet-btl2cap.h"
@@ -195,6 +184,7 @@ static gint hf_hdp_supported_features_data_mdep_role                       = -1;
 static gint hf_hdp_supported_features_data_mdep_description                = -1;
 static gint hf_hdp_supported_features_mdep_id                              = -1;
 static gint hf_hdp_supported_features_mdep_data_type                       = -1;
+static gint hf_hdp_supported_features_mdep_data_type_01                    = -1;
 static gint hf_hdp_supported_features_mdep_role                            = -1;
 static gint hf_hdp_supported_features_mdep_description                     = -1;
 static gint hf_pan_sercurity_description                                   = -1;
@@ -945,6 +935,38 @@ static const value_string hdp_mdep_role_vals[] = {
     { 0, NULL }
 };
 
+static const value_string hdp_mdep_data_type_01_vals[] = {
+    { 0x1004,   "Pulse Oximeter" },
+    { 0x1006,   "Basic ECG" },
+    { 0x1007,   "Blood Pressure Monitor" },
+    { 0x1008,   "Body Thermometer" },
+    { 0x100F,   "Body Weight Scale" },
+    { 0x1011,   "Glucose Meter" },
+    { 0x1012,   "International Normalized Ratio Monitor" },
+    { 0x1014,   "Body Composition Analyzer" },
+    { 0x1015,   "Peak Flow Monitor" },
+    { 0x1029,   "Cardiovascular Fitness and Activity Monitor" },
+    { 0x102A,   "Strength Fitness Equipment" },
+    { 0x1047,   "Independent Living Activity Hub" },
+    { 0x1048,   "Medication monitor" },
+    { 0x1068,   "Step Counter based on 10441" },
+    { 0x1075,   "Fall Sensor" },
+    { 0x1076,   "Personal Emergency Response Sensor" },
+    { 0x1077,   "Smoke Sensor" },
+    { 0x1078,   "Carbon Monoxide Sensor" },
+    { 0x1079,   "Water Sensor" },
+    { 0x107A,   "Gas Sensor" },
+    { 0x107B,   "Motion Sensor" },
+    { 0x107C,   "Property Exit Sensor" },
+    { 0x107D,   "Enuresis Sensor" },
+    { 0x107E,   "Contact Closure Sensor" },
+    { 0x107F,   "Usage Sensor" },
+    { 0x1080,   "Switch Sensor" },
+    { 0x1081,   "Medication Dosing Sensor" },
+    { 0x1082,   "Temperature Sensor" },
+    { 0, NULL }
+};
+
 static const value_string pan_security_description_vals[] = {
     { 0x0000,   "None" },
     { 0x0001,   "Service-level Enforced Security" },
@@ -1090,7 +1112,6 @@ static const value_string vs_data_element_type[] = {
 };
 
 extern value_string_ext ext_psm_vals;
-extern value_string_ext wap_mib_enum_vals_character_sets_ext;
 extern value_string_ext usb_langid_vals_ext;
 
 void proto_register_btsdp(void);
@@ -1905,10 +1926,9 @@ dissect_data_element(proto_tree *tree, proto_tree **next_tree,
     return offset;
 }
 
-
 static gint
-findDidVendorIdSource(tvbuff_t *tvb, gint service_offset,
-        gint number_of_attributes)
+findUintAttribute(tvbuff_t *tvb, gint service_offset,
+        gint number_of_attributes, gint attribute_id)
 {
     gint result = 0;
     gint search_length;
@@ -1926,38 +1946,7 @@ findDidVendorIdSource(tvbuff_t *tvb, gint service_offset,
         search_offset += search_length;
         search_offset = get_type_length(tvb, search_offset, &search_length);
 
-        if (attribute == 0x205) {
-            result = get_uint_by_size(tvb, search_offset, 1);
-        }
-
-        search_offset += search_length;
-        i_number_of_attributes += 1;
-    }
-
-    return result;
-}
-
-static gint
-findDidVendorId(tvbuff_t *tvb, gint service_offset,
-        gint number_of_attributes)
-{
-    gint result = 0;
-    gint search_length;
-    gint search_offset;
-    gint i_number_of_attributes;
-    guint16 attribute;
-
-    search_offset = service_offset;
-    i_number_of_attributes = 0;
-
-    while (i_number_of_attributes < number_of_attributes) {
-        search_offset = get_type_length(tvb, search_offset, &search_length);
-        attribute = tvb_get_ntohs(tvb, search_offset);
-
-        search_offset += search_length;
-        search_offset = get_type_length(tvb, search_offset, &search_length);
-
-        if (attribute == 0x201) {
+        if (attribute == attribute_id) {
             result = get_uint_by_size(tvb, search_offset, 1);
         }
 
@@ -2113,6 +2102,7 @@ static gint
 dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         gint offset, gint attribute, bluetooth_uuid_t service_uuid,
         gint service_did_vendor_id, gint service_did_vendor_id_source,
+        gint service_hdp_data_exchange_specification,
         service_info_t  *service_info, wmem_strbuf_t **pinfo_buf)
 {
     proto_tree    *feature_tree;
@@ -2145,7 +2135,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
     guint          i_feature;
     guint          i_protocol;
     guint16        psm;
-    guint8        *new_str;
+    const guint8  *new_str;
     guint32        value;
     guint64        value_64;
     bluetooth_uuid_t uuid;
@@ -2525,23 +2515,19 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         case BTSDP_HCRP_SCAN_SERVICE_UUID:
             switch (attribute) {
                 case 0x300:
-                    proto_tree_add_item(next_tree, hf_hcrp_1284_id, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_hcrp_1284_id, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x302:
-                    proto_tree_add_item(next_tree, hf_hcrp_device_name, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_hcrp_device_name, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x304:
-                    proto_tree_add_item(next_tree, hf_hcrp_friendly_name, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_hcrp_friendly_name, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x306:
-                    proto_tree_add_item(next_tree, hf_hcrp_device_location, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_hcrp_device_location, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 default:
@@ -2561,8 +2547,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, val_to_str_const(value, wap_gateway_vals, "Unknown"));
                     break;
                 case 0x308:
-                    proto_tree_add_item(next_tree, hf_wap_homepage_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_wap_homepage_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x309:
@@ -2607,7 +2592,10 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                         new_offset = get_type_length(tvb, entry_offset, &length);
                         proto_item_set_len(entry_item, (new_offset - entry_offset) + length);
                         entry_offset = new_offset;
-                        proto_tree_add_item(next_tree, hf_hdp_supported_features_mdep_data_type, tvb, entry_offset, 2, ENC_BIG_ENDIAN);
+                        if (service_hdp_data_exchange_specification == 0x01)
+                            proto_tree_add_item(next_tree, hf_hdp_supported_features_mdep_data_type_01, tvb, entry_offset, 2, ENC_BIG_ENDIAN);
+                        else
+                            proto_tree_add_item(next_tree, hf_hdp_supported_features_mdep_data_type, tvb, entry_offset, 2, ENC_BIG_ENDIAN);
                         value = tvb_get_ntohs(tvb, entry_offset);
                         proto_item_append_text(entry_item, ": %u (0x%04x)", value, value);
                         entry_offset += length;
@@ -2626,6 +2614,8 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                         entry_offset += length;
 
                         if (entry_length - (entry_offset - list_offset) > 0) {
+                            const guint8* entry_str;
+
                             entry_item = proto_tree_add_item(sub_tree, hf_hdp_supported_features_data_mdep_description, tvb, entry_offset, entry_length, ENC_NA);
                             entry_tree = proto_item_add_subtree(entry_item, ett_btsdp_supported_features_mdep_description);
 
@@ -2633,8 +2623,9 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                             new_offset = get_type_length(tvb, entry_offset, &length);
                             proto_item_set_len(entry_item, (new_offset - entry_offset) + length);
                             entry_offset = new_offset;
-                            proto_tree_add_item(next_tree, hf_hdp_supported_features_mdep_description, tvb, entry_offset, length, ENC_ASCII | ENC_NA);
-                            proto_item_append_text(entry_item, ": %s", tvb_get_string_enc(wmem_packet_scope(), tvb, entry_offset, length, ENC_ASCII));
+                            proto_tree_add_item_ret_string(next_tree, hf_hdp_supported_features_mdep_description, tvb, entry_offset, length,
+                                                            ENC_ASCII | ENC_NA, wmem_packet_scope(), &entry_str);
+                            proto_item_append_text(entry_item, ": %s", entry_str);
                             entry_offset += length;
                         }
 
@@ -2675,13 +2666,11 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     break;
                 case 0x30D:
                 case 0x200:
-                    proto_tree_add_item(next_tree, hf_pan_ipv4_subnet, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_pan_ipv4_subnet, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x30E:
-                    proto_tree_add_item(next_tree, hf_pan_ipv6_subnet, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_pan_ipv6_subnet, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 default:
@@ -2707,13 +2696,11 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     break;
                 case 0x30D:
                 case 0x200:
-                    proto_tree_add_item(next_tree, hf_pan_ipv4_subnet, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_pan_ipv4_subnet, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x30E:
-                    proto_tree_add_item(next_tree, hf_pan_ipv6_subnet, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_pan_ipv6_subnet, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 default:
@@ -2764,8 +2751,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, supported_features ? "true" : "false");
                     break;
                 case 0x306:
-                    proto_tree_add_item(next_tree, hf_dun_escape_sequence, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_dun_escape_sequence, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 default:
@@ -3133,8 +3119,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         case BTSDP_BPP_REFERENCE_PRINTING_SERVICE_UUID:
             switch (attribute) {
                 case 0x350:
-                    proto_tree_add_item(next_tree, hf_bpp_document_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_document_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x352:
@@ -3143,8 +3128,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x354:
-                    proto_tree_add_item(next_tree, hf_bpp_xhtml_print_image_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_xhtml_print_image_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x356:
@@ -3153,18 +3137,15 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, value ? "true" : "false");
                     break;
                 case 0x358:
-                    proto_tree_add_item(next_tree, hf_bpp_1284_id, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_1284_id, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x35A:
-                    proto_tree_add_item(next_tree, hf_bpp_printer_name, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_printer_name, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x35C:
-                    proto_tree_add_item(next_tree, hf_bpp_printer_location, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_printer_location, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x35E:
@@ -3173,8 +3154,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, value ? "true" : "false");
                     break;
                 case 0x360:
-                    proto_tree_add_item(next_tree, hf_bpp_media_types_supported, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_media_types_supported, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x362:
@@ -3193,8 +3173,7 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, value ? "true" : "false");
                     break;
                 case 0x368:
-                    proto_tree_add_item(next_tree, hf_bpp_rui_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_rui_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x370:
@@ -3208,18 +3187,15 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     wmem_strbuf_append(info_buf, value ? "true" : "false");
                     break;
                 case 0x374:
-                    proto_tree_add_item(next_tree, hf_bpp_reference_printing_top_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_reference_printing_top_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x376:
-                    proto_tree_add_item(next_tree, hf_bpp_direct_printing_top_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_direct_printing_top_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x37A:
-                    proto_tree_add_item(next_tree, hf_bpp_device_name, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_device_name, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 default:
@@ -3229,13 +3205,11 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         case BTSDP_BPP_REFLECTED_UI_SERVICE_UUID:
             switch (attribute) {
                 case 0x368:
-                    proto_tree_add_item(next_tree, hf_bpp_rui_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_rui_formats_supported, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 case 0x378:
-                    proto_tree_add_item(next_tree, hf_bpp_printer_admin_rui_top_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-                    new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+                    proto_tree_add_item_ret_string(next_tree, hf_bpp_printer_admin_rui_top_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                     wmem_strbuf_append(info_buf, new_str);
                     break;
                 default:
@@ -3357,17 +3331,16 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
 
                 dissect_data_element(entry_tree, &sub_tree, pinfo, tvb, list_offset);
                 list_offset = get_type_length(tvb, list_offset, &entry_length);
-                new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, list_offset, entry_length, ENC_ASCII);
+                proto_tree_add_item_ret_string(sub_tree, hf_sdp_lang_code, tvb, list_offset, entry_length, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
                 wmem_strbuf_append_printf(info_buf, "Lang: %s", new_str);
                 proto_item_append_text(entry_item, ": Lang: %s", new_str);
-                proto_tree_add_item(sub_tree, hf_sdp_lang_code, tvb, list_offset, entry_length, ENC_ASCII | ENC_NA);
                 list_offset += entry_length;
 
                 dissect_data_element(entry_tree, &sub_tree, pinfo, tvb, list_offset);
                 list_offset = get_type_length(tvb, list_offset, &entry_length);
                 value = tvb_get_ntohs(tvb, list_offset);
-                wmem_strbuf_append_printf(info_buf, ", Encoding: %s", val_to_str_ext_const(value, &wap_mib_enum_vals_character_sets_ext, "Unknown"));
-                proto_item_append_text(entry_item, ", Encoding: %s", val_to_str_ext_const(value, &wap_mib_enum_vals_character_sets_ext, "Unknown"));
+                wmem_strbuf_append_printf(info_buf, ", Encoding: %s", val_to_str_ext_const(value, &mibenum_vals_character_sets_ext, "Unknown"));
+                proto_item_append_text(entry_item, ", Encoding: %s", val_to_str_ext_const(value, &mibenum_vals_character_sets_ext, "Unknown"));
                 proto_tree_add_item(sub_tree, hf_sdp_lang_encoding, tvb, list_offset, 2, ENC_BIG_ENDIAN);
                 list_offset += entry_length;
 
@@ -3434,18 +3407,15 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
             }
             break;
         case 0x00A:
-            proto_tree_add_item(next_tree, hf_sdp_service_documentation_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-            new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+            proto_tree_add_item_ret_string(next_tree, hf_sdp_service_documentation_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
             wmem_strbuf_append(info_buf, new_str);
             break;
         case 0x00B:
-            proto_tree_add_item(next_tree, hf_sdp_service_client_executable_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-            new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+            proto_tree_add_item_ret_string(next_tree, hf_sdp_service_client_executable_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
             wmem_strbuf_append(info_buf, new_str);
             break;
         case 0x00C:
-            proto_tree_add_item(next_tree, hf_sdp_service_icon_url, tvb, offset, size, ENC_ASCII | ENC_NA);
-            new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+            proto_tree_add_item_ret_string(next_tree, hf_sdp_service_icon_url, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
             wmem_strbuf_append(info_buf, new_str);
             break;
         case 0x00D:
@@ -3472,18 +3442,15 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
             }
             break;
         case 0x100:
-            proto_tree_add_item(next_tree, hf_sdp_service_name, tvb, offset, size, ENC_ASCII | ENC_NA);
-            new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+            proto_tree_add_item_ret_string(next_tree, hf_sdp_service_name, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
             wmem_strbuf_append(info_buf, new_str);
             break;
         case 0x101:
-            proto_tree_add_item(next_tree, hf_sdp_service_description, tvb, offset, size, ENC_ASCII | ENC_NA);
-            new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+            proto_tree_add_item_ret_string(next_tree, hf_sdp_service_description, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
             wmem_strbuf_append(info_buf, new_str);
             break;
         case 0x102:
-            proto_tree_add_item(next_tree, hf_sdp_service_provider_name, tvb, offset, size, ENC_ASCII | ENC_NA);
-            new_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+            proto_tree_add_item_ret_string(next_tree, hf_sdp_service_provider_name, tvb, offset, size, ENC_ASCII | ENC_NA, wmem_packet_scope(), &new_str);
             wmem_strbuf_append(info_buf, new_str);
             break;
         default:
@@ -3514,9 +3481,9 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         break;
     case 8: /* fall through */
     case 4: {
-        gchar *ptr = (gchar*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+        const guint8 *ptr;
 
-        proto_tree_add_item(next_tree, (type == 8) ? hf_data_element_value_url : hf_data_element_value_string, tvb, offset, size, ENC_NA | ENC_ASCII);
+        proto_tree_add_item_ret_string(next_tree, (type == 8) ? hf_data_element_value_url : hf_data_element_value_string, tvb, offset, size, ENC_NA | ENC_ASCII, wmem_packet_scope(), &ptr);
         wmem_strbuf_append_printf(info_buf, "%s ", ptr);
         break;
     }
@@ -3548,7 +3515,9 @@ dissect_sdp_type(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                 first = 0;
             }
 
-            size = dissect_sdp_type(st, pinfo, tvb, offset, attribute, service_uuid, service_did_vendor_id, service_did_vendor_id_source, service_info, &substr);
+            size = dissect_sdp_type(st, pinfo, tvb, offset, attribute, service_uuid,
+                    service_did_vendor_id, service_did_vendor_id_source,
+                    service_hdp_data_exchange_specification, service_info, &substr);
             if (size < 1) {
                 break;
             }
@@ -3584,6 +3553,7 @@ dissect_sdp_service_attribute(proto_tree *tree, tvbuff_t *tvb, gint offset,
     guint16              id;
     gint                 service_did_vendor_id = -1;
     gint                 service_did_vendor_id_source = -1;
+    gint                 service_hdp_data_exchange_specification = -1;
     gint                 hfx_attribute_id = hf_service_attribute_id_generic;
     const value_string  *name_vals = NULL;
     const guint8        *profile_speficic = "";
@@ -3601,8 +3571,8 @@ dissect_sdp_service_attribute(proto_tree *tree, tvbuff_t *tvb, gint offset,
             profile_speficic = "(DID) ";
 
             if (number_of_attributes > 1) {
-                service_did_vendor_id_source = findDidVendorIdSource(tvb, service_offset, number_of_attributes);
-                service_did_vendor_id = findDidVendorId(tvb, service_offset, number_of_attributes);
+                service_did_vendor_id_source = findUintAttribute(tvb, service_offset, number_of_attributes, 0x205);
+                service_did_vendor_id = findUintAttribute(tvb, service_offset, number_of_attributes, 0x201);
             }
             break;
         case BTSDP_HID_SERVICE_UUID:
@@ -3664,6 +3634,10 @@ dissect_sdp_service_attribute(proto_tree *tree, tvbuff_t *tvb, gint offset,
             name_vals = vs_hdp_attribute_id;
             hfx_attribute_id = hf_service_attribute_id_hdp;
             profile_speficic = "(HDP) ";
+
+            if (number_of_attributes > 1) {
+                service_hdp_data_exchange_specification = findUintAttribute(tvb, service_offset, number_of_attributes, 0x301);
+            }
             break;
         case BTSDP_HSP_SERVICE_UUID:
         case BTSDP_HSP_HS_SERVICE_UUID:
@@ -3819,7 +3793,9 @@ dissect_sdp_service_attribute(proto_tree *tree, tvbuff_t *tvb, gint offset,
             attribute_value_tree = proto_item_add_subtree(attribute_value_item, ett_btsdp_attribute_value);
 
             dissect_sdp_type(attribute_value_tree, pinfo, tvb, offset, id, uuid,
-                    service_did_vendor_id, service_did_vendor_id_source, service_info, &attribute_value);
+                    service_did_vendor_id, service_did_vendor_id_source,
+                    service_hdp_data_exchange_specification, service_info,
+                    &attribute_value);
             old_offset = offset;
             offset = get_type_length(tvb, offset, &size);
             proto_item_append_text(attribute_item, ", value = %s", wmem_strbuf_get_str(attribute_value));
@@ -4098,7 +4074,7 @@ dissect_sdp_service_search_request(proto_tree *tree, tvbuff_t *tvb, gint offset,
         gint            entry_size;
         bluetooth_uuid_t uuid;
 
-        size = dissect_sdp_type(sub_tree, pinfo, tvb, offset, -1, empty_uuid, 0, 0, NULL, &str);
+        size = dissect_sdp_type(sub_tree, pinfo, tvb, offset, -1, empty_uuid, 0, 0, -1, NULL, &str);
 
         entry_offset = get_type_length(tvb, offset, &entry_size);
         dissect_uuid(NULL, tvb, entry_offset, entry_size, &uuid);
@@ -4106,7 +4082,7 @@ dissect_sdp_service_search_request(proto_tree *tree, tvbuff_t *tvb, gint offset,
             wmem_array_append_one(uuid_array, uuid);
 
         proto_item_append_text(ti, " %s", wmem_strbuf_get_str(str));
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", wmem_strbuf_get_str(str));
+        col_append_str(pinfo->cinfo, COL_INFO, wmem_strbuf_get_str(str));
 
         if (size < 1)
             break;
@@ -4394,9 +4370,9 @@ dissect_sdp_service_search_attribute_request(proto_tree *tree, tvbuff_t *tvb,
 
         memset(&a_uuid, 0, sizeof(bluetooth_uuid_t));
 
-        size = dissect_sdp_type(next_tree, pinfo, tvb, offset, -1, empty_uuid, 0, 0, NULL, &info_buf);
+        size = dissect_sdp_type(next_tree, pinfo, tvb, offset, -1, empty_uuid, 0, 0, -1, NULL, &info_buf);
         proto_item_append_text(pitem,"%s", wmem_strbuf_get_str(info_buf));
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", wmem_strbuf_get_str(info_buf));
+        col_append_str(pinfo->cinfo, COL_INFO, wmem_strbuf_get_str(info_buf));
 
         entry_offset = get_type_length(tvb, offset, &entry_size);
         dissect_uuid(NULL, tvb, entry_offset, entry_size, &a_uuid);
@@ -4407,7 +4383,7 @@ dissect_sdp_service_search_attribute_request(proto_tree *tree, tvbuff_t *tvb,
         bytes_to_go -= size;
     }
 
-    col_append_fstr(pinfo->cinfo, COL_INFO, ": ");
+    col_append_str(pinfo->cinfo, COL_INFO, ": ");
 
     proto_tree_add_item(tree, hf_maximum_attribute_byte_count, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
@@ -5412,6 +5388,11 @@ proto_register_btsdp(void)
             FT_UINT8, BASE_DEC_HEX|BASE_RANGE_STRING, RVALS(hdp_mdep_id_rvals), 0,
             NULL, HFILL }
         },
+        { &hf_hdp_supported_features_mdep_data_type_01,
+            { "MDEP Data Type",                  "btsdp.hdp.supported_features.mdep_data_type",
+            FT_UINT16, BASE_HEX, VALS(hdp_mdep_data_type_01_vals), 0,
+            NULL, HFILL }
+        },
         { &hf_hdp_supported_features_mdep_data_type,
             { "MDEP Data Type",                  "btsdp.hdp.supported_features.mdep_data_type",
             FT_UINT16, BASE_HEX, NULL, 0,
@@ -6070,7 +6051,7 @@ proto_register_btsdp(void)
         },
         { &hf_sdp_lang_encoding,
             { "Language Encoding",               "btsdp.lang.encoding",
-            FT_UINT16, BASE_HEX | BASE_EXT_STRING, &wap_mib_enum_vals_character_sets_ext, 0,
+            FT_UINT16, BASE_DEC | BASE_EXT_STRING, &mibenum_vals_character_sets_ext, 0,
             NULL, HFILL }
         },
         { &hf_sdp_lang_attribute_base,
@@ -6521,7 +6502,7 @@ proto_register_btsdp(void)
 
     service_infos = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    module = prefs_register_protocol(proto_btsdp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btsdp, NULL);
     prefs_register_static_text_preference(module, "bnep.version",
             "Bluetooth Protocol SDP version from Core 4.0",
             "Version of protocol supported by this dissector.");

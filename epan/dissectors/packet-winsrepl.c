@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -119,8 +107,6 @@ enum wrepl_mess_type {
 	WREPL_STOP_ASSOCIATION=2,
 	WREPL_REPLICATION=3
 };
-
-static unsigned int glb_winsrepl_tcp_port = WINS_REPLICATION_PORT;
 
 static const value_string replication_cmd_vals[] = {
 	{WREPL_REPL_TABLE_QUERY,	"WREPL_REPL_TABLE_QUERY"},
@@ -404,11 +390,11 @@ dissect_winsrepl_wins_name(tvbuff_t *winsrepl_tvb, packet_info *pinfo,
 	/* NAME_LEN */
 	name_len = tvb_get_ntohl(winsrepl_tvb, winsrepl_offset);
 	ti = proto_tree_add_uint(name_tree, hf_winsrepl_name_len, winsrepl_tvb, winsrepl_offset, 4, name_len);
-	if ((gint) name_len < 1) {
-		expert_add_info(pinfo, ti, &ei_winsrepl_name_len);
-		THROW(ReportedBoundsError);
-	}
 	winsrepl_offset += 4;
+	if (name_len == 0) {
+		expert_add_info(pinfo, ti, &ei_winsrepl_name_len);
+		return winsrepl_offset;
+	}
 
 	/* NAME: TODO! */
 	/*
@@ -880,7 +866,7 @@ proto_reg_handoff_winsrepl(void)
 	dissector_handle_t winsrepl_handle;
 
 	winsrepl_handle = create_dissector_handle(dissect_winsrepl, proto_winsrepl);
-	dissector_add_uint("tcp.port", glb_winsrepl_tcp_port, winsrepl_handle);
+	dissector_add_uint_with_preference("tcp.port", WINS_REPLICATION_PORT, winsrepl_handle);
 }
 
 /*

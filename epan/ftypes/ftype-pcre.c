@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Perl-Compatible Regular Expression (PCRE) internal field type.
@@ -74,13 +62,13 @@ static gboolean
 val_from_string(fvalue_t *fv, const char *pattern, gchar **err_msg)
 {
     GError *regex_error = NULL;
-    GRegexCompileFlags cflags = G_REGEX_OPTIMIZE;
+    GRegexCompileFlags cflags = (GRegexCompileFlags)(G_REGEX_CASELESS | G_REGEX_OPTIMIZE);
 
     /* Set RAW flag only if pattern requires matching raw byte
        sequences. Otherwise, omit it so that GRegex treats its
        input as UTF8-encoded string. */
     if (raw_flag_needed(pattern)) {
-        cflags = (GRegexCompileFlags)(G_REGEX_OPTIMIZE | G_REGEX_RAW);
+        cflags = (GRegexCompileFlags)(cflags | G_REGEX_RAW);
     }
 
     /* Free up the old value, if we have one */
@@ -125,10 +113,10 @@ gregex_repr_len(fvalue_t *fv, ftrepr_t rtype, int field_display _U_)
 }
 
 static void
-gregex_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *buf)
+gregex_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *buf, unsigned int size)
 {
     g_assert(rtype == FTREPR_DFILTER);
-    strcpy(buf, g_regex_get_pattern(fv->value.re));
+    g_strlcpy(buf, g_regex_get_pattern(fv->value.re), size);
 }
 
 /* BEHOLD - value contains the string representation of the regular expression,
@@ -163,24 +151,8 @@ ftype_register_pcre(void)
         gregex_to_repr,     /* val_to_string_repr */
         gregex_repr_len,    /* len_string_repr */
 
-        NULL,               /* set_value_byte_array */
-        NULL,               /* set_value_bytes */
-        NULL,               /* set_value_guid */
-        NULL,               /* set_value_time */
-        gregex_fvalue_set,  /* set_value_string */
-        NULL,               /* set_value_tvbuff */
-        NULL,               /* set_value_uinteger */
-        NULL,               /* set_value_sinteger */
-        NULL,               /* set_value_uinteger64 */
-        NULL,               /* set_value_sinteger64 */
-        NULL,               /* set_value_floating */
-
-        gregex_fvalue_get,  /* get_value */
-        NULL,               /* get_value_uinteger */
-        NULL,               /* get_value_sinteger */
-        NULL,               /* get_value_uinteger64 */
-        NULL,               /* get_value_sinteger64 */
-        NULL,               /* get_value_floating */
+        { .set_value_string = gregex_fvalue_set }, /* union set_value */
+        { .get_value_ptr = gregex_fvalue_get },    /* union get_value */
 
         NULL,               /* cmp_eq */
         NULL,               /* cmp_ne */

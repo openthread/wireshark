@@ -23,19 +23,7 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -507,12 +495,10 @@ static void
 dissect_pool_element_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tree)
 {
   tvbuff_t*   parameters_tvb;
-  proto_item* pi;
 
   proto_tree_add_item(parameter_tree, hf_pe_pe_identifier, parameter_tvb, PE_PE_IDENTIFIER_OFFSET,      PE_PE_IDENTIFIER_LENGTH,      ENC_BIG_ENDIAN);
   proto_tree_add_item(parameter_tree, hf_home_enrp_id,     parameter_tvb, HOME_ENRP_INDENTIFIER_OFFSET, HOME_ENRP_INDENTIFIER_LENGTH, ENC_BIG_ENDIAN);
-  pi = proto_tree_add_item(parameter_tree, hf_reg_life,    parameter_tvb, REGISTRATION_LIFE_OFFSET,     REGISTRATION_LIFE_LENGTH,     ENC_BIG_ENDIAN);
-  proto_item_append_text(pi, "ms");
+  proto_tree_add_item(parameter_tree, hf_reg_life,    parameter_tvb, REGISTRATION_LIFE_OFFSET,     REGISTRATION_LIFE_LENGTH,     ENC_BIG_ENDIAN);
 
   parameters_tvb = tvb_new_subset_remaining(parameter_tvb, USER_TRANSPORT_PARAMETER_OFFSET);
   dissect_parameters(parameters_tvb, parameter_tree);
@@ -567,13 +553,12 @@ dissect_pe_identifier_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_t
   proto_item_append_text(parameter_item, " (0x%x)", tvb_get_ntohl(parameter_tvb, PE_IDENTIFIER_OFFSET));
 }
 
-#define PE_CHECKSUM_LENGTH 2
 #define PE_CHECKSUM_OFFSET PARAMETER_VALUE_OFFSET
 
 static void
 dissect_pe_checksum_parameter(tvbuff_t *parameter_tvb, proto_tree *parameter_tree, proto_item *parameter_item)
 {
-  proto_tree_add_item(parameter_tree, hf_pe_checksum, parameter_tvb, PE_CHECKSUM_OFFSET, PE_CHECKSUM_LENGTH, ENC_BIG_ENDIAN);
+  proto_tree_add_checksum(parameter_tree, parameter_tvb, PE_CHECKSUM_OFFSET, hf_pe_checksum, -1, NULL, NULL, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
   proto_item_append_text(parameter_item, " (0x%x)", tvb_get_ntohs(parameter_tvb, PE_CHECKSUM_OFFSET));
 }
 
@@ -890,10 +875,10 @@ proto_register_asap(void)
     { &hf_pool_handle,            { "Pool Handle",                 "asap.pool_handle_pool_handle",                  FT_BYTES,   BASE_NONE,  NULL,                             0x0,                       NULL, HFILL } },
     { &hf_pe_pe_identifier,       { "PE Identifier",               "asap.pool_element_pe_identifier",               FT_UINT32,  BASE_HEX,  NULL,                             0x0,                       NULL, HFILL } },
     { &hf_home_enrp_id,           { "Home ENRP Server Identifier", "asap.pool_element_home_enrp_server_identifier", FT_UINT32,  BASE_HEX,  NULL,                             0x0,                       NULL, HFILL } },
-    { &hf_reg_life,               { "Registration Life",           "asap.pool_element_registration_life",           FT_INT32,   BASE_DEC,  NULL,                             0x0,                       NULL, HFILL } },
+    { &hf_reg_life,               { "Registration Life",           "asap.pool_element_registration_life",           FT_INT32,   BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,                       NULL, HFILL } },
     { &hf_cookie,                 { "Cookie",                      "asap.cookie",                                   FT_BYTES,   BASE_NONE,  NULL,                             0x0,                       NULL, HFILL } },
     { &hf_pe_identifier,          { "PE Identifier",               "asap.pe_identifier",                            FT_UINT32,  BASE_HEX,  NULL,                             0x0,                       NULL, HFILL } },
-    { &hf_pe_checksum,            { "PE Checksum",                 "asap.pe_checksum",                              FT_UINT32,  BASE_HEX,  NULL,                             0x0,                       NULL, HFILL } },
+    { &hf_pe_checksum,            { "PE Checksum",                 "asap.pe_checksum",                              FT_UINT16,  BASE_HEX,  NULL,                             0x0,                       NULL, HFILL } },
     { &hf_hropt_items,            { "Items",                       "asap.hropt_items",                              FT_UINT32,  BASE_DEC,  NULL,                             0x0,                       NULL, HFILL } },
     { &hf_server_identifier,      { "Server Identifier",           "asap.server_identifier",                        FT_UINT32,  BASE_HEX,  NULL,                             0x0,                       NULL, HFILL } },
     { &hf_home_enrp_server_bit,   { "H Bit",                       "asap.h_bit",                                    FT_BOOLEAN, 8,         TFS(&home_enrp_server_bit_value), HOME_ENRP_SERVER_BIT_MASK, NULL, HFILL } },
@@ -924,8 +909,8 @@ proto_reg_handoff_asap(void)
 
   asap_handle = create_dissector_handle(dissect_asap, proto_asap);
   dissector_add_uint("sctp.ppi",  ASAP_PAYLOAD_PROTOCOL_ID, asap_handle);
-  dissector_add_uint("udp.port",  ASAP_UDP_PORT,  asap_handle);
-  dissector_add_uint("tcp.port",  ASAP_TCP_PORT,  asap_handle);
+  dissector_add_uint_with_preference("udp.port",  ASAP_UDP_PORT,  asap_handle);
+  dissector_add_uint_with_preference("tcp.port",  ASAP_TCP_PORT,  asap_handle);
   dissector_add_uint("sctp.port", ASAP_SCTP_PORT, asap_handle);
 }
 

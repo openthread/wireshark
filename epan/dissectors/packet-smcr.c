@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Please refer to the following specs for protocol:
  * - ietf - draft-fox-tcpm-shared-memory-rdma-05
@@ -794,8 +782,8 @@ dissect_smcr_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	return tvb_reported_length(tvb);
 }
 
-static void
-dissect_smcr_infiniband(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static int
+dissect_smcr_infiniband(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
 	guint16 msg_len;
 	llc_message llc_msgid;
@@ -813,9 +801,6 @@ dissect_smcr_infiniband(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	if ((llc_msgid != RMBE_CTRL) &&
 		(tvb_get_guint8(tvb, LLC_CMD_RSP_OFFSET) & LLC_FLAG_RESP))
 			col_append_str(pinfo->cinfo, COL_INFO, "(Resp)");
-
-	if (!tree)
-		return;
 
 	ti = proto_tree_add_item(tree, proto_smcr, tvb, 0, msg_len, ENC_NA);
 	smcr_tree = proto_item_add_subtree(ti, ett_smcr);
@@ -863,7 +848,8 @@ dissect_smcr_infiniband(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			/* Unknown Command */
 			break;
 	}
-	return;
+
+	return tvb_captured_length(tvb);
 }
 
 static guint
@@ -925,7 +911,7 @@ dissect_smcr_infiniband_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 	if (msg_len != tvb_reported_length_remaining(tvb, LLC_CMD_OFFSET))
 		return FALSE;
 
-	dissect_smcr_infiniband(tvb, pinfo, tree);
+	dissect_smcr_infiniband(tvb, pinfo, tree, data);
 	return TRUE;
 }
 
@@ -1419,10 +1405,12 @@ proto_register_smcr(void)
 		&ett_rmbe_ctrl_peer_conn_state_flag
 	};
 
-	proto_register_field_array(proto_smcr, hf, array_length(hf));
-	proto_register_subtree_array(ett, array_length(ett));
 	proto_smcr = proto_register_protocol("Shared Memory Communications - RDMA",
 	    "SMCR", "smcr");
+
+	proto_register_field_array(proto_smcr, hf, array_length(hf));
+	proto_register_subtree_array(ett, array_length(ett));
+
 	smcr_tcp_handle = register_dissector("smcr", dissect_smcr_tcp, proto_smcr);
 }
 
@@ -1431,6 +1419,7 @@ proto_reg_handoff_smcr(void)
 {
 	heur_dissector_add("tcp", dissect_smcr_tcp_heur, "Shared Memory Communications over TCP", "smcr_tcp", proto_smcr, HEURISTIC_ENABLE);
 	heur_dissector_add("infiniband.payload", dissect_smcr_infiniband_heur, "Shared Memory Communications Infiniband", "smcr_infiniband", proto_smcr, HEURISTIC_ENABLE);
+	dissector_add_for_decode_as("infiniband", create_dissector_handle( dissect_smcr_infiniband, proto_smcr ) );
 }
 
 /*

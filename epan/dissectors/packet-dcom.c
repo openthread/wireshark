@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* A few words about DCOM:
@@ -70,7 +58,6 @@
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/addr_resolv.h>
-#include <wsutil/inet_aton.h>
 #include <epan/expert.h>
 #include <epan/prefs.h>
 #include "packet-dcerpc.h"
@@ -937,7 +924,7 @@ dissect_dcom_dcerpc_pointer(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 /* XXX: handout data to generic "unknown data" dissector? */
 extern int
 dissect_dcom_tobedone_data(tvbuff_t *tvb, int offset,
-	packet_info *pinfo _U_, proto_tree *tree, guint8 *drep _U_, int length)
+	packet_info *pinfo, proto_tree *tree, guint8 *drep _U_, int length)
 {
 	proto_item *item;
 
@@ -956,7 +943,7 @@ dissect_dcom_tobedone_data(tvbuff_t *tvb, int offset,
 /* XXX: handout data to generic "unknown data" dissector? */
 extern int
 dissect_dcom_nospec_data(tvbuff_t *tvb, int offset,
-	packet_info *pinfo _U_, proto_tree *tree, guint8 *drep _U_, int length)
+	packet_info *pinfo, proto_tree *tree, guint8 *drep _U_, int length)
 {
 	proto_item *item;
 
@@ -1785,7 +1772,7 @@ dissect_dcom_DUALSTRINGARRAY(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 	gboolean isPrintable;
 	guint32 first_ip = 0;
 	guint32 curr_ip = 0;
-	struct in_addr		ipaddr;
+	guint32 ipaddr;
 	proto_item *pi;
 
 
@@ -1818,7 +1805,7 @@ dissect_dcom_DUALSTRINGARRAY(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 
 	/* convert ip address (if it is dotted decimal) */
 	/* XXX - this conversion is ugly */
-		if (inet_aton(szStr, &ipaddr)) {
+		if (ws_inet_pton4(szStr, &ipaddr)) {
 			if(get_host_ipaddr(szStr, &curr_ip)) {
 
 				/*expert_add_info_format(pinfo, NULL, PI_UNDECODED, PI_WARN, "DUALSTRINGARRAY: IP:%s",

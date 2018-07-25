@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_ENIP_H
@@ -103,14 +91,33 @@ typedef struct {
    cip_req_info_t* cip_info;
 } enip_request_info_t;
 
+typedef struct enip_conn_val {
+   cip_connection_triad_t triad;
+   guint32 O2TConnID;
+   guint32 T2OConnID;
+   guint8  TransportClass_trigger;
+   guint32 open_frame;
+   guint32 open_reply_frame;
+   guint32 close_frame;
+   guint32 connid;
+   cip_safety_epath_info_t safety;
+   guint32 ClassID;
+   guint32 ConnPoint;
+} enip_conn_val_t;
+
 enum enip_connid_type {ECIDT_UNKNOWN, ECIDT_O2T, ECIDT_T2O};
+
+typedef struct cip_io_data_input {
+   enip_conn_val_t* conn_info;
+   enum enip_connid_type connid_type;
+} cip_io_data_input;
 
 /* proto_data types */
 #define ENIP_REQUEST_INFO     0
 #define ENIP_CONNECTION_INFO  1
 
-void enip_close_cip_connection( packet_info *pinfo, guint16 ConnSerialNumber, guint16 VendorID, guint32 DeviceSerialNumber );
-void enip_mark_connection_triad( packet_info *pinfo, guint16 ConnSerialNumber, guint16 VendorID, guint32 DeviceSerialNumber );
+void enip_close_cip_connection(packet_info *pinfo, const cip_connection_triad_t* triad);
+void enip_mark_connection_triad(packet_info *pinfo, const cip_connection_triad_t* triad);
 
 extern attribute_info_t enip_attribute_vals[99];
 

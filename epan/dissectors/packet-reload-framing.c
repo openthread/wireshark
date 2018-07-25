@@ -7,22 +7,12 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Please refer to the following specs for protocol detail:
  * - draft-ietf-p2psip-base-15
+ * - RFC 6940 (does this incorporate all changes between
+ *   draft-ietf-p2psip-base-15 and RFC 6940, if any?)
  */
 
 #include "config.h"
@@ -135,8 +125,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
   if (effective_length < MIN_HDR_LENGTH)
     return 0;
 
-  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                   pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+  conversation = find_conversation_pinfo(pinfo, 0);
   if (conversation)
     reload_framing_info = (reload_conv_info_t *)conversation_get_proto_data(conversation, proto_reload_framing);
 
@@ -174,11 +163,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
   }
 
   if (from_dtls && have_tap_listener(exported_pdu_tap)) {
-    exp_pdu_data_t *exp_pdu_data;
-    guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
-                  EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
-
-    exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, "reload-framing", &tags, 1);
+    exp_pdu_data_t *exp_pdu_data = export_pdu_create_common_tags(pinfo, "reload-framing", EXP_PDU_TAG_PROTO_NAME);
 
     exp_pdu_data->tvb_captured_length = effective_length;
     exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
@@ -226,7 +211,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 
   if (!conversation) {
     conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                                    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+                                    conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport, pinfo->destport, 0);
   }
 
   /*
@@ -347,7 +332,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     proto_tree_add_item(message_tree, hf_reload_framing_message_length, tvb, offset, 3, ENC_BIG_ENDIAN);
     offset += 3;
     proto_tree_add_item(message_tree, hf_reload_framing_message_data, tvb, offset, message_length, ENC_NA);
-    next_tvb = tvb_new_subset(tvb, offset, effective_length - offset, message_length);
+    next_tvb = tvb_new_subset_length_caplen(tvb, offset, effective_length - offset, message_length);
     if (reload_handle == NULL) {
       expert_add_info(pinfo, ti, &ei_reload_no_dissector);
       return tvb_captured_length(tvb);
@@ -387,7 +372,7 @@ dissect_reload_framing_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
               continue;
             }
             else {
-              /* 1st acked in a serie */
+              /* 1st acked in a series */
               if (last_received<0) {
                 /* 1st acked ever */
                 received_tree = proto_item_add_subtree(ti_received, ett_reload_framing_received);
@@ -596,8 +581,8 @@ proto_reg_handoff_reload_framing(void)
 
   reload_handle = find_dissector_add_dependency("reload", proto_reload_framing);
 
-  dissector_add_uint("tcp.port", TCP_PORT_RELOAD, reload_framing_tcp_handle);
-  dissector_add_uint("udp.port", UDP_PORT_RELOAD, reload_framing_udp_handle);
+  dissector_add_uint_with_preference("tcp.port", TCP_PORT_RELOAD, reload_framing_tcp_handle);
+  dissector_add_uint_with_preference("udp.port", UDP_PORT_RELOAD, reload_framing_udp_handle);
 
   heur_dissector_add("udp",  dissect_reload_framing_heur, "RELOAD Framing over UDP", "reload_framing_udp", proto_reload_framing, HEURISTIC_ENABLE);
   heur_dissector_add("tcp",  dissect_reload_framing_heur, "RELOAD Framing over TCP", "reload_framing_tcp", proto_reload_framing, HEURISTIC_ENABLE);

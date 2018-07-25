@@ -28,19 +28,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -707,7 +695,7 @@ static int hf_atn_cpdlc_windSpeedEnglish = -1;    /* WindSpeedEnglish */
 static int hf_atn_cpdlc_windSpeedMetric = -1;     /* WindSpeedMetric */
 
 /*--- End of included file: packet-atn-cpdlc-hf.c ---*/
-#line 97 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
+#line 85 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
 
 
 /*--- Included file: packet-atn-cpdlc-ett.c ---*/
@@ -856,7 +844,7 @@ static gint ett_atn_cpdlc_Winds = -1;
 static gint ett_atn_cpdlc_WindSpeed = -1;
 
 /*--- End of included file: packet-atn-cpdlc-ett.c ---*/
-#line 99 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
+#line 87 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
 static gint ett_atn_cpdlc = -1;
 
 
@@ -5307,7 +5295,7 @@ static int dissect_ProtectedAircraftPDUs_PDU(tvbuff_t *tvb _U_, packet_info *pin
 
 
 /*--- End of included file: packet-atn-cpdlc-fn.c ---*/
-#line 102 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
+#line 90 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
 
 /* Wireshark ID of CPDLC protocol */
 static int proto_atn_cpdlc = -1;
@@ -7931,7 +7919,7 @@ void proto_register_atn_cpdlc (void)
         NULL, HFILL }},
 
 /*--- End of included file: packet-atn-cpdlc-hfarr.c ---*/
-#line 317 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
+#line 305 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
       };
 
     static gint *ett[] = {
@@ -8082,7 +8070,7 @@ void proto_register_atn_cpdlc (void)
     &ett_atn_cpdlc_WindSpeed,
 
 /*--- End of included file: packet-atn-cpdlc-ettarr.c ---*/
-#line 321 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
+#line 309 "./asn1/atn-cpdlc/packet-atn-cpdlc-template.c"
         &ett_atn_cpdlc
     };
 

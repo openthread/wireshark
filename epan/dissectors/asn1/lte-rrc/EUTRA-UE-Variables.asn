@@ -1,4 +1,4 @@
--- 3GPP TS 36.331 V13.0.0 (2015-12)
+-- 3GPP TS 36.331 V15.2.2 (2018-06)
 --
 EUTRA-UE-Variables DEFINITIONS AUTOMATIC TAGS ::=
 
@@ -8,6 +8,7 @@ IMPORTS
 	AbsoluteTimeInfo-r10,
 	AreaConfiguration-r10,
 	AreaConfiguration-v1130,
+	ARFCN-ValueNR-r15,
 	CarrierFreqGERAN,
 	CellIdentity,
 	ConnEstFailReport-r11,
@@ -21,8 +22,11 @@ IMPORTS
 	MeasId-v1250,
 	MeasIdToAddModList,
 	MeasIdToAddModListExt-r12,
+	MeasIdToAddModList-v1310,
+	MeasIdToAddModListExt-v1310,
 	MeasObjectToAddModList,
 	MeasObjectToAddModList-v9e0,
+	MeasObjectToAddModListExt-r13,
 	MeasScaleFactor-r12,
 	MobilityStateParameters,
 	NeighCellConfig,
@@ -38,12 +42,23 @@ IMPORTS
 	RLF-Report-r9,
 	TargetMBSFN-AreaList-r12,
 	TraceReference-r10,
+	Tx-ResourcePoolMeasList-r14,
 	VisitedCellInfoList-r12,
 	maxCellMeas,
 	maxCSI-RS-Meas-r12,
 	maxMeasId,
 	maxMeasId-r12,
-	UL-DelayConfig-r13
+	maxRS-Index-r15,
+	PhysCellIdNR-r15,
+	RS-IndexNR-r15,
+	UL-DelayConfig-r13,
+	WLAN-CarrierInfo-r13,
+	WLAN-Identifiers-r12,
+	WLAN-Id-List-r13,
+	WLAN-Status-r13,
+	WLAN-Status-v1430,
+	WLAN-SuspendConfig-r14
+
 FROM EUTRA-RRC-Definitions;
 
 
@@ -100,8 +115,11 @@ VarMeasConfig ::=					SEQUENCE {
 	-- Measurement identities
 	measIdList							MeasIdToAddModList					OPTIONAL,
 	measIdListExt-r12					MeasIdToAddModListExt-r12			OPTIONAL,
+	measIdList-v1310						MeasIdToAddModList-v1310				OPTIONAL,
+	measIdListExt-v1310					MeasIdToAddModListExt-v1310			OPTIONAL,
 	-- Measurement objects
 	measObjectList						MeasObjectToAddModList				OPTIONAL,
+	measObjectListExt-r13				MeasObjectToAddModListExt-r13		OPTIONAL,
 	measObjectList-v9i0					MeasObjectToAddModList-v9e0			OPTIONAL,
 	-- Reporting configurations
 	reportConfigList					ReportConfigToAddModList			OPTIONAL,
@@ -129,6 +147,7 @@ VarMeasReport ::=					SEQUENCE {
 	measId-v1250						MeasId-v1250					OPTIONAL,
 	cellsTriggeredList					CellsTriggeredList				OPTIONAL,
 	csi-RS-TriggeredList-r12			CSI-RS-TriggeredList-r12		OPTIONAL,
+	poolsTriggeredList-r14				Tx-ResourcePoolMeasList-r14	OPTIONAL,
 	numberOfReportsSent					INTEGER
 }
 
@@ -142,10 +161,18 @@ CellsTriggeredList ::=				SEQUENCE (SIZE (1..maxCellMeas)) OF CHOICE {
 		carrierFreq								CarrierFreqGERAN,
 		physCellId								PhysCellIdGERAN
 	},
-	physCellIdCDMA2000						PhysCellIdCDMA2000
+	physCellIdCDMA2000						PhysCellIdCDMA2000,
+	wlan-Identifiers-r13					WLAN-Identifiers-r12,
+	physCellIdNR-r15						SEQUENCE {
+		carrierFreq								ARFCN-ValueNR-r15,
+		physCellId								PhysCellIdNR-r15,
+		rs-IndexList-r15						SSB-IndexList-r15				OPTIONAL
+	}
 }
 
 CSI-RS-TriggeredList-r12 ::=		SEQUENCE (SIZE (1..maxCSI-RS-Meas-r12)) OF MeasCSI-RS-Id-r12
+
+SSB-IndexList-r15::=			SEQUENCE (SIZE (1..maxRS-Index-r15)) OF RS-IndexNR-r15
 
 VarMobilityHistoryReport-r12 ::=	VisitedCellInfoList-r12
 
@@ -167,8 +194,30 @@ VarShortMAC-Input ::=					SEQUENCE {
 	c-RNTI									C-RNTI
 }
 
+
+VarShortResumeMAC-Input-r13 ::=		SEQUENCE {
+	cellIdentity-r13						CellIdentity,
+	physCellId-r13							PhysCellId,
+	c-RNTI-r13								C-RNTI,
+	resumeDiscriminator-r13					BIT STRING(SIZE(1))
+}
+
+
+VarWLAN-MobilityConfig ::=					SEQUENCE {
+	wlan-MobilitySet-r13					WLAN-Id-List-r13			OPTIONAL,
+	successReportRequested					ENUMERATED {true}			OPTIONAL,
+	wlan-SuspendConfig-r14					WLAN-SuspendConfig-r14		OPTIONAL
+}
+
+
+VarWLAN-Status-r13 ::=				SEQUENCE {
+	status-r13								WLAN-Status-r13,
+	status-r14								WLAN-Status-v1430	OPTIONAL
+}
+
+
 maxLogMeas-r10				INTEGER ::= 4060-- Maximum number of logged measurement entries
-											--  that can be stored by the UE
+											-- that can be stored by the UE
 
 
 END

@@ -30,19 +30,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -104,7 +92,7 @@ static int hf_atn_cm_hours = -1;                  /* Timehours */
 static int hf_atn_cm_minutes = -1;                /* Timeminutes */
 
 /*--- End of included file: packet-atn-cm-hf.c ---*/
-#line 55 "./asn1/atn-cm/packet-atn-cm-template.c"
+#line 43 "./asn1/atn-cm/packet-atn-cm-template.c"
 
 
 /*--- Included file: packet-atn-cm-ett.c ---*/
@@ -126,7 +114,7 @@ static gint ett_atn_cm_ShortTsap = -1;
 static gint ett_atn_cm_Time = -1;
 
 /*--- End of included file: packet-atn-cm-ett.c ---*/
-#line 57 "./asn1/atn-cm/packet-atn-cm-template.c"
+#line 45 "./asn1/atn-cm/packet-atn-cm-template.c"
 static gint ett_atn_cm = -1;
 
 
@@ -629,7 +617,7 @@ static int dissect_CMGroundMessage_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_
 
 
 /*--- End of included file: packet-atn-cm-fn.c ---*/
-#line 60 "./asn1/atn-cm/packet-atn-cm-template.c"
+#line 48 "./asn1/atn-cm/packet-atn-cm-template.c"
 static int proto_atn_cm = -1;
 
 static int
@@ -929,7 +917,7 @@ void proto_register_atn_cm (void)
         "Timeminutes", HFILL }},
 
 /*--- End of included file: packet-atn-cm-hfarr.c ---*/
-#line 195 "./asn1/atn-cm/packet-atn-cm-template.c"
+#line 183 "./asn1/atn-cm/packet-atn-cm-template.c"
     };
     static gint *ett[] = {
 
@@ -952,7 +940,7 @@ void proto_register_atn_cm (void)
     &ett_atn_cm_Time,
 
 /*--- End of included file: packet-atn-cm-ettarr.c ---*/
-#line 198 "./asn1/atn-cm/packet-atn-cm-template.c"
+#line 186 "./asn1/atn-cm/packet-atn-cm-template.c"
       &ett_atn_cm
     };
 

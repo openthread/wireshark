@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Information sources:
@@ -308,7 +296,7 @@ static void dissect_media_stream_mbr_selector(tvbuff_t *tvb, proto_tree *tree, g
 static void dissect_header_request(tvbuff_t *tvb, proto_tree *tree, guint offset);
 static void dissect_stop_button_pressed(tvbuff_t *tvb, proto_tree *tree, guint offset);
 
-static void msmms_data_add_address(packet_info *pinfo, address *addr, port_type pt, int port);
+static void msmms_data_add_address(packet_info *pinfo, address *addr, endpoint_type et, int port);
 
 
 
@@ -431,7 +419,7 @@ static gint dissect_msmms_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     /* Protocol name.  Must be "MMS"... */
     if (strncmp((char*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 3, ENC_ASCII), "MMS", 3) != 0)
     {
-        return 0;
+        return offset;
     }
     proto_tree_add_item(msmms_common_command_tree, hf_msmms_command_protocol_type, tvb, offset, 4, ENC_ASCII|ENC_NA);
     offset += 4;
@@ -751,7 +739,7 @@ static void dissect_client_transport_info(tvbuff_t *tvb, packet_info *pinfo, pro
                                  transport_info, "Transport: (%s)", transport_info);
 
     col_append_fstr(pinfo->cinfo, COL_INFO, " (%s)",
-                    format_text((guchar*)transport_info, length_remaining - 20));
+                    format_text(wmem_packet_scope(), (guchar*)transport_info, length_remaining - 20));
 
 
     /* Try to extract details from this string */
@@ -762,21 +750,21 @@ static void dissect_client_transport_info(tvbuff_t *tvb, packet_info *pinfo, pro
     /* Use this information to set up a conversation for the data stream */
     if (fields_matched == 6)
     {
-        port_type pt = PT_NONE;
+        endpoint_type et = ENDPOINT_NONE;
 
         /* Work out the port type */
         if (strncmp(protocol, "UDP", 3) == 0)
         {
-            pt = PT_UDP;
+            et = ENDPOINT_UDP;
         }
         else
         if (strncmp(protocol, "TCP", 3) == 0)
         {
-            pt = PT_TCP;
+            et = ENDPOINT_TCP;
         }
 
         /* Set the dissector for indicated conversation */
-        if (pt != PT_NONE)
+        if (et != ENDPOINT_NONE)
         {
             guint8 octets[4];
             address addr;
@@ -787,7 +775,7 @@ static void dissect_client_transport_info(tvbuff_t *tvb, packet_info *pinfo, pro
             addr.type = AT_IPv4;
             addr.len = 4;
             addr.data = octets;
-            msmms_data_add_address(pinfo, &addr, pt, port);
+            msmms_data_add_address(pinfo, &addr, et, port);
         }
     }
 }
@@ -796,11 +784,11 @@ static void dissect_client_transport_info(tvbuff_t *tvb, packet_info *pinfo, pro
 static void dissect_server_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                 guint offset)
 {
-    guint32 server_version_length;
-    guint32 tool_version_length;
-    guint32 download_update_player_length;
-    guint32 password_encryption_type_length;
-    char    *server_version;
+    guint32       server_version_length;
+    guint32       tool_version_length;
+    guint32       download_update_player_length;
+    guint32       password_encryption_type_length;
+    const guint8 *server_version;
 
     /* ErrorCode */
     proto_tree_add_item(tree, hf_msmms_command_prefix1_error, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -842,15 +830,13 @@ static void dissect_server_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     /* Server version string. */
     if (server_version_length > 1)
     {
-        server_version = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, server_version_length*2, ENC_UTF_16|ENC_LITTLE_ENDIAN);
-
         /* Server version string */
-        proto_tree_add_item(tree, hf_msmms_command_server_version, tvb,
+        proto_tree_add_item_ret_string(tree, hf_msmms_command_server_version, tvb,
                             offset, server_version_length*2,
-                            ENC_UTF_16|ENC_LITTLE_ENDIAN);
+                            ENC_UTF_16|ENC_LITTLE_ENDIAN, wmem_packet_scope(), &server_version);
 
         col_append_fstr(pinfo->cinfo, COL_INFO, " (version='%s')",
-                    format_text((guchar*)server_version, strlen(server_version)));
+                    format_text(wmem_packet_scope(), (const guchar*)server_version, strlen(server_version)));
     }
     offset += (server_version_length*2);
 
@@ -887,7 +873,7 @@ static void dissect_server_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 static void dissect_client_player_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                        guint offset, guint length_remaining)
 {
-    char *player_info;
+    const guint8 *player_info;
 
     /* Flags */
     proto_tree_add_item(tree, hf_msmms_command_prefix1, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -899,14 +885,12 @@ static void dissect_client_player_info(tvbuff_t *tvb, packet_info *pinfo, proto_
     offset += 4;
 
     /* Extract and show the string in tree and info column */
-    player_info = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length_remaining - 12, ENC_UTF_16|ENC_LITTLE_ENDIAN);
-
-    proto_tree_add_item(tree, hf_msmms_command_client_player_info, tvb,
+    proto_tree_add_item_ret_string(tree, hf_msmms_command_client_player_info, tvb,
                         offset, length_remaining-12,
-                        ENC_UTF_16|ENC_LITTLE_ENDIAN);
+                        ENC_UTF_16|ENC_LITTLE_ENDIAN, wmem_packet_scope(), &player_info);
 
     col_append_fstr(pinfo->cinfo, COL_INFO, " (%s)",
-                    format_text((guchar*)player_info, strlen(player_info)));
+                    format_text(wmem_packet_scope(), (const guchar*)player_info, strlen(player_info)));
 }
 
 /* Dissect info about where client wants to start playing from */
@@ -964,7 +948,7 @@ static void dissect_timing_test_response(tvbuff_t *tvb, proto_tree *tree, guint 
 static void dissect_request_server_file(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                         guint offset, guint length_remaining)
 {
-    char *server_file;
+    const guint8 *server_file;
 
     /* Command Level */
     proto_tree_add_item(tree, hf_msmms_command_prefix1_command_level, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -976,14 +960,12 @@ static void dissect_request_server_file(tvbuff_t *tvb, packet_info *pinfo, proto
     offset += 4;
 
     /* File path on server */
-    server_file = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length_remaining - 16, ENC_UTF_16|ENC_LITTLE_ENDIAN);
-
-    proto_tree_add_item(tree, hf_msmms_command_server_file, tvb,
+    proto_tree_add_item_ret_string(tree, hf_msmms_command_server_file, tvb,
                         offset, length_remaining-16,
-                        ENC_UTF_16|ENC_LITTLE_ENDIAN);
+                        ENC_UTF_16|ENC_LITTLE_ENDIAN, wmem_packet_scope(), &server_file);
 
     col_append_fstr(pinfo->cinfo, COL_INFO, " (%s)",
-                    format_text((guchar*)server_file, strlen(server_file)));
+                    format_text(wmem_packet_scope(), (const guchar*)server_file, strlen(server_file)));
 }
 
 /* Dissect media details from server */
@@ -1114,7 +1096,7 @@ static void dissect_stop_button_pressed(tvbuff_t *tvb, proto_tree *tree, guint o
 /********************************************************/
 /* Helper function to set up an MS-MMS data conversation */
 /********************************************************/
-static void msmms_data_add_address(packet_info *pinfo, address *addr, port_type pt, int port)
+static void msmms_data_add_address(packet_info *pinfo, address *addr, endpoint_type et, int port)
 {
     address         null_addr;
     conversation_t *p_conv;
@@ -1131,13 +1113,13 @@ static void msmms_data_add_address(packet_info *pinfo, address *addr, port_type 
 
     /* Check if the ip address and port combination is not
      * already registered as a conversation. */
-    p_conv = find_conversation(pinfo->num, addr, &null_addr, pt, port, 0,
+    p_conv = find_conversation(pinfo->num, addr, &null_addr, et, port, 0,
                                NO_ADDR_B | NO_PORT_B);
 
     /* If not, create a new conversation. */
     if (!p_conv)
     {
-        p_conv = conversation_new(pinfo->num, addr, &null_addr, pt,
+        p_conv = conversation_new(pinfo->num, addr, &null_addr, et,
                                   (guint32)port, 0, NO_ADDR2 | NO_PORT2);
     }
 
@@ -1879,16 +1861,15 @@ void proto_register_msmms(void)
     proto_msmms = proto_register_protocol("Microsoft Media Server", "MSMMS", "msmms");
     proto_register_field_array(proto_msmms, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    register_dissector("msmms", dissect_msmms_pdu, proto_msmms);
+    msmms_handle = register_dissector("msmms", dissect_msmms_pdu, proto_msmms);
 }
 
 void proto_reg_handoff_msmms_command(void)
 {
-    msmms_handle = find_dissector("msmms");
     /* Control commands using TCP port */
-    dissector_add_uint("tcp.port", MSMMS_PORT, msmms_handle);
+    dissector_add_uint_with_preference("tcp.port", MSMMS_PORT, msmms_handle);
     /* Data command(s) using UDP port */
-    dissector_add_uint("udp.port", MSMMS_PORT, msmms_handle);
+    dissector_add_uint_with_preference("udp.port", MSMMS_PORT, msmms_handle);
 }
 
 /*

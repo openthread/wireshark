@@ -5,30 +5,18 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __FILE_H__
 #define __FILE_H__
 
-#include "wiretap/wtap.h"
 #include <errno.h>
-#include <epan/epan.h>
 
+#include <wiretap/wtap.h>
+#include <epan/epan.h>
 #include <epan/print.h>
-#include <epan/packet-range.h>
+#include <ui/packet_range.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,18 +61,13 @@ typedef enum {
     cf_cb_file_rescan_finished,
     cf_cb_file_retap_started,
     cf_cb_file_retap_finished,
+    cf_cb_file_merge_started, /* Qt only */
+    cf_cb_file_merge_finished, /* Qt only */
     cf_cb_file_fast_save_finished,
-    cf_cb_packet_selected,
-    cf_cb_packet_unselected,
-    cf_cb_field_unselected,
     cf_cb_file_save_started,
     cf_cb_file_save_finished,
     cf_cb_file_save_failed,
-    cf_cb_file_save_stopped,
-    cf_cb_file_export_specified_packets_started,
-    cf_cb_file_export_specified_packets_finished,
-    cf_cb_file_export_specified_packets_failed,
-    cf_cb_file_export_specified_packets_stopped
+    cf_cb_file_save_stopped
 } cf_cbs;
 
 typedef void (*cf_callback_t) (gint event, gpointer data, gpointer user_data);
@@ -162,13 +145,13 @@ cf_read_status_t cf_read(capture_file *cf, gboolean from_save);
  *
  * @param cf the capture file from which to read the record
  * @param fdata the frame_data structure for the record in question
- * @param phdr pointer to a wtap_pkthdr structure to contain the
+ * @param rec pointer to a wtap_rec structure to contain the
  * record's metadata
  * @param buf a Buffer into which to read the record's raw data
  * @return TRUE if the read succeeded, FALSE if there was an error
  */
 gboolean cf_read_record_r(capture_file *cf, const frame_data *fdata,
-                          struct wtap_pkthdr *phdr, Buffer *buf);
+                          wtap_rec *rec, Buffer *buf);
 
 /**
  * Read the metadata and raw data for a record into a
@@ -293,6 +276,17 @@ cf_write_status_t cf_export_specified_packets(capture_file *cf,
 gchar *cf_get_display_name(capture_file *cf);
 
 /**
+ * Get a name that can be used to generate a file name from the
+ * capture file name.  It's based on the displayable name, so it's
+ * UTF-8; if it ends with a suffix that's used by a file type libwiretap
+ * can read, we strip that suffix off.
+ *
+ * @param cf the capture file
+ * @return the base name (must be g_free'd)
+ */
+gchar *cf_get_basename(capture_file *cf);
+
+/**
  * Set the source of the capture data for temporary files, e.g.
  * "Interface eth0" or "Pipe from Pong"
  *
@@ -389,7 +383,7 @@ cf_status_t cf_filter_packets(capture_file *cf, gchar *dfilter, gboolean force);
 void cf_reftime_packets(capture_file *cf);
 
 /**
- * Return the time it took to load the file
+ * Return the time it took to load the file (in msec).
  */
 gulong cf_get_computed_elapsed(capture_file *cf);
 
@@ -414,6 +408,31 @@ cf_read_status_t cf_retap_packets(capture_file *cf);
  * @param cf the capture file
  */
 void cf_timestamp_auto_precision(capture_file *cf);
+
+/* print_range, enum which frames should be printed */
+typedef enum {
+    print_range_selected_only,    /* selected frame(s) only (currently only one) */
+    print_range_marked_only,      /* marked frames only */
+    print_range_all_displayed,    /* all frames currently displayed */
+    print_range_all_captured      /* all frames in capture */
+} print_range_e;
+
+typedef struct {
+    print_stream_t *stream;       /* the stream to which we're printing */
+    print_format_e format;        /* plain text or PostScript */
+    gboolean to_file;             /* TRUE if we're printing to a file */
+    char *file;                   /* file output pathname */
+    char *cmd;                    /* print command string (not win32) */
+    packet_range_t range;
+
+    gboolean print_summary;       /* TRUE if we should print summary line. */
+    gboolean print_col_headings;  /* TRUE if we should print column headings */
+    print_dissections_e print_dissections;
+    gboolean print_hex;           /* TRUE if we should print hex data;
+                                   * FALSE if we should print only if not dissected. */
+    gboolean print_formfeed;      /* TRUE if a formfeed should be printed before
+                                   * each new packet */
+} print_args_t;
 
 /**
  * Print the capture file.
@@ -461,6 +480,15 @@ cf_print_status_t cf_write_csv_packets(capture_file *cf, print_args_t *print_arg
  * @return one of cf_print_status_t
  */
 cf_print_status_t cf_write_carrays_packets(capture_file *cf, print_args_t *print_args);
+
+/**
+ * Print (export) the capture file into JSON format.
+ *
+ * @param cf the capture file
+ * @param print_args the arguments what and how to export
+ * @return one of cf_print_status_t
+ */
+cf_print_status_t cf_write_json_packets(capture_file *cf, print_args_t *print_args);
 
 /**
  * Find packet with a protocol tree item that contains a specified text string.
@@ -549,20 +577,6 @@ gboolean cf_find_packet_marked(capture_file *cf, search_direction dir);
 gboolean cf_find_packet_time_reference(capture_file *cf, search_direction dir);
 
 /**
- * GoTo Packet in first row.
- *
- * @return TRUE if the first row exists, FALSE otherwise
- */
-gboolean cf_goto_top_frame(void);
-
-/**
- * GoTo Packet in last row.
- *
- * @return TRUE if last row exists, FALSE otherwise
- */
-gboolean cf_goto_bottom_frame(void);
-
-/**
  * GoTo Packet with the given row.
  *
  * @param cf the capture file
@@ -597,13 +611,6 @@ void cf_select_packet(capture_file *cf, int row);
 void cf_unselect_packet(capture_file *cf);
 
 /**
- * Unselect all protocol tree fields, if any.
- *
- * @param cf the capture file
- */
-void cf_unselect_field(capture_file *cf);
-
-/**
  * Mark a particular frame in a particular capture.
  *
  * @param cf the capture file
@@ -636,12 +643,12 @@ void cf_ignore_frame(capture_file *cf, frame_data *frame);
 void cf_unignore_frame(capture_file *cf, frame_data *frame);
 
 /**
- * Merge two (or more) capture files into one.
+ * Merge two or more capture files into a temporary file.
  * @todo is this the right place for this function? It doesn't have to do a lot with capture_file.
  *
- * @param out_filename pointer to output filename; if output filename is
- * NULL, a temporary file name is generated and *out_filename is set
- * to point to the generated file name
+ * @param pd_window Window pointer suitable for use by delayed_create_progress_dlg.
+ * @param out_filenamep Points to a pointer that's set to point to the
+ *        pathname of the temporary file; it's allocated with g_malloc()
  * @param in_file_count the number of input files to merge
  * @param in_filenames array of input filenames
  * @param file_type the output filetype
@@ -649,26 +656,37 @@ void cf_unignore_frame(capture_file *cf, frame_data *frame);
  * @return one of cf_status_t
  */
 cf_status_t
-cf_merge_files(char **out_filename, int in_file_count,
-               char *const *in_filenames, int file_type, gboolean do_append);
+cf_merge_files_to_tempfile(gpointer pd_window, char **out_filenamep,
+                           int in_file_count, char *const *in_filenames,
+                           int file_type, gboolean do_append);
 
 
 /**
  * Get the comment on a capture from the SHB data block
+ * XXX - should support multiple sections.
  *
  * @param cf the capture file
  */
-const gchar* cf_read_shb_comment(capture_file *cf);
+const gchar* cf_read_section_comment(capture_file *cf);
 
 /**
  * Update(replace) the comment on a capture from the SHB data block
+ * XXX - should support multiple sections.
  *
  * @param cf the capture file
  * @param comment the string replacing the old comment
  */
-void cf_update_capture_comment(capture_file *cf, gchar *comment);
+void cf_update_section_comment(capture_file *cf, gchar *comment);
 
-char *cf_get_comment(capture_file *cf, const frame_data *fd);
+/*
+ * Get the comment on a packet (record).
+ * If the comment has been edited, it returns the result of the edit,
+ * otherwise it returns the comment from the file.
+ *
+ * @param cf the capture file
+ * @param fd the frame_data structure for the frame
+ */
+char *cf_get_packet_comment(capture_file *cf, const frame_data *fd);
 
 /**
  * Update(replace) the comment on a capture from a frame
@@ -687,17 +705,15 @@ gboolean cf_set_user_packet_comment(capture_file *cf, frame_data *fd, const gcha
  */
 guint32 cf_comment_types(capture_file *cf);
 
-#ifdef WANT_PACKET_EDITOR
 /**
- * Give a frame new, edited data.
+ * Add a resolved address to this file's list of resolved addresses.
  *
  * @param cf the capture file
- * @param fd frame_data structure for the frame
- * @param phdr the struct wtap_pkthdr for the frame
- * @param pd the raw packet data for the frame
+ * @param addr a string representing an IPv4 or IPv6 address
+ * @param name a string containing a name corresponding to that address
+ * @return TRUE if it succeeds, FALSE if not
  */
-void cf_set_frame_edited(capture_file *cf, frame_data *fd, struct wtap_pkthdr *phdr, guint8 *pd);
-#endif
+gboolean cf_add_ip_name_from_string(capture_file *cf, const char *addr, const char *name);
 
 #ifdef __cplusplus
 }

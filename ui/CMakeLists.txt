@@ -4,39 +4,31 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
-
-set(COMMON_UI_SRC
+set(NONGENERATED_UI_SRC
 	alert_box.c
 	capture.c
 	capture_ui_utils.c
+	commandline.c
 	console.c
 	decode_as_utils.c
-	export_object.c
-	export_object_dicom.c
-	export_object_http.c
-	export_object_smb.c
-	export_object_tftp.c
+	dissect_opts.c
+	export_object_ui.c
+	export_pdu_ui_utils.c
 	help_url.c
+	failure_message.c
+	file_dialog.c
+	filter_files.c
+	firewall_rules.c
+	iface_toolbar.c
 	iface_lists.c
 	io_graph_item.c
 	language.c
 	mcast_stream.c
 	packet_list_utils.c
+	packet_range.c
 	persfilepath_opt.c
 	preference_utils.c
 	profile.c
@@ -44,14 +36,16 @@ set(COMMON_UI_SRC
 	recent.c
 	rtp_media.c
 	rtp_stream.c
+	rtp_stream_id.c
 	service_response_time.c
 	software_update.c
 	ssl_key_export.c
+	summary.c
 	tap_export_pdu.c
 	tap-iax2-analysis.c
+	tap-rtp-analysis.c
 	tap-rtp-common.c
 	tap-sctp-analysis.c
-	tap-sequence-analysis.c
 	tap-rlc-graph.c
 	tap-tcp-stream.c
 	text_import.c
@@ -65,36 +59,56 @@ set(COMMON_UI_SRC
 file(GLOB EXTRA_UI_HEADERS
 	rtp_media.h
 	rtp_stream.h
+	rtp_stream_id.h
 	tap-iax2-analysis.h
 	tap-rtp-analysis.h
 )
 
-set(DIRTY_UI_SRC)
+set(UI_SRC ${NONGENERATED_UI_SRC})
 
-add_lex_files(DIRTY_UI_SRC
+add_lex_files(LEX_FILES UI_SRC
 	text_import_scanner.l
 )
 
-set(CLEAN_FILES
-	${COMMON_UI_SRC}
+set_source_files_properties(
+	${UI_SRC}
+	PROPERTIES
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
 )
 
-if (WERROR_COMMON_FLAGS)
-	set_source_files_properties(
-		${CLEAN_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
-	)
+
+add_library(ui STATIC ${UI_SRC})
+
+set_target_properties(ui PROPERTIES
+	LINK_FLAGS "${WS_LINK_FLAGS}"
+	FOLDER "UI"
+)
+
+if (HTML_HELP_COMPILER)
+	add_definitions(-DHHC_DIR)
+	target_link_libraries(ui Htmlhelp.lib)
 endif()
 
+add_definitions(-DDOC_DIR="${CMAKE_INSTALL_FULL_DOCDIR}")
 
-add_library(ui STATIC
-	${COMMON_UI_SRC}
-	${DIRTY_UI_SRC}
+CHECKAPI(
+	NAME
+	  ui-base
+	SWITCHES
+	  -g deprecated-gtk
+	SOURCES
+	  ${NONGENERATED_UI_SRC}
+# Flex files not included due to use of malloc, free etc.
 )
-
-set_target_properties(ui PROPERTIES LINK_FLAGS "${WS_LINK_FLAGS}")
-set_target_properties(ui PROPERTIES FOLDER "UI")
+CHECKAPI(
+	NAME
+	  ui-todo
+	SWITCHES
+	  -M -g deprecated-gtk-todo
+	SOURCES
+	  ${NONGENERATED_UI_SRC}
+# Flex files not included due to use of malloc, free etc.
+)
 
 #
 # Editor modelines  -  http://www.wireshark.org/tools/modelines.html

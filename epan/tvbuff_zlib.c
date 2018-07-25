@@ -6,35 +6,26 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include "config.h"
+#include <config.h>
 
 #include <glib.h>
 
 #include <string.h>
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 #define ZLIB_CONST
 #include <zlib.h>
 #endif
 
 #include "tvbuff.h"
+#ifdef TVB_Z_DEBUG
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
+#endif
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 /*
  * Uncompresses a zlib compressed packet inside a message of tvb at offset with
  * length comprlen.  Returns an uncompressed tvbuffer if uncompression
@@ -64,14 +55,14 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 	guint      bytes_in       = tvb_captured_length_remaining(tvb, offset);
 #endif
 
-	if (tvb == NULL) {
+	if (tvb == NULL || comprlen <= 0) {
 		return NULL;
 	}
 
 	compr = (guint8 *)tvb_memdup(NULL, tvb, offset, comprlen);
-
-	if (!compr)
+	if (compr == NULL) {
 		return NULL;
+	}
 
 	/*
 	 * Assume that the uncompressed data is at least twice as big as
@@ -81,7 +72,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 	bufsiz = CLAMP(bufsiz, TVB_Z_MIN_BUFSIZ, TVB_Z_MAX_BUFSIZ);
 
 #ifdef TVB_Z_DEBUG
-	printf("bufsiz: %u bytes\n", bufsiz);
+	ws_debug_printf("bufsiz: %u bytes\n", bufsiz);
 #endif
 
 	next = compr;
@@ -99,7 +90,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 	if (err != Z_OK) {
 		inflateEnd(strm);
 		g_free(strm);
-		g_free(compr);
+		wmem_free(NULL, compr);
 		g_free(strmbuf);
 		return NULL;
 	}
@@ -161,7 +152,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 			if (uncompr != NULL) {
 				break;
 			} else {
-				g_free(compr);
+				wmem_free(NULL, compr);
 				return NULL;
 			}
 
@@ -191,7 +182,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 			if (comprlen < 10 || *c != Z_DEFLATED) {
 				inflateEnd(strm);
 				g_free(strm);
-				g_free(compr);
+				wmem_free(NULL, compr);
 				g_free(strmbuf);
 				return NULL;
 			}
@@ -250,7 +241,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 			if (c - compr > comprlen) {
 				inflateEnd(strm);
 				g_free(strm);
-				g_free(compr);
+				wmem_free(NULL, compr);
 				g_free(strmbuf);
 				return NULL;
 			}
@@ -294,7 +285,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 			if (err != Z_OK) {
 				g_free(strm);
 				g_free(strmbuf);
-				g_free(compr);
+				wmem_free(NULL, compr);
 				g_free(uncompr);
 
 				return NULL;
@@ -305,7 +296,7 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 			g_free(strmbuf);
 
 			if (uncompr == NULL) {
-				g_free(compr);
+				wmem_free(NULL, compr);
 				return NULL;
 			}
 
@@ -314,15 +305,15 @@ tvb_uncompress(tvbuff_t *tvb, const int offset, int comprlen)
 	}
 
 #ifdef TVB_Z_DEBUG
-	printf("inflate() total passes: %u\n", inflate_passes);
-	printf("bytes  in: %u\nbytes out: %u\n\n", bytes_in, bytes_out);
+	ws_debug_printf("inflate() total passes: %u\n", inflate_passes);
+	ws_debug_printf("bytes  in: %u\nbytes out: %u\n\n", bytes_in, bytes_out);
 #endif
 
 	if (uncompr != NULL) {
 		uncompr_tvb =  tvb_new_real_data((guint8*) uncompr, bytes_out, bytes_out);
 		tvb_set_free_cb(uncompr_tvb, g_free);
 	}
-	g_free(compr);
+	wmem_free(NULL, compr);
 	return uncompr_tvb;
 }
 #else

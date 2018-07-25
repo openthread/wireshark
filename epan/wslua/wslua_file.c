@@ -10,25 +10,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wslua_file_common.h"
 
 #include <errno.h>
 #include <wiretap/file_wrappers.h>
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 #define MAX_LINE_LENGTH            65536
 
@@ -41,7 +30,7 @@
  */
 
 
-WSLUA_CLASS_DEFINE(File,FAIL_ON_NULL_OR_EXPIRED("File"),NOP);
+WSLUA_CLASS_DEFINE(File,FAIL_ON_NULL_OR_EXPIRED("File"));
 /*
     A `File` object, passed into Lua as an argument by FileHandler callback
     functions (e.g., `read_open`, `read`, `write`, etc.).  This behaves similarly to the
@@ -66,11 +55,13 @@ WSLUA_CLASS_DEFINE(File,FAIL_ON_NULL_OR_EXPIRED("File"),NOP);
     `write_open()`, `write()`, and `write_close()`, then the File object's `read()` and `lines()`
     functions are not usable and will raise an error if used.
 
-    Note: a `File` object should never be stored/saved beyond the scope of the callback function
+    Note: A `File` object should never be stored/saved beyond the scope of the callback function
     it is passed in to.
 
     For example:
-    @code
+
+    [source,lua]
+    ----
     function myfilehandler.read_open(file, capture)
         local position = file:seek()
 
@@ -85,7 +76,7 @@ WSLUA_CLASS_DEFINE(File,FAIL_ON_NULL_OR_EXPIRED("File"),NOP);
         -- return false because it's not our file type
         return false
     end
-    @endcode
+    ----
 
    @since 1.11.3
  */
@@ -170,6 +161,10 @@ static int File_read_number (lua_State *L, FILE_T ft) {
     }
 }
 
+/**
+ * Attempts to read one line from the file. The actual data read is pushed on
+ * the stack (or nil on EOF).
+ */
 static int File_read_line(lua_State *L, FILE_T ft) {
     static gchar linebuff[MAX_LINE_LENGTH];
     gint64 pos_before = file_tell(ft);
@@ -178,6 +173,8 @@ static int File_read_line(lua_State *L, FILE_T ft) {
     if (file_gets(linebuff, MAX_LINE_LENGTH, ft) == NULL) {
         /* No characters found, or error */
         /* *err = file_error(ft, err_info); */
+        /* io.lines() and file:read() requires nil on EOF */
+        lua_pushnil(L);
         return 0;
     }
 
@@ -185,7 +182,7 @@ static int File_read_line(lua_State *L, FILE_T ft) {
     length = (gint)(file_tell(ft) - pos_before);
 
     /* ...but don't want to include newline in line length */
-    if (linebuff[length-1] == '\n') {
+    if (length > 0 && linebuff[length-1] == '\n') {
         length--;
         /* Nor do we want '\r' (as will be written when log is created on windows) */
         if (length > 0 && linebuff[length - 1] == '\r') {
@@ -211,6 +208,10 @@ static int File_read_line(lua_State *L, FILE_T ft) {
 #define lua_rawlen lua_objlen
 #endif
 
+/**
+ * Reads some data and returns the number of bytes read.
+ * The actual data (possibly an empty string) is pushed on the Lua stack.
+ */
 static int File_read_chars(lua_State *L, FILE_T ft, size_t n) {
     size_t rlen;  /* how much to read */
     size_t nr;  /* number of chars actually read */
@@ -277,12 +278,12 @@ WSLUA_METHOD File_read(lua_State* L) {
 
     /* shiftFile() doesn't verify things like expired */
     if (f->expired) {
-        g_warning("Error in File read: Lua File has expired");
+        ws_g_warning("Error in File read: Lua File has expired");
         return 0;
     }
 
     if (!file_is_reader(f)) {
-        g_warning("Error in File read: this File object instance is for writing only");
+        ws_g_warning("Error in File read: this File object instance is for writing only");
         return 0;
     }
 
@@ -399,7 +400,7 @@ WSLUA_METHOD File_lines(lua_State* L) {
         return luaL_error(L, "Error getting File handle for lines");
 
     if (!file_is_reader(f)) {
-        g_warning("Error in File read: this File object instance is for writing only");
+        ws_g_warning("Error in File read: this File object instance is for writing only");
         return 0;
     }
 
@@ -421,7 +422,7 @@ WSLUA_METHOD File_write(lua_State* L) {
     int err = 0;
 
     if (!f->wdh) {
-        g_warning("Error in File read: this File object instance is for reading only");
+        ws_g_warning("Error in File read: this File object instance is for reading only");
         return 0;
     }
 
@@ -463,8 +464,7 @@ WSLUA_METAMETHOD File__tostring(lua_State* L) {
 /* We free the struct we malloc'ed, but not the FILE_T/dumper in it of course */
 static int File__gc(lua_State* L) {
     File f = toFile(L,1);
-    if (f)
-        g_free(f);
+    g_free(f);
     return 0;
 }
 

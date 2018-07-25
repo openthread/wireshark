@@ -4,29 +4,17 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#
+
+set(WSCODECS_PUBLIC_HEADERS
+  codecs.h
+)
 
 set(WSCODECS_FILES
   codecs.c
   G711a/G711adecode.c
   G711u/G711udecode.c
-  # These are wrapped in "#ifdef HAVE_SPANDSP", which we don't currently
-  # handle or define.
-  # G722/G722decode.c
-  # G726/G726decode.c
   speex/resample.c
 )
 
@@ -51,33 +39,64 @@ set(wscodecs_LIBS
   wsutil
 )
 
-add_library(wscodecs ${LINK_MODE_LIB}
+if(HAVE_SPANDSP)
+  list(APPEND WSCODECS_FILES G722/G722decode.c G726/G726decode.c)
+  list(APPEND wscodecs_LIBS ${SPANDSP_LIBRARIES})
+endif()
+
+if(HAVE_BCG729)
+  list(APPEND WSCODECS_FILES G729/G729decode.c)
+  list(APPEND wscodecs_LIBS ${BCG729_LIBRARIES})
+endif()
+
+add_library(wscodecs
   ${WSCODECS_FILES}
   ${CMAKE_BINARY_DIR}/image/libwscodecs.rc
 )
-
-set(FULL_SO_VERSION "0.0.0")
 
 set_target_properties(wscodecs PROPERTIES
   PREFIX "lib"
   COMPILE_DEFINITIONS "WS_BUILD_DLL"
   LINK_FLAGS "${WS_LINK_FLAGS}"
-  VERSION ${FULL_SO_VERSION} SOVERSION 0
-  FOLDER "Libs"
+  VERSION "0.0.0" SOVERSION 0
+  FOLDER "DLLs"
 )
 
 if(ENABLE_APPLICATION_BUNDLE)
   set_target_properties(wscodecs PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/Frameworks
   )
+  if(NOT CMAKE_CFG_INTDIR STREQUAL ".")
+    # Xcode
+    set_target_properties(wscodecs PROPERTIES
+      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/$<CONFIG>/Wireshark.app/Contents/Frameworks
+    )
+  else()
+    set_target_properties(wscodecs PROPERTIES
+      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/Frameworks
+    )
+  endif()
 endif()
 
 target_link_libraries(wscodecs ${wscodecs_LIBS})
 
-if(NOT ${ENABLE_STATIC})
-  install(TARGETS wscodecs
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(TARGETS wscodecs
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+if(NOT WIN32)
+  install(FILES ${WSCODECS_PUBLIC_HEADERS}
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${CPACK_PACKAGE_NAME}/codecs"
   )
 endif()
+
+CHECKAPI(
+	NAME
+	  codecs
+	SWITCHES
+	  -g abort -g termoutput -build
+	SOURCES
+	  ${WSCODECS_FILES}
+)

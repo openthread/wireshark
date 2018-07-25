@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -90,7 +78,7 @@ static int hf_djiuav_response_time = -1;
 #define PROTO_SHORT_NAME "DJIUAV"
 #define PROTO_LONG_NAME "DJI UAV Drone Control Protocol"
 
-#define PORT_DJIUAV	2001
+#define PORT_DJIUAV	2001 /* Not IANA registered */
 
 static const value_string djiuav_pdu_type[] = {
 	{ 0x20, "Set Time" },
@@ -245,8 +233,7 @@ dissect_djiuav_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 			offset += pdu_length - 1 - offset;
 		}
 /* FIXME: calculate XOR and validate transmitted value */
-		proto_tree_add_item(djiuav_tree, hf_djiuav_checksum, tvb, offset, 1,
-			ENC_BIG_ENDIAN);
+		proto_tree_add_checksum(djiuav_tree, tvb, offset, hf_djiuav_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		offset += 1;
 
 	}
@@ -273,7 +260,7 @@ get_djiuav_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data
 }
 
 static int
-dissect_djiuav_static(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
+dissect_djiuav_static(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
 	if ( !test_djiuav(tvb) ) {
 		return 0;
@@ -387,9 +374,8 @@ proto_reg_handoff_djiuav(void)
 {
 	dissector_handle_t djiuav_handle;
 
-
 	djiuav_handle = create_dissector_handle(dissect_djiuav_static, proto_djiuav);
-	dissector_add_uint("tcp.port", PORT_DJIUAV, djiuav_handle);
+	dissector_add_uint_with_preference("tcp.port", PORT_DJIUAV, djiuav_handle);
 }
 
 /*

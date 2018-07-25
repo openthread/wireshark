@@ -9,19 +9,7 @@
  * By Jens Kilian <jens.kilian@verigy.com>
  * Copyright 2009 Verigy Deutschland GmbH
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -221,10 +209,7 @@ dissect_error(tvbuff_t *tvb,
 
     offset = dissect_rpc_uint32(tvb, tree, hf_vxi11_core_error, offset);
 
-    if (tree)
-    {
-        proto_item_append_text(tree, " (%s) %s", packet_type, errstr);
-    }
+    proto_item_append_text(tree, " (%s) %s", packet_type, errstr);
     col_append_fstr(pinfo->cinfo, COL_INFO, " %s", errstr);
 
     return offset;
@@ -402,10 +387,7 @@ dissect_device_docmd_parms(tvbuff_t *tvb,
     offset = dissect_rpc_uint32(tvb, tree, hf_vxi11_core_size, offset);
     offset = dissect_rpc_opaque_data(tvb, offset, tree, NULL, hf_vxi11_core_data, FALSE, 0, FALSE, NULL, NULL);
 
-    if (tree)
-    {
-        proto_item_append_text(tree, " (Device_DocmdParms) LID=%d CMD=%s", lid, cmdstr);
-    }
+    proto_item_append_text(tree, " (Device_DocmdParms) LID=%d CMD=%s", lid, cmdstr);
     col_append_fstr(pinfo->cinfo, COL_INFO, " LID=%d CMD=%s", lid, cmdstr);
 
     return offset;
@@ -437,10 +419,7 @@ dissect_device_enable_SRQ_parms(tvbuff_t *tvb,
     offset = dissect_rpc_bool(tvb, tree, hf_vxi11_core_enable, offset);
     offset = dissect_rpc_opaque_data(tvb, offset, tree, NULL, hf_vxi11_core_handle, FALSE, 0, FALSE, NULL, NULL);
 
-    if (tree)
-    {
-        proto_item_append_text(tree, " (Device_EnableSrqParms) LID=%d", lid);
-    }
+    proto_item_append_text(tree, " (Device_EnableSrqParms) LID=%d", lid);
     col_append_fstr(pinfo->cinfo, COL_INFO, " LID=%d", lid);
 
     return offset;
@@ -469,10 +448,7 @@ dissect_device_generic_parms(tvbuff_t *tvb,
     offset = dissect_rpc_uint32(tvb, tree, hf_vxi11_core_io_timeout, offset);
     offset = dissect_rpc_uint32(tvb, tree, hf_vxi11_core_lock_timeout, offset);
 
-    if (tree)
-    {
-        proto_item_append_text(tree, " (Device_GenericParms) LID=%d", lid);
-    }
+    proto_item_append_text(tree, " (Device_GenericParms) LID=%d", lid);
     col_append_fstr(pinfo->cinfo, COL_INFO, " LID=%d", lid);
 
     return offset;
@@ -488,10 +464,7 @@ dissect_device_link(tvbuff_t *tvb,
 
     offset = dissect_rpc_uint32(tvb, tree, hf_vxi11_core_lid, offset);
 
-    if (tree)
-    {
-        proto_item_append_text(tree, " (Device_Link) LID=%d", lid);
-    }
+    proto_item_append_text(tree, " (Device_Link) LID=%d", lid);
     col_append_fstr(pinfo->cinfo, COL_INFO, " LID=%d", lid);
 
     return offset;
@@ -509,10 +482,7 @@ dissect_device_lock_parms(tvbuff_t *tvb,
     offset = dissect_flags(tvb, offset, tree);
     offset = dissect_rpc_uint32(tvb, tree, hf_vxi11_core_lock_timeout, offset);
 
-    if (tree)
-    {
-        proto_item_append_text(tree, " (Device_LockParms) LID=%d", lid);
-    }
+    proto_item_append_text(tree, " (Device_LockParms) LID=%d", lid);
     col_append_fstr(pinfo->cinfo, COL_INFO, " LID=%d", lid);
 
     return offset;
@@ -629,10 +599,7 @@ dissect_device_write_parms(tvbuff_t *tvb,
     col_append_fstr( pinfo->cinfo, COL_INFO," %s",tvb_format_text(tvb, offset+4,(guint32) datalength));
 
     offset = dissect_rpc_opaque_data(tvb, offset, tree, NULL, hf_vxi11_core_data, FALSE, 0, FALSE, NULL, NULL);
-    if (tree)
-    {
-        proto_item_append_text(tree, " (Device_WriteParms) LID=%d", lid);
-    }
+    proto_item_append_text(tree, " (Device_WriteParms) LID=%d", lid);
 
     return offset;
 }

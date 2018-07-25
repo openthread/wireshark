@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -426,7 +414,7 @@ dissect_fcp_cmnd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, pro
 }
 
 static void
-dissect_fcp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, conversation_t *conversation _U_, itlq_nexus_t *itlq, guint32 relative_offset)
+dissect_fcp_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, conversation_t *conversation, itlq_nexus_t *itlq, guint32 relative_offset)
 {
     itl_nexus_t itl;
     itlq_nexus_t empty_itlq;
@@ -546,7 +534,7 @@ dissect_fcp_rsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, prot
     if (rsplen) {
         tvbuff_t *rspinfo_tvb;
 
-        rspinfo_tvb = tvb_new_subset(tvb, offset, MIN(rsplen, tvb_captured_length_remaining(tvb, offset)), rsplen);
+        rspinfo_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(rsplen, tvb_captured_length_remaining(tvb, offset)), rsplen);
         dissect_fcp_rspinfo(rspinfo_tvb, tree, 0);
 
         offset += rsplen;
@@ -556,7 +544,7 @@ dissect_fcp_rsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, prot
     if (snslen) {
         tvbuff_t *sns_tvb;
 
-        sns_tvb = tvb_new_subset(tvb, offset, MIN(snslen, tvb_captured_length_remaining(tvb, offset)), snslen);
+        sns_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(snslen, tvb_captured_length_remaining(tvb, offset)), snslen);
         dissect_scsi_snsinfo(sns_tvb, pinfo, parent_tree, 0,
                               snslen,
                               (request_data != NULL) ? request_data->itlq : &empty_itlq, &itl);
@@ -660,12 +648,9 @@ dissect_fcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
                                             fcp_iu_val, "Unknown 0x%02x"));
     fcp_tree = proto_item_add_subtree(ti, ett_fcp);
 
-    fc_conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                     pinfo->ptype, pinfo->srcport,
-                     pinfo->destport, 0);
-    if (fc_conv != NULL) {
-        fcp_conv_data = (fcp_conv_data_t *)conversation_get_proto_data(fc_conv, proto_fcp);
-    }
+    fc_conv = find_or_create_conversation(pinfo);
+    fcp_conv_data = (fcp_conv_data_t *)conversation_get_proto_data(fc_conv, proto_fcp);
+
     if (!fcp_conv_data) {
         fcp_conv_data = wmem_new(wmem_file_scope(), fcp_conv_data_t);
         fcp_conv_data->luns = wmem_map_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
@@ -683,7 +668,7 @@ dissect_fcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         proto_data = (fcp_proto_data_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_fcp, 0);
     }
 
-    if ((r_ctl != FCP_IU_CMD) && (r_ctl != FCP_IU_UNSOL_CTL)) {
+    if ((r_ctl != FCP_IU_CMD) && (r_ctl != FCP_IU_UNSOL_CTL) && (proto_data != NULL)) {
         request_data = (fcp_request_data_t *)wmem_map_lookup(fcp_conv_data->luns, GUINT_TO_POINTER((guint)(proto_data->lun)));
     }
 

@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *Ref:
  * http://www.3gpp2.org/Public_html/specs/A.S0009-C_v3.0_100621.pdf
@@ -44,6 +32,7 @@
 #include <epan/expert.h>
 /* Include vendor id translation */
 #include <epan/sminmpec.h>
+#include <epan/addr_resolv.h>
 #include <epan/to_str.h>
 
 #include "packet-radius.h"
@@ -223,8 +212,10 @@ static expert_field ei_a11_bcmcs_too_short = EI_INIT;
 static expert_field ei_a11_entry_data_not_dissected = EI_INIT;
 static expert_field ei_a11_session_data_not_dissected = EI_INIT;
 
+static dissector_handle_t a11_handle = NULL;
+
 /* Port used for Mobile IP based Tunneling Protocol (A11) */
-#define UDP_PORT_3GA11    699
+#define UDP_PORT_3GA11    699 /* Not IANA registered */
 
 typedef enum {
     REGISTRATION_REQUEST     = 1,
@@ -2207,7 +2198,7 @@ proto_register_a11(void)
         },
         { &hf_a11_vse_vid,
           { "Vendor ID",                      "a11.ext.vid",
-            FT_UINT32, BASE_HEX|BASE_EXT_STRING, &sminmpec_values_ext, 0,
+            FT_UINT32, BASE_ENTERPRISES, STRINGS_ENTERPRISES, 0,
             NULL, HFILL }
         },
         { &hf_a11_vse_apptype,
@@ -2723,7 +2714,7 @@ proto_register_a11(void)
     proto_a11 = proto_register_protocol("3GPP2 A11", "3GPP2 A11", "a11");
 
     /* Register the dissector by name */
-    register_dissector("a11", dissect_a11, proto_a11);
+    a11_handle = register_dissector("a11", dissect_a11, proto_a11);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_a11, hf, array_length(hf));
@@ -2736,10 +2727,7 @@ proto_register_a11(void)
 void
 proto_reg_handoff_a11(void)
 {
-    dissector_handle_t a11_handle;
-
-    a11_handle = find_dissector("a11");
-    dissector_add_uint("udp.port", UDP_PORT_3GA11, a11_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_3GA11, a11_handle);
 
     /* 3GPP2-Service-Option-Profile(74) */
     radius_register_avp_dissector(VENDOR_THE3GPP2, 74, dissect_3gpp2_service_option_profile);

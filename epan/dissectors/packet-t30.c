@@ -2,23 +2,13 @@
  * Routines for T.30 packet dissection
  * 2006  Alejandro Vaquero, add T30 reassemble and dissection
  *
+ * http://www.itu.int/rec/T-REC-T.30-200509-I/en
+ *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,7 +22,6 @@
 #include "packet-t30.h"
 
 void proto_register_t30(void);
-void proto_reg_handoff_t30(void);
 
 /* T30 */
 static int proto_t30 = -1;
@@ -156,13 +145,18 @@ static const value_string t30_control_vals[] = {
     { 0,    NULL }
 };
 
+// initial identification - format 0000 XXXX
 #define T30_FC_DIS      0x01
 #define T30_FC_CSI      0x02
 #define T30_FC_NSF      0x04
+
+// pre-message response signals - format X010 XXXX
 #define T30_FC_CFR      0x21
 #define T30_FC_FTT      0x22
 #define T30_FC_CTR      0x23
 #define T30_FC_CSA      0x24
+
+// post-message resopnses - format X011 XXXX
 #define T30_FC_MCF      0x31
 #define T30_FC_RTN      0x32
 #define T30_FC_RTP      0x33
@@ -173,6 +167,8 @@ static const value_string t30_control_vals[] = {
 #define T30_FC_ERR      0x38
 #define T30_FC_PPR      0x3D
 #define T30_FC_FDM      0x3F
+
+// command to receive - format X100 XXXX
 #define T30_FC_DCS      0x41
 #define T30_FC_TSI      0x42
 #define T30_FC_SUB      0x43
@@ -181,13 +177,19 @@ static const value_string t30_control_vals[] = {
 #define T30_FC_TSA      0x46
 #define T30_FC_IRA      0x47
 #define T30_FC_CTC      0x48
+
+// other line control signals - format X101 XXXX
 #define T30_FC_FNV      0x53
 #define T30_FC_TR       0x56
 #define T30_FC_TNR      0x57
 #define T30_FC_CRP      0x58
 #define T30_FC_DCN      0x5F
+
+// not sure about the format and mask
 #define T30_FC_FCD      0x60
 #define T30_FC_RCP      0x61
+
+// post-message commands - format X111 XXXX
 #define T30_FC_EOM      0x71
 #define T30_FC_MPS      0x72
 #define T30_FC_EOR      0x73
@@ -198,6 +200,8 @@ static const value_string t30_control_vals[] = {
 #define T30_FC_PRI_MPS  0x7A
 #define T30_FC_PRI_EOP  0x7C
 #define T30_FC_PPS      0x7D
+
+// Command to send - format 1000 XXXX
 #define T30_FC_DTC      0x81
 #define T30_FC_CIG      0x82
 #define T30_FC_PWD      0x83
@@ -206,6 +210,12 @@ static const value_string t30_control_vals[] = {
 #define T30_FC_PSA      0x86
 #define T30_FC_CIA      0x87
 #define T30_FC_ISP      0x88
+
+
+
+
+
+
 
 static const value_string t30_facsimile_control_field_vals[] = {
     /* 0x01 */    { T30_FC_DIS,      "Digital Identification Signal" },
@@ -608,6 +618,7 @@ dissect_t30_partial_page_signal(tvbuff_t *tvb, int offset, packet_info *pinfo, i
 static void
 dissect_t30_partial_page_request(tvbuff_t *tvb, int offset, packet_info *pinfo, int len, proto_tree *tree)
 {
+    int start_offset;
     int frame_count = 0;
     int frame;
 #define BUF_SIZE  (10*1 + 90*2 + 156*3 + 256*2 + 1) /* 0..9 + 10..99 + 100..255 + 256*', ' + \0 */
@@ -621,6 +632,7 @@ dissect_t30_partial_page_request(tvbuff_t *tvb, int offset, packet_info *pinfo, 
         return;
     }
 
+    start_offset = offset;
     for (frame=0; frame < 255; ) {
         guint8 octet = tvb_get_guint8(tvb, offset);
         guint8 bit = 1<<7;
@@ -639,7 +651,7 @@ dissect_t30_partial_page_request(tvbuff_t *tvb, int offset, packet_info *pinfo, 
     proto_tree_add_uint(tree, hf_t30_partial_page_request_frame_count, tvb, offset, 1, frame_count);
     if (buf_top > buf+1) {
         buf_top[-2] = '\0';
-        proto_tree_add_string_format_value(tree, hf_t30_partial_page_request_frames, tvb, offset, (gint)(buf_top-buf),
+        proto_tree_add_string_format_value(tree, hf_t30_partial_page_request_frames, tvb, start_offset, offset - start_offset,
                                      buf, "%s", buf);
     }
 
@@ -967,42 +979,51 @@ dissect_t30_hdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
                         val_to_str_ext_const(octet & 0x7F, &t30_facsimile_control_field_vals_short_ext, "<unknown>"),
                         val_to_str_ext_const(octet & 0x7F, &t30_facsimile_control_field_vals_ext, "<unknown>") );
     /*
-        TODO: VS Code Analysis makes a good point - several of these commands can't get detected while
-        the m.s.b. is masked off! (e.g. T30_FC_DTC is 0x81).  I couldn't readily work out from the T.30
-        spec why this masking is being done...
+        The T.30 spec has three groups of codes: 0000 XXXX, 1000 XXXX and X.......
+        bitmask here.
     */
-    switch (octet & 0x7F) {
-    case T30_FC_DIS:
-    case T30_FC_DTC:
-        dissect_t30_dis_dtc(tvb, offset, pinfo, frag_len, tr_fif, TRUE, t38);
-        break;
-    case T30_FC_DCS:
-        dissect_t30_dis_dtc(tvb, offset, pinfo, frag_len, tr_fif, FALSE, t38);
-        break;
-    case T30_FC_CSI:
-    case T30_FC_CIG:
-    case T30_FC_TSI:
-    case T30_FC_PWD:
-    case T30_FC_SEP:
-    case T30_FC_SUB:
-    case T30_FC_SID:
-    case T30_FC_PSA:
-        dissect_t30_numbers(tvb, offset, pinfo, frag_len, tr_fif, t38);
-        break;
-    case T30_FC_NSF:
-    case T30_FC_NSC:
-    case T30_FC_NSS:
-        dissect_t30_non_standard_cap(tvb, offset, pinfo, frag_len, tr_fif);
-        break;
-    case T30_FC_FCD:
-        dissect_t30_facsimile_coded_data(tvb, offset, pinfo, frag_len, tr_fif, t38);
-        break;
-    case T30_FC_PPS:
-        dissect_t30_partial_page_signal(tvb, offset, pinfo, frag_len, tr_fif, t38);
-        break;
-    case T30_FC_PPR:
-        dissect_t30_partial_page_request(tvb, offset, pinfo, frag_len, tr_fif);
-        break;
+
+    switch (octet) {
+        case T30_FC_DTC:
+            dissect_t30_dis_dtc(tvb, offset, pinfo, frag_len, tr_fif, TRUE, t38);
+            break;
+        case T30_FC_CIG:
+        case T30_FC_PWD:
+        case T30_FC_SEP:
+        case T30_FC_PSA:
+            dissect_t30_numbers(tvb, offset, pinfo, frag_len, tr_fif, t38);
+            break;
+        case T30_FC_NSC:
+            dissect_t30_non_standard_cap(tvb, offset, pinfo, frag_len, tr_fif);
+            break;
+        default:
+            switch (octet & 0x7F) {
+            case T30_FC_DIS:
+                dissect_t30_dis_dtc(tvb, offset, pinfo, frag_len, tr_fif, TRUE, t38);
+                break;
+            case T30_FC_DCS:
+                dissect_t30_dis_dtc(tvb, offset, pinfo, frag_len, tr_fif, FALSE, t38);
+                break;
+            case T30_FC_CSI:
+            case T30_FC_TSI:
+            case T30_FC_SUB:
+            case T30_FC_SID:
+                dissect_t30_numbers(tvb, offset, pinfo, frag_len, tr_fif, t38);
+                break;
+            case T30_FC_NSF:
+            case T30_FC_NSS:
+                dissect_t30_non_standard_cap(tvb, offset, pinfo, frag_len, tr_fif);
+                break;
+            case T30_FC_FCD:
+                dissect_t30_facsimile_coded_data(tvb, offset, pinfo, frag_len, tr_fif, t38);
+                break;
+            case T30_FC_PPS:
+                dissect_t30_partial_page_signal(tvb, offset, pinfo, frag_len, tr_fif, t38);
+                break;
+            case T30_FC_PPR:
+                dissect_t30_partial_page_request(tvb, offset, pinfo, frag_len, tr_fif);
+                break;
+            }
     }
 
     col_append_str(pinfo->cinfo, COL_INFO, ")");

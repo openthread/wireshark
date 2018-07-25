@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref https://www.opennetworking.org/sdn-resources/onf-specifications/openflow
  */
@@ -156,7 +144,7 @@ static gint ett_openflow_port_cnf = -1;
 static gint ett_openflow_port_state = -1;
 static gint ett_openflow_port_cf = -1;
 
-static expert_field ei_openflow_undecoded_data = EI_INIT;
+/* static expert_field ei_openflow_undecoded_data = EI_INIT; */
 static expert_field ei_openflow_action_type = EI_INIT;
 static expert_field ei_openflow_1_0_type = EI_INIT;
 
@@ -390,7 +378,7 @@ static const value_string openflow_action_values[] = {
 };
 
 static int
-dissect_openflow_action_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
+dissect_openflow_action_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
     guint16 action_type, action_len;
     proto_item* ti;
@@ -629,7 +617,7 @@ static const value_string openflow_reason_values[] = {
 };
 
 static void
-dissect_openflow_pkt_in(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint16 length)
+dissect_openflow_pkt_in(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, guint16 length)
 {
     tvbuff_t *next_tvb;
 
@@ -657,7 +645,7 @@ dissect_openflow_pkt_in(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
 }
 
 static void
-dissect_openflow_pkt_out(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint16 length _U_)
+dissect_openflow_pkt_out(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, guint16 length)
 {
     tvbuff_t *next_tvb;
     gint32 buffer_id;
@@ -838,7 +826,7 @@ dissect_openflow_v1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 
     /* Stop the Ethernet frame from overwriting the columns */
     if((type == OFPT_1_0_PACKET_IN) || (type == OFPT_1_0_PACKET_OUT)){
-        col_set_writable(pinfo->cinfo, FALSE);
+        col_set_writable(pinfo->cinfo, -1, FALSE);
     }
 
     /* Create display subtree for the protocol */
@@ -1440,7 +1428,9 @@ proto_register_openflow_v1(void)
     };
 
     static ei_register_info ei[] = {
+#if 0
         { &ei_openflow_undecoded_data, { "openflow.undecoded_data", PI_UNDECODED, PI_WARN, "Data not dissected yet", EXPFILL }},
+#endif
         { &ei_openflow_action_type, { "openflow.action_typ.undecoded", PI_UNDECODED, PI_WARN, "Action not dissected yet", EXPFILL }},
         { &ei_openflow_1_0_type, { "openflow_1_0.type.undecoded", PI_UNDECODED, PI_WARN, "Message data not dissected yet", EXPFILL }},
     };

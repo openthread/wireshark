@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -126,9 +114,9 @@ init_srt_tables(register_srt_t* srt, const char *filter)
 	ui->data.srt_array = global_srt_array;
 	ui->data.user_data = ui;
 
-	error_string = register_tap_listener(get_srt_tap_listener_name(srt), &ui->data, filter, 0, NULL, get_srt_packet_func(srt), srt_draw);
+	error_string = register_tap_listener(get_srt_tap_listener_name(srt), &ui->data, filter, 0, NULL, get_srt_packet_func(srt), srt_draw, NULL);
 	if (error_string) {
-		free_srt_table(srt, global_srt_array, NULL, NULL);
+		free_srt_table(srt, global_srt_array);
 		g_free(ui);
 		fprintf(stderr, "tshark: Couldn't register srt tap: %s\n", error_string->str);
 		g_string_free(error_string, TRUE);
@@ -153,33 +141,37 @@ dissector_srt_init(const char *opt_arg, void* userdata)
 		exit(1);
 	}
 
-    /* Need to create the SRT array now */
-    global_srt_array = g_array_new(FALSE, TRUE, sizeof(srt_stat_table*));
+	/* Need to create the SRT array now */
+	global_srt_array = g_array_new(FALSE, TRUE, sizeof(srt_stat_table*));
 
-	srt_table_dissector_init(srt, global_srt_array, NULL, NULL);
+	srt_table_dissector_init(srt, global_srt_array);
 	init_srt_tables(srt, filter);
 }
 
 /* Set GUI fields for register_srt list */
-void
-register_srt_tables(gpointer data, gpointer user_data _U_)
+gboolean
+register_srt_tables(const void *key _U_, void *value, void *userdata _U_)
 {
-	register_srt_t *srt = (register_srt_t*)data;
+	register_srt_t *srt = (register_srt_t*)value;
 	const char* short_name = proto_get_protocol_short_name(find_protocol_by_id(get_srt_proto_id(srt)));
 	stat_tap_ui ui_info;
+	gchar *cli_string;
 
 	/* XXX - CAMEL dissector hasn't been converted over due seemingly different tap packet
 	   handling functions.  So let the existing TShark CAMEL tap keep its registration */
 	if (strcmp(short_name, "CAMEL") == 0)
-		return;
+		return FALSE;
 
+	cli_string = srt_table_get_tap_string(srt);
 	ui_info.group = REGISTER_STAT_GROUP_RESPONSE_TIME;
 	ui_info.title = NULL;   /* construct this from the protocol info? */
-	ui_info.cli_string = srt_table_get_tap_string(srt);
+	ui_info.cli_string = cli_string;
 	ui_info.tap_init_cb = dissector_srt_init;
 	ui_info.nparams = 0;
 	ui_info.params = NULL;
 	register_stat_tap_ui(&ui_info, srt);
+	g_free(cli_string);
+	return FALSE;
 }
 
 /*

@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -95,9 +83,9 @@ float_val_repr_len(fvalue_t *fv _U_, ftrepr_t rtype _U_, int field_display _U_)
 }
 
 static void
-float_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+float_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
-	g_snprintf(buf, DOUBLE_REPR_LENGTH, "%." G_STRINGIFY(FLT_DIG) "g", fv->value.floating);
+	g_snprintf(buf, size, "%." G_STRINGIFY(FLT_DIG) "g", fv->value.floating);
 }
 
 static int
@@ -113,9 +101,9 @@ double_val_repr_len(fvalue_t *fv _U_, ftrepr_t rtype _U_, int field_display _U_)
 }
 
 static void
-double_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+double_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
-	g_snprintf(buf, DOUBLE_REPR_LENGTH, "%." G_STRINGIFY(DBL_DIG) "g", fv->value.floating);
+	g_snprintf(buf, size, "%." G_STRINGIFY(DBL_DIG) "g", fv->value.floating);
 }
 
 static gboolean
@@ -170,24 +158,8 @@ ftype_register_double(void)
 		float_val_to_repr,		/* val_to_string_repr */
 		float_val_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		double_fvalue_set_floating,	/* set_value_floating */
-
-		NULL,				/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		value_get_floating,		/* get_value_floating */
+		{ .set_value_floating = double_fvalue_set_floating },		/* union set_value */
+		{ .get_value_floating = value_get_floating },	/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -215,24 +187,8 @@ ftype_register_double(void)
 		double_val_to_repr,		/* val_to_string_repr */
 		double_val_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		double_fvalue_set_floating,	/* set_value_floating */
-
-		NULL,				/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		value_get_floating,		/* get_value_floating */
+		{ .set_value_floating = double_fvalue_set_floating },		/* union set_value */
+		{ .get_value_floating = value_get_floating },	/* union get_value */
 
 		cmp_eq,
 		cmp_ne,

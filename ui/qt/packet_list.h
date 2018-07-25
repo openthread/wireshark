@@ -4,30 +4,18 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_LIST_H
 #define PACKET_LIST_H
 
 #include "byte_view_tab.h"
-#include "packet_list_model.h"
-#include "preferences_dialog.h"
+#include <ui/qt/models/packet_list_model.h>
 #include "proto_tree.h"
 #include "protocol_preferences_menu.h"
-#include "related_packet_delegate.h"
+#include <ui/qt/models/related_packet_delegate.h>
+#include <ui/qt/utils/field_information.h>
 
 #include <QMenu>
 #include <QTime>
@@ -60,9 +48,21 @@ public:
     QMenu *conversationMenu() { return &conv_menu_; }
     QMenu *colorizeMenu() { return &colorize_menu_; }
     void setProtoTree(ProtoTree *proto_tree);
-    void setByteViewTab(ByteViewTab *byteViewTab);
+
+    /** Disable and clear the packet list.
+     *
+     * Disable packet list widget updates, clear the detail and byte views,
+     * and disconnect the model.
+     */
     void freeze();
-    void thaw();
+    /** Enable and restore the packet list.
+     *
+     * Enable packet list widget updates and reconnect the model.
+     *
+     * @param restore_selection If true, redissect the previously selected
+     * packet. This includes filling in the detail and byte views.
+     */
+    void thaw(bool restore_selection = false);
     void clear();
     void writeRecent(FILE *rf);
     bool contextMenuActive();
@@ -71,18 +71,21 @@ public:
     QString packetComment();
     void setPacketComment(QString new_comment);
     QString allPacketComments();
+    void deleteAllPacketComments();
     void setVerticalAutoScroll(bool enabled = true);
     void setCaptureInProgress(bool in_progress = false) { capture_in_progress_ = in_progress; tail_at_end_ = in_progress; }
     void captureFileReadFinished();
     void resetColumns();
+    bool haveNextHistory(bool update_cur = false);
+    bool havePreviousHistory(bool update_cur = false);
 
 protected:
-    void showEvent(QShowEvent *);
     void selectionChanged(const QItemSelection & selected, const QItemSelection & deselected);
     void contextMenuEvent(QContextMenuEvent *event);
     void timerEvent(QTimerEvent *event);
     void paintEvent(QPaintEvent *event);
-    virtual void mousePressEvent (QMouseEvent * event);
+    virtual void mousePressEvent (QMouseEvent *event);
+    virtual void resizeEvent(QResizeEvent *event);
 
 protected slots:
     void rowsInserted(const QModelIndex &parent, int start, int end);
@@ -91,14 +94,12 @@ protected slots:
 private:
     PacketListModel *packet_list_model_;
     ProtoTree *proto_tree_;
-    ByteViewTab *byte_view_tab_;
     capture_file *cap_file_;
     QMenu ctx_menu_;
     QMenu conv_menu_;
     QMenu colorize_menu_;
     ProtocolPreferencesMenu proto_prefs_menu_;
     QAction *decode_as_;
-    QList<QAction *> copy_actions_;
     int ctx_column_;
     QByteArray column_state_;
     OverlayScrollBar *overlay_sb_;
@@ -120,6 +121,10 @@ private:
     bool rows_inserted_;
     bool columns_changed_;
     bool set_column_visibility_;
+    int frozen_row_;
+    QVector<int> selection_history_;
+    int cur_history_;
+    bool in_history_;
 
     void setFrameReftime(gboolean set, frame_data *fdata);
     void setColumnVisibility();
@@ -128,25 +133,31 @@ private:
     void initHeaderContextMenu();
     void drawCurrentPacket();
     void applyRecentColumnWidths();
+    void scrollViewChanged(bool at_end);
+    void colorsChanged();
 
 signals:
     void packetDissectionChanged();
-    void packetSelectionChanged();
-    void showColumnPreferences(PreferencesDialog::PreferencesPane start_pane);
+    void showColumnPreferences(QString pane_name);
     void editColumn(int column);
     void packetListScrolled(bool at_end);
     void showProtocolPreferences(const QString module_name);
     void editProtocolPreference(struct preference *pref, struct pref_module *module);
+
+    void frameSelected(int frameNum);
+    void fieldSelected(FieldInformation *);
 
 public slots:
     void setCaptureFile(capture_file *cf);
     void setMonospaceFont(const QFont &mono_font);
     void goNextPacket();
     void goPreviousPacket();
-    void goFirstPacket();
+    void goFirstPacket(bool user_selected = true);
     void goLastPacket();
     void goToPacket(int packet);
     void goToPacket(int packet, int hf_id);
+    void goNextHistoryPacket();
+    void goPreviousHistoryPacket();
     void markFrame();
     void markAllDisplayedFrames(bool set);
     void ignoreFrame();
@@ -156,6 +167,7 @@ public slots:
     void applyTimeShift();
     void recolorPackets();
     void redrawVisiblePackets();
+    void redrawVisiblePacketsDontSelectCurrent();
     void columnsChanged();
     void fieldsChanged(capture_file *cf);
     void preferencesChanged();

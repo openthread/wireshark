@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -86,7 +74,7 @@ dissect_icap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     icap_type = ICAP_OTHER; /* type not known yet */
     if (is_icap_message(line, linelen, &icap_type))
         col_add_str(pinfo->cinfo, COL_INFO,
-            format_text(line, linelen));
+            format_text(wmem_packet_scope(), line, linelen));
     else
         col_set_str(pinfo->cinfo, COL_INFO, "Continuation");
 
@@ -323,7 +311,7 @@ proto_reg_handoff_icap(void)
     http_handle = find_dissector_add_dependency("http", proto_icap);
 
     icap_handle = create_dissector_handle(dissect_icap, proto_icap);
-    dissector_add_uint("tcp.port", TCP_PORT_ICAP, icap_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_ICAP, icap_handle);
 }
 
 /*

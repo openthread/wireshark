@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,7 +17,6 @@
 #include <epan/conversation.h>
 #include <epan/exceptions.h>
 #include <epan/to_str.h>
-#include <wsutil/inet_aton.h>
 #include <wsutil/pint.h>
 
 /* The Aeron protocol is defined at https://github.com/real-logic/Aeron/wiki/Protocol-Specification */
@@ -111,8 +98,8 @@ static guint32 aeron_pos_delta(const aeron_pos_t * pos1, const aeron_pos_t * pos
         p1 = pos2;
         p2 = pos1;
     }
-    p1_val = (guint64) (p1->term_id * term_size) + ((guint64) p1->term_offset);
-    p2_val = (guint64) (p2->term_id * term_size) + ((guint64) p2->term_offset);
+    p1_val = ((guint64) p1->term_id * term_size) + ((guint64) p1->term_offset);
+    p2_val = ((guint64) p2->term_id * term_size) + ((guint64) p2->term_offset);
     delta = p1_val - p2_val;
     return ((guint32) (delta & G_GUINT64_CONSTANT(0x00000000ffffffff)));
 }
@@ -289,7 +276,6 @@ typedef struct
 {
     address * addr1;
     address * addr2;
-    port_type ptype;
     guint16 port1;
     guint16 port2;
 } aeron_conversation_info_t;
@@ -398,10 +384,10 @@ static aeron_transport_t * aeron_transport_add(const aeron_conversation_info_t *
     conversation_t * conv;
     wmem_map_t * session_map;
 
-    conv = find_conversation(frame, cinfo->addr1, cinfo->addr2, cinfo->ptype, cinfo->port1, cinfo->port2, 0);
+    conv = find_conversation(frame, cinfo->addr1, cinfo->addr2, ENDPOINT_UDP, cinfo->port1, cinfo->port2, 0);
     if (conv == NULL)
     {
-        conv = conversation_new(frame, cinfo->addr1, cinfo->addr2, cinfo->ptype, cinfo->port1, cinfo->port2, 0);
+        conv = conversation_new(frame, cinfo->addr1, cinfo->addr2, ENDPOINT_UDP, cinfo->port1, cinfo->port2, 0);
     }
     if (frame > conv->last_frame)
     {
@@ -677,17 +663,7 @@ static char * aeron_format_transport_uri(const aeron_conversation_info_t * cinfo
 {
     wmem_strbuf_t * uri;
 
-    uri = wmem_strbuf_new(wmem_packet_scope(), "aeron:");
-    switch (cinfo->ptype)
-    {
-        case PT_UDP:
-            wmem_strbuf_append(uri, "udp");
-            break;
-        default:
-            wmem_strbuf_append(uri, "unknown");
-            break;
-    }
-    wmem_strbuf_append_c(uri, '?');
+    uri = wmem_strbuf_new(wmem_packet_scope(), "aeron:udp?");
     if (aeron_is_address_multicast(cinfo->addr2))
     {
         switch (cinfo->addr2->type)
@@ -859,7 +835,6 @@ static aeron_conversation_info_t * aeron_setup_conversation_info(const packet_in
     int addr_len = pinfo->dst.len;
 
     cinfo = wmem_new0(wmem_packet_scope(), aeron_conversation_info_t);
-    cinfo->ptype = pinfo->ptype;
     switch (pinfo->dst.type)
     {
         case AT_IPv4:
@@ -2861,11 +2836,6 @@ static gboolean test_aeron_packet(tvbuff_t * tvb, packet_info * pinfo, proto_tre
     return (TRUE);
 }
 
-static void aeron_init(void)
-{
-    aeron_channel_id_init();
-}
-
 /* Register all the bits needed with the filtering engine */
 void proto_register_aeron(void)
 {
@@ -3101,7 +3071,7 @@ void proto_register_aeron(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_aeron = expert_register_protocol(proto_aeron);
     expert_register_field_array(expert_aeron, ei, array_length(ei));
-    aeron_module = prefs_register_protocol(proto_aeron, proto_reg_handoff_aeron);
+    aeron_module = prefs_register_protocol(proto_aeron, NULL);
     aeron_heuristic_subdissector_list = register_heur_dissector_list("aeron_msg_payload", proto_aeron);
 
     prefs_register_bool_preference(aeron_module,
@@ -3124,7 +3094,7 @@ void proto_register_aeron(void)
         "Use heuristic sub-dissectors",
         "Use a registered heuristic sub-dissector to decode the payload data. Requires \"Analyze transport sequencing\", \"Analyze stream sequencing\", and \"Reassemble fragmented data\".",
         &aeron_use_heuristic_subdissectors);
-    register_init_routine(aeron_init);
+    register_init_routine(aeron_channel_id_init);
     aeron_frame_info_tree = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 }
 
@@ -3132,7 +3102,7 @@ void proto_register_aeron(void)
 void proto_reg_handoff_aeron(void)
 {
     aeron_dissector_handle = create_dissector_handle(dissect_aeron, proto_aeron);
-    dissector_add_for_decode_as("udp.port", aeron_dissector_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", aeron_dissector_handle);
     heur_dissector_add("udp", test_aeron_packet, "Aeron over UDP", "aeron_udp", proto_aeron, HEURISTIC_DISABLE);
 }
 

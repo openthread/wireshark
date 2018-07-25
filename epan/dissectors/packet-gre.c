@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -59,6 +47,7 @@ static int hf_gre_flags_reserved_ppp = -1;
 static int hf_gre_flags_reserved = -1;
 static int hf_gre_flags_version = -1;
 static int hf_gre_checksum = -1;
+static int hf_gre_checksum_status = -1;
 static int hf_gre_offset = -1;
 static int hf_gre_key = -1;
 static int hf_gre_key_payload_length = -1;
@@ -122,12 +111,15 @@ const value_string gre_typevals[] = {
     { GRE_KEEPALIVE,       "Possible GRE keepalive packet" },
     { ETHERTYPE_PPP,       "PPP" },
     { ETHERTYPE_IP,        "IP" },
+    { ETHERTYPE_ARP,       "ARP" },
     { SAP_OSINL5,          "OSI"},
     { GRE_WCCP,            "WCCP"},
+    { GRE_CISCO_CDP,       "CDP (Cisco)"},
     { GRE_NHRP,            "NHRP"},
     { GRE_ERSPAN_88BE,     "ERSPAN"},
-    { GRE_ERSPAN_22EB,     "ERSPAN"},
+    { GRE_ERSPAN_22EB,     "ERSPAN III"},
     { GRE_MIKROTIK_EOIP,   "MIKROTIK EoIP"},
+    { GRE_AIROHIVE,        "AIROHIVE AP AP"},
     { ETHERTYPE_IPX,       "IPX"},
     { ETHERTYPE_ETHBRIDGE, "Transparent Ethernet bridging" },
     { ETHERTYPE_RAW_FR,    "Frame Relay"},
@@ -136,6 +128,7 @@ const value_string gre_typevals[] = {
     { ETHERTYPE_NSH,       "Network Service Header" },
     { ETHERTYPE_CDMA2000_A10_UBS,"CDMA2000 A10 Unstructured byte stream" },
     { ETHERTYPE_3GPP2,     "CDMA2000 A10 3GPP2 Packet" },
+    { ETHERTYPE_CMD,       "CiscoMetaData" },
     { GRE_ARUBA_8200,      "ARUBA WLAN" },
     { GRE_ARUBA_8210,      "ARUBA WLAN" },
     { GRE_ARUBA_8220,      "ARUBA WLAN" },
@@ -408,29 +401,21 @@ dissect_gre(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
         if (flags_and_ver & GRE_CHECKSUM || flags_and_ver & GRE_ROUTING) {
             guint length, reported_length;
-            proto_item *it_checksum;
             vec_t cksum_vec[1];
-            guint16 cksum, computed_cksum;
 
-            it_checksum = proto_tree_add_item(gre_tree, hf_gre_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
             /* Checksum check !... */
-            cksum = tvb_get_ntohs(tvb, offset);
             length = tvb_captured_length(tvb);
             reported_length = tvb_reported_length(tvb);
             /* The Checksum Present bit is set, and the packet isn't part of a
                fragmented datagram and isn't truncated, so we can checksum it. */
             if ((flags_and_ver & GRE_CHECKSUM) && !pinfo->fragmented && length >= reported_length) {
                 SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, reported_length);
-                computed_cksum = in_cksum(cksum_vec, 1);
-                if (computed_cksum == 0) {
-                    proto_item_append_text(it_checksum," [correct]");
-                } else {
-                    proto_item_append_text(it_checksum," [incorrect, should be 0x%04x]",in_cksum_shouldbe(cksum, computed_cksum));
-                    expert_add_info(pinfo, it_checksum, &ei_gre_checksum_incorrect);
-                }
+                proto_tree_add_checksum(gre_tree, tvb, offset, hf_gre_checksum, hf_gre_checksum_status, &ei_gre_checksum_incorrect, pinfo, in_cksum(cksum_vec, 1),
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
+            } else {
+                proto_tree_add_checksum(gre_tree, tvb, offset, hf_gre_checksum, hf_gre_checksum_status, &ei_gre_checksum_incorrect, pinfo, 0,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
             }
-
-
             offset += 2;
 
             proto_tree_add_item(gre_tree, hf_gre_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -513,7 +498,7 @@ dissect_gre(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         }
         next_tvb = tvb_new_subset_remaining(tvb, offset);
         pinfo->flags.in_gre_pkt = TRUE;
-        if (!dissector_try_uint(gre_dissector_table, type, next_tvb, pinfo, tree))
+        if (!dissector_try_uint_new(gre_dissector_table, type, next_tvb, pinfo, tree, TRUE, &flags_and_ver))
             call_data_dissector(next_tvb, pinfo, gre_tree);
     }
     return tvb_captured_length(tvb);
@@ -588,6 +573,11 @@ proto_register_gre(void)
           { "Checksum", "gre.checksum",
             FT_UINT16, BASE_HEX, NULL, 0x0,
             "The Checksum field contains the IP (one's complement) checksum of the GRE header and the payload packet", HFILL }
+        },
+        { &hf_gre_checksum_status,
+          { "Checksum Status", "gre.checksum.status",
+            FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+            NULL, HFILL }
         },
         { &hf_gre_offset,
           { "Offset", "gre.offset",
@@ -744,20 +734,39 @@ proto_register_gre(void)
     expert_gre = expert_register_protocol(proto_gre);
     expert_register_field_array(expert_gre, ei, array_length(ei));
 
-    /* subdissector code */
+    /*
+     * Dissector table.
+     *
+     * XXX - according to
+     *
+     *    https://www.iana.org/assignments/gre-parameters/gre-parameters.xhtml#gre-parameters-1
+     *
+     * these are just Ethertypes; should we use "gre.proto" only for
+     * protocols *not* registered as Ethertypes, such as those listed
+     * in the table in "Current List of Protocol Types" in RFC 1701
+     * ("For historical reasons, a number of other values have been
+     * used for some protocols."), and for protocols encapsulated in GRE
+     * differently from the way they're encapsulated over LAN protocols
+     * (for example, Cisco MetaData), and if we don't get a match there,
+     * use the "ethertype" table?
+     *
+     * And should we also somehow do something similar for mapping values
+     * to strings, falling back on etype_vals?
+     */
     gre_dissector_table = register_dissector_table("gre.proto",
-                                                   "GRE protocol type", proto_gre, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+                                                   "GRE protocol type", proto_gre, FT_UINT16, BASE_HEX);
 }
 
 void
 proto_reg_handoff_gre(void)
 {
     dissector_handle_t gre_handle;
+    capture_dissector_handle_t gre_cap_handle;
 
     gre_handle = create_dissector_handle(dissect_gre, proto_gre);
     dissector_add_uint("ip.proto", IP_PROTO_GRE, gre_handle);
-    register_capture_dissector("ip.proto", IP_PROTO_GRE, capture_gre, proto_gre);
-    register_capture_dissector("ipv6.nxt", IP_PROTO_GRE, capture_gre, proto_gre);
+    gre_cap_handle = create_capture_dissector_handle(capture_gre, proto_gre);
+    capture_dissector_add_uint("ip.proto", IP_PROTO_GRE, gre_cap_handle);
 }
 
 /*

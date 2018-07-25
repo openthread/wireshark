@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
 
@@ -296,8 +284,8 @@ static int dissect_felica(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
 
             /* Iterate through the block list, and update the tree */
             for (rwe_pos = 0; rwe_pos < tvb_get_guint8(tvb, 12); rwe_pos++) {
-                proto_tree_add_uint(felica_tree, hf_felica_block_nbr, tvb,
-                    13 + 2 * rwe_pos, 2, tvb_get_guint8(tvb, 14 + 2 * rwe_pos));
+                proto_tree_add_item(felica_tree, hf_felica_block_nbr, tvb,
+                    13 + 2 * rwe_pos, 2, ENC_NA);
             }
         }
         break;

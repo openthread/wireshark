@@ -5,25 +5,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __FILTER_EXPRESSIONS_H__
 #define __FILTER_EXPRESSIONS_H__
 
 #include "ws_symbol_export.h"
+
+#include <epan/prefs.h>
+#include <epan/wmem/wmem.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,19 +24,15 @@ extern "C" {
  * Filter expressions.
  */
 
-struct filter_expression {
-	gpointer button;	/* Filter toolbar */
+typedef struct filter_expression {
 	gchar	*label;
 	gchar	*expression;
+	gchar	*comment;
 
-	gint	 index;
 	gboolean enabled;	/* Can be set to FALSE by Preferences Dialog */
-	gboolean deleted;	/* Can be set to TRUE by Preferences Dialog (GTK+ only) */
+} filter_expression_t;
 
-	struct filter_expression *next;
-};
-
-WS_DLL_PUBLIC struct filter_expression **pfilter_expression_head;
+WS_DLL_PUBLIC void filter_expression_iterate_expressions(wmem_foreach_func func, void* user_data);
 
 /** Create a filter expression
  *
@@ -55,16 +42,11 @@ WS_DLL_PUBLIC struct filter_expression **pfilter_expression_head;
  * @return A newly allocated and initialized struct filter_expression.
  */
 WS_DLL_PUBLIC
-struct filter_expression *filter_expression_new(const gchar *label,
-    const gchar *expr, const gboolean enabled);
+filter_expression_t *filter_expression_new(const gchar *label,
+    const gchar *expr, const gchar *comment, const gboolean enabled);
 
-void filter_expression_init(void);
-
-/** Clear the filter expression list.
- * Frees each item in the list. Caller should set list_head to NULL afterward.
- */
-WS_DLL_PUBLIC
-void filter_expression_free(struct filter_expression *list_head);
+/* Keep the UAT structure local to the filter_expressions */
+void filter_expression_register_uat(module_t* pref_module);
 
 #ifdef __cplusplus
 }

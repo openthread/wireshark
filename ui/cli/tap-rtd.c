@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -113,9 +101,9 @@ init_rtd_tables(register_rtd_t* rtd, const char *filter)
 
 	rtd_table_dissector_init(rtd, &ui->rtd.stat_table, NULL, NULL);
 
-	error_string = register_tap_listener(get_rtd_tap_listener_name(rtd), &ui->rtd, filter, 0, NULL, get_rtd_packet_func(rtd), rtd_draw);
+	error_string = register_tap_listener(get_rtd_tap_listener_name(rtd), &ui->rtd, filter, 0, NULL, get_rtd_packet_func(rtd), rtd_draw, NULL);
 	if (error_string) {
-		free_rtd_table(&ui->rtd.stat_table, NULL, NULL);
+		free_rtd_table(&ui->rtd.stat_table);
 		fprintf(stderr, "tshark: Couldn't register srt tap: %s\n", error_string->str);
 		g_string_free(error_string, TRUE);
 		exit(1);
@@ -141,19 +129,23 @@ dissector_rtd_init(const char *opt_arg, void* userdata)
 }
 
 /* Set GUI fields for register_rtd list */
-void
-register_rtd_tables(gpointer data, gpointer user_data _U_)
+gboolean
+register_rtd_tables(const void *key _U_, void *value, void *userdata _U_)
 {
-	register_rtd_t *rtd = (register_rtd_t*)data;
+	register_rtd_t *rtd = (register_rtd_t*)value;
 	stat_tap_ui ui_info;
+	gchar *cli_string;
 
+	cli_string = rtd_table_get_tap_string(rtd);
 	ui_info.group = REGISTER_STAT_GROUP_RESPONSE_TIME;
 	ui_info.title = NULL;   /* construct this from the protocol info? */
-	ui_info.cli_string = rtd_table_get_tap_string(rtd);
+	ui_info.cli_string = cli_string;
 	ui_info.tap_init_cb = dissector_rtd_init;
 	ui_info.nparams = 0;
 	ui_info.params = NULL;
 	register_stat_tap_ui(&ui_info, rtd);
+	g_free(cli_string);
+	return FALSE;
 }
 
 /*

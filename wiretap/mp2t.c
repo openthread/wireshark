@@ -5,26 +5,12 @@
  * Copyright 2012 Weston Schmidt
  *
  * Wiretap Library
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
-#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
-#endif
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -62,19 +48,23 @@ typedef struct {
 
 static gboolean
 mp2t_read_packet(mp2t_filetype_t *mp2t, FILE_T fh, gint64 offset,
-                 struct wtap_pkthdr *phdr, Buffer *buf, int *err,
+                 wtap_rec *rec, Buffer *buf, int *err,
                  gchar **err_info)
 {
     guint64 tmp;
 
+    /*
+     * MP2T_SIZE will always be less than WTAP_MAX_PACKET_SIZE_STANDARD, so
+     * we don't have to worry about the packet being too big.
+     */
     ws_buffer_assure_space(buf, MP2T_SIZE);
     if (!wtap_read_bytes_or_eof(fh, ws_buffer_start_ptr(buf), MP2T_SIZE, err, err_info))
         return FALSE;
 
-    phdr->rec_type = REC_TYPE_PACKET;
+    rec->rec_type = REC_TYPE_PACKET;
 
     /* XXX - relative, not absolute, time stamps */
-    phdr->presence_flags = WTAP_HAS_TS;
+    rec->presence_flags = WTAP_HAS_TS;
 
     /*
      * Every packet in an MPEG2-TS stream is has a fixed size of
@@ -91,11 +81,11 @@ mp2t_read_packet(mp2t_filetype_t *mp2t, FILE_T fh, gint64 offset,
      * doesn't get the right answer.
      */
     tmp = ((guint64)(offset - mp2t->start_offset) * 8); /* offset, in bits */
-    phdr->ts.secs = (time_t)(tmp / mp2t->bitrate);
-    phdr->ts.nsecs = (int)((tmp % mp2t->bitrate) * 1000000000 / mp2t->bitrate);
+    rec->ts.secs = (time_t)(tmp / mp2t->bitrate);
+    rec->ts.nsecs = (int)((tmp % mp2t->bitrate) * 1000000000 / mp2t->bitrate);
 
-    phdr->caplen = MP2T_SIZE;
-    phdr->len = MP2T_SIZE;
+    rec->rec_header.packet_header.caplen = MP2T_SIZE;
+    rec->rec_header.packet_header.len = MP2T_SIZE;
 
     return TRUE;
 }
@@ -109,14 +99,14 @@ mp2t_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 
     *data_offset = file_tell(wth->fh);
 
-    if (!mp2t_read_packet(mp2t, wth->fh, *data_offset, &wth->phdr,
-                          wth->frame_buffer, err, err_info)) {
+    if (!mp2t_read_packet(mp2t, wth->fh, *data_offset, &wth->rec,
+                          wth->rec_data, err, err_info)) {
         return FALSE;
     }
 
     /* if there's a trailer, skip it and go to the start of the next packet */
     if (mp2t->trailer_len!=0) {
-        if (-1 == file_seek(wth->fh, mp2t->trailer_len, SEEK_CUR, err)) {
+        if (!wtap_read_bytes(wth->fh, NULL, mp2t->trailer_len, err, err_info)) {
             return FALSE;
         }
     }
@@ -125,7 +115,7 @@ mp2t_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 }
 
 static gboolean
-mp2t_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
+mp2t_seek_read(wtap *wth, gint64 seek_off, wtap_rec *rec,
         Buffer *buf, int *err, gchar **err_info)
 {
     mp2t_filetype_t *mp2t;
@@ -136,7 +126,7 @@ mp2t_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
 
     mp2t = (mp2t_filetype_t*) wth->priv;
 
-    if (!mp2t_read_packet(mp2t, wth->random_fh, seek_off, phdr, buf,
+    if (!mp2t_read_packet(mp2t, wth->random_fh, seek_off, rec, buf,
                           err, err_info)) {
         if (*err == 0)
             *err = WTAP_ERR_SHORT_READ;
@@ -160,10 +150,6 @@ mp2t_read_pcr(guint8 *buffer)
     return (base * 300 + ext);
 }
 
-/*
- * XXX - should we limit this to a fixed number of frames, rather than
- * potentially scanning the entire file for a PCR?
- */
 static gboolean
 mp2t_find_next_pcr(wtap *wth, guint8 trailer_len,
         int *err, gchar **err_info, guint32 *idx, guint64 *pcr, guint16 *pid)
@@ -171,9 +157,10 @@ mp2t_find_next_pcr(wtap *wth, guint8 trailer_len,
     guint8 buffer[MP2T_SIZE+TRAILER_LEN_MAX];
     gboolean found;
     guint8 afc;
+    guint timeout = 0;
 
     found = FALSE;
-    while (FALSE == found) {
+    while (FALSE == found && timeout++ < SYNC_STEPS * SYNC_STEPS) {
         (*idx)++;
         if (!wtap_read_bytes_or_eof(
                     wth->fh, buffer, MP2T_SIZE+trailer_len, err, err_info)) {
@@ -207,7 +194,7 @@ mp2t_find_next_pcr(wtap *wth, guint8 trailer_len,
         found = TRUE;
     }
 
-    return TRUE;
+    return found;
 }
 
 static wtap_open_return_val
@@ -275,7 +262,10 @@ mp2t_bits_per_second(wtap *wth, guint32 first, guint8 trailer_len,
         return WTAP_OPEN_NOT_MINE;
     }
     pcr_delta = pcr2 - pcr1;
-    bits_passed = MP2T_SIZE * (pn2 - pn1) * 8;
+    /* cast one of the factors to guint64
+       otherwise, the multiplication would use guint32 and could
+       overflow before the result is assigned to the guint64 bits_passed */
+    bits_passed = (guint64)MP2T_SIZE * (pn2 - pn1) * 8;
 
     *bitrate = ((MP2T_PCR_CLOCK * bits_passed) / pcr_delta);
     if (*bitrate == 0) {

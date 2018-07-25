@@ -2001,7 +2001,7 @@ Brian K. Teravskis      <Brian_Teravskis[AT]Cargill.com> {
 	Support for saving RTP analysis data in CSV form
 }
 
-Nathan Jennings         <njgm890[AT]gmail.com> {
+Nathan Jennings         <natej.git[AT]gmail.com> {
 	Support for user-supplied interface descriptions
 	Support for hiding interfaces in drop-down list in capture
 	    dialog
@@ -2374,6 +2374,7 @@ Francesco Fondelli	<francesco.fondelli[AT]gmail.com> {
 	PCEP Extensions for Segment Routing, draft-ietf-pce-segment-routing-01
 	PCEP Extensions for Association, draft-ietf-pce-association-group-00
 	BGP-LS extensions for Segment Routing, draft-gredler-idr-bgp-ls-segment-routing-ext-01
+	HL7 protocol support
 }
 
 Artem Tamazov           <artem.tamazov[AT]tellabs.com> {
@@ -3011,6 +3012,17 @@ Don Chirieleison	<donc[AT]mitre.org> {
 
 Harald Welte		<laforge[AT]gnumonks.org> {
 	GSM A-bis over IP dissector
+	GSM A-bis OML dissector
+	GSMTAP dissector
+	GSM SIM/USIM dissector
+	Ericsson extensions to L2TP
+	ip.access extensions to A-bis RSL
+	Ericsson extensions to A-bis RSL
+	Ericsson HDLC dissector
+	Ericsson A-bis TFP dissector
+	Ericsson P-GSL dissector
+	Ericsson TFP dissector
+	Ericsson OM2000 dissector
 }
 
 Chris Costa		<chcosta75[AT]hotmail.com> {
@@ -3155,7 +3167,7 @@ Michael Bernhard	<michael.bernhard[AT]bfh.ch> {
 	IEC 61850 dissector
 }
 
-Holger Hans Peter Freyther	<zecke[AT]selfish.org> {
+Holger Hans Peter Freyther <zecke[AT]selfish.org> {
 	NexusWare C7 MTP over UDP dissector
 	DVB-H IPDC ESG
 }
@@ -3486,7 +3498,7 @@ Tobias Rutz		<tobias.rutz[AT]work-microwave.de> {
 	DVB-S2 Baseband Frame and GSE support
 }
 
-Michał Łabędzki		<michal.labedzki[AT]tieto.com> {
+Michał Łabędzki		<michal.labedzki[AT]wireshark.org> {
 	Bluetooth BNEP dissector
 	Bluetooth HID dissector
 	Bluetooth SAP dissector
@@ -3559,7 +3571,7 @@ Ishraq Ibne Ashraf	<ishraq[AT]tinkerforge.com> {
 	tfp (Tinkerforge) dissector
 }
 
-RobiOneKenobi		<robionekenobi[AT]bluewin.ch> {
+Robert Grange		<robionekenobi[AT]bluewin.ch> {
 	IBM WebSphere MQ protocol dissector enhancements
 }
 
@@ -3578,7 +3590,7 @@ Anish Bhatt		<anish[AT]chelsio.com> {
 	Dissector for Congestion Notification (802.1Qau)
 }
 
-Dmitry Bazhenov		<dima_b@[AT]pigeonpoint.com> {
+Dmitry Bazhenov		<dima_b[AT]pigeonpoint.com> {
 	Dissector for IPMI Trace
 }
 
@@ -3592,7 +3604,7 @@ John Miner		<wiresharkdissectorcoder[AT]gmail.com> {
 	Dissector for OptoMMP
 }
 
-竹下 恵 (Megumi Takeshita)		<megumi@ikeriri.ne.jp> {
+竹下 恵 (Megumi Takeshita) <megumi[AT]ikeriri.ne.jp> {
 	Japanese translation of the Qt User Interface
 }
 
@@ -3663,7 +3675,7 @@ Pratik Yeole		<pyeole[AT]ncsu.edu> {
          Fixed incorrect decoding of Network Layer Reachability Information (NLRI) in BGP UPDATE message with add-path support
 }
 
-Guillaume Autran	<gautran[AT]clearpathrobotics.com> {
+Guillaume Autran	<gautran[AT]clearpath.ai> {
 	TCPROS support
 }
 
@@ -3671,6 +3683,30 @@ Barbu Paul - Gheorghe	<barbu.paul.gheorghe[AT]gmail.com> {
 	Developer documentation improvements
 }
 
+Martin Kacer	<kacer.martin[AT]gmail.com> {
+	JSON and Elasticsearch tshark output
+	json2pcap
+}
+
+Ben Stewart		<bst[AT]google.com> {
+	SCTE-35 dissector
+}
+
+Sumit Kumar Jha		<sjha3[AT]ncsu.edu> {
+	Generic Protocol Extension Support for VXLAN
+}
+
+Kim Kempf		<kim.kempf[AT]apcon.com> {
+	802.1BR E-Tag dissector
+}
+
+S. Shapira		<sswsdev[AT]gmail.com> {
+	UMTS FP heuristic dissectors
+}
+
+Lazar Sumar		<bugzilla[AT]lazar.co.nz> {
+	CAN-ETH dissectors
+}
 
 and by:
 
@@ -3922,6 +3958,8 @@ Robert Long		<rlong[AT]sandia.gov>
 James Lynch		<lynch007[AT]gmail.com>
 Chidambaram Arunachalam	<carunach[AT]cisco.com>
 João Valverde		<joao.valverde[AT]tecnico.ulisboa.pt>
+Benoît Canet		<benoit[AT]scylladb.com>
+Håkon Øye Amundsen      <haakon.amundsen[AT]nordicsemi.no>
 
 Acknowledgements
 ------------
@@ -3956,3 +3994,5 @@ Martin Pool <mbp[AT]sourcefrog.net>.
 
 Emanuel Eichhammer <support[AT]qcustomplot.com> granted permission
 to use QCustomPlot.
+
+Some icons made by Freepik, http://www.freepik.com from https://www.flaticon.com

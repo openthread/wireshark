@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -305,8 +293,8 @@ typedef struct {
 	guint16 MCC;
 	guint16 MNC;
 	guint16 LAC;
-	guint8 MSC_ID;		/* splitted version of LAC */
-	guint16 Spot_Beam_ID;	/* splitted version of LAC */
+	guint8 MSC_ID;		/* split version of LAC */
+	guint16 Spot_Beam_ID;	/* split version of LAC */
 } Seg3A_LAI_t;
 
 typedef struct {
@@ -640,7 +628,7 @@ CSN_DESCR_END  (Segment2Bbis_t)
 
 	/* Segment 3A - [1] 11.5.2.71 */
 static gint16
-Seg3A_LAI_Dissector(proto_tree *tree _U_, csnStream_t* ar, tvbuff_t *tvb, void* data, int ett_csn1)
+Seg3A_LAI_Dissector(proto_tree *tree, csnStream_t* ar, tvbuff_t *tvb, void* data, int ett_csn1)
 {
 	Seg3A_LAI_t *LAI = (Seg3A_LAI_t *)data;
 	proto_item *lac_item;

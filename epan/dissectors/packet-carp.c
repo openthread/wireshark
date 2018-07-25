@@ -7,25 +7,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/ipproto.h>
+#include <epan/expert.h>
 #include <epan/in_cksum.h>
 
 void proto_register_carp(void);
@@ -46,6 +35,9 @@ static gint hf_carp_advbase = -1;
 static gint hf_carp_counter = -1;
 static gint hf_carp_hmac = -1;
 static gint hf_carp_checksum = -1;
+static gint hf_carp_checksum_status = -1;
+
+static expert_field ei_carp_checksum = EI_INIT;
 
 #define CARP_VERSION_MASK 0xf0
 #define CARP_TYPE_MASK 0x0f
@@ -90,7 +82,6 @@ dissect_carp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     proto_item *ti, *tv;
     proto_tree *carp_tree, *ver_type_tree;
     guint8 ver_type;
-    guint16 cksum, computed_cksum;
 
     /* Make sure it's a CARP packet */
     if (!test_carp_packet(tvb, pinfo, tree, data))
@@ -133,20 +124,15 @@ dissect_carp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     proto_tree_add_item(carp_tree, hf_carp_advbase, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset++;
 
-    cksum = tvb_get_ntohs(tvb, offset);
-    ti = proto_tree_add_item(carp_tree, hf_carp_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
     carp_len = tvb_reported_length(tvb);
     if (!pinfo->fragmented && tvb_captured_length(tvb) >= carp_len) {
         /* The packet isn't part of a fragmented datagram
            and isn't truncated, so we can checksum it. */
         SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, carp_len);
-        computed_cksum = in_cksum(&cksum_vec[0], 1);
-        if (computed_cksum == 0) {
-            proto_item_append_text(ti, " [correct]");
-        } else {
-            proto_item_append_text(ti, " [incorrect, should be 0x%04x]",
-                        in_cksum_shouldbe(cksum, computed_cksum));
-        }
+        proto_tree_add_checksum(carp_tree, tvb, offset, hf_carp_checksum, hf_carp_checksum_status, &ei_carp_checksum, pinfo, in_cksum(&cksum_vec[0], 1),
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
+    } else {
+        proto_tree_add_checksum(carp_tree, tvb, offset, hf_carp_checksum, hf_carp_checksum_status, &ei_carp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
 
     offset+=2;
@@ -196,7 +182,7 @@ void proto_register_carp(void)
            NULL, HFILL }},
 
         { &hf_carp_advskew,
-          {"Advertisment Skew", "carp.advskew",
+          {"Advertisement Skew", "carp.advskew",
            FT_UINT8, BASE_DEC, NULL, 0x0,
            NULL, HFILL }},
 
@@ -228,6 +214,11 @@ void proto_register_carp(void)
           {"Checksum", "carp.checksum",
            FT_UINT16, BASE_HEX, NULL, 0x0,
            NULL, HFILL }},
+
+        { &hf_carp_checksum_status,
+          {"Checksum Status", "carp.checksum.status",
+           FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+           NULL, HFILL }},
     };
 
     static gint *ett[] = {
@@ -235,10 +226,17 @@ void proto_register_carp(void)
         &ett_carp_ver_type
     };
 
-    proto_carp = proto_register_protocol("Common Address Redundancy Protocol",
-        "CARP", "carp");
+    static ei_register_info ei[] = {
+        { &ei_carp_checksum, { "carp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+    };
+
+    expert_module_t* expert_carp;
+
+    proto_carp = proto_register_protocol("Common Address Redundancy Protocol", "CARP", "carp");
     proto_register_field_array(proto_carp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_carp = expert_register_protocol(proto_carp);
+    expert_register_field_array(expert_carp, ei, array_length(ei));
 }
 
 void

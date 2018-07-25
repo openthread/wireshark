@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <config.h>
@@ -25,7 +13,7 @@
 
 #include <glib.h>
 
-#include <filter_files.h>
+#include <ui/filter_files.h>
 
 #include <wsutil/filesystem.h>
 
@@ -35,9 +23,9 @@
 #include <QMessageBox>
 #include <QThread>
 
-#include "capture_filter_edit.h"
+#include <ui/qt/widgets/capture_filter_edit.h>
 //#include "capture_filter_syntax_worker.h"
-#include "display_filter_edit.h"
+#include <ui/qt/widgets/display_filter_edit.h>
 #include "wireshark_application.h"
 
 // To do:
@@ -203,39 +191,7 @@ void FilterDialog::on_buttonBox_accepted()
         ++it;
     }
 
-    char *pf_dir_path;
-    char *f_path;
-    int f_save_errno;
-
-    /* Create the directory that holds personal configuration files,
-       if necessary.  */
-    if (create_persconffile_dir(&pf_dir_path) == -1) {
-        QMessageBox::warning(this, tr("Unable to create profile directory."),
-                tr("Unable to create directory\n\"%1\"\nfor filter files: %2.")
-                             .arg(pf_dir_path)
-                             .arg(g_strerror(errno)),
-                QMessageBox::Ok);
-        g_free(pf_dir_path);
-        return;
-    }
-
-    save_filter_list(fl_type, &f_path, &f_save_errno);
-    if (f_path != NULL) {
-        /* We had an error saving the filter. */
-        QString warning_title;
-        QString warning_msg;
-        if (fl_type == CFILTER_LIST) {
-            warning_title = tr("Unable to save capture filter settings.");
-            warning_msg = tr("Could not save to your capture filter file\n\"%1\": %2.")
-              .arg(f_path).arg(g_strerror(f_save_errno));
-        } else {
-            warning_title = tr("Unable to save display filter settings.");
-            warning_msg = tr("Could not save to your display filter file\n\"%1\": %2.")
-              .arg(f_path).arg(g_strerror(f_save_errno));
-        }
-        QMessageBox::warning(this, warning_title, warning_msg, QMessageBox::Ok);
-        g_free(f_path);
-    }
+    save_filter_list(fl_type);
 
     if (filter_type_ == CaptureFilter) {
         wsApp->emitAppSignal(WiresharkApplication::CaptureFilterListChanged);

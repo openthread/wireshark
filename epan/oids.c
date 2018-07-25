@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,7 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 
 #include "wmem/wmem.h"
 #include "uat.h"
@@ -37,16 +25,18 @@
 #include "packet.h"
 #include "wsutil/filesystem.h"
 #include "dissectors/packet-ber.h"
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
 
 #ifdef HAVE_LIBSMI
 #include <smi.h>
 
+static gboolean smi_init_done = FALSE;
 static gboolean oids_init_done = FALSE;
 static gboolean load_smi_modules = FALSE;
 static gboolean suppress_smi_errors = FALSE;
 #endif
 
-#define D(level,args) do if (debuglevel >= level) { printf args; printf("\n"); fflush(stdout); } while(0)
+#define D(level,args) do if (debuglevel >= level) { ws_debug_printf args; ws_debug_printf("\n"); fflush(stdout); } while(0)
 
 #include "oids.h"
 
@@ -437,7 +427,7 @@ static inline oid_kind_t smikind(SmiNode* sN, oid_key_t** key_p) {
 
 				oid1 = smiRenderOID(sN->oidlen, sN->oid, SMI_RENDER_QUALIFIED);
 				oid2 = smiRenderOID(elNode->oidlen, elNode->oid, SMI_RENDER_NAME);
-				k->name = g_strdup_printf("%s.%s", oid1, oid2);
+				k->name = g_strconcat(oid1, ".", oid2, NULL);
 				smi_free (oid1);
 				smi_free (oid2);
 
@@ -544,14 +534,13 @@ static void register_mibs(void) {
 	if (oids_init_done) {
 		D(1,("Exiting register_mibs() to avoid double registration of MIBs proto."));
 		return;
-	} else {
-		oids_init_done = TRUE;
 	}
 
 	hfa = wmem_array_new(wmem_epan_scope(), sizeof(hf_register_info));
 	etta = g_array_new(FALSE,TRUE,sizeof(gint*));
 
 	smiInit(NULL);
+	smi_init_done = TRUE;
 
 	smi_errors = g_string_new("");
 	smiSetErrorHandler(smi_error_handler);
@@ -635,23 +624,27 @@ static void register_mibs(void) {
 			if ( typedata && oid_data->value_hfid == -2 ) {
 				SmiNamedNumber* smiEnum;
 				hf_register_info hf;
+				char *name;
+				char *blurb;
+
+				name = g_strdup(oid_data->name);
+				blurb = smiRenderOID(smiNode->oidlen, smiNode->oid, SMI_RENDER_ALL);
+				/* Don't allow duplicate blurb/name */
+				if (strcmp(blurb, name) == 0) {
+					smi_free(blurb);
+					blurb = NULL;
+				}
 
 				hf.p_id                     = &(oid_data->value_hfid);
-				hf.hfinfo.name              = g_strdup(oid_data->name);
+				hf.hfinfo.name              = name;
 				hf.hfinfo.abbrev            = alnumerize(oid_data->name);
 				hf.hfinfo.type              = typedata->ft_type;
 				hf.hfinfo.display           = typedata->display;
 				hf.hfinfo.strings           = NULL;
 				hf.hfinfo.bitmask           = 0;
-				hf.hfinfo.blurb             = smiRenderOID(smiNode->oidlen, smiNode->oid, SMI_RENDER_ALL);
+				hf.hfinfo.blurb             = blurb;
 				/* HFILL */
 				HFILL_INIT(hf);
-
-				/* Don't allow duplicate blurb/name */
-				if (strcmp(hf.hfinfo.blurb, hf.hfinfo.name) == 0) {
-					smi_free((void *) hf.hfinfo.blurb);
-					hf.hfinfo.blurb = NULL;
-				}
 
 				oid_data->value_hfid = -1;
 
@@ -667,8 +660,7 @@ static void register_mibs(void) {
 						}
 					}
 
-					hf.hfinfo.strings = vals->data;
-					g_array_free(vals,FALSE);
+					hf.hfinfo.strings = g_array_free(vals, FALSE);
 				}
 #if 0 /* packet-snmp does not handle bits yet */
 			} else if (smiType->basetype == SMI_BASETYPE_BITS && ( smiEnum = smiGetFirstNamedNumber(smiType) )) {
@@ -696,8 +688,8 @@ static void register_mibs(void) {
 					bits->data[n].hfid = -1;
 					bits->data[n].offset = smiEnum->value.value.integer32 / 8;
 
-					hf2.hfinfo.name = g_strdup_printf("%s:%s",oid_data->name,smiEnum->name);
-					hf2.hfinfo.abbrev = g_strdup_printf("%s.%s",base,ext);
+					hf2.hfinfo.name = g_strconcat("%s:%s",oid_data->name, ":", smiEnum->name, NULL);
+					hf2.hfinfo.abbrev = g_strconcat(base, ".", ext, NULL);
 
 					g_free(base);
 					g_free(ext);
@@ -709,27 +701,25 @@ static void register_mibs(void) {
 
 			if ((key = oid_data->key)) {
 				for(; key; key = key->next) {
-					hf_register_info hf;
-
-					hf.p_id                     = &(key->hfid);
-					hf.hfinfo.name              = key->name;
-					hf.hfinfo.abbrev            = alnumerize(key->name);
-					hf.hfinfo.type              = key->ft_type;
-					hf.hfinfo.display           = key->display;
-					hf.hfinfo.strings           = NULL;
-					hf.hfinfo.bitmask           = 0;
-					hf.hfinfo.blurb             = NULL;
-					/* HFILL */
-					HFILL_INIT(hf);
-
 					D(5,("\t\t\tIndex: name=%s subids=%u key_type=%d",
 						 key->name, key->num_subids, key->key_type ));
 
 					if (key->hfid == -2) {
+						hf_register_info hf;
+
+						hf.p_id                     = &(key->hfid);
+						hf.hfinfo.name              = key->name;
+						hf.hfinfo.abbrev            = alnumerize(key->name);
+						hf.hfinfo.type              = key->ft_type;
+						hf.hfinfo.display           = key->display;
+						hf.hfinfo.strings           = NULL;
+						hf.hfinfo.bitmask           = 0;
+						hf.hfinfo.blurb             = NULL;
+						/* HFILL */
+						HFILL_INIT(hf);
+
 						wmem_array_append_one(hfa,hf);
 						key->hfid = -1;
-					} else {
-						g_free((void*)hf.hfinfo.abbrev);
 					}
 				}
 			}
@@ -743,6 +733,8 @@ static void register_mibs(void) {
 	proto_register_subtree_array((gint**)(void*)etta->data, etta->len);
 
 	g_array_free(etta,TRUE);
+
+	oids_init_done = TRUE;
 }
 #endif
 
@@ -760,12 +752,16 @@ void oid_pref_init(module_t *nameres)
 
     prefs_register_bool_preference(nameres, "load_smi_modules",
                                   "Enable OID resolution",
-                                  "You must restart Wireshark for this change to take effect",
+                                  "Resolve Object IDs to object names from the MIB and PIB"
+                                  " modules defined below."
+                                  " You must restart Wireshark for this change to take effect",
                                   &load_smi_modules);
 
     prefs_register_bool_preference(nameres, "suppress_smi_errors",
                                   "Suppress SMI errors",
-                                  "Some errors can be ignored. If unsure, set to false.",
+                                  "While loading MIB or PIB modules errors may be detected,"
+                                  " which are reported. Some errors can be ignored."
+                                  " If unsure, set to false.",
                                   &suppress_smi_errors);
 
     smi_paths_uat = uat_new("SMI Paths",
@@ -787,13 +783,14 @@ void oid_pref_init(module_t *nameres)
                             NULL,
                             smi_mod_free_cb,
                             restart_needed_warning,
+                            NULL,
                             smi_paths_fields);
 
     prefs_register_uat_preference(nameres,
                                   "smi_paths",
                                   "SMI (MIB and PIB) paths",
-                                  "Search paths for SMI (MIB and PIB) modules. You must\n"
-                                  "restart Wireshark for these changes to take effect.",
+                                  "Search paths for SMI (MIB and PIB) modules. You must"
+                                  " restart Wireshark for these changes to take effect.",
                                   smi_paths_uat);
 
     smi_modules_uat = uat_new("SMI Modules",
@@ -815,13 +812,14 @@ void oid_pref_init(module_t *nameres)
                               NULL,
                               smi_mod_free_cb,
                               restart_needed_warning,
+                              NULL,
                               smi_fields);
 
     prefs_register_uat_preference(nameres,
                                   "smi_modules",
                                   "SMI (MIB and PIB) modules",
-                                  "List of enabled SMI (MIB and PIB) modules. You must\n"
-                                  "restart Wireshark for these changes to take effect.",
+                                  "List of SMI (MIB and PIB) modules to load. You must"
+                                  " restart Wireshark for these changes to take effect.",
                                   smi_modules_uat);
 
 #else
@@ -860,24 +858,27 @@ char* oid_subid2string(wmem_allocator_t *scope, guint32* subids, guint len) {
 	return rel_oid_subid2string(scope, subids, len, TRUE);
 }
 char* rel_oid_subid2string(wmem_allocator_t *scope, guint32* subids, guint len, gboolean is_absolute) {
-	char *s, *w;
+
+	wmem_strbuf_t *oid_str;
+	gsize oid_str_len;
 
 	if(!subids || len == 0)
 		return wmem_strdup(scope, "*** Empty OID ***");
 
-	s = (char *)wmem_alloc0(scope, ((len)*11)+2);
-	w = s;
+	oid_str = wmem_strbuf_new(scope, "");
 
 	if (!is_absolute)
-		*w++ = '.';
+		wmem_strbuf_append_c(oid_str, '.');
 
 	do {
-		w += g_snprintf(w,12,"%u.",*subids++);
+		wmem_strbuf_append_printf(oid_str, "%u.",*subids++);
 	} while(--len);
 
-	if (w!=s) *(w-1) = '\0'; else *(s) = '\0';
+	/* Remove trailing "." (which is guaranteed to be there) */
+	oid_str_len = wmem_strbuf_get_len(oid_str);
+	wmem_strbuf_truncate(oid_str, oid_str_len - 1);
 
-	return s;
+	return wmem_strbuf_finalize(oid_str);
 }
 
 static guint check_num_oid(const char* str) {
@@ -937,6 +938,7 @@ guint oid_string2subid(wmem_allocator_t *scope, const char* str, guint32** subid
 			subid += *r - '0';
 
 			if( subids >= subids_overflow ||  subid > 0xffffffff) {
+				wmem_free(scope, *subids_p);
 				*subids_p=NULL;
 				return 0;
 			}
@@ -1122,9 +1124,13 @@ guint oid_subid2encoded(wmem_allocator_t *scope, guint subids_len, guint32* subi
 		switch(len) {
 			default: *bytes_p=NULL; return 0;
 			case 5: *(b++) = ((subid & 0xF0000000) >> 28) | 0x80;
+			/* FALL THROUGH */
 			case 4: *(b++) = ((subid & 0x0FE00000) >> 21) | 0x80;
+			/* FALL THROUGH */
 			case 3: *(b++) = ((subid & 0x001FC000) >> 14) | 0x80;
+			/* FALL THROUGH */
 			case 2: *(b++) = ((subid & 0x00003F80) >> 7)  | 0x80;
+			/* FALL THROUGH */
 			case 1: *(b++) =   subid & 0x0000007F ; break;
 		}
 	}
@@ -1212,7 +1218,7 @@ gchar *oid_resolved(wmem_allocator_t *scope, guint32 num_subids, guint32* subids
 			  *str1 = oid_subid2string(NULL, subids,matched),
 			  *str2 = oid_subid2string(NULL, &(subids[matched]),left);
 
-		ret = wmem_strdup_printf(scope, "%s.%s", oid->name ? oid->name : str1, str2);
+		ret = wmem_strconcat(scope, oid->name ? oid->name : str1, ".", str2, NULL);
 		wmem_free(NULL, str1);
 		wmem_free(NULL, str2);
 		return ret;
@@ -1258,10 +1264,9 @@ oid_get_default_mib_path(void) {
 
 	if (!load_smi_modules) {
 		D(1,("OID resolution not enabled"));
-		return path_str->str;
+		return g_string_free(path_str, FALSE);
 	}
 #ifdef _WIN32
-#define PATH_SEPARATOR ";"
 	path = get_datafile_path("snmp\\mibs");
 	g_string_append_printf(path_str, "%s;", path);
 	g_free (path);
@@ -1270,23 +1275,28 @@ oid_get_default_mib_path(void) {
 	g_string_append_printf(path_str, "%s", path);
 	g_free (path);
 #else
-#define PATH_SEPARATOR ":"
-	path = smiGetPath();
 	g_string_append(path_str, "/usr/share/snmp/mibs");
+	if (!smi_init_done)
+		smiInit(NULL);
+	path = smiGetPath();
 	if (strlen(path) > 0 ) {
-		g_string_append(path_str, PATH_SEPARATOR);
+		g_string_append(path_str, G_SEARCHPATH_SEPARATOR_S);
+		g_string_append_printf(path_str, "%s", path);
 	}
-	g_string_append_printf(path_str, "%s", path);
 	smi_free(path);
+
+	if (oids_init_done == FALSE)
+	{
 #endif
+		for (i = 0; i < num_smi_paths; i++) {
+			if (!(smi_paths[i].name && *smi_paths[i].name))
+				continue;
 
-	for(i=0;i<num_smi_paths;i++) {
-		if (!( smi_paths[i].name && *smi_paths[i].name))
-			continue;
-
-		g_string_append_printf(path_str,PATH_SEPARATOR "%s",smi_paths[i].name);
+			g_string_append_printf(path_str, G_SEARCHPATH_SEPARATOR_S "%s", smi_paths[i].name);
+		}
+#ifndef _WIN32
 	}
-
+#endif
 	return g_string_free(path_str, FALSE);
 #else /* HAVE_LIBSMI */
         return g_strdup("");

@@ -3,19 +3,7 @@
  * Wiretap Library
  * Copyright (c) 1998 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -86,8 +74,8 @@ struct radcomrec_hdr {
 static gboolean radcom_read(wtap *wth, int *err, gchar **err_info,
 	gint64 *data_offset);
 static gboolean radcom_seek_read(wtap *wth, gint64 seek_off,
-	struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
-static gboolean radcom_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
+	wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
+static gboolean radcom_read_rec(wtap *wth, FILE_T fh, wtap_rec *rec,
 	Buffer *buf, int *err, gchar **err_info);
 
 wtap_open_return_val radcom_open(wtap *wth, int *err, gchar **err_info)
@@ -144,8 +132,13 @@ wtap_open_return_val radcom_open(wtap *wth, int *err, gchar **err_info)
 		return WTAP_OPEN_NOT_MINE;
 	}
 
-	if (file_seek(wth->fh, sizeof(struct frame_date), SEEK_CUR, err) == -1)
-		return WTAP_OPEN_ERROR;
+	/* So what time is this? */
+	if (!wtap_read_bytes(wth->fh, NULL, sizeof(struct frame_date),
+	    err, err_info)) {
+		if (*err != WTAP_ERR_SHORT_READ)
+			return WTAP_OPEN_ERROR;
+		return WTAP_OPEN_NOT_MINE;
+	}
 
 	for (;;) {
 		if (!wtap_read_bytes(wth->fh, search_encap, 4,
@@ -167,8 +160,11 @@ wtap_open_return_val radcom_open(wtap *wth, int *err, gchar **err_info)
 		if (file_seek(wth->fh, -3, SEEK_CUR, err) == -1)
 			return WTAP_OPEN_ERROR;
 	}
-	if (file_seek(wth->fh, 12, SEEK_CUR, err) == -1)
-		return WTAP_OPEN_ERROR;
+	if (!wtap_read_bytes(wth->fh, NULL, 12, err, err_info)) {
+		if (*err != WTAP_ERR_SHORT_READ)
+			return WTAP_OPEN_ERROR;
+		return WTAP_OPEN_NOT_MINE;
+	}
 	if (!wtap_read_bytes(wth->fh, search_encap, 4, err, err_info)) {
 		if (*err != WTAP_ERR_SHORT_READ)
 			return WTAP_OPEN_ERROR;
@@ -220,13 +216,13 @@ wtap_open_return_val radcom_open(wtap *wth, int *err, gchar **err_info)
 #endif
 
 	if (wth->file_encap == WTAP_ENCAP_ETHERNET) {
-		if (file_seek(wth->fh, 294, SEEK_CUR, err) == -1)
+		if (!wtap_read_bytes(wth->fh, NULL, 294, err, err_info))
 			return WTAP_OPEN_ERROR;
 	} else if (wth->file_encap == WTAP_ENCAP_LAPB) {
-		if (file_seek(wth->fh, 297, SEEK_CUR, err) == -1)
+		if (!wtap_read_bytes(wth->fh, NULL, 297, err, err_info))
 			return WTAP_OPEN_ERROR;
 	} else if (wth->file_encap == WTAP_ENCAP_ATM_RFC1483) {
-		if (file_seek(wth->fh, 504, SEEK_CUR, err) == -1)
+		if (!wtap_read_bytes(wth->fh, NULL, 504, err, err_info))
 			return WTAP_OPEN_ERROR;
 	}
 
@@ -242,7 +238,7 @@ static gboolean radcom_read(wtap *wth, int *err, gchar **err_info,
 	*data_offset = file_tell(wth->fh);
 
 	/* Read record. */
-	if (!radcom_read_rec(wth, wth->fh, &wth->phdr, wth->frame_buffer,
+	if (!radcom_read_rec(wth, wth->fh, &wth->rec, wth->rec_data,
 	    err, err_info)) {
 		/* Read error or EOF */
 		return FALSE;
@@ -262,14 +258,14 @@ static gboolean radcom_read(wtap *wth, int *err, gchar **err_info,
 
 static gboolean
 radcom_seek_read(wtap *wth, gint64 seek_off,
-		 struct wtap_pkthdr *phdr, Buffer *buf,
+		 wtap_rec *rec, Buffer *buf,
 		 int *err, gchar **err_info)
 {
 	if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
 		return FALSE;
 
 	/* Read record. */
-	if (!radcom_read_rec(wth, wth->random_fh, phdr, buf, err,
+	if (!radcom_read_rec(wth, wth->random_fh, rec, buf, err,
 	    err_info)) {
 		/* Read error or EOF */
 		if (*err == 0) {
@@ -282,7 +278,7 @@ radcom_seek_read(wtap *wth, gint64 seek_off,
 }
 
 static gboolean
-radcom_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
+radcom_read_rec(wtap *wth, FILE_T fh, wtap_rec *rec, Buffer *buf,
 		int *err, gchar **err_info)
 {
 	struct radcomrec_hdr hdr;
@@ -306,9 +302,14 @@ radcom_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
 	}
 	length = pletoh16(&hdr.length);
 	real_length = pletoh16(&hdr.real_length);
+	/*
+	 * The maximum value of length is 65535, which is less than
+	 * WTAP_MAX_PACKET_SIZE_STANDARD will ever be, so we don't need to check
+	 * it.
+	 */
 
-	phdr->rec_type = REC_TYPE_PACKET;
-	phdr->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
+	rec->rec_type = REC_TYPE_PACKET;
+	rec->presence_flags = WTAP_HAS_TS|WTAP_HAS_CAP_LEN;
 
 	tm.tm_year = pletoh16(&hdr.date.year)-1900;
 	tm.tm_mon = (hdr.date.month&0x0f)-1;
@@ -318,18 +319,18 @@ radcom_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
 	tm.tm_min = (sec%3600)/60;
 	tm.tm_sec = sec%60;
 	tm.tm_isdst = -1;
-	phdr->ts.secs = mktime(&tm);
-	phdr->ts.nsecs = pletoh32(&hdr.date.usec) * 1000;
+	rec->ts.secs = mktime(&tm);
+	rec->ts.nsecs = pletoh32(&hdr.date.usec) * 1000;
 
 	switch (wth->file_encap) {
 
 	case WTAP_ENCAP_ETHERNET:
 		/* XXX - is there an FCS? */
-		phdr->pseudo_header.eth.fcs_len = -1;
+		rec->rec_header.packet_header.pseudo_header.eth.fcs_len = -1;
 		break;
 
 	case WTAP_ENCAP_LAPB:
-		phdr->pseudo_header.x25.flags = (hdr.dce & 0x1) ?
+		rec->rec_header.packet_header.pseudo_header.x25.flags = (hdr.dce & 0x1) ?
 		    0x00 : FROM_DCE;
 		length -= 2; /* FCS */
 		real_length -= 2;
@@ -348,8 +349,8 @@ radcom_read_rec(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
 		break;
 	}
 
-	phdr->len = real_length;
-	phdr->caplen = length;
+	rec->rec_header.packet_header.len = real_length;
+	rec->rec_header.packet_header.caplen = length;
 
 	/*
 	 * Read the packet data.

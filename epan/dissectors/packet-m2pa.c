@@ -14,19 +14,7 @@
  *
  * Copied from packet-m3ua.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -77,6 +65,7 @@ static gint ett_m2pa_li    = -1;
 static expert_field ei_undecode_data = EI_INIT;
 static expert_field ei_length = EI_INIT;
 
+static dissector_handle_t m2pa_handle;
 static dissector_handle_t mtp3_handle;
 
 typedef enum {
@@ -373,8 +362,8 @@ dissect_v2_message_data(tvbuff_t *message_tvb, packet_info *pinfo, proto_item *m
   guint16 type;
   tvbuff_t *message_data_tvb;
 
-  message_data_length = (gint) tvb_get_ntohl(message_tvb, V2_LENGTH_OFFSET);
-  if ((gint) message_data_length < 1) {
+  message_data_length = tvb_get_ntohl(message_tvb, V2_LENGTH_OFFSET);
+  if (message_data_length < 1 || message_data_length > G_MAXINT) {
     proto_tree_add_expert_format(m2pa_tree, pinfo, &ei_length, message_tvb, V2_LENGTH_OFFSET, 4,
         "Invalid message data length: %u", message_data_length);
     return;
@@ -405,7 +394,7 @@ dissect_v8_message_data(tvbuff_t *message_tvb, packet_info *pinfo, proto_item *m
   tvbuff_t *message_data_tvb;
 
   message_data_length = tvb_get_ntohl(message_tvb, V8_LENGTH_OFFSET) - V8_HEADER_LENGTH;
-  if ((gint) message_data_length < 1) {
+  if (message_data_length < 1 || message_data_length > G_MAXINT) {
     proto_tree_add_expert_format(m2pa_tree, pinfo, &ei_length, message_tvb, V8_LENGTH_OFFSET, 4,
         "Invalid message data length: %u", message_data_length);
     return;
@@ -576,24 +565,22 @@ proto_register_m2pa(void)
   expert_register_field_array(expert_m2pa, ei, array_length(ei));
 
   /* Allow other dissectors to find this one by name. */
-  register_dissector("m2pa", dissect_m2pa, proto_m2pa);
+  m2pa_handle = register_dissector("m2pa", dissect_m2pa, proto_m2pa);
 
   m2pa_module = prefs_register_protocol(proto_m2pa, proto_reg_handoff_m2pa);
 
   prefs_register_enum_preference(m2pa_module, "version", "M2PA version", "Version used by Wireshark", &m2pa_version, m2pa_version_options, FALSE);
-  prefs_register_uint_preference(m2pa_module, "port", "M2PA SCTP Port", "Set the port for M2PA messages (Default of 3565)", 10, &global_sctp_port);
+  prefs_register_uint_preference(m2pa_module, "port", "M2PA SCTP Port", "Set the port for M2PA messages (default: " G_STRINGIFY(SCTP_PORT_M2PA) ")", 10, &global_sctp_port);
 }
 
 void
 proto_reg_handoff_m2pa(void)
 {
   static gboolean prefs_initialized = FALSE;
-  static dissector_handle_t m2pa_handle;
   static guint sctp_port;
 
   /* Port preferences code shamelessly copied from packet-beep.c */
   if (!prefs_initialized) {
-    m2pa_handle   = find_dissector("m2pa");
     mtp3_handle   = find_dissector_add_dependency("mtp3", proto_m2pa);
 
     dissector_add_uint("sctp.ppi", M2PA_PAYLOAD_PROTOCOL_ID, m2pa_handle);

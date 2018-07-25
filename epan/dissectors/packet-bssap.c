@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1659,6 +1647,10 @@ static int dissect_bssap_plus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
         proto_tree_add_item(tree, hf_bssap_extraneous_data, tvb, offset, -1, ENC_NA);
         break;
     case BSSAP_UPLINK_TUNNEL_REQUEST:           /*  17.1.23 */
+        /* IMSI IMSI 18.4.10 M TLV 6-10 */
+        if (check_ie(tvb, pinfo, tree, &offset, BSSAP_IMSI))
+            offset = dissect_bssap_imsi(tvb, bssap_tree, pinfo, offset);
+
         /* SGSN number 18.4.22 M TLV 5-11 */
         if (check_ie(tvb, pinfo, tree, &offset, BSSAP_SGSN_NUMBER))
             offset = dissect_bssap_sgsn_number(tvb, bssap_tree, offset);
@@ -2545,8 +2537,8 @@ proto_register_bssap(void)
                        "Subsystem number used for BSSAP",
                        "Set Subsystem number used for BSSAP/BSSAP+",
                        10, &global_bssap_ssn);
-    bssap_dissector_table = register_dissector_table("bssap.pdu_type", "BSSAP Message Type", proto_bssap, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    bsap_dissector_table  = register_dissector_table("bsap.pdu_type", "BSAP Message Type", proto_bssap, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    bssap_dissector_table = register_dissector_table("bssap.pdu_type", "BSSAP Message Type", proto_bssap, FT_UINT8, BASE_DEC);
+    bsap_dissector_table  = register_dissector_table("bsap.pdu_type", "BSAP Message Type", proto_bssap, FT_UINT8, BASE_DEC);
 }
 
 void

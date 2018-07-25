@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref: http://www.packeteer.com/resources/prod-sol/XTP.pdf
  */
@@ -301,6 +289,7 @@ static int hf_xtp_diag_code = -1;
 static int hf_xtp_diag_val = -1;
 static int hf_xtp_diag_msg = -1;
 static int hf_xtp_checksum = -1;
+static int hf_xtp_checksum_status = -1;
 static int hf_xtp_data = -1;
 
 /* Initialize the subtree pointers */
@@ -319,6 +308,7 @@ static gint ett_xtp_data = -1;
 static gint ett_xtp_diag = -1;
 
 static expert_field ei_xtp_spans_bad = EI_INIT;
+static expert_field ei_xtp_checksum = EI_INIT;
 
 /* dissector of each payload */
 static int
@@ -844,11 +834,8 @@ dissect_xtp_jcntl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static void
 dissect_xtp_diag(tvbuff_t *tvb, proto_tree *tree, guint32 offset) {
 	guint32          len   = tvb_reported_length_remaining(tvb, offset);
-	guint32          start = offset;
 	proto_item      *ti;
 	proto_tree      *xtp_subtree;
-	struct xtp_diag  diag[1];
-	guint32          msg_len;
 
 	xtp_subtree = proto_tree_add_subtree(tree, tvb, offset, len, ett_xtp_diag, &ti, "Diagnostic Segment");
 
@@ -859,31 +846,17 @@ dissect_xtp_diag(tvbuff_t *tvb, proto_tree *tree, guint32 offset) {
 		return;
 	}
 
-	/** parse **/
 	/* code(4) */
-	diag->code = tvb_get_ntohl(tvb, offset);
+	proto_tree_add_item(xtp_subtree, hf_xtp_diag_code,
+			tvb, offset, 4, ENC_BIG_ENDIAN);
 	offset += 4;
 	/* val(4) */
-	diag->val = tvb_get_ntohl(tvb, offset);
+	proto_tree_add_item(xtp_subtree, hf_xtp_diag_val,
+			tvb, offset, 4, ENC_BIG_ENDIAN);
 	offset += 4;
 	/* message(n) */
-	msg_len = tvb_reported_length_remaining(tvb, offset);
-	diag->msg = tvb_get_string_enc(NULL, tvb, offset, msg_len, ENC_ASCII);
-
-	/** display **/
-	offset = start;
-	/* code(4) */
-	proto_tree_add_uint(xtp_subtree, hf_xtp_diag_code,
-			tvb, offset, 4, diag->code);
-	offset += 4;
-	/* val(4) */
-	proto_tree_add_uint(xtp_subtree, hf_xtp_diag_val,
-			tvb, offset, 4, diag->val);
-	offset += 4;
-	/* message(4) */
-	proto_tree_add_string(xtp_subtree, hf_xtp_diag_msg,
-			tvb, offset, msg_len, diag->msg);
-	g_free(diag->msg);
+	proto_tree_add_item(xtp_subtree, hf_xtp_diag_msg,
+			tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_ASCII|ENC_NA);
 
 	return;
 }
@@ -904,7 +877,6 @@ dissect_xtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 	guint          i, bpos;
 	guint          cmd_options;
 	vec_t          cksum_vec[1];
-	guint16        computed_cksum;
 	gboolean       have_btag;
 	static const int * cmd_options_flags[] = {
 		&hf_xtp_cmd_options_nocheck,
@@ -1035,20 +1007,12 @@ dissect_xtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 			if (!(xtph->cmd_options & XTP_CMD_OPTIONS_NOCHECK))
 				check_len += xtph->dlen;
 			SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, check_len);
-			computed_cksum = in_cksum(cksum_vec, 1);
-			if (computed_cksum == 0) {
-				proto_tree_add_uint_format_value(xtp_tree, hf_xtp_checksum, tvb, offset, 2,
-					xtph->check, "0x%04x [correct]", xtph->check);
-			} else {
-				proto_tree_add_uint_format_value(xtp_tree, hf_xtp_checksum, tvb, offset, 2,
-					xtph->check, "0x%04x [incorrect, should be 0x%04x]",
-					xtph->check,
-					in_cksum_shouldbe(xtph->check, computed_cksum));
-			}
+			proto_tree_add_checksum(xtp_tree, tvb, offset, hf_xtp_checksum, hf_xtp_checksum_status, &ei_xtp_checksum,
+									pinfo, in_cksum(cksum_vec, 1), ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
 		}
 		else {
-			proto_tree_add_uint_format_value(xtp_tree, hf_xtp_checksum, tvb, offset, 2,
-					xtph->check, "0x%04x", xtph->check);
+			proto_tree_add_checksum(xtp_tree, tvb, offset, hf_xtp_checksum, hf_xtp_checksum_status, &ei_xtp_checksum,
+									pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		}
 		offset += 2;
 		/* sort(2) */
@@ -1367,6 +1331,10 @@ proto_register_xtp(void)
 		  { "Checksum", "xtp.checksum",
 		    FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }
 		},
+		{ &hf_xtp_checksum_status,
+		  { "Checksum Status", "xtp.checksum.status",
+		    FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }
+		},
 		{ &hf_xtp_data,
 		  { "Data", "xtp.data",
 		    FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }
@@ -1392,17 +1360,19 @@ proto_register_xtp(void)
 	static ei_register_info ei[] = {
 		{ &ei_xtp_spans_bad,
 		  { "xtp.spans_bad", PI_MALFORMED, PI_ERROR, "Number of spans incorrect", EXPFILL }},
+		{ &ei_xtp_checksum,
+		  { "xtp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
 	};
 
 	expert_module_t* expert_xtp;
 
+	proto_xtp = proto_register_protocol("Xpress Transport Protocol", "XTP", "xtp");
+	proto_register_field_array(proto_xtp, hf, array_length(hf));
+	proto_register_subtree_array(ett, array_length(ett));
+
 	expert_xtp = expert_register_protocol(proto_xtp);
 	expert_register_field_array(expert_xtp, ei, array_length(ei));
 
-	proto_xtp = proto_register_protocol("Xpress Transport Protocol",
-	    "XTP", "xtp");
-	proto_register_field_array(proto_xtp, hf, array_length(hf));
-	proto_register_subtree_array(ett, array_length(ett));
 }
 
 void

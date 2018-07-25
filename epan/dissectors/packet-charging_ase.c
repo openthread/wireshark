@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  * References: ETSI ES 201 296 V1.3.1 (2003-04)
  */
 
@@ -115,7 +103,7 @@ static int hf_charging_ase_T_tariffControlIndicators_non_cyclicTariff = -1;
 static int hf_charging_ase_T_tariffControlIndicators_01_non_cyclicTariff = -1;
 
 /*--- End of included file: packet-charging_ase-hf.c ---*/
-#line 44 "./asn1/charging_ase/packet-charging_ase-template.c"
+#line 32 "./asn1/charging_ase/packet-charging_ase-template.c"
 
 static int ett_charging_ase = -1;
 
@@ -153,7 +141,7 @@ static gint ett_charging_ase_T_tariffControlIndicators_01 = -1;
 static gint ett_charging_ase_ChargingReferenceIdentification = -1;
 
 /*--- End of included file: packet-charging_ase-ett.c ---*/
-#line 47 "./asn1/charging_ase/packet-charging_ase-template.c"
+#line 35 "./asn1/charging_ase/packet-charging_ase-template.c"
 
 static expert_field ei_charging_ase_extensions_not_dissected = EI_INIT;
 
@@ -841,7 +829,7 @@ int dissect_charging_ase_ChargingMessageType_PDU(tvbuff_t *tvb _U_, packet_info 
 
 
 /*--- End of included file: packet-charging_ase-fn.c ---*/
-#line 53 "./asn1/charging_ase/packet-charging_ase-template.c"
+#line 41 "./asn1/charging_ase/packet-charging_ase-template.c"
 
 static int
 dissect_charging_ase(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
@@ -1114,7 +1102,7 @@ proto_register_charging_ase(void)
         NULL, HFILL }},
 
 /*--- End of included file: packet-charging_ase-hfarr.c ---*/
-#line 77 "./asn1/charging_ase/packet-charging_ase-template.c"
+#line 65 "./asn1/charging_ase/packet-charging_ase-template.c"
   };
 
   /* List of subtrees */
@@ -1155,7 +1143,7 @@ proto_register_charging_ase(void)
     &ett_charging_ase_ChargingReferenceIdentification,
 
 /*--- End of included file: packet-charging_ase-ettarr.c ---*/
-#line 83 "./asn1/charging_ase/packet-charging_ase-template.c"
+#line 71 "./asn1/charging_ase/packet-charging_ase-template.c"
         };
 
   static ei_register_info ei[] = {

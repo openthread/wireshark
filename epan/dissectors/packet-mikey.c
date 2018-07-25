@@ -7,19 +7,7 @@
  * Copyright 1998 Gerald Combs
  *
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref:
  * http://tools.ietf.org/html/rfc3830  MIKEY
@@ -38,7 +26,6 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/asn1.h>
 #include <epan/proto_data.h>
 #include "packet-x509af.h"
@@ -47,9 +34,6 @@ void proto_register_mikey(void);
 void proto_reg_handoff_mikey(void);
 
 #define PORT_MIKEY 2269
-static guint global_mikey_tcp_port = PORT_MIKEY;
-
-static guint global_mikey_udp_port = PORT_MIKEY;
 
 static const value_string on_off_vals[] = {
 	{ 0, "Off" },
@@ -912,12 +896,11 @@ dissect_payload_id(mikey_t *mikey _U_, tvbuff_t *tvb, packet_info *pinfo _U_, pr
 
 	if (tree) {
 		proto_item* parent;
-		proto_tree_add_item(tree, hf_mikey[POS_ID], tvb, 4, length, ENC_ASCII|ENC_NA);
+		const guint8* pos_id;
+		proto_tree_add_item_ret_string(tree, hf_mikey[POS_ID], tvb, 4, length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &pos_id);
 
 		parent = proto_tree_get_parent(tree);
-		proto_item_append_text(parent, " %s: %s",
-				       val_to_str_const(type, id_type_vals, "Unknown"),
-				       tvb_get_string_enc(wmem_packet_scope(), tvb, 4, length, ENC_ASCII));
+		proto_item_append_text(parent, " %s: %s", val_to_str_const(type, id_type_vals, "Unknown"), pos_id);
 	}
 
 	return 4 + length;
@@ -940,12 +923,11 @@ dissect_payload_idr(mikey_t *mikey _U_, tvbuff_t *tvb, packet_info *pinfo _U_, p
 
 	if (tree) {
 		proto_item *parent;
-		proto_tree_add_item(tree, hf_mikey[POS_ID], tvb, 5, length, ENC_ASCII|ENC_NA);
+		const guint8* pos_id;
+		proto_tree_add_item_ret_string(tree, hf_mikey[POS_ID], tvb, 5, length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &pos_id);
 
 		parent = proto_tree_get_parent(tree);
-		proto_item_append_text(parent, " %s: %s",
-				       val_to_str_const(type, id_type_vals, "Unknown"),
-				       tvb_get_string_enc(wmem_packet_scope(), tvb, 5, length, ENC_ASCII));
+		proto_item_append_text(parent, " %s: %s", val_to_str_const(type, id_type_vals, "Unknown"), pos_id);
 	}
 
 	return 5 + length;
@@ -1839,52 +1821,23 @@ proto_register_mikey(void)
 		&ett_mikey_enc_data
 	};
 
-	module_t *mikey_module;
-
 	/* Register the protocol name and description */
-	proto_mikey = proto_register_protocol("Multimedia Internet KEYing",
-		"MIKEY", "mikey");
+	proto_mikey = proto_register_protocol("Multimedia Internet KEYing", "MIKEY", "mikey");
 
 	mikey_handle = register_dissector("mikey", dissect_mikey, proto_mikey);
 
 	/* Required function calls to register the header fields and subtrees used */
 	proto_register_field_array(proto_mikey, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	/* Register our configuration options */
-	mikey_module = prefs_register_protocol(proto_mikey, proto_reg_handoff_mikey);
-
-	prefs_register_uint_preference(mikey_module, "udp.port", "MIKEY UDP Port",
-		"Set the port for MIKEY messages (if other than the default of 2269)",
-		10, &global_mikey_udp_port);
-
-	prefs_register_uint_preference(mikey_module, "tcp.port", "MIKEY TCP Port",
-		"Set the port for MIKEY messages (if other than the default of 2269)",
-		10, &global_mikey_tcp_port);
-
 }
 
 
 void
 proto_reg_handoff_mikey(void)
 {
-	static guint		  mikey_tcp_port;
-	static guint		  mikey_udp_port;
-	static gboolean inited = FALSE;
-
-	if (!inited) {
-		dissector_add_string("key_mgmt", "mikey", mikey_handle);
-		inited = TRUE;
-	} else {
-		dissector_delete_uint("udp.port", mikey_udp_port, mikey_handle);
-		dissector_delete_uint("tcp.port", mikey_tcp_port, mikey_handle);
-	}
-
-	dissector_add_uint("udp.port", global_mikey_udp_port, mikey_handle);
-	dissector_add_uint("tcp.port", global_mikey_tcp_port, mikey_handle);
-
-	mikey_udp_port = global_mikey_udp_port;
-	mikey_tcp_port = global_mikey_tcp_port;
+	dissector_add_string("key_mgmt", "mikey", mikey_handle);
+	dissector_add_uint_with_preference("tcp.port", PORT_MIKEY, mikey_handle);
+	dissector_add_uint_with_preference("udp.port", PORT_MIKEY, mikey_handle);
 }
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

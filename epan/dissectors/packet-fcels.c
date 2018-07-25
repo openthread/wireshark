@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -619,7 +607,7 @@ typedef struct _fcels_conv_data {
     guint32 opcode;
 } fcels_conv_data_t;
 
-static GHashTable *fcels_req_hash = NULL;
+static wmem_map_t *fcels_req_hash = NULL;
 
 static dissector_handle_t fcsp_handle;
 
@@ -644,21 +632,6 @@ fcels_hash (gconstpointer v)
     val = key->conv_idx;
 
     return val;
-}
-
-/*
- * Protocol initialization
- */
-static void
-fcels_init_protocol(void)
-{
-    fcels_req_hash = g_hash_table_new(fcels_hash, fcels_equal);
-}
-
-static void
-fcels_cleanup_protocol(void)
-{
-    g_hash_table_destroy(fcels_req_hash);
 }
 
 static const true_false_string tfs_fc_fcels_cmn_b2b = {
@@ -1671,7 +1644,7 @@ dissect_fcels_rpsc (tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
 
 
 static void
-dissect_fcels_cbind (tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_fcels_cbind (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     proto_item *ti)
 {
     int offset = 0;
@@ -1706,7 +1679,7 @@ dissect_fcels_cbind (tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
 }
 
 static void
-dissect_fcels_unbind (tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_fcels_unbind (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     proto_item *ti)
 {
     int offset = 0;
@@ -1883,18 +1856,18 @@ dissect_fcels (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             options = NO_PORT2;
         }
         conversation = find_conversation (pinfo->num, &pinfo->dst, &pinfo->src,
-                                          pinfo->ptype, fchdr->oxid,
+                                          conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                           fchdr->rxid, options);
 
         if (!conversation) {
             conversation = conversation_new (pinfo->num, &pinfo->dst, &pinfo->src,
-                                             pinfo->ptype, fchdr->oxid,
+                                             conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                              fchdr->rxid, options);
         }
 
-        ckey.conv_idx = conversation->index;
+        ckey.conv_idx = conversation->conv_index;
 
-        cdata = (fcels_conv_data_t *)g_hash_table_lookup (fcels_req_hash,
+        cdata = (fcels_conv_data_t *)wmem_map_lookup (fcels_req_hash,
                                                           &ckey);
         if (cdata) {
             /* Since we never free the memory used by an exchange, this maybe a
@@ -1905,12 +1878,12 @@ dissect_fcels (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         }
         else {
             req_key = wmem_new(wmem_file_scope(), fcels_conv_key_t);
-            req_key->conv_idx = conversation->index;
+            req_key->conv_idx = conversation->conv_index;
 
             cdata = wmem_new(wmem_file_scope(), fcels_conv_data_t);
             cdata->opcode = opcode;
 
-            g_hash_table_insert (fcels_req_hash, req_key, cdata);
+            wmem_map_insert (fcels_req_hash, req_key, cdata);
         }
     }
     else {
@@ -1918,7 +1891,7 @@ dissect_fcels (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 
         options = NO_PORT2;
         conversation = find_conversation (pinfo->num, &pinfo->dst, &pinfo->src,
-                                          pinfo->ptype, fchdr->oxid,
+                                          conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                           fchdr->rxid, options);
         if (!conversation) {
             /* FLOGI has two ways to save state: without the src and using just
@@ -1940,7 +1913,7 @@ dissect_fcels (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             addrdata[2] = dstfc[2];
             set_address (&dstaddr, AT_FC, 3, addrdata);
             conversation = find_conversation (pinfo->num, &dstaddr, &pinfo->src,
-                                              pinfo->ptype, fchdr->oxid,
+                                              conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                               fchdr->rxid, options);
         }
 
@@ -1948,7 +1921,7 @@ dissect_fcels (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             /* Finally check for FLOGI with both NO_PORT2 and NO_ADDR2 set */
             options = NO_ADDR2 | NO_PORT2;
             conversation = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
-                                              pinfo->ptype, fchdr->oxid,
+                                              conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                               fchdr->rxid, options);
             if (!conversation) {
                 if (tree && (opcode == FC_ELS_ACC)) {
@@ -1962,9 +1935,9 @@ dissect_fcels (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         }
 
         if (conversation) {
-            ckey.conv_idx = conversation->index;
+            ckey.conv_idx = conversation->conv_index;
 
-            cdata = (fcels_conv_data_t *)g_hash_table_lookup (fcels_req_hash, &ckey);
+            cdata = (fcels_conv_data_t *)wmem_map_lookup (fcels_req_hash, &ckey);
 
             if (cdata != NULL) {
                 if ((options & NO_ADDR2) && (cdata->opcode != FC_ELS_FLOGI)) {
@@ -2615,8 +2588,7 @@ proto_register_fcels (void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_fcels = expert_register_protocol(proto_fcels);
     expert_register_field_array(expert_fcels, ei, array_length(ei));
-    register_init_routine (&fcels_init_protocol);
-    register_cleanup_routine (&fcels_cleanup_protocol);
+    fcels_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), fcels_hash, fcels_equal);
 }
 
 void

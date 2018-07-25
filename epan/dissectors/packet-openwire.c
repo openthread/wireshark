@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -1814,7 +1802,7 @@ proto_register_openwire(void)
         { "UserID", "openwire.message.userid", FT_STRINGZ, BASE_NONE, NULL, 0x0, "Openwire message UserID", HFILL }},
 
      { &hf_openwire_message_receivedbydfbridge,
-        { "RecievedByDFBridge", "openwire.message.receivedbydfbridge", FT_UINT8, BASE_DEC, NULL, 0x0, "Openwire message ReceivedByDFBridge", HFILL }},
+        { "ReceivedByDFBridge", "openwire.message.receivedbydfbridge", FT_UINT8, BASE_DEC, NULL, 0x0, "Openwire message ReceivedByDFBridge", HFILL }},
 
      { &hf_openwire_message_droppable,
         { "Droppable", "openwire.message.droppable", FT_UINT8, BASE_DEC, NULL, 0x0, "Openwire message Droppable", HFILL }},
@@ -2006,7 +1994,7 @@ proto_reg_handoff_openwire(void)
 {
     heur_dissector_add("tcp", dissect_openwire_heur, "OpenWire over TCP", "openwire_tcp", proto_openwire, HEURISTIC_ENABLE);
     openwire_tcp_handle = create_dissector_handle(dissect_openwire_tcp, proto_openwire);
-    dissector_add_for_decode_as("tcp.port", openwire_tcp_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", openwire_tcp_handle);
 }
 
 /*

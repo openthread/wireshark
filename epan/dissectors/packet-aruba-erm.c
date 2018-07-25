@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -122,7 +110,6 @@ void proto_register_aruba_erm(void);
 void proto_reg_handoff_aruba_erm(void);
 void proto_reg_handoff_aruba_erm_radio(void);
 
-static range_t *global_aruba_erm_port_range;
 #if 0
 static gint  aruba_erm_type         = 0;
 #endif
@@ -165,11 +152,7 @@ static dissector_table_t aruba_erm_subdissector_table;
 static int
 dissect_aruba_erm_pcap(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *aruba_erm_tree, gint offset)
 {
-    nstime_t ts;
-
-    ts.secs = tvb_get_ntohl(tvb, 0);
-    ts.nsecs = tvb_get_ntohl(tvb,4)*1000;
-    proto_tree_add_time(aruba_erm_tree, hf_aruba_erm_time, tvb, offset, 8,&ts);
+    proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_time, tvb, offset, 8, ENC_TIME_SECS_USECS|ENC_BIG_ENDIAN);
     offset +=8;
 
     proto_tree_add_item(aruba_erm_tree, hf_aruba_erm_incl_len, tvb, 8, 4, ENC_BIG_ENDIAN);
@@ -206,11 +189,7 @@ dissect_aruba_erm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 {
     int offset = 0;
 
-    /*
-     * Implement "Decode As", as Aruba ERM doesn't
-     * have a unique identifier to determine subdissector
-     */
-    if (!dissector_try_uint(aruba_erm_subdissector_table, 0, tvb, pinfo, tree)) {
+    if (!dissector_try_payload(aruba_erm_subdissector_table, tvb, pinfo, tree)) {
 
         dissect_aruba_erm_common(tvb, pinfo, tree, &offset);
         /* Add Expert info how decode...*/
@@ -354,13 +333,6 @@ aruba_erm_prompt(packet_info *pinfo _U_, gchar* result)
     g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Aruba ERM payload as");
 }
 
-static gpointer
-aruba_erm_value(packet_info *pinfo _U_)
-{
-    return NULL;
-}
-
-
 void
 proto_register_aruba_erm(void)
 {
@@ -413,37 +385,18 @@ proto_register_aruba_erm(void)
 
     module_t *aruba_erm_module;
 
-    /* Decode As handling */
-    static build_valid_func aruba_erm_payload_da_build_value[1] = {aruba_erm_value};
-    static decode_as_value_t aruba_erm_payload_da_values = {aruba_erm_prompt, 1, aruba_erm_payload_da_build_value};
-    static decode_as_t aruba_erm_payload_da = {
-        "aruba_erm", "Aruba ERM Type", "aruba_erm.type", 1, 0,
-        &aruba_erm_payload_da_values, NULL, NULL,
-        decode_as_default_populate_list,
-        decode_as_default_reset,
-        decode_as_default_change,
-        NULL,
-    };
-
     expert_module_t* expert_aruba_erm;
 
     proto_aruba_erm = proto_register_protocol(PROTO_LONG_NAME, "ARUBA_ERM" , "aruba_erm");
-    proto_aruba_erm_type0 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PCAP (Type 0)", "ARUBA ERM PCAP (Type 0)", "aruba_erm_type0");
-    proto_aruba_erm_type1 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PEEK (Type 1)", "ARUBA ERM PEEK (type 1)", "aruba_erm_type1");
-    proto_aruba_erm_type2 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - AIRMAGNET (Type 2)", "ARUBA ERM AIRMAGNET (Type 2)", "aruba_erm_type2");
-    proto_aruba_erm_type3 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PCAP+RADIO (Type 3)", "ARUBA ERM PCAP+RADIO (Type 3)", "aruba_erm_type3");
-    proto_aruba_erm_type4 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PPI (Type 4)", "ARUBA ERM PPI (Type 4)", "aruba_erm_type4");
-    proto_aruba_erm_type5 = proto_register_protocol("Aruba Networks encapsulated remote mirroring - PEEK (Type 5)", "ARUBA ERM PEEK-NG (type 5)", "aruba_erm_type5");
+    proto_aruba_erm_type0 = proto_register_protocol_in_name_only("Aruba Networks encapsulated remote mirroring - PCAP (Type 0)", "ARUBA ERM PCAP (Type 0)", "aruba_erm_type0", proto_aruba_erm, FT_PROTOCOL);
+    proto_aruba_erm_type1 = proto_register_protocol_in_name_only("Aruba Networks encapsulated remote mirroring - PEEK (Type 1)", "ARUBA ERM PEEK (type 1)", "aruba_erm_type1", proto_aruba_erm, FT_PROTOCOL);
+    proto_aruba_erm_type2 = proto_register_protocol_in_name_only("Aruba Networks encapsulated remote mirroring - AIRMAGNET (Type 2)", "ARUBA ERM AIRMAGNET (Type 2)", "aruba_erm_type2", proto_aruba_erm, FT_PROTOCOL);
+    proto_aruba_erm_type3 = proto_register_protocol_in_name_only("Aruba Networks encapsulated remote mirroring - PCAP+RADIO (Type 3)", "ARUBA ERM PCAP+RADIO (Type 3)", "aruba_erm_type3", proto_aruba_erm, FT_PROTOCOL);
+    proto_aruba_erm_type4 = proto_register_protocol_in_name_only("Aruba Networks encapsulated remote mirroring - PPI (Type 4)", "ARUBA ERM PPI (Type 4)", "aruba_erm_type4", proto_aruba_erm, FT_PROTOCOL);
+    proto_aruba_erm_type5 = proto_register_protocol_in_name_only("Aruba Networks encapsulated remote mirroring - PEEK (Type 5)", "ARUBA ERM PEEK-NG (type 5)", "aruba_erm_type5", proto_aruba_erm, FT_PROTOCOL);
 
-    range_convert_str (&global_aruba_erm_port_range, "0", MAX_UDP_PORT);
+    aruba_erm_module = prefs_register_protocol(proto_aruba_erm, NULL);
 
-    aruba_erm_module = prefs_register_protocol(proto_aruba_erm, proto_reg_handoff_aruba_erm);
-
-    prefs_register_range_preference(aruba_erm_module, "udp.ports", "ARUBA_ERM UDP Port numbers",
-                                    "Set the UDP port numbers (typically the range 5555 to 5560) used for Aruba Networks"
-                                    " encapsulated remote mirroring frames;\n"
-                                    "0 (default) means that the ARUBA_ERM dissector is not active\n",
-                                    &global_aruba_erm_port_range, MAX_UDP_PORT);
 #if 0
     /* Obso...*/
     prefs_register_enum_preference(aruba_erm_module, "type.captured",
@@ -458,43 +411,28 @@ proto_register_aruba_erm(void)
     expert_aruba_erm = expert_register_protocol(proto_aruba_erm);
     expert_register_field_array(expert_aruba_erm, ei, array_length(ei));
 
-    aruba_erm_subdissector_table = register_dissector_table(
-        "aruba_erm.type", "Aruba ERM Type", proto_aruba_erm,
-        FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    register_dissector("aruba_erm", dissect_aruba_erm, proto_aruba_erm);
 
-    register_decode_as(&aruba_erm_payload_da);
-
+    aruba_erm_subdissector_table = register_decode_as_next_proto(proto_aruba_erm, "Aruba ERM Type", "aruba_erm.type",
+                                                                "Aruba ERM Type", aruba_erm_prompt);
 }
 
 void
 proto_reg_handoff_aruba_erm(void)
 {
-    static range_t *aruba_erm_port_range;
-    static range_t *aruba_erm_radio_port_range;
-    static gboolean initialized = FALSE;
+    wlan_radio_handle = find_dissector_add_dependency("wlan_radio", proto_aruba_erm);
+    wlan_withfcs_handle = find_dissector_add_dependency("wlan_withfcs", proto_aruba_erm);
+    ppi_handle = find_dissector_add_dependency("ppi", proto_aruba_erm);
+    peek_handle = find_dissector_add_dependency("peekremote", proto_aruba_erm);
+    aruba_erm_handle = create_dissector_handle(dissect_aruba_erm, proto_aruba_erm);
+    aruba_erm_handle_type0 = create_dissector_handle(dissect_aruba_erm_type0, proto_aruba_erm_type0);
+    aruba_erm_handle_type1 = create_dissector_handle(dissect_aruba_erm_type1, proto_aruba_erm_type1);
+    aruba_erm_handle_type2 = create_dissector_handle(dissect_aruba_erm_type2, proto_aruba_erm_type2);
+    aruba_erm_handle_type3 = create_dissector_handle(dissect_aruba_erm_type3, proto_aruba_erm_type3);
+    aruba_erm_handle_type4 = create_dissector_handle(dissect_aruba_erm_type4, proto_aruba_erm_type4);
+    aruba_erm_handle_type5 = create_dissector_handle(dissect_aruba_erm_type5, proto_aruba_erm_type5);
 
-    if (!initialized) {
-        wlan_radio_handle = find_dissector_add_dependency("wlan_radio", proto_aruba_erm);
-        wlan_withfcs_handle = find_dissector_add_dependency("wlan_withfcs", proto_aruba_erm);
-        ppi_handle = find_dissector_add_dependency("ppi", proto_aruba_erm);
-        peek_handle = find_dissector_add_dependency("peekremote", proto_aruba_erm);
-        aruba_erm_handle = create_dissector_handle(dissect_aruba_erm, proto_aruba_erm);
-        aruba_erm_handle_type0 = create_dissector_handle(dissect_aruba_erm_type0, proto_aruba_erm_type0);
-        aruba_erm_handle_type1 = create_dissector_handle(dissect_aruba_erm_type1, proto_aruba_erm_type1);
-        aruba_erm_handle_type2 = create_dissector_handle(dissect_aruba_erm_type2, proto_aruba_erm_type2);
-        aruba_erm_handle_type3 = create_dissector_handle(dissect_aruba_erm_type3, proto_aruba_erm_type3);
-        aruba_erm_handle_type4 = create_dissector_handle(dissect_aruba_erm_type4, proto_aruba_erm_type4);
-        aruba_erm_handle_type5 = create_dissector_handle(dissect_aruba_erm_type5, proto_aruba_erm_type5);
-        initialized = TRUE;
-    } else {
-        dissector_delete_uint_range("udp.port", aruba_erm_port_range, aruba_erm_handle);
-        g_free(aruba_erm_port_range);
-        g_free(aruba_erm_radio_port_range);
-    }
-
-    aruba_erm_port_range = range_copy(global_aruba_erm_port_range);
-
-    dissector_add_uint_range("udp.port", aruba_erm_port_range, aruba_erm_handle);
+    dissector_add_uint_range_with_preference("udp.port", "", aruba_erm_handle);
     dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type0);
     dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type1);
     dissector_add_for_decode_as("aruba_erm.type", aruba_erm_handle_type2);

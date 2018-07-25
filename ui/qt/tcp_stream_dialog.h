@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef TCP_STREAM_DIALOG_H
@@ -32,16 +20,18 @@
 
 #include "ui/tap-tcp-stream.h"
 
-#include "qcustomplot.h"
-#include <QDialog>
+#include "geometry_state_dialog.h"
+
+#include <ui/qt/widgets/qcustomplot.h>
 #include <QMenu>
 #include <QRubberBand>
+#include <QTimer>
 
 namespace Ui {
 class TCPStreamDialog;
 }
 
-class TCPStreamDialog : public QDialog
+class TCPStreamDialog : public GeometryStateDialog
 {
     Q_OBJECT
 
@@ -54,10 +44,12 @@ signals:
 
 public slots:
     void setCaptureFile(capture_file *cf);
+    void updateGraph();
 
 protected:
     void showEvent(QShowEvent *event);
     void keyPressEvent(QKeyEvent *event);
+    void mousePressEvent(QMouseEvent *event);
     void mouseReleaseEvent(QMouseEvent *event);
 
 private:
@@ -74,9 +66,14 @@ private:
     QString stream_desc_;
     QCPGraph *base_graph_; // Clickable packets
     QCPGraph *tput_graph_;
+    QCPGraph *goodput_graph_;
     QCPGraph *seg_graph_;
     QCPGraph *ack_graph_;
+    QCPGraph *sack_graph_;
+    QCPGraph *sack2_graph_;
     QCPGraph *rwin_graph_;
+    QCPGraph *dup_ack_graph_;
+    QCPGraph *zero_win_graph_;
     QCPItemTracer *tracer_;
     QRectF axis_bounds_;
     guint32 packet_num_;
@@ -86,12 +83,33 @@ private:
     QPoint rb_origin_;
     QMenu ctx_menu_;
 
+    class GraphUpdater {
+    public:
+        GraphUpdater(TCPStreamDialog *dialog) :
+            dialog_(dialog),
+            graph_update_timer_(NULL),
+            reset_axes_(false) {}
+        void triggerUpdate(int timeout, bool reset_axes = false);
+        void clearPendingUpdate();
+        void doUpdate();
+        bool hasPendingUpdate() { return graph_update_timer_ != NULL; }
+    private:
+        TCPStreamDialog *dialog_;
+        QTimer *graph_update_timer_;
+        bool reset_axes_;
+    };
+    friend class GraphUpdater;
+    GraphUpdater graph_updater_;
+
     int num_dsegs_;
     int num_acks_;
     int num_sack_ranges_;
 
+    double ma_window_size_;
+
     void findStream();
-    void fillGraph();
+    void fillGraph(bool reset_axes = true, bool set_focus = true);
+    void showWidgetsForGraphType();
     void zoomAxes(bool in);
     void zoomXAxis(bool in);
     void zoomYAxis(bool in);
@@ -117,9 +135,19 @@ private slots:
     void on_graphTypeComboBox_currentIndexChanged(int index);
     void on_resetButton_clicked();
     void on_streamNumberSpinBox_valueChanged(int new_stream);
+    void on_streamNumberSpinBox_editingFinished();
+    void on_maWindowSizeSpinBox_valueChanged(double new_ma_size);
+    void on_maWindowSizeSpinBox_editingFinished();
+    void on_selectSACKsCheckBox_stateChanged(int state);
     void on_otherDirectionButton_clicked();
     void on_dragRadioButton_toggled(bool checked);
     void on_zoomRadioButton_toggled(bool checked);
+    void on_bySeqNumberCheckBox_stateChanged(int state);
+    void on_showSegLengthCheckBox_stateChanged(int state);
+    void on_showThroughputCheckBox_stateChanged(int state);
+    void on_showGoodputCheckBox_stateChanged(int state);
+    void on_showRcvWinCheckBox_stateChanged(int state);
+    void on_showBytesOutCheckBox_stateChanged(int state);
     void on_actionZoomIn_triggered();
     void on_actionZoomInX_triggered();
     void on_actionZoomInY_triggered();
@@ -147,6 +175,7 @@ private slots:
     void on_actionStevens_triggered();
     void on_actionTcptrace_triggered();
     void on_actionWindowScaling_triggered();
+    void on_buttonBox_helpRequested();
 };
 
 #endif // TCP_STREAM_DIALOG_H

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -144,9 +132,6 @@ static int hf_forces_unknown_tlv = -1;
   For other type TMLs,no need to add these 2 bytes.*/
 #define TCP_UDP_TML_FOCES_MESSAGE_OFFSET_TCP    2
 
-/*TCP+UDP TML*/
-static guint forces_alternate_tcp_port = 0;
-static guint forces_alternate_udp_port = 0;
 /*SCTP TML*/
 static guint forces_alternate_sctp_high_prio_channel_port = 0;
 static guint forces_alternate_sctp_med_prio_channel_port  = 0;
@@ -374,9 +359,8 @@ dissect_operation_tlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint 
             expert_add_info_format(pinfo, ti, &ei_forces_lfbselect_tlv_type_operation_type,
                 "Bogus: ForCES Operation TLV (Type:0x%04x) is not supported", type);
 
-        length = tvb_get_ntohs(tvb, offset+2);
-        proto_tree_add_uint_format_value(oper_tree, hf_forces_lfbselect_tlv_type_operation_length,
-                                   tvb, offset+2, 2, length, "%u Bytes", length);
+        proto_tree_add_item_ret_uint(oper_tree, hf_forces_lfbselect_tlv_type_operation_length,
+                                   tvb, offset+2, 2, ENC_BIG_ENDIAN, &length);
 
         dissect_path_data_tlv(tvb, pinfo, oper_tree, offset+TLV_TL_LENGTH);
         if (length == 0)
@@ -424,8 +408,7 @@ dissect_redirecttlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint of
     proto_tree_add_item(meta_data_tree, hf_forces_redirect_tlv_meta_data_tlv_type, tvb, offset, 2, ENC_BIG_ENDIAN);
 
     length_meta = tvb_get_ntohs(tvb, offset+2);
-    proto_tree_add_uint_format_value(meta_data_tree, hf_forces_redirect_tlv_meta_data_tlv_length, tvb, offset+2, 2,
-                               length_meta, "%u Bytes", length_meta);
+    proto_tree_add_uint(meta_data_tree, hf_forces_redirect_tlv_meta_data_tlv_length, tvb, offset+2, 2, length_meta);
     proto_item_set_len(ti, length_meta);
 
     start_offset = offset;
@@ -437,8 +420,8 @@ dissect_redirecttlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint of
         proto_tree_add_item(meta_data_ilv_tree, hf_forces_redirect_tlv_meta_data_tlv_meta_data_ilv_id,
                                    tvb, offset+8, 4, ENC_BIG_ENDIAN);
         length_ilv = tvb_get_ntohl(tvb, offset+12);
-        proto_tree_add_uint_format_value(meta_data_ilv_tree, hf_forces_redirect_tlv_meta_data_tlv_meta_data_ilv_length,
-                                   tvb,  offset+12, 4, length_ilv, "%u Bytes", length_ilv);
+        proto_tree_add_uint(meta_data_ilv_tree, hf_forces_redirect_tlv_meta_data_tlv_meta_data_ilv_length,
+                                   tvb, offset+12, 4, length_ilv);
         offset += 8;
         if (length_ilv > 0) {
             proto_tree_add_item(meta_data_ilv_tree, hf_forces_redirect_tlv_meta_data_tlv_meta_data_ilv,
@@ -460,8 +443,8 @@ dissect_redirecttlv(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint of
         proto_tree_add_item(redirect_data_tree, hf_forces_redirect_tlv_redirect_data_tlv_type,
                             tvb, offset, 2,  ENC_BIG_ENDIAN);
         length_redirect = tvb_get_ntohs(tvb, offset+2);
-        proto_tree_add_uint_format_value(redirect_data_tree, hf_forces_redirect_tlv_redirect_data_tlv_length,
-                            tvb, offset+2, 2, length_redirect, "%u Bytes", length_redirect);
+        proto_tree_add_uint(redirect_data_tree, hf_forces_redirect_tlv_redirect_data_tlv_length,
+                            tvb, offset+2, 2, length_redirect);
 
         if (tvb_reported_length_remaining(tvb, offset) < length_redirect)
         {
@@ -552,8 +535,8 @@ dissect_forces(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint32 offs
         tlv_item = proto_tree_add_item(forces_tlv_tree, hf_forces_tlv_type, tvb, offset, 2, ENC_BIG_ENDIAN);
         length_count = tvb_get_ntohs(tvb, offset+2) * 4;
         proto_item_set_len(ti, length_count);
-        ti = proto_tree_add_uint_format_value(forces_tlv_tree, hf_forces_tlv_length,
-                                        tvb, offset+2, 2, length_count, "%u Bytes", length_count);
+        ti = proto_tree_add_uint(forces_tlv_tree, hf_forces_tlv_length,
+                                        tvb, offset+2, 2, length_count);
         if (tvb_reported_length_remaining(tvb, offset) < length_count)
             expert_add_info_format(pinfo, ti, &ei_forces_tlv_length, "Bogus: Main TLV length (%u bytes) is wrong", length_count);
 
@@ -662,7 +645,7 @@ proto_register_forces(void)
         },
         { &hf_forces_tlv_length,
             { "Length", "forces.tlv.length",
-            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }
         },
         /*flags*/
         { &hf_forces_flags,
@@ -713,7 +696,7 @@ proto_register_forces(void)
         },
         { &hf_forces_lfbselect_tlv_type_operation_length,
             { "Length", "forces.lfbselect.tlv.type.operation.length",
-            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }
         },
         { &hf_forces_lfbselect_tlv_type_operation_path_type,
             { "Type", "forces.lfbselect.tlv.type.operation.path.type",
@@ -754,7 +737,7 @@ proto_register_forces(void)
         },
         { &hf_forces_redirect_tlv_meta_data_tlv_length,
             { "Length", "forces.redirect.tlv.meta.data.tlv.length",
-            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }
         },
         { &hf_forces_redirect_tlv_meta_data_tlv_meta_data_ilv,
             { "Meta Data ILV", "forces.redirect.tlv.meta.data.tlv.meta.data.ilv",
@@ -766,7 +749,7 @@ proto_register_forces(void)
         },
         { &hf_forces_redirect_tlv_meta_data_tlv_meta_data_ilv_length,
             { "Length", "forces.redirect.tlv.meta.data.tlv.meta.data.ilv.length",
-            FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }
+            FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }
         },
         { &hf_forces_redirect_tlv_redirect_data_tlv_type,
             { "Type", "forces.redirect.tlv.redirect.data.tlv.type",
@@ -774,7 +757,7 @@ proto_register_forces(void)
         },
         { &hf_forces_redirect_tlv_redirect_data_tlv_length,
             { "Length", "forces.redirect.tlv.redirect.data.tlv.length",
-            FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }
         },
         { &hf_forces_asresult_association_setup_result,
             { "Association Setup Result", "forces.teardown.reason",
@@ -833,16 +816,6 @@ proto_register_forces(void)
 
     forces_module = prefs_register_protocol(proto_forces,proto_reg_handoff_forces);
 
-    prefs_register_uint_preference(forces_module, "tcp_alternate_port",
-                                   "TCP port",
-                                   "Decode packets on this TCP port as ForCES",
-                                   10, &forces_alternate_tcp_port);
-
-    prefs_register_uint_preference(forces_module, "udp_alternate_port",
-                                   "UDP port",
-                                   "Decode packets on this UDP port as ForCES",
-                                   10, &forces_alternate_udp_port);
-
     prefs_register_uint_preference(forces_module, "sctp_high_prio_port",
                                    "SCTP High Priority channel port",
                                    "Decode packets on this sctp port as ForCES",
@@ -864,8 +837,6 @@ proto_reg_handoff_forces(void)
 {
     static gboolean inited = FALSE;
 
-    static guint alternate_tcp_port = 0; /* 3000 */
-    static guint alternate_udp_port = 0;
     static guint alternate_sctp_high_prio_channel_port = 0; /* 6700 */
     static guint alternate_sctp_med_prio_channel_port  = 0;
     static guint alternate_sctp_low_prio_channel_port  = 0;
@@ -876,22 +847,13 @@ proto_reg_handoff_forces(void)
         forces_handle_tcp = create_dissector_handle(dissect_forces_tcp,     proto_forces);
         forces_handle     = create_dissector_handle(dissect_forces_not_tcp, proto_forces);
         ip_handle = find_dissector_add_dependency("ip", proto_forces);
+        /* Register TCP port for dissection */
+        dissector_add_for_decode_as_with_preference("tcp.port", forces_handle_tcp);
+        /* Register UDP port for dissection */
+        dissector_add_for_decode_as_with_preference("udp.port", forces_handle);
+
         inited = TRUE;
     }
-
-    /* Register TCP port for dissection */
-    if ((alternate_tcp_port != 0) && (alternate_tcp_port != forces_alternate_tcp_port))
-        dissector_delete_uint("tcp.port", alternate_tcp_port, forces_handle_tcp);
-    if ((forces_alternate_tcp_port != 0) && (alternate_tcp_port != forces_alternate_tcp_port))
-        dissector_add_uint("tcp.port", forces_alternate_tcp_port, forces_handle_tcp);
-    alternate_tcp_port = forces_alternate_tcp_port;
-
-    /* Register UDP port for dissection */
-    if ((alternate_udp_port != 0) && (alternate_udp_port != forces_alternate_udp_port))
-        dissector_delete_uint("udp.port", alternate_udp_port, forces_handle);
-    if ((forces_alternate_udp_port != 0) && (alternate_udp_port != forces_alternate_udp_port))
-        dissector_add_uint("udp.port", forces_alternate_udp_port, forces_handle);
-    alternate_udp_port = forces_alternate_udp_port;
 
     /* Register SCTP port for high priority dissection */
     if ((alternate_sctp_high_prio_channel_port != 0) &&

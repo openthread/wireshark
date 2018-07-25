@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -26,7 +14,12 @@
 #include <string.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+#include <stdio.h>
+#endif
+
 #include <glib.h>
+#include <glib/gprintf.h>
 
 #include "wmem_core.h"
 #include "wmem_allocator.h"
@@ -86,6 +79,7 @@ wmem_strdup_printf(wmem_allocator_t *allocator, const gchar *fmt, ...)
  * in my test file all strings was less than 72 characters long and quite a few
  * over 68 characters long. Chose 80 as the default.
  */
+#ifndef _WIN32
 #define WMEM_STRDUP_VPRINTF_DEFAULT_BUFFER 80
 gchar *
 wmem_strdup_vprintf(wmem_allocator_t *allocator, const gchar *fmt, va_list ap)
@@ -115,6 +109,33 @@ wmem_strdup_vprintf(wmem_allocator_t *allocator, const gchar *fmt, va_list ap)
 
     return dst;
 }
+#else /* _WIN32 */
+/*
+ * GLib's v*printf routines are surprisingly slow on Windows, at least with
+ * GLib 2.40.0. This appears to be due to GLib using the gnulib version of
+ * vasnprintf when compiled under MinGW. If GLib ever ends up using the
+ * native Windows v*printf routines this can be removed.
+ */
+gchar *
+wmem_strdup_vprintf(wmem_allocator_t *allocator, const gchar *fmt, va_list ap)
+{
+    va_list ap2;
+    gchar *dst;
+    int needed_len;
+
+    G_VA_COPY(ap2, ap);
+
+    needed_len = _vscprintf(fmt, ap2) + 1;
+
+    dst = (gchar *)wmem_alloc(allocator, needed_len);
+
+    vsprintf_s(dst, needed_len, fmt, ap2);
+
+    va_end(ap2);
+
+    return dst;
+}
+#endif /* _WIN32 */
 
 gchar *
 wmem_strconcat(wmem_allocator_t *allocator, const gchar *first, ...)
@@ -147,75 +168,137 @@ wmem_strconcat(wmem_allocator_t *allocator, const gchar *first, ...)
     return concat;
 }
 
+gchar *
+wmem_strjoin(wmem_allocator_t *allocator,
+             const gchar *separator, const gchar *first, ...)
+{
+    gsize   len;
+    va_list args;
+    gsize separator_len;
+    gchar   *s;
+    gchar   *concat;
+    gchar   *ptr;
+
+    if (!first)
+        return NULL;
+
+    if (separator == NULL) {
+        separator = "";
+    }
+
+    separator_len = strlen (separator);
+
+    len = 1 + strlen(first); /* + 1 for null byte */
+    va_start(args, first);
+    while ((s = va_arg(args, gchar*))) {
+        len += (separator_len + strlen(s));
+    }
+    va_end(args);
+
+    ptr = concat = (gchar *)wmem_alloc(allocator, len);
+    ptr = g_stpcpy(ptr, first);
+    va_start(args, first);
+    while ((s = va_arg(args, gchar*))) {
+        ptr = g_stpcpy(ptr, separator);
+        ptr = g_stpcpy(ptr, s);
+    }
+    va_end(args);
+
+    return concat;
+
+}
+
+gchar *
+wmem_strjoinv(wmem_allocator_t *allocator,
+              const gchar *separator, gchar **str_array)
+{
+    gchar *string = NULL;
+
+    if (!str_array)
+        return NULL;
+
+    if (separator == NULL) {
+        separator = "";
+    }
+
+    if (str_array[0]) {
+        gint i;
+        gchar *ptr;
+        gsize len, separator_len;
+
+        separator_len = strlen(separator);
+
+        /* Get first part of length. Plus one for null byte. */
+        len = 1 + strlen(str_array[0]);
+        /* Get the full length, including the separators. */
+        for (i = 1; str_array[i] != NULL; i++) {
+            len += separator_len;
+            len += strlen(str_array[i]);
+        }
+
+        /* Allocate and build the string. */
+        string = (gchar *)wmem_alloc(allocator, len);
+        ptr = g_stpcpy(string, str_array[0]);
+        for (i = 1; str_array[i] != NULL; i++) {
+            ptr = g_stpcpy(ptr, separator);
+            ptr = g_stpcpy(ptr, str_array[i]);
+        }
+    }
+
+    return string;
+
+}
+
 gchar **
 wmem_strsplit(wmem_allocator_t *allocator, const gchar *src,
         const gchar *delimiter, int max_tokens)
 {
-    gchar* splitted;
-    gchar* s;
+    gchar *splitted;
+    gchar *s;
     guint tokens;
-    guint str_len;
     guint sep_len;
     guint i;
-    gchar** vec;
-    enum { AT_START, IN_PAD, IN_TOKEN } state;
-    guint curr_tok = 0;
+    gchar **vec;
 
-    if (    ! src
-            || ! delimiter
-            || ! delimiter[0])
+    if (!src || !delimiter || !delimiter[0])
         return NULL;
 
-    s = splitted = wmem_strdup(allocator, src);
-    str_len = (guint) strlen(splitted);
-    sep_len = (guint) strlen(delimiter);
+    /* An empty string results in an empty vector. */
+    if (!src[0]) {
+        vec = wmem_new0(allocator, gchar *);
+        return vec;
+    }
 
-    if (max_tokens < 1) max_tokens = INT_MAX;
+    splitted = wmem_strdup(allocator, src);
+    sep_len = (guint)strlen(delimiter);
 
+    if (max_tokens < 1)
+        max_tokens = INT_MAX;
+
+    /* Calculate the number of fields. */
+    s = splitted;
     tokens = 1;
+    while (tokens < (guint)max_tokens && (s = strstr(s, delimiter))) {
+        s += sep_len;
+        tokens++;
+    }
 
+    vec = wmem_alloc_array(allocator, gchar *, tokens + 1);
 
-    while (tokens <= (guint)max_tokens && ( s = strstr(s,delimiter) )) {
+    /* Populate the array of string tokens. */
+    s = splitted;
+    vec[0] = s;
+    tokens = 1;
+    while (tokens < (guint)max_tokens && (s = strstr(s, delimiter))) {
+        for (i = 0; i < sep_len; i++)
+            s[i] = '\0';
+        s += sep_len;
+        vec[tokens] = s;
         tokens++;
 
-        for(i=0; i < sep_len; i++ )
-            s[i] = '\0';
-
-        s += sep_len;
-
     }
 
-    vec = wmem_alloc_array(allocator, gchar*,tokens+1);
-    state = AT_START;
-
-    for (i=0; i< str_len; i++) {
-        switch(state) {
-            case AT_START:
-                if (splitted[i] == '\0') {
-                    state = IN_PAD;
-                }
-                else {
-                    vec[curr_tok] = &(splitted[i]);
-                    curr_tok++;
-                    state = IN_TOKEN;
-                }
-                break;
-            case IN_TOKEN:
-                if (splitted[i] == '\0') {
-                    state = IN_PAD;
-                }
-                break;
-            case IN_PAD:
-                if (splitted[i] != '\0') {
-                    vec[curr_tok] = &(splitted[i]);
-                    curr_tok++;
-                    state = IN_TOKEN;
-                }
-                break;
-        }
-    }
-
-    vec[curr_tok] = NULL;
+    vec[tokens] = NULL;
 
     return vec;
 }

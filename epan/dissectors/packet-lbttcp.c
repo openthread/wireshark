@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -59,7 +47,7 @@ lbttcp_transport_t * lbttcp_transport_find(const address * source_address, guint
     conversation_t * conv = NULL;
     lbttcp_transport_conv_data_t * conv_data = NULL;
 
-    conv = find_conversation(frame, source_address, &lbttcp_null_address, PT_TCP, source_port, 0, 0);
+    conv = find_conversation(frame, source_address, &lbttcp_null_address, ENDPOINT_TCP, source_port, 0, 0);
     if (conv != NULL)
     {
         conv_data = (lbttcp_transport_conv_data_t *) conversation_get_proto_data(conv, proto_lbttcp);
@@ -91,10 +79,10 @@ lbttcp_transport_t * lbttcp_transport_add(const address * source_address, guint1
     conversation_t * conv = NULL;
     lbttcp_transport_conv_data_t * conv_data = NULL;
 
-    conv = find_conversation(frame, source_address, &lbttcp_null_address, PT_TCP, source_port, 0, 0);
+    conv = find_conversation(frame, source_address, &lbttcp_null_address, ENDPOINT_TCP, source_port, 0, 0);
     if (conv == NULL)
     {
-        conv = conversation_new(frame, source_address, &lbttcp_null_address, PT_TCP, source_port, 0, 0);
+        conv = conversation_new(frame, source_address, &lbttcp_null_address, ENDPOINT_TCP, source_port, 0, 0);
     }
     conv_data = (lbttcp_transport_conv_data_t *) conversation_get_proto_data(conv, proto_lbttcp);
     if (conv_data == NULL)
@@ -124,7 +112,7 @@ static lbttcp_client_transport_t * lbttcp_client_transport_find(lbttcp_transport
     {
         return (NULL);
     }
-    client_conv = find_conversation(frame, &(transport->source_address), receiver_address, PT_TCP, transport->source_port, receiver_port, 0);
+    client_conv = find_conversation(frame, &(transport->source_address), receiver_address, ENDPOINT_TCP, transport->source_port, receiver_port, 0);
     if (client_conv != NULL)
     {
         wmem_tree_t * session_tree = NULL;
@@ -159,10 +147,10 @@ static lbttcp_client_transport_t * lbttcp_client_transport_add(lbttcp_transport_
     entry->id = transport->next_client_id++;
 
     /* See if a conversation for this address/port pair exists. */
-    client_conv = find_conversation(frame, &(transport->source_address), receiver_address, PT_TCP, transport->source_port, receiver_port, 0);
+    client_conv = find_conversation(frame, &(transport->source_address), receiver_address, ENDPOINT_TCP, transport->source_port, receiver_port, 0);
     if (client_conv == NULL)
     {
-        client_conv = conversation_new(frame, &(transport->source_address), receiver_address, PT_TCP, transport->source_port, receiver_port, 0);
+        client_conv = conversation_new(frame, &(transport->source_address), receiver_address, ENDPOINT_TCP, transport->source_port, receiver_port, 0);
         session_tree = wmem_tree_new(wmem_file_scope());
         conversation_add_proto_data(client_conv, proto_lbttcp, (void *) session_tree);
     }
@@ -200,7 +188,7 @@ gboolean lbttcp_transport_sid_find(const address * source_address, guint16 sourc
     lbttcp_transport_conv_data_t * conv_data = NULL;
     lbttcp_transport_t * transport = NULL;
 
-    conv = find_conversation(frame, source_address, &lbttcp_null_address, PT_TCP, source_port, 0, 0);
+    conv = find_conversation(frame, source_address, &lbttcp_null_address, ENDPOINT_TCP, source_port, 0, 0);
     if (conv == NULL)
     {
         return (FALSE);
@@ -229,10 +217,10 @@ void lbttcp_transport_sid_add(const address * source_address, guint16 source_por
     lbttcp_transport_conv_data_t * conv_data = NULL;
     lbttcp_transport_t * transport = NULL;
 
-    conv = find_conversation(frame, source_address, &lbttcp_null_address, PT_TCP, source_port, 0, 0);
+    conv = find_conversation(frame, source_address, &lbttcp_null_address, ENDPOINT_TCP, source_port, 0, 0);
     if (conv == NULL)
     {
-        conv = conversation_new(frame, source_address, &lbttcp_null_address, PT_TCP, source_port, 0, 0);
+        conv = conversation_new(frame, source_address, &lbttcp_null_address, ENDPOINT_TCP, source_port, 0, 0);
     }
     conv_data = (lbttcp_transport_conv_data_t *) conversation_get_proto_data(conv, proto_lbttcp);
     if (conv_data == NULL)
@@ -332,7 +320,7 @@ static gboolean lbttcp_tag_update_cb(void * record, char * * error_string)
 
     if (tag->name == NULL)
     {
-        *error_string = g_strdup_printf("Tag name can't be empty");
+        *error_string = g_strdup("Tag name can't be empty");
         return FALSE;
     }
     else
@@ -340,7 +328,7 @@ static gboolean lbttcp_tag_update_cb(void * record, char * * error_string)
         g_strstrip(tag->name);
         if (tag->name[0] == 0)
         {
-            *error_string = g_strdup_printf("Tag name can't be empty");
+            *error_string = g_strdup("Tag name can't be empty");
             return FALSE;
         }
     }
@@ -786,6 +774,7 @@ void proto_register_lbttcp(void)
         lbttcp_tag_update_cb,
         lbttcp_tag_free_cb,
         NULL,
+        NULL,
         lbttcp_tag_array);
     prefs_register_uat_preference(lbttcp_module,
         "tnw_lbttcp_tags",
@@ -802,7 +791,7 @@ void proto_reg_handoff_lbttcp(void)
     if (!already_registered)
     {
         lbttcp_dissector_handle = create_dissector_handle(dissect_lbttcp, proto_lbttcp);
-        dissector_add_for_decode_as("tcp.port", lbttcp_dissector_handle);
+        dissector_add_for_decode_as_with_preference("tcp.port", lbttcp_dissector_handle);
         heur_dissector_add("tcp", test_lbttcp_packet, "LBT over TCP", "lbttcp_tcp", proto_lbttcp, HEURISTIC_ENABLE);
     }
 

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -26,6 +14,7 @@
 
 #include <epan/packet.h>
 #include <epan/capture_dissectors.h>
+#include <epan/conversation_table.h>
 #include <epan/arptypes.h>
 #include <wsutil/pint.h>
 #include "packet-sll.h"
@@ -41,6 +30,11 @@
 
 void proto_register_sll(void);
 void proto_reg_handoff_sll(void);
+
+typedef struct sll_tap_data {
+	address src_address;
+} sll_tap_data;
+
 /*
  * A DLT_LINUX_SLL fake link-layer header.
  */
@@ -71,6 +65,7 @@ static const value_string ltype_vals[] = {
 	{ LINUX_SLL_P_802_2,	"802.2 LLC" },
 	{ LINUX_SLL_P_PPPHDLC,	"PPP (HDLC)" },
 	{ LINUX_SLL_P_CAN,	"CAN" },
+	{ LINUX_SLL_P_CANFD,	"CAN FD" },
 	{ LINUX_SLL_P_IRDA_LAP,	"IrDA LAP" },
 	{ LINUX_SLL_P_ISI,	"ISI" },
 	{ LINUX_SLL_P_IEEE802154,	"IEEE 802.15.4" },
@@ -86,6 +81,7 @@ static dissector_handle_t netlink_handle;
 static header_field_info *hfi_sll = NULL;
 
 static int proto_sll;
+static int sll_tap = -1;
 
 #define SLL_HFI_INIT HFI_INIT(proto_sll)
 
@@ -116,6 +112,11 @@ static header_field_info hfi_sll_src_ipv4 SLL_HFI_INIT =
 static header_field_info hfi_sll_src_other SLL_HFI_INIT =
 	{ "Source",	"sll.src.other", FT_BYTES, BASE_NONE,
 	  NULL, 0x0, "Source link-layer address", HFILL };
+
+/* Unused remaining bytes */
+static header_field_info hfi_sll_unused SLL_HFI_INIT =
+	{ "Unused", "sll.unused", FT_BYTES, BASE_NONE,
+	  NULL, 0x0, "Unused bytes", HFILL };
 
 /* if the protocol field is an internal Linux protocol type */
 static header_field_info hfi_sll_ltype SLL_HFI_INIT =
@@ -153,6 +154,67 @@ static gpointer sll_value(packet_info *pinfo)
 	return p_get_proto_data(pinfo->pool, pinfo, proto_sll, 0);
 }
 
+static const char* sll_conv_get_filter_type(conv_item_t* conv, conv_filter_type_e filter)
+{
+	if ((filter == CONV_FT_SRC_ADDRESS) && (conv->src_address.type == AT_ETHER))
+		return "sll.src.eth";
+
+	if ((filter == CONV_FT_ANY_ADDRESS) && (conv->src_address.type == AT_ETHER))
+		return "sll.src.eth";
+
+	if ((filter == CONV_FT_SRC_ADDRESS) && (conv->src_address.type == AT_IPv4))
+		return "sll.src.ipv4";
+
+	if ((filter == CONV_FT_ANY_ADDRESS) && (conv->src_address.type == AT_IPv4))
+		return "sll.src.ipv4";
+
+	return CONV_FILTER_INVALID;
+}
+
+static ct_dissector_info_t sll_ct_dissector_info = {&sll_conv_get_filter_type};
+static address no_dst = {AT_NONE, 0, NULL, NULL};
+
+static int
+sll_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, const void *vip)
+{
+	conv_hash_t *hash = (conv_hash_t*) pct;
+	const sll_tap_data *tap_data = (const sll_tap_data*)vip;
+
+	add_conversation_table_data(hash, &tap_data->src_address, &no_dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &sll_ct_dissector_info, ENDPOINT_NONE);
+
+	return 1;
+}
+
+static const char* sll_host_get_filter_type(hostlist_talker_t* host, conv_filter_type_e filter)
+{
+	if ((filter == CONV_FT_SRC_ADDRESS) && (host->myaddress.type == AT_ETHER))
+		return "sll.src.eth";
+
+	if ((filter == CONV_FT_ANY_ADDRESS) && (host->myaddress.type == AT_ETHER))
+		return "sll.src.eth";
+
+	if ((filter == CONV_FT_SRC_ADDRESS) && (host->myaddress.type == AT_IPv4))
+		return "sll.src.ipv4";
+
+	if ((filter == CONV_FT_ANY_ADDRESS) && (host->myaddress.type == AT_IPv4))
+		return "sll.src.ipv4";
+
+	return CONV_FILTER_INVALID;
+}
+
+static hostlist_dissector_info_t sll_host_dissector_info = {&sll_host_get_filter_type};
+
+static int
+sll_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const void *vip)
+{
+	conv_hash_t *hash = (conv_hash_t*) pit;
+	const sll_tap_data *tap_data = (const sll_tap_data*)vip;
+
+	add_hostlist_table_data(hash, &tap_data->src_address, 0, TRUE, 1, pinfo->fd->pkt_len, &sll_host_dissector_info, ENDPOINT_NONE);
+
+	return 1;
+}
+
 static gboolean
 capture_sll(const guchar *pd, int offset _U_, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
@@ -184,6 +246,7 @@ dissect_sll(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	tvbuff_t *next_tvb;
 	proto_tree *fh_tree;
 	ethertype_data_t ethertype_data;
+	sll_tap_data* tap_data;
 
 	pkttype = tvb_get_ntohs(tvb, 0);
 
@@ -227,6 +290,8 @@ dissect_sll(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	fh_tree = proto_item_add_subtree(ti, ett_sll);
 	proto_tree_add_item(fh_tree, &hfi_sll_pkttype, tvb, 0, 2, ENC_BIG_ENDIAN);
 
+	tap_data = wmem_new0(wmem_file_scope(), sll_tap_data);
+
 	/*
 	 * XXX - check the link-layer address type value?
 	 * For now, we just assume halen 4 is IPv4 and halen 6 is Ethernet.
@@ -238,11 +303,13 @@ dissect_sll(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	case 4:
 		set_address_tvb(&pinfo->dl_src, AT_IPv4, 4, tvb, 6);
 		copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+		copy_address_wmem(wmem_file_scope(), &tap_data->src_address, &pinfo->src);
 		proto_tree_add_item(fh_tree, &hfi_sll_src_ipv4, tvb, 6, 4, ENC_BIG_ENDIAN);
 		break;
 	case 6:
 		set_address_tvb(&pinfo->dl_src, AT_ETHER, 6, tvb, 6);
 		copy_address_shallow(&pinfo->src, &pinfo->dl_src);
+		copy_address_wmem(wmem_file_scope(), &tap_data->src_address, &pinfo->src);
 		proto_tree_add_item(fh_tree, &hfi_sll_src_eth, tvb, 6, 6, ENC_NA);
 		break;
 	case 0:
@@ -252,6 +319,11 @@ dissect_sll(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 			    6, halen > 8 ? 8 : halen, ENC_NA);
 		break;
 	}
+
+	/* Not all bytes of SLL_ADDRLEN have been used. Add remaining as unused */
+	if (SLL_ADDRLEN - halen > 0)
+		proto_tree_add_item(fh_tree, &hfi_sll_unused, tvb, 6 + halen,
+			SLL_ADDRLEN - halen, ENC_BIG_ENDIAN);
 
 	protocol = tvb_get_ntohs(tvb, 14);
 	next_tvb = tvb_new_subset_remaining(tvb, SLL_HEADER_SIZE);
@@ -275,6 +347,14 @@ dissect_sll(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	} else {
 		switch (hatype) {
 		case ARPHRD_IPGRE:
+			/*
+			 * XXX - the link-layer header appears to consist
+			 * of an IPv4 header followed by a bunch of stuff
+			 * that includes the GRE flags and version, but
+			 * cooked captures strip the link-layer header,
+			 * so we can't provide the flags and version to
+			 * the dissector.
+			 */
 			proto_tree_add_uint(fh_tree, &hfi_sll_gretype, tvb, 14, 2,
 			    protocol);
 			dissector_try_uint(gre_dissector_table,
@@ -292,6 +372,9 @@ dissect_sll(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 			break;
 		}
 	}
+
+	tap_queue_packet(sll_tap, pinfo, tap_data);
+
 	return tvb_captured_length(tvb);
 }
 
@@ -307,6 +390,7 @@ proto_register_sll(void)
 		&hfi_sll_src_eth,
 		&hfi_sll_src_ipv4,
 		&hfi_sll_src_other,
+		&hfi_sll_unused,
 		&hfi_sll_ltype,
 		&hfi_sll_gretype,
 		/* registered here but handled in ethertype.c */
@@ -333,20 +417,26 @@ proto_register_sll(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 	sll_handle = create_dissector_handle(dissect_sll, proto_sll);
+	sll_tap = register_tap("sll");
 
 	sll_linux_dissector_table = register_dissector_table (
 		"sll.ltype",
 		"Linux SLL protocol type",
 		proto_sll, FT_UINT16,
-		BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE
+		BASE_HEX
 	);
 	register_capture_dissector_table("sll.ltype", "Linux SLL protocol");
+
+	register_conversation_table(proto_sll, TRUE, sll_conversation_packet, sll_hostlist_packet);
+
 	register_decode_as(&sll_da);
 }
 
 void
 proto_reg_handoff_sll(void)
 {
+	capture_dissector_handle_t sll_cap_handle;
+
 	/*
 	 * Get handles for the IPX and LLC dissectors.
 	 */
@@ -355,7 +445,8 @@ proto_reg_handoff_sll(void)
 	netlink_handle = find_dissector_add_dependency("netlink", proto_sll);
 
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_SLL, sll_handle);
-	register_capture_dissector("wtap_encap", WTAP_ENCAP_SLL, capture_sll, hfi_sll->id);
+	sll_cap_handle = create_capture_dissector_handle(capture_sll, proto_sll);
+	capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_SLL, sll_cap_handle);
 }
 
 /*

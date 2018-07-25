@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -57,10 +45,6 @@
 
 void proto_register_dop(void);
 void proto_reg_handoff_dop(void);
-
-static guint global_dop_tcp_port = 102;
-static dissector_handle_t tpkt_handle;
-static void prefs_register_dop(void); /* forward declaration for use in preferences registration */
 
 /* Initialize the protocol and registered fields */
 static int proto_dop = -1;
@@ -265,7 +249,7 @@ static int hf_dop_GrantsAndDenials_grantInvoke = -1;
 static int hf_dop_GrantsAndDenials_denyInvoke = -1;
 
 /*--- End of included file: packet-dop-hf.c ---*/
-#line 65 "./asn1/dop/packet-dop-template.c"
+#line 49 "./asn1/dop/packet-dop-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_dop = -1;
@@ -342,13 +326,15 @@ static gint ett_dop_T_basicLevels = -1;
 static gint ett_dop_GrantsAndDenials = -1;
 
 /*--- End of included file: packet-dop-ett.c ---*/
-#line 70 "./asn1/dop/packet-dop-template.c"
+#line 54 "./asn1/dop/packet-dop-template.c"
 
 static expert_field ei_dop_unknown_binding_parameter = EI_INIT;
 static expert_field ei_dop_unsupported_opcode = EI_INIT;
 static expert_field ei_dop_unsupported_errcode = EI_INIT;
 static expert_field ei_dop_unsupported_pdu = EI_INIT;
 static expert_field ei_dop_zero_pdu = EI_INIT;
+
+static dissector_handle_t dop_handle = NULL;
 
 /* Dissector table */
 static dissector_table_t dop_dissector_table;
@@ -2041,7 +2027,7 @@ static int dissect_ACIItem_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_
 
 
 /*--- End of included file: packet-dop-fn.c ---*/
-#line 89 "./asn1/dop/packet-dop-template.c"
+#line 75 "./asn1/dop/packet-dop-template.c"
 
 static int
 call_dop_oid_callback(const char *base_string, tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree, const char *col_info, void* data)
@@ -2958,7 +2944,7 @@ void proto_register_dop(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-dop-hfarr.c ---*/
-#line 241 "./asn1/dop/packet-dop-template.c"
+#line 227 "./asn1/dop/packet-dop-template.c"
   };
 
   /* List of subtrees */
@@ -3037,7 +3023,7 @@ void proto_register_dop(void) {
     &ett_dop_GrantsAndDenials,
 
 /*--- End of included file: packet-dop-ettarr.c ---*/
-#line 248 "./asn1/dop/packet-dop-template.c"
+#line 234 "./asn1/dop/packet-dop-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -3054,9 +3040,9 @@ void proto_register_dop(void) {
   /* Register protocol */
   proto_dop = proto_register_protocol(PNAME, PSNAME, PFNAME);
 
-  register_dissector("dop", dissect_dop, proto_dop);
+  dop_handle = register_dissector("dop", dissect_dop, proto_dop);
 
-  dop_dissector_table = register_dissector_table("dop.oid", "DOP OID Dissectors", proto_dop, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  dop_dissector_table = register_dissector_table("dop.oid", "DOP OID", proto_dop, FT_STRING, BASE_NONE);
 
   /* Register fields and subtrees */
   proto_register_field_array(proto_dop, hf, array_length(hf));
@@ -3066,20 +3052,19 @@ void proto_register_dop(void) {
 
   /* Register our configuration options for DOP, particularly our port */
 
-  dop_module = prefs_register_protocol_subtree("OSI/X.500", proto_dop, prefs_register_dop);
+  dop_module = prefs_register_protocol_subtree("OSI/X.500", proto_dop, NULL);
 
-  prefs_register_uint_preference(dop_module, "tcp.port", "DOP TCP Port",
-				 "Set the port for DOP operations (if other"
-				 " than the default of 102)",
-				 10, &global_dop_tcp_port);
+  prefs_register_obsolete_preference(dop_module, "tcp.port");
 
+  prefs_register_static_text_preference(dop_module, "tcp_port_info",
+            "The TCP ports used by the DOP protocol should be added to the TPKT preference \"TPKT TCP ports\", or by selecting \"TPKT\" as the \"Transport\" protocol in the \"Decode As\" dialog.",
+            "DOP TCP Port preference moved information");
 
 }
 
 
 /*--- proto_reg_handoff_dop --- */
 void proto_reg_handoff_dop(void) {
-  dissector_handle_t dop_handle;
 
 
 /*--- Included file: packet-dop-dis-tab.c ---*/
@@ -3104,7 +3089,7 @@ void proto_reg_handoff_dop(void) {
 
 
 /*--- End of included file: packet-dop-dis-tab.c ---*/
-#line 292 "./asn1/dop/packet-dop-template.c"
+#line 277 "./asn1/dop/packet-dop-template.c"
   /* APPLICATION CONTEXT */
 
   oid_add_from_string("id-ac-directory-operational-binding-management","2.5.3.3");
@@ -3112,7 +3097,6 @@ void proto_reg_handoff_dop(void) {
   /* ABSTRACT SYNTAXES */
 
   /* Register DOP with ROS (with no use of RTSE) */
-  dop_handle = find_dissector("dop");
   register_ros_oid_dissector_handle("2.5.9.4", dop_handle, 0, "id-as-directory-operational-binding-management", FALSE);
 
   /* BINDING TYPES */
@@ -3137,26 +3121,4 @@ void proto_reg_handoff_dop(void) {
   oid_add_from_string("id-ar-collectiveAttributeInnerArea","2.5.23.6");
   oid_add_from_string("id-ar-contextDefaultSpecificArea","2.5.23.7");
   oid_add_from_string("id-ar-serviceSpecificArea","2.5.23.8");
-
-  /* remember the tpkt handler for change in preferences */
-  tpkt_handle = find_dissector("tpkt");
-
-}
-
-static void
-prefs_register_dop(void)
-{
-  static guint tcp_port = 0;
-
-  /* de-register the old port */
-  /* port 102 is registered by TPKT - don't undo this! */
-  if((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
-    dissector_delete_uint("tcp.port", tcp_port, tpkt_handle);
-
-  /* Set our port number for future use */
-  tcp_port = global_dop_tcp_port;
-
-  if((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
-    dissector_add_uint("tcp.port", tcp_port, tpkt_handle);
-
 }

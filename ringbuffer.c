@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -49,7 +37,7 @@
 #include <time.h>
 #include <errno.h>
 
-#include <pcap.h>
+#include <wsutil/wspcap.h>
 
 #include <glib.h>
 
@@ -87,6 +75,7 @@ static int ringbuf_open_file(rb_file *rfile, int *err)
   char    filenum[5+1];
   char    timestr[14+1];
   time_t  current_time;
+  struct tm *tm;
 
   if (rfile->name != NULL) {
     if (rb_data.unlimited == FALSE) {
@@ -102,7 +91,11 @@ static int ringbuf_open_file(rb_file *rfile, int *err)
   current_time = time(NULL);
 
   g_snprintf(filenum, sizeof(filenum), "%05u", (rb_data.curr_file_num + 1) % RINGBUFFER_MAX_NUM_FILES);
-  strftime(timestr, sizeof(timestr), "%Y%m%d%H%M%S", localtime(&current_time));
+  tm = localtime(&current_time);
+  if (tm != NULL)
+    strftime(timestr, sizeof(timestr), "%Y%m%d%H%M%S", tm);
+  else
+    g_strlcpy(timestr, "196912312359", sizeof(timestr)); /* second before the Epoch */
   rfile->name = g_strconcat(rb_data.fprefix, "_", filenum, "_", timestr,
                             rb_data.fsuffix, NULL);
 

@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * CIE decoding for extensions and Cisco 12.4T extensions
  * added by Timo Teras <timo.teras@iki.fi>
@@ -30,12 +18,12 @@
 
 
 #include <epan/packet.h>
+#include <epan/prefs.h>
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
 #include <epan/etypes.h>
 #include <epan/ipproto.h>
 #include <epan/nlpid.h>
-#include <epan/oui.h>
 #include <epan/afn.h>
 #include <epan/in_cksum.h>
 #include "packet-iana-oui.h"
@@ -57,6 +45,7 @@ static int hf_nhrp_hdr_pro_snap_pid = -1;
 static int hf_nhrp_hdr_hopcnt = -1;
 static int hf_nhrp_hdr_pktsz = -1;
 static int hf_nhrp_hdr_chksum = -1;
+static int hf_nhrp_hdr_chksum_status = -1;
 static int hf_nhrp_hdr_extoff = -1;
 static int hf_nhrp_hdr_version = -1;
 static int hf_nhrp_hdr_op_type = -1;
@@ -148,8 +137,11 @@ static gint ett_nhrp_devcap_ext_dstcap = -1;
 
 static expert_field ei_nhrp_ext_not_allowed = EI_INIT;
 static expert_field ei_nhrp_hdr_extoff = EI_INIT;
+static expert_field ei_nhrp_hdr_chksum = EI_INIT;
 static expert_field ei_nhrp_ext_malformed = EI_INIT;
 static expert_field ei_nhrp_ext_extra = EI_INIT;
+
+static gboolean pref_auth_ext_has_addr = TRUE;
 
 /* NHRP Packet Types */
 #define NHRP_RESOLUTION_REQ     1
@@ -279,14 +271,6 @@ typedef struct _e_nhrp {
     guint8  ar_sstl;
 } e_nhrp_hdr;
 
-static guint16 nhrp_checksum(tvbuff_t *tvb, int len)
-{
-    vec_t cksum_vec[1];
-
-    SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, len);
-    return in_cksum(&cksum_vec[0], 1);
-}
-
 static void dissect_nhrp_hdr(tvbuff_t     *tvb,
                       packet_info  *pinfo,
                       proto_tree   *tree,
@@ -299,7 +283,6 @@ static void dissect_nhrp_hdr(tvbuff_t     *tvb,
     gint         offset    = *pOffset;
     const gchar *pro_type_str;
     guint        total_len = tvb_reported_length(tvb);
-    guint16      ipcsum, rx_chksum;
 
     proto_tree *nhrp_tree;
     proto_item *shtl_tree_item;
@@ -376,20 +359,15 @@ static void dissect_nhrp_hdr(tvbuff_t     *tvb,
     proto_tree_add_item(nhrp_tree, hf_nhrp_hdr_pktsz, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
-    rx_chksum = tvb_get_ntohs(tvb, offset);
     if (tvb_bytes_exist(tvb, 0, total_len)) {
-        ipcsum = nhrp_checksum(tvb, total_len);
-        if (ipcsum == 0) {
-            proto_tree_add_uint_format_value(nhrp_tree, hf_nhrp_hdr_chksum, tvb, offset, 2, rx_chksum,
-                "0x%04x [correct]", rx_chksum);
-        } else {
-            proto_tree_add_uint_format_value(nhrp_tree, hf_nhrp_hdr_chksum, tvb, offset, 2, rx_chksum,
-                "0x%04x [incorrect, should be 0x%04x]", rx_chksum,
-                in_cksum_shouldbe(rx_chksum, ipcsum));
-        }
+        vec_t cksum_vec[1];
+        SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, total_len);
+
+        proto_tree_add_checksum(nhrp_tree, tvb, offset, hf_nhrp_hdr_chksum, hf_nhrp_hdr_chksum_status, &ei_nhrp_hdr_chksum,
+                                pinfo, in_cksum(&cksum_vec[0], 1), ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
     } else {
-        proto_tree_add_uint_format_value(nhrp_tree, hf_nhrp_hdr_chksum, tvb, offset, 2, rx_chksum,
-            "0x%04x [not all data available]", rx_chksum);
+        proto_tree_add_checksum(nhrp_tree, tvb, offset, hf_nhrp_hdr_chksum, hf_nhrp_hdr_chksum_status, &ei_nhrp_hdr_chksum,
+                                pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
     offset += 2;
 
@@ -881,6 +859,12 @@ static void dissect_nhrp_ext(tvbuff_t    *tvb,
                 break;
 
             case NHRP_EXT_AUTH:
+                /* This is ugly, but this is the only place srcLen is actually
+                 * used so we manipulate it here.
+                 */
+                if (!pref_auth_ext_has_addr)
+                    srcLen = 0;
+                /* fallthrough */
             case NHRP_EXT_MOBILE_AUTH:
                 if (len < (4 + srcLen)) {
                     proto_tree_add_expert_format(nhrp_tree, pinfo, &ei_nhrp_ext_malformed, tvb, offset, len,
@@ -891,7 +875,7 @@ static void dissect_nhrp_ext(tvbuff_t    *tvb,
 
                     auth_tree = proto_tree_add_subtree_format(nhrp_tree, tvb, offset, len,
                         ett_nhrp_auth_ext, NULL, "Extension Data: SPI=%u: Data=%s", tvb_get_ntohs(tvb, offset + 2),
-                        tvb_bytes_to_str(wmem_packet_scope(), tvb, offset + 4, len - 4));
+                        tvb_bytes_to_str(wmem_packet_scope(), tvb, offset + 4 + srcLen, len - (4 + srcLen)));
                     proto_tree_add_item(auth_tree, hf_nhrp_auth_ext_reserved, tvb, offset, 2, ENC_BIG_ENDIAN);
                     proto_tree_add_item(auth_tree, hf_nhrp_auth_ext_spi, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
                     if (srcLen == 4)
@@ -912,16 +896,24 @@ static void dissect_nhrp_ext(tvbuff_t    *tvb,
                 }
                 else {
                     proto_tree *vendor_tree;
-                    gchar manuf[3];
+                    proto_item *vendor_item;
+                    guint32 manuf;
+                    const gchar* oui;
 
-                    tvb_memcpy(tvb, manuf, offset, 3);
-                    vendor_tree = proto_tree_add_subtree_format(nhrp_tree, tvb, offset, len,
-                        ett_nhrp_vendor_ext, NULL, "Extension Data: Vendor ID=%s, Data=%s", get_manuf_name(manuf),
-                        tvb_bytes_to_str(wmem_packet_scope(), tvb, offset + 3, len - 3));
-                    proto_tree_add_bytes_format_value(vendor_tree, hf_nhrp_vendor_ext_id, tvb,
-                        offset, 3, manuf, "%s", get_manuf_name(manuf));
+                    vendor_tree = proto_tree_add_subtree(nhrp_tree, tvb, offset, len,
+                        ett_nhrp_vendor_ext, &vendor_item, "Extension Data:");
+                    proto_tree_add_item_ret_uint(vendor_tree, hf_nhrp_vendor_ext_id, tvb, offset, 3, ENC_BIG_ENDIAN, &manuf);
+                    oui = uint_get_manuf_name_if_known(manuf);
+                    if (oui != NULL) {
+                        proto_item_append_text(vendor_item, " Vendor ID=%s", oui);
+                    } else {
+                        proto_item_append_text(vendor_item, " Vendor ID=Unknown");
+                    }
                     if (len > 3) {
                         proto_tree_add_item(vendor_tree, hf_nhrp_vendor_ext_data, tvb, offset + 3, len - 3, ENC_NA);
+                        proto_item_append_text(vendor_item, ", Data=%s", tvb_bytes_to_str(wmem_packet_scope(), tvb, offset + 3, len - 3));
+                    } else {
+                        proto_item_append_text(vendor_item, ", Data=<none>");
                     }
                 }
                 break;
@@ -1014,7 +1006,7 @@ proto_register_nhrp(void)
         },
         { &hf_nhrp_hdr_pro_snap_oui,
           { "Protocol Type (long form) - OUI", "nhrp.hdr.pro.snap.oui",
-            FT_UINT24, BASE_HEX, VALS(oui_vals), 0x0,
+            FT_UINT24, BASE_OUI, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_nhrp_hdr_pro_snap_pid,
@@ -1035,6 +1027,11 @@ proto_register_nhrp(void)
         { &hf_nhrp_hdr_chksum,
           { "NHRP Packet Checksum", "nhrp.hdr.chksum",
             FT_UINT16, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_nhrp_hdr_chksum_status,
+          { "NHRP Packet Checksum Status", "nhrp.hdr.chksum.status",
+            FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
             NULL, HFILL }
         },
         { &hf_nhrp_hdr_extoff,
@@ -1364,16 +1361,24 @@ proto_register_nhrp(void)
 
     static ei_register_info ei[] = {
         { &ei_nhrp_hdr_extoff, { "nhrp.hdr.extoff.invalid", PI_MALFORMED, PI_ERROR, "Extension offset is less than the fixed header length", EXPFILL }},
+        { &ei_nhrp_hdr_chksum, { "nhrp.hdr.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
         { &ei_nhrp_ext_not_allowed, { "nhrp.ext.not_allowed", PI_MALFORMED, PI_ERROR, "Extensions not allowed per RFC2332 section 5.2.7", EXPFILL }},
         { &ei_nhrp_ext_malformed, { "nhrp.ext.malformed", PI_MALFORMED, PI_ERROR, "Incomplete Authentication Extension", EXPFILL }},
         { &ei_nhrp_ext_extra, { "nhrp.ext.extra", PI_MALFORMED, PI_ERROR, "Superfluous data follows End Extension", EXPFILL }},
     };
 
+    module_t *nhrp_module;
     expert_module_t* expert_nhrp;
 
     proto_nhrp = proto_register_protocol("NBMA Next Hop Resolution Protocol", "NHRP", "nhrp");
     proto_register_field_array(proto_nhrp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    nhrp_module = prefs_register_protocol(proto_nhrp, NULL);
+    prefs_register_bool_preference(nhrp_module, "auth_ext_has_addr",
+                                   "Authentication Extension data contains the source address",
+                                   "Whether the Authentication Extension data contains the source address. "
+                                   "Some Cisco IOS implementations forgo this part of RFC2332.",
+                                   &pref_auth_ext_has_addr);
     expert_nhrp = expert_register_protocol(proto_nhrp);
     expert_register_field_array(expert_nhrp, ei, array_length(ei));
 }

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -45,10 +33,6 @@
 #define PNAME  "X.411 Message Transfer Service"
 #define PSNAME "P1"
 #define PFNAME "p1"
-
-static guint global_p1_tcp_port = 102;
-static dissector_handle_t tpkt_handle;
-static void prefs_register_p1(void); /* forward declaration for use in preferences registration */
 
 /* Initialize the protocol and registered fields */
 static int proto_p1 = -1;
@@ -83,6 +67,8 @@ static expert_field ei_p1_zero_pdu = EI_INIT;
 static dissector_table_t p1_extension_dissector_table;
 static dissector_table_t p1_extension_attribute_dissector_table;
 static dissector_table_t p1_tokendata_dissector_table;
+
+static dissector_handle_t p1_handle;
 
 #include "packet-p1-table.c"   /* operation and error codes */
 
@@ -363,7 +349,7 @@ void proto_register_p1(void) {
 
   /* Register protocol */
   proto_p1 = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  register_dissector("p1", dissect_p1, proto_p1);
+  p1_handle = register_dissector("p1", dissect_p1, proto_p1);
 
   proto_p3 = proto_register_protocol("X.411 Message Access Service", "P3", "p3");
 
@@ -373,18 +359,19 @@ void proto_register_p1(void) {
   expert_p1 = expert_register_protocol(proto_p1);
   expert_register_field_array(expert_p1, ei, array_length(ei));
 
-  p1_extension_dissector_table = register_dissector_table("p1.extension", "P1-EXTENSION", proto_p1, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  p1_extension_attribute_dissector_table = register_dissector_table("p1.extension-attribute", "P1-EXTENSION-ATTRIBUTE", proto_p1, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  p1_tokendata_dissector_table = register_dissector_table("p1.tokendata", "P1-TOKENDATA", proto_p1, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  p1_extension_dissector_table = register_dissector_table("p1.extension", "P1-EXTENSION", proto_p1, FT_UINT32, BASE_DEC);
+  p1_extension_attribute_dissector_table = register_dissector_table("p1.extension-attribute", "P1-EXTENSION-ATTRIBUTE", proto_p1, FT_UINT32, BASE_DEC);
+  p1_tokendata_dissector_table = register_dissector_table("p1.tokendata", "P1-TOKENDATA", proto_p1, FT_UINT32, BASE_DEC);
 
   /* Register our configuration options for P1, particularly our port */
 
-  p1_module = prefs_register_protocol_subtree("OSI/X.400", proto_p1, prefs_register_p1);
+  p1_module = prefs_register_protocol_subtree("OSI/X.400", proto_p1, NULL);
 
-  prefs_register_uint_preference(p1_module, "tcp.port", "P1 TCP Port",
-                 "Set the port for P1 operations (if other"
-                 " than the default of 102)",
-                 10, &global_p1_tcp_port);
+  prefs_register_obsolete_preference(p1_module, "tcp.port");
+
+  prefs_register_static_text_preference(p1_module, "tcp_port_info",
+            "The TCP ports used by the P1 protocol should be added to the TPKT preference \"TPKT TCP ports\", or by selecting \"TPKT\" as the \"Transport\" protocol in the \"Decode As\" dialog.",
+            "P1 TCP Port preference moved information");
 
   register_ber_syntax_dissector("P1 Message", proto_p1, dissect_p1_mts_apdu);
 #include "packet-p1-syn-reg.c"
@@ -393,8 +380,6 @@ void proto_register_p1(void) {
 
 /*--- proto_reg_handoff_p1 --- */
 void proto_reg_handoff_p1(void) {
-  dissector_handle_t p1_handle;
-
 #include "packet-p1-dis-tab.c"
 
   /* APPLICATION CONTEXT */
@@ -402,8 +387,6 @@ void proto_reg_handoff_p1(void) {
   oid_add_from_string("id-ac-mts-transfer","2.6.0.1.6");
 
   /* ABSTRACT SYNTAXES */
-
-  p1_handle = find_dissector("p1");
   register_rtse_oid_dissector_handle("2.6.0.2.12", p1_handle, 0, "id-as-mta-rtse", TRUE);
   register_rtse_oid_dissector_handle("2.6.0.2.7", p1_handle, 0, "id-as-mtse", FALSE);
 
@@ -414,9 +397,6 @@ void proto_reg_handoff_p1(void) {
   /* the ROS dissector will use the registered P3 ros info */
   register_rtse_oid_dissector_handle(id_as_mts_rtse, NULL, 0, "id-as-mts-rtse", TRUE);
   register_rtse_oid_dissector_handle(id_as_msse, NULL, 0, "id-as-msse", TRUE);
-
-  /* remember the tpkt handler for change in preferences */
-  tpkt_handle = find_dissector("tpkt");
 
   /* APPLICATION CONTEXT */
 
@@ -438,24 +418,6 @@ void proto_reg_handoff_p1(void) {
 
   register_ros_protocol_info(id_as_mts, &p3_ros_info, 0, "id-as-mts", FALSE);
   register_ros_protocol_info(id_as_mts_rtse, &p3_ros_info, 0, "id-as-mts-rtse", TRUE);
-
-}
-
-static void
-prefs_register_p1(void)
-{
-  static guint tcp_port = 0;
-
-  /* de-register the old port */
-  /* port 102 is registered by TPKT - don't undo this! */
-  if ((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
-    dissector_delete_uint("tcp.port", tcp_port, tpkt_handle);
-
-  /* Set our port number for future use */
-  tcp_port = global_p1_tcp_port;
-
-  if ((tcp_port > 0) && (tcp_port != 102) && tpkt_handle)
-    dissector_add_uint("tcp.port", tcp_port, tpkt_handle);
 
 }
 

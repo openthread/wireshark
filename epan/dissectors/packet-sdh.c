@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 - 2012 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -67,6 +55,8 @@ static int hf_sdh_e2 = -1;
 static int hf_sdh_h1 = -1;
 static int hf_sdh_h2 = -1;
 static int hf_sdh_j1 = -1;
+
+static dissector_handle_t sdh_handle;
 
 static gint sdh_data_rate = 1;
 
@@ -277,15 +267,12 @@ proto_register_sdh(void)
     "Data rate",
     &sdh_data_rate, data_rates, ENC_BIG_ENDIAN);
 
-  register_dissector("sdh", dissect_sdh, proto_sdh);
+  sdh_handle = register_dissector("sdh", dissect_sdh, proto_sdh);
 }
 
 void
 proto_reg_handoff_sdh(void)
 {
-  dissector_handle_t sdh_handle;
-
-  sdh_handle = find_dissector("sdh");
   dissector_add_uint("wtap_encap", WTAP_ENCAP_SDH, sdh_handle);
 }
 

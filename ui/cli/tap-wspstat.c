@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This module provides WSP  statistics to tshark.
@@ -65,10 +53,10 @@ wsp_reset_hash(gchar *key _U_ , wsp_status_code_t *data, gpointer ptr _U_)
 	data->packets = 0;
 }
 static void
-wsp_print_statuscode(gint *key, wsp_status_code_t *data, char *format)
+wsp_print_statuscode(gpointer key, wsp_status_code_t *data, char *format)
 {
 	if (data && (data->packets != 0))
-		printf(format, *key, data->packets , data->name);
+		printf(format, GPOINTER_TO_INT(key), data->packets , data->name);
 }
 static void
 wsp_free_hash_table( gpointer key, gpointer value, gpointer user_data _U_ )
@@ -135,19 +123,17 @@ wspstat_packet(void *psp, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const
 	int retour = 0;
 
 	if (value->status_code != 0) {
-		gint *key = g_new(gint, 1);
 		wsp_status_code_t *sc;
-		*key = value->status_code ;
 		sc = (wsp_status_code_t *)g_hash_table_lookup(
 				sp->hash,
-				key);
+				GINT_TO_POINTER(value->status_code));
 		if (!sc) {
 			sc = g_new(wsp_status_code_t, 1);
 			sc -> packets = 1;
 			sc -> name = NULL;
 			g_hash_table_insert(
 				sp->hash,
-				key,
+				GINT_TO_POINTER(value->status_code),
 				sc);
 		} else {
 			sc->packets++;
@@ -228,7 +214,7 @@ wspstat_init(const char *opt_arg, void *userdata _U_)
 
 
 	sp = g_new(wspstat_t, 1);
-	sp->hash = g_hash_table_new( g_int_hash, g_int_equal);
+	sp->hash = g_hash_table_new(g_direct_hash, g_direct_equal);
 	wsp_vals_status_p = VALUE_STRING_EXT_VS_P(&wsp_vals_status_ext);
 	for (i=0; wsp_vals_status_p[i].strptr; i++ )
 	{
@@ -245,11 +231,8 @@ wspstat_init(const char *opt_arg, void *userdata _U_)
 	}
 	sp->num_pdus = 16;
 	sp->pdu_stats = g_new(wsp_pdu_t, (sp->num_pdus+1));
-	if (filter) {
-		sp->filter = g_strdup(filter);
-	} else {
-		sp->filter = NULL;
-	}
+	sp->filter = g_strdup(filter);
+
 	for (i=0; i<sp->num_pdus; i++)
 	{
 		sp->pdu_stats[i].packets = 0;
@@ -263,7 +246,8 @@ wspstat_init(const char *opt_arg, void *userdata _U_)
 			0,
 			wspstat_reset,
 			wspstat_packet,
-			wspstat_draw);
+			wspstat_draw,
+			NULL);
 	if (error_string) {
 		/* error, we failed to attach to the tap. clean up */
 		g_free(sp->pdu_stats);

@@ -7,25 +7,24 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
+#include <windows.h>
+#include <wchar.h>
+#include <tchar.h>
+
 #include <stdio.h>
 #include <glib.h>
+
+#include "caputils/capture-wpcap.h"
+
+gboolean has_wpcap = FALSE;
+
+#ifdef HAVE_LIBPCAP
+
 #include <gmodule.h>
 
 #include <epan/strutil.h>
@@ -33,7 +32,6 @@
 #include "caputils/capture_ifinfo.h"
 #include "caputils/capture-pcap-util.h"
 #include "caputils/capture-pcap-util-int.h"
-#include "caputils/capture-wpcap.h"
 
 #include <wsutil/file_util.h>
 
@@ -41,11 +39,6 @@
 #include "tools/lemon/cppmagic.h"
 
 #define MAX_WIN_IF_NAME_LEN 511
-
-
-gboolean has_wpcap = FALSE;
-
-#ifdef HAVE_LIBPCAP
 
 /*
  * XXX - should we require at least WinPcap 3.1 both for building an
@@ -983,7 +976,8 @@ cant_get_if_list_error_message(const char *err_str)
 }
 
 if_capabilities_t *
-get_if_capabilities_local(interface_options *interface_opts, char **err_str)
+get_if_capabilities_local(interface_options *interface_opts,
+    cap_device_open_err *err, char **err_str)
 {
 	/*
 	 * We're not getting capaibilities for a remote device; use
@@ -992,14 +986,15 @@ get_if_capabilities_local(interface_options *interface_opts, char **err_str)
 	 */
 #ifdef HAVE_PCAP_CREATE
 	if (p_pcap_create != NULL)
-		return get_if_capabilities_pcap_create(interface_opts, err_str);
+		return get_if_capabilities_pcap_create(interface_opts, err, err_str);
 #endif
-	return get_if_capabilities_pcap_open_live(interface_opts, err_str);
+	return get_if_capabilities_pcap_open_live(interface_opts, err, err_str);
 }
 
 pcap_t *
 open_capture_device_local(capture_options *capture_opts,
     interface_options *interface_opts, int timeout,
+    cap_device_open_err *open_err,
     char (*open_err_str)[PCAP_ERRBUF_SIZE])
 {
 	/*
@@ -1010,10 +1005,10 @@ open_capture_device_local(capture_options *capture_opts,
 #ifdef HAVE_PCAP_CREATE
 	if (p_pcap_create != NULL)
 		return open_capture_device_pcap_create(capture_opts,
-		    interface_opts, timeout, open_err_str);
+		    interface_opts, timeout, open_err, open_err_str);
 #endif
 	return open_capture_device_pcap_open_live(interface_opts, timeout,
-	    open_err_str);
+	    open_err, open_err_str);
 }
 
 /*
@@ -1079,7 +1074,41 @@ get_runtime_caplibs_version(GString *str)
 			g_string_append_printf(str, "WinPcap (%s)", packetVer);
 		}
 	} else
-		g_string_append(str, "without WinPcap");
+		g_string_append(str, "without Npcap or WinPcap");
+}
+
+/*
+ * If npf.sys is running, return TRUE.
+ */
+gboolean
+npf_sys_is_running(void)
+{
+	SC_HANDLE h_scm, h_serv;
+	SERVICE_STATUS ss;
+
+	h_scm = OpenSCManager(NULL, NULL, 0);
+	if (!h_scm)
+		return FALSE;
+
+	h_serv = OpenService(h_scm, _T("npcap"), SC_MANAGER_CONNECT|SERVICE_QUERY_STATUS);
+	if (!h_serv) {
+		h_serv = OpenService(h_scm, _T("npf"), SC_MANAGER_CONNECT|SERVICE_QUERY_STATUS);
+		if (!h_serv) {
+			CloseServiceHandle(h_scm);
+			return FALSE;
+		}
+	}
+
+	if (QueryServiceStatus(h_serv, &ss)) {
+		if (ss.dwCurrentState & SERVICE_RUNNING) {
+			CloseServiceHandle(h_serv);
+			CloseServiceHandle(h_scm);
+			return TRUE;
+		}
+	}
+	CloseServiceHandle(h_serv);
+	CloseServiceHandle(h_scm);
+	return FALSE;
 }
 
 #else /* HAVE_LIBPCAP */

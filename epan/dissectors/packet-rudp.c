@@ -8,19 +8,7 @@
  *
  * Copied from packet-data.c, README.developer, and various other files.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
 
 
  * Reliable UDP is a lightweight protocol for providing TCP-like flow
@@ -43,20 +31,9 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 
 
 void proto_register_rudp(void);
-
-/* Disable rudp by default. The previously hardcoded value of
- * 7000 (used by Cisco) collides with afs and as the draft states:
- * "RUDP doesn't place any restrictions on which UDP port numbers are used.
- *  Valid port numbers are ports not defined in RFC 1700."
- */
-/* FIXME: The proper solution would be to convert this dissector into
- *        heuristic dissector, but it isn't complete anyway.
- */
-static guint udp_port = 0;
 
 void proto_reg_handoff_rudp(void);
 
@@ -116,7 +93,7 @@ dissect_rudp(tvbuff_t *tvb, packet_info *pinfo _U_ , proto_tree *tree, void* dat
 
 	/* If the header is more than 4 bytes the next 2 bytes are the checksum */
 	if (hlen > 4) {
-		proto_tree_add_item(rudp_tree, hf_rudp_cksum, tvb, 4, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_checksum(rudp_tree, tvb, 4, hf_rudp_cksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 	}
 
 	/* If we have even more bytes their meaning is unknown - we have seen this
@@ -213,50 +190,29 @@ proto_register_rudp(void)
 	};
 
 
-	proto_rudp = proto_register_protocol (
-		"Reliable UDP",		/* name */
-		"RUDP",		/* short name */
-		"rudp"		/* abbrev */
-		);
+	proto_rudp = proto_register_protocol ("Reliable UDP", "RUDP", "rudp");
 
 	proto_register_field_array(proto_rudp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	{
-		module_t *rudp_module;
-		rudp_module = prefs_register_protocol(proto_rudp, proto_reg_handoff_rudp);
-		prefs_register_uint_preference(rudp_module,
-			"udp.port",
-			"UDP port for RUDP",
-			"Set the UDP port for Reliable UDP traffic",
-			10,
-			&udp_port);
-	}
-
 }
 
 void
 proto_reg_handoff_rudp(void) {
 
-	static gboolean initialized = FALSE;
-	static dissector_handle_t rudp_handle;
-	static guint saved_udp_port;
+	dissector_handle_t rudp_handle;
 
-	if (!initialized) {
-		rudp_handle = create_dissector_handle(dissect_rudp, proto_rudp);
-		dissector_add_for_decode_as("udp.port", rudp_handle);
-		sm_handle = find_dissector_add_dependency("sm", proto_rudp);
-		initialized = TRUE;
-	} else {
-		if (saved_udp_port != 0) {
-			dissector_delete_uint("udp.port", saved_udp_port, rudp_handle);
-		}
-	}
+/* Disable rudp by default. The previously hardcoded value of
+ * 7000 (used by Cisco) collides with afs and as the draft states:
+ * "RUDP doesn't place any restrictions on which UDP port numbers are used.
+ *  Valid port numbers are ports not defined in RFC 1700."
+ */
+/* FIXME: The proper solution would be to convert this dissector into
+ *        heuristic dissector, but it isn't complete anyway.
+ */
 
-	if (udp_port != 0) {
-		dissector_add_uint("udp.port", udp_port, rudp_handle);
-	}
-	saved_udp_port = udp_port;
+	rudp_handle = create_dissector_handle(dissect_rudp, proto_rudp);
+	dissector_add_for_decode_as_with_preference("udp.port", rudp_handle);
+	sm_handle = find_dissector_add_dependency("sm", proto_rudp);
 }
 
 /*

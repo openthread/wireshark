@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -41,7 +29,7 @@
 #define PSNAME "SMRSE"
 #define PFNAME "smrse"
 
-#define TCP_PORT_SMRSE 4321
+#define TCP_PORT_SMRSE 4321 /* Not IANA registered */
 
 void proto_register_smrse(void);
 void proto_reg_handoff_smrse(void);
@@ -83,7 +71,7 @@ static int hf_smrse_sm_diag_info = -1;            /* RP_UD */
 static int hf_smrse_ms_address = -1;              /* SMS_Address */
 
 /*--- End of included file: packet-smrse-hf.c ---*/
-#line 48 "./asn1/smrse/packet-smrse-template.c"
+#line 36 "./asn1/smrse/packet-smrse-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_smrse = -1;
@@ -103,7 +91,7 @@ static gint ett_smrse_RPError = -1;
 static gint ett_smrse_RPAlertSC = -1;
 
 /*--- End of included file: packet-smrse-ett.c ---*/
-#line 52 "./asn1/smrse/packet-smrse-template.c"
+#line 40 "./asn1/smrse/packet-smrse-template.c"
 
 
 
@@ -479,7 +467,7 @@ dissect_smrse_RPAlertSC(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset
 
 
 /*--- End of included file: packet-smrse-fn.c ---*/
-#line 55 "./asn1/smrse/packet-smrse-template.c"
+#line 43 "./asn1/smrse/packet-smrse-template.c"
 
 static const value_string tag_vals[] = {
 	{  1,	"AliveTest" },
@@ -691,7 +679,7 @@ void proto_register_smrse(void) {
         "SMS_Address", HFILL }},
 
 /*--- End of included file: packet-smrse-hfarr.c ---*/
-#line 158 "./asn1/smrse/packet-smrse-template.c"
+#line 146 "./asn1/smrse/packet-smrse-template.c"
   };
 
   /* List of subtrees */
@@ -713,7 +701,7 @@ void proto_register_smrse(void) {
     &ett_smrse_RPAlertSC,
 
 /*--- End of included file: packet-smrse-ettarr.c ---*/
-#line 164 "./asn1/smrse/packet-smrse-template.c"
+#line 152 "./asn1/smrse/packet-smrse-template.c"
   };
 
   /* Register protocol */
@@ -731,6 +719,6 @@ void proto_reg_handoff_smrse(void) {
   dissector_handle_t smrse_handle;
 
   smrse_handle = create_dissector_handle(dissect_smrse, proto_smrse);
-  dissector_add_uint("tcp.port",TCP_PORT_SMRSE, smrse_handle);
+  dissector_add_uint_with_preference("tcp.port",TCP_PORT_SMRSE, smrse_handle);
 }
 

@@ -4,25 +4,23 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
 #include "config.h"
 
+#include <glib.h>
+
 #include "time_util.h"
+
+#ifndef _WIN32
+#include <sys/time.h>
+#include <sys/resource.h>
+#else
+#include <windows.h>
+#endif
+#include "ws_printf.h" /* ws_g_warning */
 
 /* converts a broken down date representation, relative to UTC,
  * to a timestamp; it uses timegm() if it's available.
@@ -60,6 +58,111 @@ mktime_utc(struct tm *tm)
 #else
 	return timegm(tm);
 #endif /* !HAVE_TIMEGM */
+}
+
+void get_resource_usage(double *user_time, double *sys_time) {
+#ifndef _WIN32
+	struct rusage ru;
+
+	getrusage(RUSAGE_SELF, &ru);
+
+	*user_time = ru.ru_utime.tv_sec + (ru.ru_utime.tv_usec / 1000000.0);
+	*sys_time = ru.ru_stime.tv_sec + (ru.ru_stime.tv_usec / 1000000.0);
+#else /* _WIN32 */
+	HANDLE h_proc = GetCurrentProcess();
+	FILETIME cft, eft, kft, uft;
+	ULARGE_INTEGER uli_time;
+
+	GetProcessTimes(h_proc, &cft, &eft, &kft, &uft);
+
+	uli_time.LowPart = uft.dwLowDateTime;
+	uli_time.HighPart = uft.dwHighDateTime;
+	*user_time = uli_time.QuadPart / 10000000.0;
+	uli_time.LowPart = kft.dwLowDateTime;
+	uli_time.HighPart = kft.dwHighDateTime;
+	*sys_time = uli_time.QuadPart / 1000000000.0;
+#endif /* _WIN32 */
+}
+
+static double last_user_time = 0.0;
+static double last_sys_time = 0.0;
+
+void log_resource_usage(gboolean reset_delta, const char *format, ...) {
+	va_list ap;
+	GString *log_str = g_string_new("");
+	double user_time;
+	double sys_time;
+
+	get_resource_usage(&user_time, &sys_time);
+
+	if (reset_delta || last_user_time == 0.0) {
+		last_user_time = user_time;
+		last_sys_time = sys_time;
+	}
+
+	g_string_append_printf(log_str, "user %.3f +%.3f sys %.3f +%.3f ",
+		user_time, user_time - last_user_time,
+		sys_time, sys_time - last_sys_time);
+
+	va_start(ap, format);
+	g_string_append_vprintf(log_str, format, ap);
+	va_end(ap);
+
+	ws_g_warning("%s", log_str->str);
+	g_string_free(log_str, TRUE);
+
+}
+
+/* Copied from pcapio.c pcapng_write_interface_statistics_block()*/
+guint64
+create_timestamp(void) {
+    guint64  timestamp;
+#ifdef _WIN32
+    FILETIME now;
+#else
+    struct timeval now;
+#endif
+
+#ifdef _WIN32
+    /*
+     * Current time, represented as 100-nanosecond intervals since
+     * January 1, 1601, 00:00:00 UTC.
+     *
+     * I think DWORD might be signed, so cast both parts of "now"
+     * to guint32 so that the sign bit doesn't get treated specially.
+     *
+     * Windows 8 provides GetSystemTimePreciseAsFileTime which we
+     * might want to use instead.
+     */
+    GetSystemTimeAsFileTime(&now);
+    timestamp = (((guint64)(guint32)now.dwHighDateTime) << 32) +
+                (guint32)now.dwLowDateTime;
+
+    /*
+     * Convert to same thing but as 1-microsecond, i.e. 1000-nanosecond,
+     * intervals.
+     */
+    timestamp /= 10;
+
+    /*
+     * Subtract difference, in microseconds, between January 1, 1601
+     * 00:00:00 UTC and January 1, 1970, 00:00:00 UTC.
+     */
+    timestamp -= G_GUINT64_CONSTANT(11644473600000000);
+#else
+    /*
+     * Current time, represented as seconds and microseconds since
+     * January 1, 1970, 00:00:00 UTC.
+     */
+    gettimeofday(&now, NULL);
+
+    /*
+     * Convert to delta in microseconds.
+     */
+    timestamp = (guint64)(now.tv_sec) * 1000000 +
+                (guint64)(now.tv_usec);
+#endif
+    return timestamp;
 }
 
 /*

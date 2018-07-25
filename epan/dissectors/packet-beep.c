@@ -11,31 +11,23 @@
  * By Gerald Combs
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/conversation.h>
 #include <epan/expert.h>
 #include <epan/proto_data.h>
+#if defined(DEBUG_BEEP_HASH)
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
+#endif
 
-#define TCP_PORT_BEEP 10288
+#define TCP_PORT_BEEP 10288 /* Don't think this is IANA registered */
 
 void proto_register_beep(void);
 void proto_reg_handoff_beep(void);
@@ -154,7 +146,7 @@ struct beep_request_val {
   int c_mime_hdr, s_mime_hdr;
 };
 
-static GHashTable *beep_request_hash = NULL;
+static wmem_map_t *beep_request_hash = NULL;
 
 /* Hash Functions */
 static gint
@@ -164,7 +156,7 @@ beep_equal(gconstpointer v, gconstpointer w)
   const struct beep_request_key *v2 = (const struct beep_request_key *)w;
 
 #if defined(DEBUG_BEEP_HASH)
-  printf("Comparing %08X\n      and %08X\n",
+  ws_debug_printf("Comparing %08X\n      and %08X\n",
          v1->conversation, v2->conversation);
 #endif
 
@@ -184,23 +176,11 @@ beep_hash(gconstpointer v)
   val = key->conversation;
 
 #if defined(DEBUG_BEEP_HASH)
-  printf("BEEP Hash calculated as %u\n", val);
+  ws_debug_printf("BEEP Hash calculated as %u\n", val);
 #endif
 
   return val;
 
-}
-
-static void
-beep_init_protocol(void)
-{
-  beep_request_hash = g_hash_table_new(beep_hash, beep_equal);
-}
-
-static void
-beep_cleanup_protocol(void)
-{
-  g_hash_table_destroy(beep_request_hash);
 }
 
 
@@ -218,7 +198,7 @@ dissect_beep_more(tvbuff_t *tvb, packet_info *pinfo, int offset,
   int ret = 0;
   guint8 more = tvb_get_guint8(tvb, offset);
 
-  hidden_item = proto_tree_add_item(tree, hf_beep_more, tvb, offset, 1, ENC_BIG_ENDIAN);
+  hidden_item = proto_tree_add_item(tree, hf_beep_more, tvb, offset, 1, ENC_ASCII|ENC_NA);
   PROTO_ITEM_SET_HIDDEN(hidden_item);
 
   switch(more) {
@@ -382,25 +362,14 @@ dissect_beep_int(tvbuff_t *tvb, int offset,
 {
   proto_item  *hidden_item;
   int ival, ind = 0;
-  unsigned int i = num_len(tvb, offset);
-  guint8 int_buff[100];
+  unsigned int len = num_len(tvb, offset);
 
-  memset(int_buff, '\0', sizeof(int_buff));
-
-  tvb_memcpy(tvb, int_buff, offset, MIN(sizeof(int_buff) - 1, i));
-
-  /* XXX - is this still "Dangerous" now that we don't copy to the
-     last byte of "int_buff[]"? */
-  if (sscanf((gchar*)int_buff, "%d", &ival) != 1)
-    ival = 0; /* Should we signal an error? */
-
-  if (tree) {
-    proto_tree_add_uint(tree, hf, tvb, offset, i, ival);
-  }
+  ival = (int)strtol(tvb_get_string_enc(wmem_packet_scope(), tvb, offset, len, ENC_ASCII), NULL, 10);
+  proto_tree_add_uint(tree, hf, tvb, offset, len, ival);
 
   while (hfa[ind]) {
 
-    hidden_item = proto_tree_add_uint(tree, *hfa[ind], tvb, offset, i, ival);
+    hidden_item = proto_tree_add_uint(tree, *hfa[ind], tvb, offset, len, ival);
         PROTO_ITEM_SET_HIDDEN(hidden_item);
     ind++;
 
@@ -408,7 +377,7 @@ dissect_beep_int(tvbuff_t *tvb, int offset,
 
   *val = ival;  /* Return the value */
 
-  return i;
+  return len;
 
 }
 
@@ -782,20 +751,20 @@ dissect_beep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
       /*
        * Check for and insert an entry in the request table if does not exist
        */
-      request_key.conversation = conversation->index;
+      request_key.conversation = conversation->conv_index;
 
-      request_val = (struct beep_request_val *)g_hash_table_lookup(beep_request_hash, &request_key);
+      request_val = (struct beep_request_val *)wmem_map_lookup(beep_request_hash, &request_key);
 
       if (!request_val) { /* Create one */
 
         new_request_key = wmem_new(wmem_file_scope(), struct beep_request_key);
-        new_request_key->conversation = conversation->index;
+        new_request_key->conversation = conversation->conv_index;
 
         request_val = wmem_new(wmem_file_scope(), struct beep_request_val);
         request_val->processed = 0;
         request_val->size = 0;
 
-        g_hash_table_insert(beep_request_hash, new_request_key, request_val);
+        wmem_map_insert(beep_request_hash, new_request_key, request_val);
 
       }
     }
@@ -896,6 +865,13 @@ dissect_beep(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
   return tvb_captured_length(tvb);
 }
 
+static void
+apply_beep_prefs(void)
+{
+  /* Beep uses the port preference to determine client/server */
+  global_beep_tcp_port = prefs_get_uint_value("beep", "tcp.port");
+}
+
 /* Register all the bits needed with the filtering engine */
 
 void
@@ -923,7 +899,7 @@ proto_register_beep(void)
       { "Sequence Channel Number", "beep.seq.channel", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
     { &hf_beep_more,
-      { "More", "beep.more", FT_UINT8, BASE_HEX, VALS(beep_more_vals), 0x0, NULL, HFILL }},
+      { "More", "beep.more", FT_CHAR, BASE_HEX, VALS(beep_more_vals), 0x0, NULL, HFILL }},
 
     { &hf_beep_msgno,
       { "Msgno", "beep.msgno", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -989,17 +965,12 @@ proto_register_beep(void)
   proto_register_subtree_array(ett, array_length(ett));
   expert_beep = expert_register_protocol(proto_beep);
   expert_register_field_array(expert_beep, ei, array_length(ei));
-  register_init_routine(&beep_init_protocol);
-  register_cleanup_routine(&beep_cleanup_protocol);
+
+  beep_request_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), beep_hash, beep_equal);
 
   /* Register our configuration options for BEEP, particularly our port */
 
-  beep_module = prefs_register_protocol(proto_beep, proto_reg_handoff_beep);
-
-  prefs_register_uint_preference(beep_module, "tcp.port", "BEEP TCP Port",
-                                 "Set the port for BEEP messages (if other"
-                                 " than the default of 10288)",
-                                 10, &global_beep_tcp_port);
+  beep_module = prefs_register_protocol(proto_beep, apply_beep_prefs);
 
   prefs_register_bool_preference(beep_module, "strict_header_terminator",
                                  "BEEP Header Requires CRLF",
@@ -1012,28 +983,11 @@ proto_register_beep(void)
 void
 proto_reg_handoff_beep(void)
 {
-  static gboolean beep_prefs_initialized = FALSE;
-  static dissector_handle_t beep_handle;
-  static guint beep_tcp_port;
+  dissector_handle_t beep_handle;
 
-  if (!beep_prefs_initialized) {
+  beep_handle = create_dissector_handle(dissect_beep, proto_beep);
 
-    beep_handle = create_dissector_handle(dissect_beep, proto_beep);
-
-    beep_prefs_initialized = TRUE;
-
-  }
-  else {
-
-    dissector_delete_uint("tcp.port", beep_tcp_port, beep_handle);
-
-  }
-
-  /* Set our port number for future use */
-
-  beep_tcp_port = global_beep_tcp_port;
-
-  dissector_add_uint("tcp.port", global_beep_tcp_port, beep_handle);
+  dissector_add_uint_with_preference("tcp.port", TCP_PORT_BEEP, beep_handle);
 
 }
 

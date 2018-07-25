@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "epan/to_str.h"
@@ -24,7 +12,7 @@
 #include "sctp_assoc_analyse_dialog.h"
 #include <ui_sctp_assoc_analyse_dialog.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "sctp_graph_dialog.h"
 #include "sctp_graph_arwnd_dialog.h"
 #include "sctp_graph_byte_dialog.h"
@@ -51,7 +39,7 @@ SCTPAssocAnalyseDialog::SCTPAssocAnalyseDialog(QWidget *parent, sctp_assoc_info_
             | Qt::WindowMinimizeButtonHint
             | Qt::WindowCloseButtonHint;
     this->setWindowFlags(flags);
-    this->setWindowTitle(QString(tr("SCTP Analyse Association: %1 Port1 %2 Port2 %3")).arg(cf_get_display_name(cap_file_)).arg(selected_assoc->port1).arg(selected_assoc->port2));
+    this->setWindowTitle(QString(tr("SCTP Analyse Association: %1 Port1 %2 Port2 %3")).arg(gchar_free_to_qstring(cf_get_display_name(cap_file_))).arg(selected_assoc->port1).arg(selected_assoc->port2));
     fillTabs();
 }
 
@@ -79,10 +67,10 @@ sctp_assoc_info_t* SCTPAssocAnalyseDialog::findAssocForPacket(capture_file* cf)
         assoc = (sctp_assoc_info_t*)(list->data);
 
         framelist = g_list_first(assoc->frame_numbers);
+        guint32 fn;
         while (framelist) {
-            guint32 *fn;
-            fn = (guint32 *)framelist->data;
-            if (*fn == fdata->num) {
+            fn = GPOINTER_TO_UINT(framelist->data);
+            if (fn == fdata->num) {
                 frame_found = TRUE;
                 break;
             }

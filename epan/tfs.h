@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TFS_H__
@@ -59,17 +47,22 @@ WS_DLL_PUBLIC const true_false_string tfs_ack_nack;
 WS_DLL_PUBLIC const true_false_string tfs_odd_even;
 WS_DLL_PUBLIC const true_false_string tfs_allow_block;
 WS_DLL_PUBLIC const true_false_string tfs_restricted_allowed;
+WS_DLL_PUBLIC const true_false_string tfs_restricted_not_restricted;
 WS_DLL_PUBLIC const true_false_string tfs_accept_reject;
 WS_DLL_PUBLIC const true_false_string tfs_more_nomore;
 WS_DLL_PUBLIC const true_false_string tfs_present_absent;
 WS_DLL_PUBLIC const true_false_string tfs_present_not_present;
 WS_DLL_PUBLIC const true_false_string tfs_active_inactive;
+WS_DLL_PUBLIC const true_false_string tfs_activated_deactivated;
 WS_DLL_PUBLIC const true_false_string tfs_found_not_found;
 WS_DLL_PUBLIC const true_false_string tfs_command_response;
+WS_DLL_PUBLIC const true_false_string tfs_response_command;
 WS_DLL_PUBLIC const true_false_string tfs_capable_not_capable;
 WS_DLL_PUBLIC const true_false_string tfs_supported_not_supported;
 WS_DLL_PUBLIC const true_false_string tfs_used_notused;
 WS_DLL_PUBLIC const true_false_string tfs_high_low;
+WS_DLL_PUBLIC const true_false_string tfs_high_normal;
+WS_DLL_PUBLIC const true_false_string tfs_low_normal;
 WS_DLL_PUBLIC const true_false_string tfs_pressed_not_pressed;
 WS_DLL_PUBLIC const true_false_string tfs_implemented_not_implemented;
 WS_DLL_PUBLIC const true_false_string tfs_requested_not_requested;
@@ -100,12 +93,21 @@ WS_DLL_PUBLIC const true_false_string tfs_asynchronous_synchronous;
 WS_DLL_PUBLIC const true_false_string tfs_protocol_sensative_bit_transparent;
 WS_DLL_PUBLIC const true_false_string tfs_full_half;
 WS_DLL_PUBLIC const true_false_string tfs_acknowledged_not_acknowledged;
+WS_DLL_PUBLIC const true_false_string tfs_segmentation_no_segmentation;
 WS_DLL_PUBLIC const true_false_string tfs_response_request;
 WS_DLL_PUBLIC const true_false_string tfs_defined_not_defined;
 WS_DLL_PUBLIC const true_false_string tfs_constructed_primitive;
 WS_DLL_PUBLIC const true_false_string tfs_client_server;
 WS_DLL_PUBLIC const true_false_string tfs_server_client;
 WS_DLL_PUBLIC const true_false_string tfs_preferred_no_preference;
+WS_DLL_PUBLIC const true_false_string tfs_encrypt_do_not_encrypt;
+WS_DLL_PUBLIC const true_false_string tfs_down_up;
+WS_DLL_PUBLIC const true_false_string tfs_up_down;
+WS_DLL_PUBLIC const true_false_string tfs_downlink_uplink;
+WS_DLL_PUBLIC const true_false_string tfs_uplink_downlink;
+WS_DLL_PUBLIC const true_false_string tfs_s2c_c2s;
+WS_DLL_PUBLIC const true_false_string tfs_c2s_s2c;
+WS_DLL_PUBLIC const true_false_string tfs_open_closed;
 
 #ifdef __cplusplus
 }

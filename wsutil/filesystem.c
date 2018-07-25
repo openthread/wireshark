@@ -5,29 +5,10 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include "config.h"
-
-/*
- * Required with GNU libc to get dladdr().
- * We define it here because <dlfcn.h> apparently gets included by
- * one of the headers we include below.
- */
-#define _GNU_SOURCE
+#include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,22 +33,25 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #endif
-#ifdef HAVE_DLADDR
+#ifdef HAVE_DLGET
 #include <dlfcn.h>
 #endif
 #include <pwd.h>
 #endif /* _WIN32 */
 
 #include "filesystem.h"
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 #include <wsutil/privileges.h>
 #include <wsutil/file_util.h>
-#include <wsutil/ws_diag_control.h>
+#include <wsutil/utf8_entities.h>
 
 #include <wiretap/wtap.h>   /* for WTAP_ERR_SHORT_WRITE */
 
 #define PROFILES_DIR    "profiles"
 #define PLUGINS_DIR_NAME    "plugins"
+#define PROFILES_INFO_NAME  "profile_files.txt"
+
+#define ENV_CONFIG_PATH_VAR  "WIRESHARK_CONFIG_DIR"
 
 char *persconffile_dir = NULL;
 char *persdatafile_dir = NULL;
@@ -284,15 +268,31 @@ static gboolean running_in_build_directory_flag = FALSE;
  * passed to the program, so it shouldn't be fooled by an argv[0]
  * that doesn't match the executable path.
  *
- * Sadly, not all UN*Xes necessarily have dladdr(), and those that
- * do don't necessarily have dladdr(main) return information about
- * the executable image, and those that do aren't necessarily running
- * on a platform wherein the executable image can get its own path
- * from the kernel (either by a call or by it being handed to it along
- * with argv[] and the environment), and those that can don't
- * necessarily use that to supply the path you get from dladdr(main),
- * so we try this first and, if that fails, use dladdr(main) if
- * available.
+ * We don't use dladdr() because:
+ *
+ *   not all UN*Xes necessarily have dladdr();
+ *
+ *   those that do have it don't necessarily have dladdr(main)
+ *   return information about the executable image;
+ *
+ *   those that do have a dladdr() where dladdr(main) returns
+ *   information about the executable image don't necessarily
+ *   have a mechanism by which the executable image can get
+ *   its own path from the kernel (either by a call or by it
+ *   being handed to it along with argv[] and the environment),
+ *   so they just fall back on getting it from argv[0], which we
+ *   already have code to do;
+ *
+ *   those that do have such a mechanism don't necessarily use
+ *   it in dladdr(), and, instead, just fall back on getting it
+ *   from argv[0];
+ *
+ * so the only places where it's worth bothering to use dladdr()
+ * are platforms where dladdr(main) return information about the
+ * executable image by getting it from the kernel rather than
+ * by looking at argv[0], and where we can't get at that information
+ * ourselves, and we haven't seen any indication that there are any
+ * such platforms.
  *
  * In particular, some dynamic linkers supply a dladdr() such that
  * dladdr(main) just returns something derived from argv[0], so
@@ -300,21 +300,11 @@ static gboolean running_in_build_directory_flag = FALSE;
  * another mechanism that can get you a more reliable version of
  * the executable path.
  *
- * However, at least in newer versions of DragonFly BSD, the dynamic
- * linker *does* get it from the aux vector passed to the program
- * by the kernel,  readlink /proc/curproc/file - which came first?
- *
- * On OpenBSD, dladdr(main) returns a value derived from argv[0],
- * and there doesn't appear to be any way to get the executable path
- * from the kernel, so we're out of luck there.
- *
- * So, on platforms where some versions have a version of dladdr()
- * that gives an argv[0]-based path and that also have a mechanism
- * to get a more reliable version of the path, we try that.  On
- * other platforms, we return NULL.  If our caller gets back a NULL
- * from us, it falls back on dladdr(main) if dladdr() is available,
- * and if that fails or is unavailable, it falls back on processing
- * argv[0] itself.
+ * So, on platforms where we know of a mechanism to get that path
+ * (where getting that path doesn't involve argv[0], which is not
+ * guaranteed to reflect the path to the binary), this routine
+ * attempsts to use that platform's mechanism.  On other platforms,
+ * it just returns NULL.
  *
  * This is not guaranteed to return an absolute path; if it doesn't,
  * our caller must prepend the current directory if it's a path.
@@ -427,8 +417,9 @@ get_executable_path(void)
         return NULL;
     executable_path[r] = '\0';
     return executable_path;
-#elif (defined(sun) || defined(__sun)) && defined(HAVE_GETEXECNAME)
+#elif defined(HAVE_GETEXECNAME)
     /*
+     * Solaris, with getexecname().
      * It appears that getexecname() dates back to at least Solaris 8,
      * but /proc/{pid}/path is first documented in the Solaris 10 documentation,
      * so we use getexecname() if available, rather than /proc/self/path/a.out
@@ -436,6 +427,19 @@ get_executable_path(void)
      * executable image file).
      */
     return getexecname();
+#elif defined(HAVE_DLGET)
+    /*
+     * HP-UX 11, with dlget(); use dlget() and dlgetname().
+     * See
+     *
+     *  https://web.archive.org/web/20081025174755/http://h21007.www2.hp.com/portal/site/dspp/menuitem.863c3e4cbcdc3f3515b49c108973a801?ciid=88086d6e1de021106d6e1de02110275d6e10RCRD#two
+     */
+    struct load_module_desc desc;
+
+    if (dlget(-2, &desc, sizeof(desc)) != NULL)
+        return dlgetname(&desc, sizeof(desc), NULL, NULL, NULL);
+    else
+        return NULL;
 #else
     /* Fill in your favorite UN*X's code here, if there is something */
     return NULL;
@@ -451,10 +455,6 @@ get_executable_path(void)
 char *
 init_progfile_dir(const char *arg0
 #ifdef _WIN32
-    _U_
-#endif
-, int (*function_addr)(int, char **)
-#if defined(_WIN32) || !defined(HAVE_DLADDR)
     _U_
 #endif
 )
@@ -473,8 +473,7 @@ init_progfile_dir(const char *arg0
      */
     if (GetModuleFileName(NULL, prog_pathname_w, G_N_ELEMENTS(prog_pathname_w)) != 0 && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
         /*
-         * XXX - Should we use g_utf16_to_utf8(), as in
-         * getenv_utf8()?
+         * XXX - Should we use g_utf16_to_utf8()?
          */
         prog_pathname = utf_16to8(prog_pathname_w);
         /*
@@ -520,15 +519,12 @@ init_progfile_dir(const char *arg0
             msg, error);
     }
 #else
-#ifdef HAVE_DLADDR
-    Dl_info info;
-#endif
     const char *execname;
     char *prog_pathname;
     char *curdir;
     long path_max;
-    char *pathstr;
-    char *path_start, *path_end;
+    const char *pathstr;
+    const char *path_start, *path_end;
     size_t path_component_len, path_len;
     char *retstr;
     char *path;
@@ -543,29 +539,11 @@ init_progfile_dir(const char *arg0
      * set, causes us to look for plugins and the like in the build
      * directory.)
      */
-    if (getenv("WIRESHARK_RUN_FROM_BUILD_DIRECTORY") != NULL
+    if (g_getenv("WIRESHARK_RUN_FROM_BUILD_DIRECTORY") != NULL
         && !started_with_special_privs())
         running_in_build_directory_flag = TRUE;
 
     execname = get_executable_path();
-#ifdef HAVE_DLADDR
-    if (function_addr != NULL && execname == NULL) {
-        /*
-         * Try to use dladdr() to find the pathname of the executable.
-         * dladdr() is not guaranteed to give you anything better than
-         * argv[0] (i.e., it might not contain a / at all, much less
-         * being an absolute path), and doesn't appear to do so on
-         * Linux, but on other platforms it could give you an absolute
-         * path and obviate the need for us to determine the absolute
-         * path.
-         */
-DIAG_OFF(pedantic)
-        if (dladdr((void *)function_addr, &info)) {
-DIAG_ON(pedantic)
-            execname = info.dli_fname;
-        }
-    }
-#endif
     if (execname == NULL) {
         /*
          * OK, guess based on argv[0].
@@ -576,7 +554,7 @@ DIAG_ON(pedantic)
     /*
      * Try to figure out the directory in which the currently running
      * program resides, given something purporting to be the executable
-     * name (from dladdr() or from the argv[0] it was started with.
+     * name (from an OS mechanism or from the argv[0] it was started with).
      * That might be the absolute path of the program, or a path relative
      * to the current directory of the process that started it, or
      * just a name for the program if it was started from the command
@@ -623,7 +601,7 @@ DIAG_ON(pedantic)
          * that's executable.
          */
         prog_pathname = NULL;   /* haven't found it yet */
-        pathstr = getenv("PATH");
+        pathstr = g_getenv("PATH");
         path_start = pathstr;
         if (path_start != NULL) {
             while (*path_start != '\0') {
@@ -650,12 +628,6 @@ DIAG_ON(pedantic)
                  * That's not it.  If there are more
                  * path components to test, try them.
                  */
-                if (*path_end == '\0') {
-                    /*
-                     * There's nothing more to try.
-                     */
-                    break;
-                }
                 if (*path_end == ':')
                     path_end++;
                 path_start = path_end;
@@ -693,35 +665,27 @@ DIAG_ON(pedantic)
         *dir_end = '\0';
 
         /*
-         * Is there a "/.libs" at the end?
+         * Is there a "/run" at the end?
          */
         dir_end = strrchr(prog_pathname, '/');
         if (dir_end != NULL) {
-            if (strcmp(dir_end, "/.libs") == 0) {
+            if (!started_with_special_privs()) {
                 /*
-                 * Yup, it's ".libs".
-                 * Strip that off; it's an
-                 * artifact of libtool.
+                 * Check for the CMake output directory. As people may name
+                 * their directories "run" (really?), also check for the
+                 * CMakeCache.txt file before assuming a CMake output dir.
                  */
-                *dir_end = '\0';
-
-                /*
-                 * This presumably means we're run from
-                 * the libtool wrapper, which probably
-                 * means we're being run from the build
-                 * directory.  If we weren't started
-                 * with special privileges, set
-                 * running_in_build_directory_flag.
-                 *
-                 * XXX - should we check whether what
-                 * follows ".libs/" begins with "lt-"?
-                 */
-                if (!started_with_special_privs())
-                    running_in_build_directory_flag = TRUE;
-            }
+                if (strcmp(dir_end, "/run") == 0) {
+                    gchar *cmake_file;
+                    cmake_file = g_strdup_printf("%.*s/CMakeCache.txt",
+                                                 (int)(dir_end - prog_pathname),
+                                                 prog_pathname);
+                    if (file_exists(cmake_file))
+                        running_in_build_directory_flag = TRUE;
+                    g_free(cmake_file);
+                }
 #ifdef __APPLE__
-            else {
-                if (!started_with_special_privs()) {
+                if (!running_in_build_directory_flag) {
                     /*
                      * Scan up the path looking for a component
                      * named "Contents".  If we find it, we assume
@@ -763,8 +727,8 @@ DIAG_ON(pedantic)
                         p--;
                     }
                 }
-            }
 #endif
+            }
         }
 
         /*
@@ -870,19 +834,19 @@ get_datafile_dir(void)
          * if we're started with special privileges, so we need
          * only check it; we don't need to call started_with_special_privs().)
          *
-         * Use the top-level source directory as the datafile directory
-         * because most of our data files (radius/, COPYING) are there.
+         * Data files (console.lua, radius/, etc.) are copied to the build
+         * directory during the build.
          */
-        datafile_dir = g_strdup(TOP_SRCDIR);
+        datafile_dir = BUILD_TIME_DATAFILE_DIR;
         return datafile_dir;
     } else {
-        if (getenv("WIRESHARK_DATA_DIR") && !started_with_special_privs()) {
+        if (g_getenv("WIRESHARK_DATA_DIR") && !started_with_special_privs()) {
             /*
              * The user specified a different directory for data files
              * and we aren't running with special privileges.
              * XXX - We might be able to dispense with the priv check
              */
-            datafile_dir = g_strdup(getenv("WIRESHARK_DATA_DIR"));
+            datafile_dir = g_strdup(g_getenv("WIRESHARK_DATA_DIR"));
         }
 #ifdef __APPLE__
         /*
@@ -908,30 +872,37 @@ get_datafile_dir(void)
     return datafile_dir;
 }
 
-#if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
 /*
  * Find the directory where the plugins are stored.
  *
- * On Windows, we use the "plugin" subdirectory of the datafile directory.
+ * On Windows, we use the plugin\{VERSION} subdirectory of the datafile
+ * directory, where {VERSION} is the version number of this version of
+ * Wireshark.
  *
- * On UN*X, we use the PLUGIN_INSTALL_DIR value supplied by the configure
- * script, unless we think we're being run from the build directory,
- * in which case we use the "plugin" subdirectory of the datafile directory.
+ * On UN*X:
  *
- * In both cases, we then use the subdirectory of that directory whose
- * name is the version number.
+ *    if we appear to be run from the build directory, we use the
+ *    "plugin" subdirectory of the datafile directory;
  *
- * XXX - if we think we're being run from the build directory, perhaps we
- * should have the plugin code not look in the version subdirectory
- * of the plugin directory, but look in all of the subdirectories
- * of the plugin directory, so it can just fetch the plugins built
- * as part of the build process.
+ *    otherwise, if the WIRESHARK_PLUGIN_DIR environment variable is
+ *    set and we aren't running with special privileges, we use the
+ *    value of that environment variable;
+ *
+ *    otherwise, if we're running from an app bundle in macOS, we
+ *    use the Contents/PlugIns/wireshark subdirectory of the app bundle;
+ *
+ *    otherwise, we use the PLUGIN_DIR value supplied by the
+ *    configure script.
  */
-static const char *plugin_dir = NULL;
+static char *plugin_dir = NULL;
+static char *plugin_dir_with_version = NULL;
+static char *plugin_pers_dir = NULL;
+static char *plugin_pers_dir_with_version = NULL;
 
 static void
 init_plugin_dir(void)
 {
+#if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
 #ifdef _WIN32
     /*
      * On Windows, the data file directory is the installation
@@ -941,8 +912,7 @@ init_plugin_dir(void)
      * on Windows, the data file directory is the directory
      * in which the Wireshark binary resides.
      */
-    plugin_dir = g_strdup_printf("%s\\plugins\\%s", get_datafile_dir(),
-                     VERSION);
+    plugin_dir = g_build_filename(get_datafile_dir(), "plugins", (gchar *)NULL);
 
     /*
      * Make sure that pathname refers to a directory.
@@ -961,8 +931,8 @@ init_plugin_dir(void)
          * scanner will check all subdirectories of that
          * directory for plugins.
          */
-        g_free( (gpointer) plugin_dir);
-        plugin_dir = g_strdup_printf("%s\\plugins", get_datafile_dir());
+        g_free(plugin_dir);
+        plugin_dir = g_build_filename(get_datafile_dir(), "plugins", (gchar *)NULL);
         running_in_build_directory_flag = TRUE;
     }
 #else
@@ -973,14 +943,14 @@ init_plugin_dir(void)
          * the "plugins" subdirectory of the directory where the program
          * we're running is (that's the build directory).
          */
-        plugin_dir = g_strdup_printf("%s/plugins", get_progfile_dir());
+        plugin_dir = g_build_filename(get_progfile_dir(), "plugins", (gchar *)NULL);
     } else {
-        if (getenv("WIRESHARK_PLUGIN_DIR") && !started_with_special_privs()) {
+        if (g_getenv("WIRESHARK_PLUGIN_DIR") && !started_with_special_privs()) {
             /*
              * The user specified a different directory for plugins
              * and we aren't running with special privileges.
              */
-            plugin_dir = g_strdup(getenv("WIRESHARK_PLUGIN_DIR"));
+            plugin_dir = g_strdup(g_getenv("WIRESHARK_PLUGIN_DIR"));
         }
 #ifdef __APPLE__
         /*
@@ -993,33 +963,69 @@ init_plugin_dir(void)
          * it; we don't need to call started_with_special_privs().)
          */
         else if (appbundle_dir != NULL) {
-            plugin_dir = g_strdup_printf("%s/Contents/PlugIns/wireshark",
-                                         appbundle_dir);
+            plugin_dir = g_build_filename(appbundle_dir, "Contents/PlugIns/wireshark", (gchar *)NULL);
         }
 #endif
         else {
-            plugin_dir = PLUGIN_INSTALL_DIR;
+            plugin_dir = g_strdup(PLUGIN_DIR);
         }
     }
 #endif
+#endif /* defined(HAVE_PLUGINS) || defined(HAVE_LUA) */
 }
-#endif /* HAVE_PLUGINS || HAVE_LUA */
+
+static void
+init_plugin_pers_dir(void)
+{
+#if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
+#ifdef _WIN32
+    plugin_pers_dir = get_persconffile_path(PLUGINS_DIR_NAME, FALSE);
+#else
+    plugin_pers_dir = g_build_filename(g_get_home_dir(), ".local/lib/wireshark/" PLUGINS_DIR_NAME, (gchar *)NULL);
+#endif
+#endif /* defined(HAVE_PLUGINS) || defined(HAVE_LUA) */
+}
 
 /*
  * Get the directory in which the plugins are stored.
  */
 const char *
-get_plugin_dir(void)
+get_plugins_dir(void)
 {
-#if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
-    if (!plugin_dir) init_plugin_dir();
+    if (!plugin_dir)
+        init_plugin_dir();
     return plugin_dir;
-#else
-    return NULL;
-#endif
 }
 
-#if defined(HAVE_EXTCAP)
+const char *
+get_plugins_dir_with_version(void)
+{
+    if (!plugin_dir)
+        init_plugin_dir();
+    if (plugin_dir && !plugin_dir_with_version)
+        plugin_dir_with_version = g_build_filename(plugin_dir, VERSION_RELEASE, (gchar *)NULL);
+    return plugin_dir_with_version;
+}
+
+/* Get the personal plugin dir */
+const char *
+get_plugins_pers_dir(void)
+{
+    if (!plugin_pers_dir)
+        init_plugin_pers_dir();
+    return plugin_pers_dir;
+}
+
+const char *
+get_plugins_pers_dir_with_version(void)
+{
+    if (!plugin_pers_dir)
+        init_plugin_pers_dir();
+    if (plugin_pers_dir && !plugin_pers_dir_with_version)
+        plugin_pers_dir_with_version = g_build_filename(plugin_pers_dir, VERSION_RELEASE, (gchar *)NULL);
+    return plugin_pers_dir_with_version;
+}
+
 /*
  * Find the directory where the extcap hooks are stored.
  *
@@ -1038,11 +1044,11 @@ get_plugin_dir(void)
  * of the extcap directory, so it can just fetch the extcap hooks built
  * as part of the build process.
  */
-static const char *extcap_dir = NULL;
+static char *extcap_dir = NULL;
 
 static void init_extcap_dir(void) {
 #ifdef _WIN32
-    char *alt_extcap_path;
+    const char *alt_extcap_path;
 
     /*
      * On Windows, the data file directory is the installation
@@ -1052,14 +1058,14 @@ static void init_extcap_dir(void) {
      * on Windows, the data file directory is the directory
      * in which the Wireshark binary resides.
      */
-    alt_extcap_path = getenv_utf8("WIRESHARK_EXTCAP_DIR");
+    alt_extcap_path = g_getenv("WIRESHARK_EXTCAP_DIR");
     if (alt_extcap_path) {
         /*
          * The user specified a different directory for extcap hooks.
          */
         extcap_dir = g_strdup(alt_extcap_path);
     } else {
-        extcap_dir = g_strdup_printf("%s\\extcap", get_datafile_dir());
+        extcap_dir = g_build_filename(get_datafile_dir(), "extcap", (gchar *)NULL);
     }
 #else
     if (running_in_build_directory_flag) {
@@ -1069,14 +1075,14 @@ static void init_extcap_dir(void) {
          * the "extcap hooks" subdirectory of the directory where the program
          * we're running is (that's the build directory).
          */
-        extcap_dir = g_strdup_printf("%s/extcap", get_progfile_dir());
+        extcap_dir = g_build_filename(get_progfile_dir(), "extcap", (gchar *)NULL);
     } else {
-        if (getenv("WIRESHARK_EXTCAP_DIR") && !started_with_special_privs()) {
+        if (g_getenv("WIRESHARK_EXTCAP_DIR") && !started_with_special_privs()) {
             /*
              * The user specified a different directory for extcap hooks
              * and we aren't running with special privileges.
              */
-            extcap_dir = g_strdup(getenv("WIRESHARK_EXTCAP_DIR"));
+            extcap_dir = g_strdup(g_getenv("WIRESHARK_EXTCAP_DIR"));
         }
 #ifdef __APPLE__
         /*
@@ -1089,32 +1095,26 @@ static void init_extcap_dir(void) {
          * it; we don't need to call started_with_special_privs().)
          */
         else if (appbundle_dir != NULL) {
-            extcap_dir = g_strdup_printf("%s/Contents/MacOS/extcap",
-                                         appbundle_dir);
+            extcap_dir = g_build_filename(appbundle_dir, "Contents/MacOS/extcap", (gchar *)NULL);
         }
 #endif
         else {
-            extcap_dir = EXTCAP_DIR;
+            extcap_dir = g_strdup(EXTCAP_DIR);
         }
     }
 #endif
 }
-#endif /* HAVE_EXTCAP */
 
 /*
  * Get the directory in which the extcap hooks are stored.
  *
- * XXX - A fix instead of HAVE_EXTCAP must be found
  */
 const char *
-get_extcap_dir(void) {
-#if defined(HAVE_EXTCAP)
+get_extcap_dir(void)
+{
     if (!extcap_dir)
         init_extcap_dir();
     return extcap_dir;
-#else
-    return NULL;
-#endif
 }
 
 /*
@@ -1178,7 +1178,7 @@ has_global_profiles(void)
 {
     WS_DIR *dir;
     WS_DIRENT *file;
-    const gchar *global_dir = get_global_profiles_dir();
+    gchar *global_dir = get_global_profiles_dir();
     gchar *filename;
     gboolean has_global = FALSE;
 
@@ -1197,7 +1197,7 @@ has_global_profiles(void)
         }
         ws_dir_close(dir);
     }
-
+    g_free(global_dir);
     return has_global;
 }
 
@@ -1232,28 +1232,28 @@ profile_store_persconffiles(gboolean store)
 static const char *
 get_persconffile_dir_no_profile(void)
 {
-#ifdef _WIN32
     const char *env;
-#else
-    char *xdg_path, *path;
-    struct passwd *pwd;
-    const char *homedir;
-#endif
 
     /* Return the cached value, if available */
     if (persconffile_dir != NULL)
         return persconffile_dir;
 
-#ifdef _WIN32
     /*
      * See if the user has selected an alternate environment.
      */
-    env = getenv_utf8("WIRESHARK_APPDATA");
+    env = g_getenv(ENV_CONFIG_PATH_VAR);
+#ifdef _WIN32
+    if (env == NULL) {
+        /* for backward compatibility */
+        env = g_getenv("WIRESHARK_APPDATA");
+    }
+#endif
     if (env != NULL) {
         persconffile_dir = g_strdup(env);
         return persconffile_dir;
     }
 
+#ifdef _WIN32
     /*
      * Use %APPDATA% or %USERPROFILE%, so that configuration
      * files are stored in the user profile, rather than in
@@ -1262,7 +1262,7 @@ get_persconffile_dir_no_profile(void)
      * so means you can use Wireshark even if the home directory
      * is an inaccessible network drive.
      */
-    env = getenv_utf8("APPDATA");
+    env = g_getenv("APPDATA");
     if (env != NULL) {
         /*
          * Concatenate %APPDATA% with "\Wireshark".
@@ -1274,7 +1274,7 @@ get_persconffile_dir_no_profile(void)
     /*
      * OK, %APPDATA% wasn't set, so use %USERPROFILE%\Application Data.
      */
-    env = getenv_utf8("USERPROFILE");
+    env = g_getenv("USERPROFILE");
     if (env != NULL) {
         persconffile_dir = g_build_filename(env, "Application Data", "Wireshark", NULL);
         return persconffile_dir;
@@ -1286,6 +1286,10 @@ get_persconffile_dir_no_profile(void)
     persconffile_dir = g_build_filename("C:", "Wireshark", NULL);
     return persconffile_dir;
 #else
+    char *xdg_path, *path;
+    struct passwd *pwd;
+    const char *homedir;
+
     /*
      * Check if XDG_CONFIG_HOME/wireshark exists and is a directory.
      */
@@ -1304,7 +1308,7 @@ get_persconffile_dir_no_profile(void)
      * (Note: before GLib 2.36, g_get_home_dir() didn't look at $HOME,
      * but we always want to do so, so we don't use g_get_home_dir().)
      */
-    homedir = getenv("HOME");
+    homedir = g_getenv("HOME");
     if (homedir == NULL) {
         /*
          * It's not set.
@@ -1344,42 +1348,70 @@ set_persconffile_dir(const char *p)
     persconffile_dir = g_strdup(p);
 }
 
-const char *
+char *
 get_profiles_dir(void)
 {
-    static char *profiles_dir = NULL;
-
-    g_free (profiles_dir);
-    profiles_dir = g_strdup_printf ("%s%s%s", get_persconffile_dir_no_profile (),
+    return g_strdup_printf ("%s%s%s", get_persconffile_dir_no_profile (),
                     G_DIR_SEPARATOR_S, PROFILES_DIR);
-
-    return profiles_dir;
 }
 
-const char *
-get_global_profiles_dir(void)
+int
+create_profiles_dir(char **pf_dir_path_return)
 {
-    static char *global_profiles_dir = NULL;
+    char *pf_dir_path;
+    ws_statb64 s_buf;
 
-    if (!global_profiles_dir) {
-        global_profiles_dir = g_strdup_printf ("%s%s%s", get_datafile_dir(),
-                               G_DIR_SEPARATOR_S, PROFILES_DIR);
+    /*
+     * Create the "Default" personal configuration files directory, if necessary.
+     */
+    if (create_persconffile_profile (NULL, pf_dir_path_return) == -1) {
+        return -1;
     }
 
-    return global_profiles_dir;
+    /*
+     * Check if profiles directory exists.
+     * If not then create it.
+     */
+    pf_dir_path = get_profiles_dir ();
+    if (ws_stat64(pf_dir_path, &s_buf) != 0) {
+        if (errno != ENOENT) {
+            /* Some other problem; give up now. */
+            *pf_dir_path_return = pf_dir_path;
+            return -1;
+        }
+
+        /*
+         * It doesn't exist; try to create it.
+         */
+        int ret = ws_mkdir(pf_dir_path, 0755);
+        if (ret == -1) {
+            *pf_dir_path_return = pf_dir_path;
+            return ret;
+        }
+    }
+    g_free(pf_dir_path);
+
+    return 0;
 }
 
-static const char *
+char *
+get_global_profiles_dir(void)
+{
+    return g_strdup_printf ("%s%s%s", get_datafile_dir(),
+                               G_DIR_SEPARATOR_S, PROFILES_DIR);
+}
+
+static char *
 get_persconffile_dir(const gchar *profilename)
 {
-    static char *persconffile_profile_dir = NULL;
-
-    g_free (persconffile_profile_dir);
+    char *persconffile_profile_dir = NULL, *profile_dir;
 
     if (profilename && strlen(profilename) > 0 &&
         strcmp(profilename, DEFAULT_PROFILE) != 0) {
-      persconffile_profile_dir = g_strdup_printf ("%s%s%s", get_profiles_dir (),
+      profile_dir = get_profiles_dir();
+      persconffile_profile_dir = g_strdup_printf ("%s%s%s", profile_dir,
                               G_DIR_SEPARATOR_S, profilename);
+      g_free(profile_dir);
     } else {
       persconffile_profile_dir = g_strdup (get_persconffile_dir_no_profile ());
     }
@@ -1390,20 +1422,36 @@ get_persconffile_dir(const gchar *profilename)
 gboolean
 profile_exists(const gchar *profilename, gboolean global)
 {
+    gchar *path = NULL, *global_path;
+
     if (global) {
-        gchar *path = g_strdup_printf ("%s%s%s", get_global_profiles_dir(),
+        /*
+         * If we're looking up a global profile, we must have a
+         * profile name.
+         */
+        if (!profilename)
+            return FALSE;
+        global_path = get_global_profiles_dir();
+        path = g_strdup_printf ("%s%s%s", global_path,
                            G_DIR_SEPARATOR_S, profilename);
+        g_free(global_path);
         if (test_for_directory (path) == EISDIR) {
             g_free (path);
             return TRUE;
         }
-        g_free (path);
     } else {
-        if (test_for_directory (get_persconffile_dir (profilename)) == EISDIR) {
+        /*
+         * If we didn't supply a profile name, i.e. if profilename is
+         * null, get_persconffile_dir() returns the default profile.
+         */
+        path = get_persconffile_dir (profilename);
+        if (test_for_directory (path) == EISDIR) {
+            g_free (path);
             return TRUE;
         }
     }
 
+    g_free (path);
     return FALSE;
 }
 
@@ -1444,16 +1492,53 @@ delete_directory (const char *directory, char **pf_dir_path_return)
     return ret;
 }
 
+static int
+reset_default_profile(char **pf_dir_path_return)
+{
+    char *profile_dir = get_persconffile_dir(NULL);
+    gchar *filename, *del_file;
+    GList *files, *file;
+    int ret = 0;
+
+    files = g_hash_table_get_keys(profile_files);
+    file = g_list_first(files);
+    while (file) {
+        filename = (gchar *)file->data;
+        del_file = g_strdup_printf("%s%s%s", profile_dir, G_DIR_SEPARATOR_S, filename);
+
+        if (file_exists(del_file)) {
+            ret = ws_remove(del_file);
+            if (ret != 0) {
+                *pf_dir_path_return = profile_dir;
+                g_free(del_file);
+                return ret;
+            }
+        }
+
+        g_free(del_file);
+        file = g_list_next(file);
+    }
+    g_list_free(files);
+
+    g_free(profile_dir);
+    return 0;
+}
+
 int
 delete_persconffile_profile(const char *profilename, char **pf_dir_path_return)
 {
-    const char *profile_dir = get_persconffile_dir(profilename);
+    if (strcmp(profilename, DEFAULT_PROFILE) == 0) {
+        return reset_default_profile(pf_dir_path_return);
+    }
+
+    char *profile_dir = get_persconffile_dir(profilename);
     int ret = 0;
 
     if (test_for_directory (profile_dir) == EISDIR) {
         ret = delete_directory (profile_dir, pf_dir_path_return);
     }
 
+    g_free(profile_dir);
     return ret;
 }
 
@@ -1461,20 +1546,21 @@ int
 rename_persconffile_profile(const char *fromname, const char *toname,
                 char **pf_from_dir_path_return, char **pf_to_dir_path_return)
 {
-    char *from_dir = g_strdup (get_persconffile_dir(fromname));
-    char *to_dir = g_strdup (get_persconffile_dir(toname));
+    char *from_dir = get_persconffile_dir(fromname);
+    char *to_dir = get_persconffile_dir(toname);
     int ret = 0;
 
     ret = ws_rename (from_dir, to_dir);
     if (ret != 0) {
-        *pf_from_dir_path_return = g_strdup (from_dir);
-        *pf_to_dir_path_return = g_strdup (to_dir);
+        *pf_from_dir_path_return = from_dir;
+        *pf_to_dir_path_return = to_dir;
+        return ret;
     }
 
     g_free (from_dir);
     g_free (to_dir);
 
-    return ret;
+    return 0;
 }
 
 /*
@@ -1487,45 +1573,21 @@ rename_persconffile_profile(const char *fromname, const char *toname,
 int
 create_persconffile_profile(const char *profilename, char **pf_dir_path_return)
 {
-    const char *pf_dir_path;
+    char *pf_dir_path;
 #ifdef _WIN32
     char *pf_dir_path_copy, *pf_dir_parent_path;
     size_t pf_dir_parent_path_len;
+    int save_errno;
 #endif
     ws_statb64 s_buf;
     int ret;
-    int save_errno;
 
     if (profilename) {
         /*
-         * Create the "Default" personal configuration files directory, if necessary.
+         * Create the personal profiles directory, if necessary.
          */
-        if (create_persconffile_profile (NULL, pf_dir_path_return) == -1) {
+        if (create_profiles_dir(pf_dir_path_return) == -1) {
             return -1;
-        }
-
-        /*
-         * Check if profiles directory exists.
-         * If not then create it.
-         */
-        pf_dir_path = get_profiles_dir ();
-        if (ws_stat64(pf_dir_path, &s_buf) != 0) {
-            if (errno != ENOENT) {
-                /* Some other problem; give up now. */
-                save_errno = errno;
-                *pf_dir_path_return = g_strdup(pf_dir_path);
-                errno = save_errno;
-                return -1;
-            }
-
-            /*
-             * It doesn't exist; try to create it.
-             */
-            ret = ws_mkdir(pf_dir_path, 0755);
-            if (ret == -1) {
-                *pf_dir_path_return = g_strdup(pf_dir_path);
-                return ret;
-            }
         }
     }
 
@@ -1533,9 +1595,7 @@ create_persconffile_profile(const char *profilename, char **pf_dir_path_return)
     if (ws_stat64(pf_dir_path, &s_buf) != 0) {
         if (errno != ENOENT) {
             /* Some other problem; give up now. */
-            save_errno = errno;
-            *pf_dir_path_return = g_strdup(pf_dir_path);
-            errno = save_errno;
+            *pf_dir_path_return = pf_dir_path;
             return -1;
         }
 #ifdef _WIN32
@@ -1561,8 +1621,9 @@ create_persconffile_profile(const char *profilename, char **pf_dir_path_return)
              */
             if (errno != ENOENT) {
                 /* Some other problem; give up now. */
+                *pf_dir_path_return = pf_dir_path;
                 save_errno = errno;
-                *pf_dir_path_return = g_strdup(pf_dir_path);
+                g_free(pf_dir_path_copy);
                 errno = save_errno;
                 return -1;
             }
@@ -1572,6 +1633,9 @@ create_persconffile_profile(const char *profilename, char **pf_dir_path_return)
             ret = ws_mkdir(pf_dir_parent_path, 0755);
             if (ret == -1) {
                 *pf_dir_path_return = pf_dir_parent_path;
+                save_errno = errno;
+                g_free(pf_dir_path);
+                errno = save_errno;
                 return -1;
             }
         }
@@ -1590,7 +1654,10 @@ create_persconffile_profile(const char *profilename, char **pf_dir_path_return)
         ret = 0;
     }
     if (ret == -1)
-        *pf_dir_path_return = g_strdup(pf_dir_path);
+        *pf_dir_path_return = pf_dir_path;
+    else
+        g_free(pf_dir_path);
+
     return ret;
 }
 
@@ -1605,18 +1672,20 @@ copy_persconffile_profile(const char *toname, const char *fromname, gboolean fro
               char **pf_filename_return, char **pf_to_dir_path_return, char **pf_from_dir_path_return)
 {
     gchar *from_dir;
-    gchar *to_dir = g_strdup (get_persconffile_dir(toname));
-    gchar *filename, *from_file, *to_file;
+    gchar *to_dir = get_persconffile_dir(toname);
+    gchar *filename, *from_file, *to_file, *global_path;
     GList *files, *file;
 
     if (from_global) {
         if (strcmp(fromname, DEFAULT_PROFILE) == 0) {
-            from_dir = g_strdup (get_global_profiles_dir());
+            from_dir = get_global_profiles_dir();
         } else {
-            from_dir = g_strdup_printf ("%s%s%s", get_global_profiles_dir(), G_DIR_SEPARATOR_S, fromname);
+            global_path = get_global_profiles_dir();
+            from_dir = g_strdup_printf ("%s%s%s", global_path, G_DIR_SEPARATOR_S, fromname);
+            g_free(global_path);
         }
     } else {
-        from_dir = g_strdup (get_persconffile_dir(fromname));
+        from_dir = get_persconffile_dir(fromname);
     }
 
     files = g_hash_table_get_keys(profile_files);
@@ -1695,7 +1764,7 @@ static const char *
 get_home_dir(void)
 {
     static const char *home = NULL;
-    char *homedrive, *homepath;
+    const char *homedrive, *homepath;
     char *homestring;
     char *lastsep;
 
@@ -1708,9 +1777,9 @@ get_home_dir(void)
      * Is there a chance that it might be set but one or more of
      * HOMEDRIVE or HOMEPATH isn't set?
      */
-    homedrive = getenv_utf8("HOMEDRIVE");
+    homedrive = g_getenv("HOMEDRIVE");
     if (homedrive != NULL) {
-        homepath = getenv_utf8("HOMEPATH");
+        homepath = g_getenv("HOMEPATH");
         if (homepath != NULL) {
             /*
              * This is cached, so we don't need to worry about
@@ -1759,20 +1828,21 @@ get_home_dir(void)
 char *
 get_persconffile_path(const char *filename, gboolean from_profile)
 {
-    char *path;
+    char *path, *dir = NULL;
+
     if (do_store_persconffiles && from_profile && !g_hash_table_lookup (profile_files, filename)) {
         /* Store filenames so we know which filenames belongs to a configuration profile */
         g_hash_table_insert (profile_files, g_strdup(filename), g_strdup(filename));
     }
 
     if (from_profile) {
-      path = g_strdup_printf("%s" G_DIR_SEPARATOR_S "%s",
-                 get_persconffile_dir(persconfprofile), filename);
+        dir = get_persconffile_dir(persconfprofile);
     } else {
-      path = g_strdup_printf("%s" G_DIR_SEPARATOR_S "%s",
-                 get_persconffile_dir(NULL), filename);
+        dir = get_persconffile_dir(NULL);
     }
+    path = g_build_filename(dir, filename, NULL);
 
+    g_free(dir);
     return path;
 }
 
@@ -1794,18 +1864,10 @@ get_datafile_path(const char *filename)
          * directory (not in the source/data directory).
          * (Oh the things we do to keep the source directory pristine...)
          */
-        return g_strdup_printf("%s" G_DIR_SEPARATOR_S "%s", get_progfile_dir(), filename);
+        return g_build_filename(get_progfile_dir(), filename, (char *)NULL);
     } else {
-        return g_strdup_printf("%s" G_DIR_SEPARATOR_S "%s", get_datafile_dir(), filename);
+        return g_build_filename(get_datafile_dir(), filename, (char *)NULL);
     }
-}
-
-/* Get the personal plugin dir */
-/* Return value is malloced so the caller should g_free() it. */
-char *
-get_plugins_pers_dir(void)
-{
-    return get_persconffile_path(PLUGINS_DIR_NAME, FALSE);
 }
 
 /*
@@ -1852,6 +1914,13 @@ file_open_error_message(int err, gboolean for_writing)
         errmsg = "The file \"%s\" could not be created because an invalid filename was specified.";
         break;
 
+#ifdef ENAMETOOLONG
+    case ENAMETOOLONG:
+        /* XXX Make sure we truncate on a character boundary. */
+        errmsg = "The file name \"%.80s" UTF8_HORIZONTAL_ELLIPSIS "\" is too long.";
+        break;
+#endif
+
     case ENOMEM:
         /*
          * The problem probably has nothing to do with how much RAM the
@@ -1883,7 +1952,7 @@ file_open_error_message(int err, gboolean for_writing)
          * Either you have a fixed swap partition or a fixed swap file,
          * and it needs to be made bigger.
          *
-         * This is UN*X, but it's not OS X, so we assume the user is
+         * This is UN*X, but it's not macOS, so we assume the user is
          * *somewhat* nerdy.
          */
 #define ENOMEM_REASON "your system is out of swap space"
@@ -1948,28 +2017,11 @@ file_exists(const char *fname)
         return FALSE;
     }
 
-#if defined(_MSC_VER) && _MSC_VER < 1900
-
-    /*
-     * This is a bit tricky on win32. The st_ino field is documented as:
-     * "The inode, and therefore st_ino, has no meaning in the FAT, ..."
-     * but it *is* set to zero if stat() returns without an error,
-     * so this is working, but maybe not quite the way expected. ULFL
-     */
-    file_stat.st_ino = 1;   /* this will make things work if an error occurred */
-    ws_stat64(fname, &file_stat);
-    if (file_stat.st_ino == 0) {
-        return TRUE;
-    } else {
-        return FALSE;
-    }
-#else
     if (ws_stat64(fname, &file_stat) != 0 && errno == ENOENT) {
         return FALSE;
     } else {
         return TRUE;
     }
-#endif
 }
 
 /*
@@ -2098,6 +2150,54 @@ copy_file_binary_mode(const char *from_filename, const char *to_filename)
 done:
     g_free(pd);
     return FALSE;
+}
+
+gchar *
+data_file_url(const gchar *filename)
+{
+    gchar *file_path;
+    gchar *uri;
+
+    /* Absolute path? */
+    if(g_path_is_absolute(filename)) {
+        file_path = g_strdup(filename);
+    } else if(running_in_build_directory()) {
+        file_path = g_strdup_printf("%s/doc/%s", get_datafile_dir(), filename);
+    } else {
+        file_path = g_strdup_printf("%s/%s", get_datafile_dir(), filename);
+    }
+
+    /* XXX - check, if the file is really existing, otherwise display a simple_dialog about the problem */
+
+    /* convert filename to uri */
+    uri = g_filename_to_uri(file_path, NULL, NULL);
+    g_free(file_path);
+    return uri;
+}
+
+void
+free_progdirs(void)
+{
+    g_free(persconffile_dir);
+    persconffile_dir = NULL;
+    g_free(persdatafile_dir);
+    persdatafile_dir = NULL;
+    g_free(persconfprofile);
+    persconfprofile = NULL;
+    g_free(progfile_dir);
+    progfile_dir = NULL;
+#if defined(HAVE_PLUGINS) || defined(HAVE_LUA)
+    g_free(plugin_dir);
+    plugin_dir = NULL;
+    g_free(plugin_dir_with_version);
+    plugin_dir_with_version = NULL;
+    g_free(plugin_pers_dir);
+    plugin_pers_dir = NULL;
+    g_free(plugin_pers_dir_with_version);
+    plugin_pers_dir_with_version = NULL;
+#endif
+    g_free(extcap_dir);
+    extcap_dir = NULL;
 }
 
 /*

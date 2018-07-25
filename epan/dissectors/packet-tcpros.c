@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -38,6 +26,7 @@ void proto_reg_handoff_tcpros(void);
 
 
 static int proto_tcpros = -1;
+static dissector_handle_t tcpros_handle;
 
 /** desegmentation of TCPROS over TCP */
 static gboolean tcpros_desegment = TRUE;
@@ -51,6 +40,8 @@ static int hf_tcpros_connection_header_field_length = -1;
 static int hf_tcpros_connection_header_field_data = -1;
 static int hf_tcpros_connection_header_field_name = -1;
 static int hf_tcpros_connection_header_field_value = -1;
+static int hf_tcpros_clock = -1;
+static int hf_tcpros_clock_length = -1;
 static int hf_tcpros_message = -1;
 static int hf_tcpros_message_length = -1;
 static int hf_tcpros_message_body = -1;
@@ -99,11 +90,12 @@ dissect_ros_connection_header_field(tvbuff_t *tvb, proto_tree *tree, packet_info
 
 		/** If we find a separator, then split field name and value */
 		if( sep > 0 ) {
+			const guint8* field;
 			field_tree = proto_item_add_subtree(ti, ett_tcpros);
-			proto_tree_add_item(field_tree, hf_tcpros_connection_header_field_name, tvb, offset, sep, ENC_UTF_8|ENC_NA);
+			proto_tree_add_item_ret_string(field_tree, hf_tcpros_connection_header_field_name, tvb, offset, sep, ENC_UTF_8|ENC_NA, wmem_packet_scope(), &field);
 			proto_tree_add_item(field_tree, hf_tcpros_connection_header_field_value, tvb, offset+sep+1, fLen - sep - 1, ENC_UTF_8|ENC_NA);
 
-			col_append_str(pinfo->cinfo, COL_INFO, tvb_get_string_enc(wmem_packet_scope(), tvb, offset, sep, ENC_UTF_8));
+			col_append_str(pinfo->cinfo, COL_INFO, field);
 		}
 		ret = fLen + SIZE_OF_LENGTH_FIELD;
 	}
@@ -159,7 +151,6 @@ dissect_ros_message_header_stamp(tvbuff_t *tvb, proto_tree *root_tree, packet_in
 	gint consumed_len = 0;
 	guint32 sec, nsec;
 
-
 	ti = proto_tree_add_item(root_tree, hf_tcpros_message_header_stamp, tvb, offset + consumed_len, SIZE_OF_LENGTH_STAMP, ENC_LITTLE_ENDIAN);
 	sub_tree = proto_item_add_subtree(ti, ett_tcpros);
 
@@ -167,13 +158,36 @@ dissect_ros_message_header_stamp(tvbuff_t *tvb, proto_tree *root_tree, packet_in
 	proto_tree_add_item(sub_tree, hf_tcpros_message_header_stamp_sec, tvb, offset + consumed_len, SIZE_OF_LENGTH_FIELD, ENC_LITTLE_ENDIAN);
 	sec = tvb_get_letohl(tvb, offset + consumed_len);
 	consumed_len += SIZE_OF_LENGTH_FIELD;
-	col_append_fstr(pinfo->cinfo, COL_INFO, "Sec: %d ", sec);
 
 	/** Nano seconds */
 	proto_tree_add_item(sub_tree, hf_tcpros_message_header_stamp_nsec, tvb, offset + consumed_len, SIZE_OF_LENGTH_FIELD, ENC_LITTLE_ENDIAN);
 	nsec = tvb_get_letohl(tvb, offset + consumed_len);
 	consumed_len += SIZE_OF_LENGTH_FIELD;
-	col_append_fstr(pinfo->cinfo, COL_INFO, "NSec: %d ", nsec);
+
+	/** Info */
+	col_append_fstr(pinfo->cinfo, COL_INFO, "Timestamp: %d.%d ", sec, nsec);
+
+	return consumed_len;
+}
+
+static gint
+dissect_ros_clock(tvbuff_t *tvb, proto_tree *root_tree, packet_info *pinfo, gint offset)
+{
+	proto_item *ti;
+	proto_tree *sub_tree;
+
+	gint consumed_len = 0;
+
+	col_append_str(pinfo->cinfo, COL_INFO, "[ROS Clock] ");
+
+	/** We got a ROS Clock msg */
+	ti = proto_tree_add_item(root_tree, hf_tcpros_clock, tvb, offset, SIZE_OF_LENGTH_FIELD, ENC_LITTLE_ENDIAN);
+	sub_tree = proto_item_add_subtree(ti, ett_tcpros);
+
+	proto_tree_add_item(sub_tree, hf_tcpros_clock_length, tvb, offset, SIZE_OF_LENGTH_FIELD, ENC_LITTLE_ENDIAN);
+	consumed_len += SIZE_OF_LENGTH_FIELD;
+
+	consumed_len += dissect_ros_message_header_stamp(tvb, sub_tree, pinfo, offset + consumed_len);
 
 	return consumed_len;
 }
@@ -188,6 +202,7 @@ dissect_ros_message_header(tvbuff_t *tvb, proto_tree *root_tree, packet_info *pi
 	guint32 frame_id_len;
 	guint32 seq;
 	guint header_len;
+	const guint8* frame_str;
 
 
 	frame_id_len = tvb_get_letohl(tvb, offset + consumed_len + SIZE_OF_LENGTH_FIELD + SIZE_OF_LENGTH_STAMP);
@@ -213,8 +228,8 @@ dissect_ros_message_header(tvbuff_t *tvb, proto_tree *root_tree, packet_info *pi
 	proto_tree_add_item(sub_tree, hf_tcpros_message_header_frame_length, tvb, offset + consumed_len, SIZE_OF_LENGTH_FIELD, ENC_LITTLE_ENDIAN);
 	consumed_len += SIZE_OF_LENGTH_FIELD;
 
-	proto_tree_add_item(sub_tree, hf_tcpros_message_header_frame_value, tvb, offset + consumed_len, frame_id_len, ENC_UTF_8|ENC_NA);
-	col_append_fstr(pinfo->cinfo, COL_INFO, "Frame: '%s' ",	tvb_get_string_enc(wmem_packet_scope(), tvb, offset + consumed_len, frame_id_len, ENC_UTF_8) );
+	proto_tree_add_item_ret_string(sub_tree, hf_tcpros_message_header_frame_value, tvb, offset + consumed_len, frame_id_len, ENC_UTF_8|ENC_NA, wmem_packet_scope(), &frame_str);
+	col_append_fstr(pinfo->cinfo, COL_INFO, "Frame ID: '%s' ", frame_str);
 	consumed_len += frame_id_len;
 
 	return consumed_len;
@@ -256,7 +271,7 @@ dissect_ros_message(tvbuff_t *tvb, proto_tree *root_tree, packet_info *pinfo, gi
 	/** Body.Payload */
 	payload_len = (total_len + SIZE_OF_LENGTH_FIELD) - consumed_len;
 	proto_tree_add_item(sub_tree, hf_tcpros_message_payload, tvb, offset + consumed_len, payload_len, ENC_NA);
-        consumed_len += payload_len;
+	consumed_len += payload_len;
 
 
 	return consumed_len;
@@ -280,6 +295,103 @@ is_connection_header(tvbuff_t *tvb, packet_info *pinfo _U_ , guint offset)
 
 
 	return is_con_header;
+}
+
+static gboolean
+is_rosheaderfield(tvbuff_t *tvb, packet_info *pinfo _U_ , guint offset)
+{
+	/** ROS Header Field:
+	    4-byte len + string */
+	gint available = tvb_reported_length_remaining(tvb, offset);
+	gint string_len = 0;
+	gint i;
+
+	if( available < 4 )
+		return FALSE;
+
+	string_len = tvb_get_letohl(tvb, offset);
+	if( string_len < 0 )
+		return FALSE;
+
+	/** If we don't have enough data for the whole string, assume its not */
+	if( available < (string_len + 4) )
+		return FALSE;
+	/** Check for a valid ascii character and not nil */
+	for( i = 0; i < string_len; i++ ) {
+		gint8 ch = tvb_get_guint8(tvb, offset + 4 + i);
+		if( !g_ascii_isalnum(ch) || 0x00 == ch )
+			return FALSE;
+	}
+
+	/** Assume it is */
+	return TRUE;
+}
+
+static gboolean
+is_rosconnection_header(tvbuff_t *tvb, packet_info *pinfo _U_ , guint offset)
+{
+	/** ROS Connection Headers: http://wiki.ros.org/ROS/Connection%20Header
+	    4-byte length + [4-byte length + string] */
+	gint available = tvb_reported_length_remaining(tvb, offset);
+	gint msg_len = 0;
+
+	if( available < 8+1 )
+		return FALSE;
+
+	msg_len = tvb_get_letohl(tvb, offset);
+	if( msg_len < 4+1 )
+		return FALSE;
+
+	/** Check first header field */
+	if( !is_rosheaderfield(tvb, pinfo, offset + 4) )
+		return FALSE;
+
+
+	return TRUE;
+}
+
+static gboolean
+is_rosclock(tvbuff_t *tvb, packet_info *pinfo _U_ , guint offset)
+{
+	/** ROS Clock message: http://docs.ros.org/api/rosgraph_msgs/html/msg/Clock.html
+	    4-byte length + 8-byte timestamp == 12 bytes exactly */
+	gint available = tvb_reported_length_remaining(tvb, offset);
+	if( available < 12 )
+		return FALSE;
+
+	if( tvb_get_letohl(tvb, offset) != 8 )
+		return FALSE;
+
+	/** This is highly likely a clock message. */
+	if( available != 12 )
+		return FALSE;
+
+	return TRUE;
+}
+
+static gboolean
+is_rosmsg(tvbuff_t *tvb, packet_info *pinfo _U_ , guint offset)
+{
+	/** Most ROS messages start with a header: http://docs.ros.org/jade/api/std_msgs/html/msg/Header.html
+	    4-byte size + 4-byte sequence id + 8-byte timestamp + 4-byte frame id length + frame id */
+	gint available = tvb_reported_length_remaining(tvb, offset);
+	gint string_len = 0;
+	gint msg_len = 0;
+
+	if( available < 20 )
+		return FALSE;
+
+	msg_len = tvb_get_letohl(tvb, offset);
+	if( msg_len < 16 )
+		return FALSE;
+
+	/** Check to see if the frame id length is reasonable */
+	string_len = tvb_get_letohl(tvb, offset + 4 + 4 + 8);
+	if( string_len > (msg_len - (4 + 8 + 4)) )
+		return FALSE;
+
+	/** This is highly likely a ROS message. */
+	return TRUE;
 }
 
 static void
@@ -309,7 +421,16 @@ dissect_ros_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
 			return;
 		}
 		/** There are two types of packet: Connection Headers and ROS Message. Which one is it? */
-		if( is_connection_header(tvb, pinfo, offset) ) {
+		if( is_rosclock(tvb, pinfo, offset) ) {
+			/** This is a ROS Clock message. */
+			offset += dissect_ros_clock(tvb, root_tree, pinfo, offset);
+		} else if( is_rosmsg(tvb, pinfo, offset) ) {
+			/** We have a ROS message. */
+			offset += dissect_ros_message(tvb, root_tree, pinfo, offset);
+		} else if( is_rosconnection_header(tvb, pinfo, offset) ) {
+			/** Check for a connection header */
+			offset += dissect_ros_connection_header(tvb, root_tree, pinfo, offset);
+		} else if( is_connection_header(tvb, pinfo, offset) ) {
 			/** We have a ROS connection header. */
 			offset += dissect_ros_connection_header(tvb, root_tree, pinfo, offset);
 		} else {
@@ -363,91 +484,75 @@ proto_register_tcpros(void)
 		{ &hf_tcpros_connection_header,             { "ROS Connection", "tcpros.header",
 							      FT_UINT_BYTES, BASE_NONE, NULL, 0,
 							      "Message Header", HFILL } },
-
 		{ &hf_tcpros_connection_header_length,      { "Header Length", "tcpros.header_length",
 							      FT_UINT32, BASE_DEC, NULL, 0,
 							      "Message Header Length", HFILL } },
-
 		{ &hf_tcpros_connection_header_content,     { "Header Content", "tcpros.header_content",
 							      FT_BYTES, BASE_NONE, NULL, 0,
 							      "Message Header Content", HFILL } },
 
-
 		{ &hf_tcpros_connection_header_field,       { "Field", "tcpros.header_field",
 							      FT_UINT_STRING, BASE_NONE, NULL, 0,
 							      "Message Header Field", HFILL } },
-
 		{ &hf_tcpros_connection_header_field_length, { "Field Length", "tcpros.header_field_length",
 							       FT_UINT32, BASE_DEC, NULL, 0,
 							       "Message Header Field Length", HFILL } },
-
 		{ &hf_tcpros_connection_header_field_data, { "Field Content", "tcpros.header_field_data",
 							     FT_STRING, BASE_NONE, NULL, 0,
 							     "Message Header Field Content", HFILL } },
-
 		{ &hf_tcpros_connection_header_field_name,  { "Name", "tcpros.header_field_name",
 							      FT_STRING, BASE_NONE, NULL, 0,
 							      "Message Header Field Name", HFILL } },
-
 		{ &hf_tcpros_connection_header_field_value, { "Value", "tcpros.header_field_value",
 							      FT_STRING, BASE_NONE, NULL, 0,
 							      "Message Header Field Value", HFILL } },
 
+		{ &hf_tcpros_clock,                         { "ROS Clock", "tcpros.clock",
+							      FT_UINT_BYTES, BASE_NONE, NULL, 0,
+							      "ROS Clock Packet", HFILL } },
+		{ &hf_tcpros_clock_length,                  { "Clock Length", "tcpros.clock.length",
+							      FT_UINT32, BASE_DEC, NULL, 0,
+							      "ROS Clock Packet length", HFILL } },
 
 		{ &hf_tcpros_message,                       { "ROS Message", "tcpros.message",
 							      FT_UINT_BYTES, BASE_NONE, NULL, 0,
 							      "ROS Message Packet", HFILL } },
-
 		{ &hf_tcpros_message_length,                { "Message Length", "tcpros.message.length",
 							      FT_UINT32, BASE_DEC, NULL, 0,
 							      "ROS Message Packet length", HFILL } },
-
 		{ &hf_tcpros_message_body,                   { "Message Content", "tcpros.message.body",
-							      FT_BYTES, BASE_NONE, NULL, 0,
-							      "ROS Message Packet Body", HFILL } },
-
-
-
+							       FT_BYTES, BASE_NONE, NULL, 0,
+							       "ROS Message Packet Body", HFILL } },
 
 		{ &hf_tcpros_message_header,                { "Header", "tcpros.message.header",
 							      FT_BYTES, BASE_NONE, NULL, 0,
 							      "ROS Message Header", HFILL } },
-
 		{ &hf_tcpros_message_header_seq,            { "Sequence ID", "tcpros.message.header.seq",
 							      FT_UINT32, BASE_DEC, NULL, 0,
 							      "ROS Message Header Sequence", HFILL } },
 		{ &hf_tcpros_message_header_stamp,          { "Timestamp", "tcpros.message.header.stamp",
 							      FT_ABSOLUTE_TIME, ABSOLUTE_TIME_LOCAL, NULL, 0,
 							      "ROS Message Header Stamp", HFILL } },
-
 		{ &hf_tcpros_message_header_stamp_sec,      { "Seconds", "tcpros.message.header.stamp.sec",
 							      FT_UINT32, BASE_DEC, NULL, 0,
 							      "ROS Message Header Stamp Sec", HFILL } },
-
 		{ &hf_tcpros_message_header_stamp_nsec,     { "Nanoseconds", "tcpros.message.header.stamp.nsec",
 							      FT_UINT32, BASE_DEC, NULL, 0,
 							      "ROS Message Header Stamp NSec", HFILL } },
 
-
 		{ &hf_tcpros_message_header_frame,          { "Frame ID", "tcpros.message.header.frame",
 							      FT_UINT_STRING, BASE_NONE, NULL, 0,
 							      "ROS Message Header Frame ID", HFILL } },
-
 		{ &hf_tcpros_message_header_frame_length,   { "Length", "tcpros.message.header.frame.len",
 							      FT_UINT32, BASE_DEC, NULL, 0,
 							      "ROS Message Header Frame ID Length", HFILL } },
-
 		{ &hf_tcpros_message_header_frame_value,     { "Value", "tcpros.message.header.frame.value",
-							     FT_STRING, BASE_NONE, NULL, 0,
-							     "ROS Message Header Frame ID Value", HFILL } },
-
+							       FT_STRING, BASE_NONE, NULL, 0,
+							       "ROS Message Header Frame ID Value", HFILL } },
 
 		{ &hf_tcpros_message_payload,               { "Payload", "tcpros.message.payload",
 							      FT_BYTES, BASE_NONE, NULL, 0,
 							      "ROS Message Packet Payload", HFILL } },
-
-
-
 
 	};
 
@@ -463,7 +568,7 @@ proto_register_tcpros(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 
-	tcpros_module = prefs_register_protocol(proto_tcpros, proto_reg_handoff_tcpros);
+	tcpros_module = prefs_register_protocol(proto_tcpros, NULL);
 
 	prefs_register_bool_preference(tcpros_module, "desegment_tcpros_messages",
 				       "Reassemble TCPROS messages spanning multiple TCP segments",
@@ -474,18 +579,50 @@ proto_register_tcpros(void)
 
 }
 
+/* Heuristics test */
+static gboolean
+test_tcpros(packet_info *pinfo, tvbuff_t *tvb, int offset, void *data _U_)
+{
+	if (tvb_captured_length(tvb) < 8)
+		return FALSE;
+
+	if( is_rosclock(tvb, pinfo, offset) )
+		return TRUE;
+	if( is_rosmsg(tvb, pinfo, offset) )
+		return TRUE;
+	if( is_rosconnection_header(tvb, pinfo, offset) )
+		return TRUE;
+
+	return FALSE;
+}
+
+static gboolean
+dissect_tcpros_heur_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+	conversation_t *conversation;
+
+	if (!test_tcpros(pinfo, tvb, 0, data))
+		return FALSE;
+
+	conversation = find_or_create_conversation(pinfo);
+	conversation_set_dissector(conversation, tcpros_handle);
+
+	dissect_tcpros(tvb, pinfo, tree, data);
+
+	return (TRUE);
+}
+
+
 
 void
 proto_reg_handoff_tcpros(void)
 {
-	static dissector_handle_t tcpros_handle;
-	static gboolean Initialized = FALSE;
+	tcpros_handle = create_dissector_handle(dissect_tcpros, proto_tcpros);
+	dissector_add_for_decode_as_with_preference("tcp.port", tcpros_handle);   /* for "decode-as" */
 
-	if (!Initialized) {
-		tcpros_handle = create_dissector_handle(dissect_tcpros, proto_tcpros);
-		dissector_add_for_decode_as("tcp.port", tcpros_handle);   /* for "decode-as" */
-		Initialized    = TRUE;
-	}
+	/* register as heuristic dissector */
+	heur_dissector_add("tcp", dissect_tcpros_heur_tcp, "TCPROS over TCP",
+				"TCPROS_tcp", proto_tcpros, HEURISTIC_DISABLE);
 }
 
 

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wslua_file_common.h"
@@ -34,7 +22,7 @@
 /* WSLUA_CONTINUE_MODULE File */
 
 
-WSLUA_CLASS_DEFINE(CaptureInfo,FAIL_ON_NULL_MEMBER_OR_EXPIRED("CaptureInfo",wth),NOP);
+WSLUA_CLASS_DEFINE(CaptureInfo,FAIL_ON_NULL_OR_EXPIRED("CaptureInfo"));
 /*
     A `CaptureInfo` object, passed into Lua as an argument by `FileHandler` callback
     function `read_open()`, `read()`, `seek_read()`, `seq_read_close()`, and `read_close()`.
@@ -50,7 +38,14 @@ WSLUA_CLASS_DEFINE(CaptureInfo,FAIL_ON_NULL_MEMBER_OR_EXPIRED("CaptureInfo",wth)
  */
 
 CaptureInfo* push_CaptureInfo(lua_State* L, wtap *wth, const gboolean first_time) {
-    CaptureInfo f = (CaptureInfo) g_malloc0(sizeof(struct _wslua_captureinfo));
+    CaptureInfo f;
+
+    if (!wth) {
+        luaL_error(L, "Internal error: wth is NULL!");
+        return NULL;
+    }
+
+    f = (CaptureInfo) g_malloc0(sizeof(struct _wslua_captureinfo));
     f->wth = wth;
     f->wdh = NULL;
     f->expired = FALSE;
@@ -74,7 +69,7 @@ WSLUA_METAMETHOD CaptureInfo__tostring(lua_State* L) {
     } else {
         wtap *wth = fi->wth;
         lua_pushfstring(L, "CaptureInfo: file_type_subtype=%d, snapshot_length=%d, pkt_encap=%d, file_tsprec='%s'",
-            wth->file_type_subtype, wth->snapshot_length, wth->phdr.pkt_encap, wth->file_tsprec);
+            wth->file_type_subtype, wth->snapshot_length, wth->rec.rec_header.packet_header.pkt_encap, wth->file_tsprec);
     }
 
     WSLUA_RETURN(1); /* String of debug information. */
@@ -83,8 +78,7 @@ WSLUA_METAMETHOD CaptureInfo__tostring(lua_State* L) {
 
 static int CaptureInfo__gc(lua_State* L) {
     CaptureInfo fc = toCaptureInfo(L,1);
-    if (fc)
-        g_free(fc);
+    g_free(fc);
     return 0;
 }
 
@@ -105,30 +99,30 @@ WSLUA_ATTRIBUTE_NAMED_NUMBER_SETTER(CaptureInfo,time_precision,wth->file_tsprec,
 
 /* WSLUA_ATTRIBUTE CaptureInfo_snapshot_length RW The maximum packet length that could be recorded.
 
-    Setting it to `0` means unknown.  Wireshark cannot handle anything bigger than 65535 bytes.
+    Setting it to `0` means unknown.
  */
 WSLUA_ATTRIBUTE_NAMED_NUMBER_GETTER(CaptureInfo,snapshot_length,wth->snapshot_length);
 WSLUA_ATTRIBUTE_NAMED_NUMBER_SETTER(CaptureInfo,snapshot_length,wth->snapshot_length,guint);
 
 /* WSLUA_ATTRIBUTE CaptureInfo_comment RW A string comment for the whole capture file,
     or nil if there is no `comment`. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,comment,wth->shb_hdr,OPT_COMMENT);
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,comment,wth->shb_hdr,OPT_COMMENT);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_NTH_STRING_GETTER(CaptureInfo,comment,wth->shb_hdrs,OPT_COMMENT);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_NTH_STRING_SETTER(CaptureInfo,comment,wth->shb_hdrs,OPT_COMMENT);
 
 /* WSLUA_ATTRIBUTE CaptureInfo_hardware RW A string containing the description of
     the hardware used to create the capture, or nil if there is no `hardware` string. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,hardware,wth->shb_hdr,OPT_SHB_HARDWARE);
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,hardware,wth->shb_hdr,OPT_SHB_HARDWARE);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,hardware,wth->shb_hdrs,OPT_SHB_HARDWARE);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,hardware,wth->shb_hdrs,OPT_SHB_HARDWARE);
 
 /* WSLUA_ATTRIBUTE CaptureInfo_os RW A string containing the name of
     the operating system used to create the capture, or nil if there is no `os` string. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,os,wth->shb_hdr,OPT_SHB_OS);
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,os,wth->shb_hdr,OPT_SHB_OS);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,os,wth->shb_hdrs,OPT_SHB_OS);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,os,wth->shb_hdrs,OPT_SHB_OS);
 
 /* WSLUA_ATTRIBUTE CaptureInfo_user_app RW A string containing the name of
     the application used to create the capture, or nil if there is no `user_app` string. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,user_app,wth->shb_hdr,OPT_SHB_USERAPPL);
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,user_app,wth->shb_hdr,OPT_SHB_USERAPPL);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfo,user_app,wth->shb_hdrs,OPT_SHB_USERAPPL);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,user_app,wth->shb_hdrs,OPT_SHB_USERAPPL);
 
 /* WSLUA_ATTRIBUTE CaptureInfo_hosts WO Sets resolved ip-to-hostname information.
 
@@ -138,7 +132,11 @@ WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_SETTER(CaptureInfo,user_app,wth->shb_hdr,
 
     For example, if the capture file identifies one resolved IPv4 address of 1.2.3.4 to `foo.com`, then you must set
     `CaptureInfo.hosts` to a table of:
-    @code { ipv4_addresses = { { addr = "\01\02\03\04", name = "foo.com" } } } @endcode
+
+    [source,lua]
+    ----
+    { ipv4_addresses = { { addr = "\01\02\03\04", name = "foo.com" } } }
+    ----
 
     Note that either the `ipv4_addresses` or the `ipv6_addresses` table, or both, may be empty or nil.
     */
@@ -150,7 +148,7 @@ static int CaptureInfo_set_hosts(lua_State* L) {
     size_t addr_len = 0;
     size_t name_len = 0;
     guint32 v4_addr = 0;
-    struct e_in6_addr v6_addr = { {0} };
+    ws_in6_addr v6_addr = { {0} };
 
     if (!wth->add_new_ipv4 || !wth->add_new_ipv6) {
         return luaL_error(L, "CaptureInfo wtap has no IPv4 or IPv6 name resolution");
@@ -300,7 +298,7 @@ int CaptureInfo_register(lua_State* L) {
 }
 
 
-WSLUA_CLASS_DEFINE(CaptureInfoConst,FAIL_ON_NULL_MEMBER_OR_EXPIRED("CaptureInfoConst",wdh),NOP);
+WSLUA_CLASS_DEFINE(CaptureInfoConst,FAIL_ON_NULL_OR_EXPIRED("CaptureInfoConst"));
 /*
     A `CaptureInfoConst` object, passed into Lua as an argument to the `FileHandler` callback
     function `write_open()`.
@@ -317,7 +315,14 @@ WSLUA_CLASS_DEFINE(CaptureInfoConst,FAIL_ON_NULL_MEMBER_OR_EXPIRED("CaptureInfoC
  */
 
 CaptureInfoConst* push_CaptureInfoConst(lua_State* L, wtap_dumper *wdh) {
-    CaptureInfoConst f = (CaptureInfoConst) g_malloc0(sizeof(struct _wslua_captureinfo));
+    CaptureInfoConst f;
+
+    if (!wdh) {
+        luaL_error(L, "Internal error: wdh is NULL!");
+        return NULL;
+    }
+
+    f = (CaptureInfoConst) g_malloc0(sizeof(struct _wslua_captureinfo));
     f->wth = NULL;
     f->wdh = wdh;
     f->expired = FALSE;
@@ -332,8 +337,8 @@ WSLUA_METAMETHOD CaptureInfoConst__tostring(lua_State* L) {
         lua_pushstring(L,"CaptureInfoConst pointer is NULL!");
     } else {
         wtap_dumper *wdh = fi->wdh;
-        lua_pushfstring(L, "CaptureInfoConst: file_type_subtype=%d, snaplen=%d, encap=%d, compressed=%d, file_tsprec='%s'",
-            wdh->file_type_subtype, wdh->snaplen, wdh->encap, wdh->compressed, wdh->tsprecision);
+        lua_pushfstring(L, "CaptureInfoConst: file_type_subtype=%d, snaplen=%d, encap=%d, compressed=%d",
+            wdh->file_type_subtype, wdh->snaplen, wdh->encap, wdh->compressed);
     }
 
     WSLUA_RETURN(1); /* String of debug information. */
@@ -355,19 +360,19 @@ WSLUA_ATTRIBUTE_NAMED_NUMBER_GETTER(CaptureInfoConst,encap,wdh->encap);
 
 /* WSLUA_ATTRIBUTE CaptureInfoConst_comment RW A comment for the whole capture file, if the
     `wtap_presence_flags.COMMENTS` was set in the presence flags; nil if there is no comment. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,comment,wth->shb_hdr,OPT_COMMENT);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,comment,wth->shb_hdrs,OPT_COMMENT);
 
 /* WSLUA_ATTRIBUTE CaptureInfoConst_hardware RO A string containing the description of
     the hardware used to create the capture, or nil if there is no hardware string. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,hardware,wth->shb_hdr,OPT_SHB_HARDWARE);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,hardware,wth->shb_hdrs,OPT_SHB_HARDWARE);
 
 /* WSLUA_ATTRIBUTE CaptureInfoConst_os RO A string containing the name of
     the operating system used to create the capture, or nil if there is no os string. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,os,wth->shb_hdr,OPT_SHB_OS);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,os,wth->shb_hdrs,OPT_SHB_OS);
 
 /* WSLUA_ATTRIBUTE CaptureInfoConst_user_app RO A string containing the name of
     the application used to create the capture, or nil if there is no user_app string. */
-WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,user_app,wth->shb_hdr,OPT_SHB_USERAPPL);
+WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,user_app,wth->shb_hdrs,OPT_SHB_USERAPPL);
 
 /* WSLUA_ATTRIBUTE CaptureInfoConst_hosts RO A ip-to-hostname Lua table of two key-ed names: `ipv4_addresses` and `ipv6_addresses`.
     The value of each of these names are themselves array tables, of key-ed tables, such that the inner table has a key
@@ -375,7 +380,11 @@ WSLUA_ATTRIBUTE_NAMED_OPT_BLOCK_STRING_GETTER(CaptureInfoConst,user_app,wth->shb
 
     For example, if the current capture has one resolved IPv4 address of 1.2.3.4 to `foo.com`, then getting
     `CaptureInfoConst.hosts` will get a table of:
-    @code { ipv4_addresses = { { addr = "\01\02\03\04", name = "foo.com" } }, ipv6_addresses = { } } @endcode
+
+    [source,lua]
+    ----
+    { ipv4_addresses = { { addr = "\01\02\03\04", name = "foo.com" } }, ipv6_addresses = { } }
+    ----
 
     Note that either the `ipv4_addresses` or the `ipv6_addresses` table, or both, may be empty, however they will not
     be nil. */
@@ -470,8 +479,7 @@ static int CaptureInfoConst_set_private_table(lua_State* L) {
 
 static int CaptureInfoConst__gc(lua_State* L) {
     CaptureInfoConst fi = toCaptureInfoConst(L,1);
-    if (fi)
-        g_free(fi);
+    g_free(fi);
     return 0;
 }
 

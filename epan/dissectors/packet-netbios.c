@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -298,6 +286,7 @@ process_netbios_name(const guchar *name_ptr, char *name_ret, int name_ret_len)
 	int    i;
 	int    name_type = *(name_ptr + NETBIOS_NAME_LEN - 1);
 	guchar name_char;
+	char  *name_ret_orig = name_ret;
 	static const char hex_digits[16] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
 
 	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
@@ -324,7 +313,7 @@ process_netbios_name(const guchar *name_ptr, char *name_ret, int name_ret_len)
 
 	name_ret--;
 
-	for (i = 0; i < NETBIOS_NAME_LEN - 1; i++) {
+	while (name_ret >= name_ret_orig) {
 		if (*name_ret != ' ') {
 			*(name_ret + 1) = 0;
 			break;
@@ -1240,19 +1229,6 @@ dissect_netbios(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data 
 	return tvb_captured_length(tvb);
 }
 
-static void
-netbios_init(void)
-{
-	reassembly_table_init(&netbios_reassembly_table,
-	    &addresses_reassembly_table_functions);
-}
-
-static void
-netbios_cleanup(void)
-{
-	reassembly_table_destroy(&netbios_reassembly_table);
-}
-
 void
 proto_register_netbios(void)
 {
@@ -1475,19 +1451,20 @@ proto_register_netbios(void)
 	    "Whether the NetBIOS dissector should defragment messages spanning multiple frames",
 	    &netbios_defragment);
 
-	register_init_routine(netbios_init);
-	register_cleanup_routine(netbios_cleanup);
+	reassembly_table_register(&netbios_reassembly_table,
+	    &addresses_reassembly_table_functions);
 }
 
 void
 proto_reg_handoff_netbios(void)
 {
 	dissector_handle_t netbios_handle;
+	capture_dissector_handle_t netbios_cap_handle;
 
-	netbios_handle = create_dissector_handle(dissect_netbios,
-	    proto_netbios);
+	netbios_handle = create_dissector_handle(dissect_netbios, proto_netbios);
 	dissector_add_uint("llc.dsap", SAP_NETBIOS, netbios_handle);
-	register_capture_dissector("llc.dsap", SAP_NETBIOS, capture_netbios, proto_netbios);
+	netbios_cap_handle = create_capture_dissector_handle(capture_netbios, proto_netbios);
+	capture_dissector_add_uint("llc.dsap", SAP_NETBIOS, netbios_cap_handle);
 }
 
 

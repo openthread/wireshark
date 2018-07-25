@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,7 +22,6 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <epan/expert.h>
-#include "dwarf.h"
 
 static dissector_handle_t elf_handle;
 
@@ -596,6 +583,28 @@ typedef struct _segment_info_t {
 void proto_register_elf(void);
 void proto_reg_handoff_elf(void);
 
+static gint
+dissect_leb128(tvbuff_t *tvb, gint offset, gint64 *value)
+{
+    guint  start_offset = offset;
+    guint  shift = 0;
+    guint8 byte;
+
+    *value = 0;
+
+    do {
+        byte = tvb_get_guint8(tvb, offset);
+        offset += 1;
+
+        *value |= ((guint64)(byte & 0x7F) << shift);
+        shift += 7;
+    } while ((byte & 0x80) && (shift < 64));
+
+    if (shift < 64 && byte & 0x40)
+        *value |= - ((gint64)1 << shift);
+
+    return offset - start_offset;
+}
 
 /* Wireshark support "offset" as gint, but ELF needed guint64 size, so check if there is no overflow */
 static gint
@@ -665,7 +674,7 @@ get_section_name_offset(tvbuff_t *tvb, guint64 shoff, guint16 shnum, guint16 she
     if (shndx > shnum)
         return NULL;
 
-    offset = value_guard(shoff + shndx * shentsize);
+    offset = value_guard(shoff + (guint32)shndx * (guint32)shentsize);
     sh_name = (machine_encoding == ENC_BIG_ENDIAN) ? tvb_get_ntohl(tvb, offset) : tvb_get_letohl(tvb, offset);
     return tvb_get_const_stringz(tvb, value_guard(shstrtab_offset + sh_name), NULL);
 }
@@ -887,7 +896,7 @@ dissect_eh_frame_hdr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *segment_
     if (efp_length == LENGTH_ULEB128) {
         guint64 value;
 
-        efp_length = dissect_uleb128(tvb, offset, &value);
+        efp_length = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &value, ENC_VARINT_PROTOBUF);
     } else if (efp_length == LENGTH_LEB128) {
         gint64 value;
 
@@ -899,7 +908,7 @@ dissect_eh_frame_hdr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *segment_
 
 
     if (fde_count_length == LENGTH_ULEB128) {
-        fde_count_length = dissect_uleb128(tvb, offset, &fde_count);
+        fde_count_length = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &fde_count, ENC_VARINT_PROTOBUF);
     } else if (fde_count_length == LENGTH_LEB128) {
         gint64 value;
 
@@ -932,7 +941,7 @@ dissect_eh_frame_hdr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *segment_
     if (table_entry_length == LENGTH_ULEB128) {
         guint64 value;
 
-        table_entry_length = dissect_uleb128(tvb, offset, &value);
+        table_entry_length = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &value, ENC_VARINT_PROTOBUF);
     } else if (table_entry_length == LENGTH_LEB128) {
         gint64 value;
 
@@ -1064,9 +1073,7 @@ dissect_eh_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *segment_tree,
                                 tvb, offset, size, machine_encoding);
             offset += size;
 
-            size = dissect_uleb128(tvb, offset, &unsigned_value);
-            proto_tree_add_uint64(entry_tree, hf_elf_eh_frame_code_alignment_factor,
-                                  tvb, offset, size, unsigned_value);
+            proto_tree_add_item_ret_length(entry_tree, hf_elf_eh_frame_code_alignment_factor, tvb, offset, -1, ENC_LITTLE_ENDIAN|ENC_VARINT_PROTOBUF, &size);
             offset += size;
 
             size = dissect_leb128(tvb, offset, &signed_value);
@@ -1075,9 +1082,7 @@ dissect_eh_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *segment_tree,
             offset += size;
 
             /* according to DWARF v4 this is uLEB128 */
-            size = dissect_uleb128(tvb, offset, &unsigned_value);
-            proto_tree_add_uint64(entry_tree, hf_elf_eh_frame_return_address_register,
-                                  tvb, offset, size, unsigned_value);
+            proto_tree_add_item_ret_length(entry_tree, hf_elf_eh_frame_return_address_register, tvb, offset, -1, ENC_LITTLE_ENDIAN|ENC_VARINT_PROTOBUF, &size);
             offset += size;
         } else {
             proto_tree_add_item(entry_tree, hf_elf_eh_frame_fde_pc_begin, tvb,
@@ -1092,11 +1097,8 @@ dissect_eh_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *segment_tree,
         /* "A 'z' may be present as the first character of the string. If
          * present, the Augmentation Data field shall be present." (LSB 4.1) */
         if (augmentation_string[0] == 'z') {
-            size = dissect_uleb128(tvb, offset, &unsigned_value);
-            proto_tree_add_uint64(entry_tree, is_cie ?
-                                    hf_elf_eh_frame_augmentation_length :
-                                    hf_elf_eh_frame_fde_augmentation_length,
-                                  tvb, offset, size, unsigned_value);
+            proto_tree_add_item_ret_varint(entry_tree, is_cie ? hf_elf_eh_frame_augmentation_length : hf_elf_eh_frame_fde_augmentation_length,
+                                            tvb, offset, -1, ENC_LITTLE_ENDIAN|ENC_VARINT_PROTOBUF, &unsigned_value, &size);
             offset += size;
 
             proto_tree_add_item(entry_tree, is_cie ?
@@ -1291,7 +1293,7 @@ dissect_elf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     section_header_tree = proto_tree_add_subtree_format(main_tree, tvb, value_guard(shoff),
             shnum * shentsize, ett_elf_section_header, NULL, "Section Header Table [%d entries]", shnum);
 
-    file_size = ehsize + phnum * phentsize + shnum * shentsize;
+    file_size = ehsize + (guint32)phnum * (guint32)phentsize + (guint32)shnum * (guint32)shentsize;
 
     /* Collect infos for blackholes */
     segment_info = (segment_info_t *) wmem_alloc(wmem_packet_scope(), sizeof(segment_info_t) * (shnum + phnum + 3));
@@ -1303,14 +1305,14 @@ dissect_elf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
     if (phoff) {
         segment_info[area_counter].offset = phoff;
-        segment_info[area_counter].size = phnum * phentsize;
+        segment_info[area_counter].size = (guint32)phnum * (guint32)phentsize;
         segment_info[area_counter].name = "ProgramHeader";
         area_counter += 1;
     }
 
     if (shoff) {
         segment_info[area_counter].offset = shoff;
-        segment_info[area_counter].size = shnum * shentsize;
+        segment_info[area_counter].size = (guint32)shnum * (guint32)shentsize;
         segment_info[area_counter].name = "SectionHeader";
         area_counter += 1;
     }
@@ -1434,7 +1436,7 @@ dissect_elf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
         offset += 4;
 
-        length = shoff + shstrndx * shentsize + 2 * 4 + 2 * register_size;
+        length = shoff + (guint32)shstrndx * (guint32)shentsize + 2 * 4 + 2 * register_size;
         if (register_size == REGISTER_32_SIZE) {
             shstrtab_offset = (machine_encoding == ENC_BIG_ENDIAN) ?
                     tvb_get_ntohl(tvb, value_guard(length)) : tvb_get_letohl(tvb, value_guard(length));
@@ -1500,7 +1502,7 @@ dissect_elf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         } else if (sh_type >= 0x70000000 && sh_type <= 0x7FFFFFFF) {
             proto_item_append_text(sh_entry_item, "Processor Specific (0x%08x)", sh_type);
             proto_tree_add_item(sh_entry_tree, hf_elf_sh_type_processor_specific, tvb, offset, 4, machine_encoding);
-        } else if (sh_type >= 0x80000000 && sh_type <= 0xFFFFFFFF) {
+        } else if (sh_type >= 0x80000000) {
             proto_item_append_text(sh_entry_item, "User Specific (0x%08x)", sh_type);
             proto_tree_add_item(sh_entry_tree, hf_elf_sh_type_user_specific, tvb, offset, 4, machine_encoding);
         }else {
@@ -1509,7 +1511,7 @@ dissect_elf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         }
         offset += 4;
 
-        length = shoff + shstrndx * shentsize + 2 * 4 + 2 * register_size;
+        length = shoff + (guint32)shstrndx * (guint32)shentsize + 2 * 4 + 2 * register_size;
         if (register_size == REGISTER_32_SIZE) {
             shstrtab_offset = (machine_encoding == ENC_BIG_ENDIAN) ?
                     tvb_get_ntohl(tvb, value_guard(length)) : tvb_get_letohl(tvb, value_guard(length));

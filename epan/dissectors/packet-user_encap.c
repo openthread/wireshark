@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -82,19 +70,23 @@ static uat_t* encaps_uat;
 
 static gint exported_pdu_tap = -1;
 
+static dissector_handle_t user_encap_handle;
+
 /*
  * Use this for DLT_USER2 if we don't have an encapsulation for it.
  */
-static user_encap_t user2_encap;
+static user_encap_t user2_encap = {WTAP_ENCAP_USER2, "pktap", NULL, "", NULL, "", NULL, 0, 0};
 
 static void export_pdu(tvbuff_t *tvb, packet_info* pinfo, char *proto_name)
 {
     if (have_tap_listener(exported_pdu_tap)) {
-        exp_pdu_data_t *exp_pdu_data;
-        guint8 exp_pdu_data_tag;
+        static const exp_pdu_data_item_t *user_encap_exp_pdu_items[] = {
+            &exp_pdu_data_orig_frame_num,
+            NULL
+        };
 
-        exp_pdu_data_tag = EXP_PDU_TAG_ORIG_FNO_BIT;
-        exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, proto_name, &exp_pdu_data_tag, 1);
+        exp_pdu_data_t *exp_pdu_data = export_pdu_create_tags(pinfo, proto_name, EXP_PDU_TAG_PROTO_NAME, user_encap_exp_pdu_items);
+
         exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
         exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
         exp_pdu_data->pdu_tvb = tvb;
@@ -156,7 +148,7 @@ static int dissect_user(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, voi
         export_pdu(hdr_tvb, pinfo, encap->header_proto_name);
         call_dissector(encap->header_proto, hdr_tvb, pinfo, tree);
         if (encap->header_proto_name) {
-            const char *proto_name = dissector_handle_get_long_name(find_dissector(encap->header_proto_name));
+            const char *proto_name = dissector_handle_get_long_name(encap->header_proto);
             if (proto_name) {
                 proto_item_append_text(item, ", Header: %s (%s)", encap->header_proto_name, proto_name);
             }
@@ -166,11 +158,11 @@ static int dissect_user(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, voi
     len = tvb_captured_length(tvb) - (encap->header_size + encap->trailer_size);
     reported_len = tvb_reported_length(tvb) - (encap->header_size + encap->trailer_size);
 
-    payload_tvb = tvb_new_subset(tvb, encap->header_size, len, reported_len);
+    payload_tvb = tvb_new_subset_length_caplen(tvb, encap->header_size, len, reported_len);
     export_pdu(payload_tvb, pinfo, encap->payload_proto_name);
     call_dissector(encap->payload_proto, payload_tvb, pinfo, tree);
     if (encap->payload_proto_name) {
-        const char *proto_name = dissector_handle_get_long_name(find_dissector(encap->payload_proto_name));
+        const char *proto_name = dissector_handle_get_long_name(encap->payload_proto);
         if (proto_name) {
             proto_item_append_text(item, ", Payload: %s (%s)", encap->payload_proto_name, proto_name);
         }
@@ -181,7 +173,7 @@ static int dissect_user(tvbuff_t* tvb, packet_info* pinfo, proto_tree* tree, voi
         export_pdu(trailer_tvb, pinfo, encap->trailer_proto_name);
         call_dissector(encap->trailer_proto, trailer_tvb, pinfo, tree);
         if (encap->trailer_proto_name) {
-            const char *proto_name = dissector_handle_get_long_name(find_dissector(encap->trailer_proto_name));
+            const char *proto_name = dissector_handle_get_long_name(encap->trailer_proto);
             if (proto_name) {
                 proto_item_append_text(item, ", Trailer: %s (%s)", encap->trailer_proto_name, proto_name);
             }
@@ -195,9 +187,15 @@ static void* user_copy_cb(void* dest, const void* orig, size_t len _U_)
     const user_encap_t *o = (const user_encap_t *)orig;
     user_encap_t *d = (user_encap_t *)dest;
 
+    d->encap = o->encap;
     d->payload_proto_name = g_strdup(o->payload_proto_name);
-    d->header_proto_name  = g_strdup(o->header_proto_name);
+    d->payload_proto = o->payload_proto;
+    d->header_proto_name = g_strdup(o->header_proto_name);
+    d->header_proto = o->header_proto;
     d->trailer_proto_name = g_strdup(o->trailer_proto_name);
+    d->trailer_proto = o->trailer_proto;
+    d->header_size = o->header_size;
+    d->trailer_size = o->trailer_size;
 
     return d;
 }
@@ -214,30 +212,18 @@ static void user_free_cb(void* record)
 UAT_VS_DEF(user_encap, encap, user_encap_t, guint, WTAP_ENCAP_USER0, ENCAP0_STR)
 UAT_PROTO_DEF(user_encap, payload_proto, payload_proto, payload_proto_name, user_encap_t)
 UAT_DEC_CB_DEF(user_encap, header_size, user_encap_t)
-UAT_DEC_CB_DEF(user_encap, trailer_size, user_encap_t)
 UAT_PROTO_DEF(user_encap, header_proto, header_proto, header_proto_name, user_encap_t)
+UAT_DEC_CB_DEF(user_encap, trailer_size, user_encap_t)
 UAT_PROTO_DEF(user_encap, trailer_proto, trailer_proto, trailer_proto_name, user_encap_t)
 
 void proto_reg_handoff_user_encap(void)
 {
-    dissector_handle_t user_encap_handle;
     guint i;
 
-    user_encap_handle = find_dissector("user_dlt");
-
-    user2_encap.encap = WTAP_ENCAP_USER2;
-    user2_encap.payload_proto_name = g_strdup("pktap");
     user2_encap.payload_proto = find_dissector("pktap");
-    user2_encap.header_proto_name = g_strdup("");
-    user2_encap.header_proto = NULL;
-    user2_encap.trailer_proto_name = g_strdup("");
-    user2_encap.trailer_proto = NULL;
-    user2_encap.header_size = 0;
-    user2_encap.trailer_size = 0;
 
-    for (i = WTAP_ENCAP_USER0 ; i <= WTAP_ENCAP_USER15; i++)
+    for (i = WTAP_ENCAP_USER0; i <= WTAP_ENCAP_USER15; i++)
         dissector_add_uint("wtap_encap", i, user_encap_handle);
-
 }
 
 
@@ -283,6 +269,7 @@ void proto_register_user_encap(void)
                          NULL,
                          user_free_cb,
                          NULL,
+                         NULL,
                          user_flds );
 
     prefs_register_uat_preference(module,
@@ -292,7 +279,7 @@ void proto_register_user_encap(void)
                       encaps_uat);
 
 
-    register_dissector("user_dlt",dissect_user,proto_user_encap);
+    user_encap_handle = register_dissector("user_dlt",dissect_user,proto_user_encap);
 
     /*
     prefs_register_protocol_obsolete(proto_register_protocol("DLT User A","DLT_USER_A","user_dlt_a"));

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -38,7 +26,11 @@ typedef enum LogicalChannelType
     Channel_DCCH=1,
     Channel_BCCH=2,
     Channel_CCCH=3,
-    Channel_PCCH=4
+    Channel_PCCH=4,
+    Channel_DCCH_NB=5,
+    Channel_BCCH_NB=6,
+    Channel_CCCH_NB=7,
+    Channel_PCCH_NB=8
 } LogicalChannelType;
 
 typedef enum
@@ -89,6 +81,9 @@ typedef struct pdcp_lte_info
     rohc_info          rohc;
 
     guint8             is_retx;
+
+    /* Used by heuristic dissector only */
+    guint16            pdu_length;
 } pdcp_lte_info;
 
 

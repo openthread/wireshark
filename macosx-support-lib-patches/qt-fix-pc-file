@@ -1,5 +1,13 @@
 #! /bin/sh
 #
+# Fix a Qt .pc file's flags.
+#
+# Wireshark - Network traffic analyzer
+# By Gerald Combs <gerald@wireshark.org>
+# Copyright 2014 Gerald Combs
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
 # Fix a single Qt .pc file to provide the right flags; a -F flag is
 # needed to point to the directory under which the frameworks are
 # placed, and a -I flag needs to point to the directory where

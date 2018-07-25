@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /* Protocol reference:
  * http://isotc.iso.org/livelink/livelink?func=ll&objId=8500308&objAction=Open&ei=nt-RTKe1IJKTjAeepLS8BQ&usg=AFQjCNEn8hlU_SfoAGkM-X48JL_BL8bptA&sig2=JOHNPrqgCMO4q0cWhAfkow
@@ -166,7 +154,7 @@ static const value_string wai_type_names [] = {
 
 static const value_string wai_attr_type_names [] = {
     { 1, "Signature"},
-    { 2, "Certificate Authentification Result"},
+    { 2, "Certificate Authentication Result"},
     { 3, "Identity List"},
     { 0, NULL }
 };
@@ -894,7 +882,7 @@ Figure 18 from [ref:1]
     if (version == 1) {
         subtype_name = val_to_str_ext_const(subtype, &wai_subtype_names_ext, "Unknown type");
     }
-    col_append_fstr(pinfo->cinfo, COL_INFO, "%s", subtype_name);
+    col_append_str(pinfo->cinfo, COL_INFO, subtype_name);
 
     /* Field lengths and offsets in WAI protocol described above */
     packet_num   = tvb_get_ntohs(tvb, 8);
@@ -964,17 +952,6 @@ Figure 18 from [ref:1]
     }
 
     return tvb_captured_length(tvb);
-}
-
-static void wai_reassemble_init (void)
-{
-    reassembly_table_init(&wai_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void wai_reassemble_cleanup (void)
-{
-    reassembly_table_destroy(&wai_reassembly_table);
 }
 
 void
@@ -1367,10 +1344,10 @@ proto_register_wai(void)
     };
 
     proto_wai = proto_register_protocol("WAI Protocol", "WAI", "wai");
-    register_init_routine(&wai_reassemble_init);
-    register_cleanup_routine(&wai_reassemble_cleanup);
     proto_register_field_array(proto_wai, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    reassembly_table_register(&wai_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
     wai_handle = register_dissector("wai", dissect_wai, proto_wai);
 }

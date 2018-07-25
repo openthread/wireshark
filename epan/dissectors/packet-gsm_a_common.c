@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -547,6 +535,18 @@ static const value_string gsm_a_rr_rxlev_vals [] = {
 };
 value_string_ext gsm_a_rr_rxlev_vals_ext = VALUE_STRING_EXT_INIT(gsm_a_rr_rxlev_vals);
 
+const value_string gsm_a_rr_rxqual_vals[] = {
+    {0, "BER < 0.2%, Mean value 0.14%"},
+    {1, "0.2% <= BER < 0.4%, Mean value 0.28%"},
+    {2, "0.4% <= BER < 0.8%, Mean value 0.57%"},
+    {3, "0.8% <= BER < 1.6%, Mean value 1.13%"},
+    {4, "1.6% <= BER < 3.2%, Mean value 2.26%"},
+    {5, "3.2% <= BER < 6.4%, Mean value 4.53%"},
+    {6, "6.4% <= BER < 12.8%, Mean value 9.05%"},
+    {7, "BER > 12.8%, Mean value 18.10%"},
+    {0, NULL}
+};
+
 /* Initialize the protocol and registered fields */
 static int proto_a_common = -1;
 
@@ -715,6 +715,7 @@ static int hf_gsm_a_geo_loc_type_of_shape = -1;
 static int hf_gsm_a_geo_loc_sign_of_lat = -1;
 static int hf_gsm_a_geo_loc_deg_of_lat =-1;
 static int hf_gsm_a_geo_loc_deg_of_long =-1;
+static int hf_gsm_a_geo_loc_osm_uri =-1;
 static int hf_gsm_a_geo_loc_uncertainty_code = -1;
 static int hf_gsm_a_geo_loc_uncertainty_semi_major = -1;
 static int hf_gsm_a_geo_loc_uncertainty_semi_minor = -1;
@@ -808,10 +809,12 @@ static const value_string dir_of_alt_vals[] = {
     { 0,  NULL }
 };
 
+typedef guint16 (**elem_func_hander)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+
 void
 dissect_geographical_description(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree) {
 
-    proto_item *lat_item, *long_item, *major_item, *minor_item, *alt_item, *uncer_item;
+    proto_item *lat_item, *long_item, *major_item, *minor_item, *alt_item, *uncer_item, *loc_uri_item;
     /*proto_tree *subtree; */
     guint8      type_of_shape;
     /*guint8 no_of_points;*/
@@ -820,6 +823,10 @@ dissect_geographical_description(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
     guint8      value;
     guint32     uvalue32;
     gint32      svalue32;
+    gchar       *deg_lat_str;
+    gchar       *deg_lon_str;
+    gchar       *osm_uri;
+    int         loc_offset;
 
     /*subtree = proto_item_add_subtree(item, ett_gsm_a_geo_desc);*/
 
@@ -853,9 +860,11 @@ dissect_geographical_description(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
         uvalue32  = tvb_get_ntoh24(tvb,offset);
         /* convert degrees (X/0x7fffff) * 90 = degrees */
         lat_item = proto_tree_add_item(tree, hf_gsm_a_geo_loc_deg_of_lat, tvb, offset, 3, ENC_BIG_ENDIAN);
-        proto_item_append_text(lat_item, " (%s%.5f degrees)",
+        deg_lat_str = wmem_strdup_printf(wmem_packet_scope(), "%s%.5f",
             (uvalue32 & 0x00800000) ? "-" : "",
             ((double)(uvalue32 & 0x7fffff)/8388607.0) * 90);
+        proto_item_append_text(lat_item, " (%s degrees)", deg_lat_str);
+        loc_offset = offset;
         if (length < 7)
             return;
         offset    = offset + 3;
@@ -863,8 +872,9 @@ dissect_geographical_description(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
         svalue32 |= (svalue32 & 0x800000) ? 0xff000000 : 0x00000000;
         long_item = proto_tree_add_item(tree, hf_gsm_a_geo_loc_deg_of_long, tvb, offset, 3, ENC_BIG_ENDIAN);
         /* (X/0xffffff) *360 = degrees */
-        proto_item_append_text(long_item, " (%.5f degrees)",
+        deg_lon_str = wmem_strdup_printf(wmem_packet_scope(), "%.5f",
             ((double)svalue32/16777215.0) * 360);
+        proto_item_append_text(long_item, " (%s degrees)", deg_lon_str);
         offset = offset + 3;
         if (type_of_shape == ELLIPSOID_POINT_WITH_UNCERT_CIRC) {
             /* Ellipsoid Point with uncertainty Circle */
@@ -961,6 +971,10 @@ dissect_geographical_description(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
             /* Confidence */
             proto_tree_add_item(tree, hf_gsm_a_geo_loc_confidence, tvb, offset, 1, ENC_BIG_ENDIAN);
         }
+        osm_uri = wmem_strdup_printf(wmem_packet_scope(), "https://www.openstreetmap.org/?mlat=%s&mlon=%s&zoom=12", deg_lat_str, deg_lon_str);
+        loc_uri_item = proto_tree_add_string(tree, hf_gsm_a_geo_loc_osm_uri, tvb, loc_offset, 6, osm_uri);
+        PROTO_ITEM_SET_URL(loc_uri_item);
+        PROTO_ITEM_SET_GENERATED(loc_uri_item);
 
         break;
     case POLYGON:                   /* Polygon */
@@ -1033,8 +1047,7 @@ dissect_description_of_velocity(tvbuff_t *tvb, proto_tree *tree, packet_info *pi
         proto_tree_add_bits_item(tree, hf_gsm_a_bearing, tvb, (curr_offset<<3)+7, 9, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Horizontal speed is encoded in increments of 1 kilometre per hour using a 16 bit binary coded number N. */
-        velocity_item = proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
-        proto_item_append_text(velocity_item, " km/h");
+        proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
         curr_offset += 2;
         break;
     case 1:
@@ -1047,14 +1060,12 @@ dissect_description_of_velocity(tvbuff_t *tvb, proto_tree *tree, packet_info *pi
         proto_tree_add_bits_item(tree, hf_gsm_a_bearing, tvb, (curr_offset<<3)+7, 9, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Horizontal speed is encoded in increments of 1 kilometre per hour using a 16 bit binary coded number N. */
-        velocity_item = proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
-        proto_item_append_text(velocity_item, " km/h");
+        proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Vertical Speed Octet 5
          * Vertical speed is encoded in increments of 1 kilometre per hour using 8 bits giving a number N between 0 and 28-1.
          */
-        velocity_item = proto_tree_add_item(tree, hf_gsm_a_vertical_speed, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_item_append_text(velocity_item, " km/h");
+        proto_tree_add_item(tree, hf_gsm_a_vertical_speed, tvb, offset, 1, ENC_BIG_ENDIAN);
         curr_offset++;
         break;
     case 2:
@@ -1065,8 +1076,7 @@ dissect_description_of_velocity(tvbuff_t *tvb, proto_tree *tree, packet_info *pi
         proto_tree_add_bits_item(tree, hf_gsm_a_bearing, tvb, (curr_offset<<3)+7, 9, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Horizontal speed is encoded in increments of 1 kilometre per hour using a 16 bit binary coded number N. */
-        velocity_item = proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
-        proto_item_append_text(velocity_item, " km/h");
+        proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Uncertainty Speed Octet 5
          * Uncertainty speed is encoded in increments of 1 kilometre per hour using an 8 bit binary coded number N. The value of
@@ -1091,14 +1101,12 @@ dissect_description_of_velocity(tvbuff_t *tvb, proto_tree *tree, packet_info *pi
         proto_tree_add_bits_item(tree, hf_gsm_a_bearing, tvb, (curr_offset<<3)+7, 9, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Horizontal speed is encoded in increments of 1 kilometre per hour using a 16 bit binary coded number N. */
-        velocity_item = proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
-        proto_item_append_text(velocity_item, " km/h");
+        proto_tree_add_item(tree, hf_gsm_a_horizontal_speed, tvb, offset, 2, ENC_BIG_ENDIAN);
         curr_offset += 2;
         /* Vertical Speed Octet 5
          * Vertical speed is encoded in increments of 1 kilometre per hour using 8 bits giving a number N between 0 and 28-1.
          */
-        velocity_item = proto_tree_add_item(tree, hf_gsm_a_vertical_speed, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_item_append_text(velocity_item, " km/h");
+        proto_tree_add_item(tree, hf_gsm_a_vertical_speed, tvb, offset, 1, ENC_BIG_ENDIAN);
         curr_offset++;
 
         /* Horizontal Uncertainty Speed Octet 6 */
@@ -1179,6 +1187,15 @@ const char* get_gsm_a_msg_string(int pdu_type, int idx)
     case GMR1_IE_RR:
         msg_string = val_to_str_ext(idx, &gmr1_ie_rr_strings_ext, "GMR1_IE_RR (%u)");
         break;
+    case NAS_5GS_PDU_TYPE_COMMON:
+        msg_string = val_to_str_ext(idx, &nas_5gs_common_elem_strings_ext, "NAS_5GS_PDU_TYPE_COMMON (%u)");
+        break;
+    case NAS_5GS_PDU_TYPE_MM:
+        msg_string = val_to_str_ext(idx, &nas_5gs_mm_elem_strings_ext, "NAS_5GS_PDU_TYPE_MM (%u)");
+        break;
+    case NAS_5GS_PDU_TYPE_SM:
+        msg_string = val_to_str_ext(idx, &nas_5gs_sm_elem_strings_ext, "NAS_5GS_PDU_TYPE_SM (%u)");
+        break;
     default:
         DISSECTOR_ASSERT_NOT_REACHED();
     }
@@ -1234,6 +1251,15 @@ static int get_hf_elem_id(int pdu_type)
     case GMR1_IE_RR:
         hf_elem_id = hf_gmr1_elem_id;
         break;
+    case NAS_5GS_PDU_TYPE_COMMON:
+        hf_elem_id = hf_nas_5gs_common_elem_id;
+        break;
+    case NAS_5GS_PDU_TYPE_MM:
+        hf_elem_id = hf_nas_5gs_mm_elem_id;
+        break;
+    case NAS_5GS_PDU_TYPE_SM:
+        hf_elem_id = hf_nas_5gs_sm_elem_id;
+        break;
     default:
         DISSECTOR_ASSERT_NOT_REACHED();
     }
@@ -1256,7 +1282,7 @@ guint16 elem_tlv(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint8 iei
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1339,7 +1365,7 @@ guint16 elem_telv(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint8 ie
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1428,7 +1454,7 @@ guint16 elem_tlv_e(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint8 i
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1507,7 +1533,7 @@ guint16 elem_tv(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint8 iei,
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1581,7 +1607,7 @@ guint16 elem_tv_short(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1638,14 +1664,14 @@ guint16 elem_tv_short(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint
 /*
  * Type (T) element dissector
  */
-guint16 elem_t(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint8 iei, gint pdu_type, int idx, guint32 offset, const gchar *name_add)
+guint16 elem_t(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint8 iei, gint pdu_type, int idx, guint32 offset, const gchar *name_add)
 {
     guint8              oct;
     guint32             curr_offset;
     guint16             consumed;
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1686,7 +1712,7 @@ elem_lv(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, gint pdu_type, int 
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1752,7 +1778,7 @@ guint16 elem_lv_e(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, gint pdu_
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -1819,7 +1845,7 @@ guint16 elem_v(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, gint pdu_typ
     value_string_ext    elem_names_ext;
     gint               *elem_ett;
     const gchar        *elem_name;
-    guint16 (**elem_funcs)(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len);
+    elem_func_hander    elem_funcs;
 
     curr_offset = offset;
     consumed = 0;
@@ -2017,7 +2043,7 @@ mcc_mnc_aux(guint8 *octs, gchar *mcc, gchar *mnc)
  * [3] 10.5.1.1 Cell Identity
  */
 guint16
-de_cell_id(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint32 offset, guint len, gchar *add_string, int string_len)
+de_cell_id(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guint len, gchar *add_string, int string_len)
 {
     guint32 curr_offset;
 
@@ -2060,7 +2086,7 @@ static const value_string gsm_a_key_seq_vals[] = {
 };
 
 static guint16
-de_ciph_key_seq_num( tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint32 offset, guint len _U_, gchar *add_string _U_, int string_len _U_)
+de_ciph_key_seq_num( tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint32 offset, guint len, gchar *add_string _U_, int string_len _U_)
 {
     guint32 curr_offset, bit_offset;
 
@@ -2156,7 +2182,7 @@ de_mid(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guin
 
         curr_offset++;
 
-        if (len > 1)
+        if (len != 1 && len != 3)
         {
             expert_add_info(pinfo, tree, &ei_gsm_a_format_not_supported);
         }
@@ -2172,6 +2198,9 @@ de_mid(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, guin
         proto_tree_add_item(tree, hf_gsm_a_id_dig_1, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(tree, hf_gsm_a_odd_even_ind, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(tree, hf_gsm_a_mobile_identity_type, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
+
+        if (curr_offset - offset >= len) /* Sanity check */
+            return (curr_offset - offset);
 
         if((oct & 0x07) == 3){
             /* imeisv */
@@ -3188,7 +3217,7 @@ de_ms_cm_3(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset, 
 /*
  * [3] 10.5.1.8
  */
-guint16 de_spare_nibble(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint32 offset, guint len _U_, gchar *add_string _U_, int string_len _U_)
+guint16 de_spare_nibble(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint32 offset, guint len, gchar *add_string _U_, int string_len _U_)
 {
    guint32 curr_offset;
    gint    bit_offset;
@@ -3528,7 +3557,7 @@ static stat_tap_table_item gsm_a_stat_fields[] = {
     {TABLE_ITEM_UINT, TAP_ALIGN_RIGHT, "Count", "%d"}
     };
 
-static void gsm_a_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data, const char *table_title, const value_string *msg_strings)
+static void gsm_a_stat_init(stat_tap_table_ui* new_stat, const char *table_title, const value_string *msg_strings)
 {
     int num_fields = sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item);
     stat_tap_table* table;
@@ -3540,8 +3569,8 @@ static void gsm_a_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_c
     items[COUNT_COLUMN].type = TABLE_ITEM_UINT;
     items[COUNT_COLUMN].value.uint_value = 0;
 
-    table = new_stat_tap_init_table(table_title, num_fields, 0, NULL, gui_callback, gui_data);
-    new_stat_tap_add_table(new_stat, table);
+    table = stat_tap_init_table(table_title, num_fields, 0, NULL);
+    stat_tap_add_table(new_stat, table);
 
     /* Add a row for each value type */
     for (i = 0; i < 256; i++)
@@ -3556,74 +3585,74 @@ static void gsm_a_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_c
 
         items[IEI_COLUMN].value.uint_value = i;
         items[MSG_NAME_COLUMN].value.string_value = col_str;
-        new_stat_tap_init_table_row(table, i, num_fields, items);
+        stat_tap_init_table_row(table, i, num_fields, items);
     }
 }
 
-static void gsm_a_bssmap_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_bssmap_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F BSSMAP Statistics", gsm_a_bssmap_msg_strings);
 }
 
-static void gsm_a_dtap_mm_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_mm_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP Mobility Management Statistics", gsm_a_dtap_msg_mm_strings);
 }
 
-static void gsm_a_dtap_rr_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_rr_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP Radio Resource Management Statistics", gsm_a_dtap_msg_rr_strings);
 }
 
-static void gsm_a_dtap_cc_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_cc_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP Call Control Statistics", gsm_a_dtap_msg_cc_strings);
 }
 
-static void gsm_a_dtap_gmm_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_gmm_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP GPRS Mobility Management Statistics", gsm_a_dtap_msg_gmm_strings);
 }
 
-static void gsm_a_dtap_sm_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_sm_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP GPRS Session Management Statistics", gsm_a_dtap_msg_sm_strings);
 }
 
-static void gsm_a_dtap_sms_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_sms_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP Short Message Service Statistics", gsm_a_dtap_msg_sms_strings);
 }
 
-static void gsm_a_dtap_tp_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_tp_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP Special Conformance Testing Functions", gsm_a_dtap_msg_tp_strings);
 }
 
-static void gsm_a_dtap_ss_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_dtap_ss_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F DTAP Supplementary Services Statistics", gsm_a_dtap_msg_ss_strings);
 }
 
-static void gsm_a_sacch_rr_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void gsm_a_sacch_rr_stat_init(stat_tap_table_ui* new_stat)
 {
-    gsm_a_stat_init(new_stat, gui_callback, gui_data,
+    gsm_a_stat_init(new_stat,
                     "GSM A-I/F SACCH Statistics", gsm_a_rr_short_pd_msg_strings);
 }
 
 static gboolean
 gsm_a_stat_packet(void *tapdata, const void *gatr_ptr, guint8 pdu_type, int protocol_disc)
 {
-    new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+    stat_data_t* stat_data = (stat_data_t*)tapdata;
     const gsm_a_tap_rec_t *gatr = (const gsm_a_tap_rec_t *) gatr_ptr;
     stat_tap_table* table;
     stat_tap_table_item_type* msg_data;
@@ -3634,9 +3663,9 @@ gsm_a_stat_packet(void *tapdata, const void *gatr_ptr, guint8 pdu_type, int prot
     if (pdu_type == GSM_A_PDU_TYPE_SACCH && gatr->protocol_disc != 0) return FALSE;
 
     table = g_array_index(stat_data->stat_tap_data->tables, stat_tap_table*, i);
-    msg_data = new_stat_tap_get_field_data(table, gatr->message_type, COUNT_COLUMN);
+    msg_data = stat_tap_get_field_data(table, gatr->message_type, COUNT_COLUMN);
     msg_data->value.uint_value++;
-    new_stat_tap_set_field_data(table, gatr->message_type, COUNT_COLUMN, msg_data);
+    stat_tap_set_field_data(table, gatr->message_type, COUNT_COLUMN, msg_data);
 
     return TRUE;
 }
@@ -3709,9 +3738,9 @@ gsm_a_stat_reset(stat_tap_table* table)
 
     for (element = 0; element < table->num_elements; element++)
     {
-        item_data = new_stat_tap_get_field_data(table, element, COUNT_COLUMN);
+        item_data = stat_tap_get_field_data(table, element, COUNT_COLUMN);
         item_data->value.uint_value = 0;
-        new_stat_tap_set_field_data(table, element, COUNT_COLUMN, item_data);
+        stat_tap_set_field_data(table, element, COUNT_COLUMN, item_data);
     }
 }
 
@@ -4512,6 +4541,11 @@ proto_register_gsm_a_common(void)
         FT_INT24, BASE_DEC, NULL, 0xffffff,
         NULL, HFILL }
     },
+    { &hf_gsm_a_geo_loc_osm_uri,
+        { "Location OSM URI", "gsm_a.gad.location_uri",
+        FT_STRING, BASE_NONE, NULL, 0x0,
+        NULL, HFILL }
+    },
     { &hf_gsm_a_geo_loc_uncertainty_code,
         { "Uncertainty code", "gsm_a.gad.uncertainty_code",
         FT_UINT8, BASE_DEC, NULL, 0x7f,
@@ -4559,12 +4593,12 @@ proto_register_gsm_a_common(void)
     },
     { &hf_gsm_a_horizontal_speed,
         { "Horizontal Speed", "gsm_a.gad.horizontal_velocity",
-        FT_UINT16, BASE_DEC, NULL, 0x0,
+        FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_kmh, 0x0,
         NULL, HFILL }
     },
     { &hf_gsm_a_vertical_speed,
         { "Vertical Speed", "gsm_a.gad.vertical_speed",
-        FT_UINT8, BASE_DEC, NULL, 0x0,
+        FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_kmh, 0x0,
         NULL, HFILL }
     },
     { &hf_gsm_a_uncertainty_speed,
@@ -4677,7 +4711,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_mm_stat_table = {
@@ -4692,7 +4727,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_rr_stat_table = {
@@ -4707,7 +4743,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_cc_stat_table = {
@@ -4722,7 +4759,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_gmm_stat_table = {
@@ -4737,7 +4775,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_sm_stat_table = {
@@ -4752,7 +4791,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_sms_stat_table = {
@@ -4767,7 +4807,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_tp_stat_table = {
@@ -4782,7 +4823,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_dtap_ss_stat_table = {
@@ -4797,7 +4839,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     static stat_tap_table_ui gsm_a_sacch_rr_stat_table = {
@@ -4812,7 +4855,8 @@ proto_register_gsm_a_common(void)
         NULL,
         sizeof(gsm_a_stat_fields)/sizeof(stat_tap_table_item), gsm_a_stat_fields,
         sizeof(gsm_a_stat_params)/sizeof(tap_param), gsm_a_stat_params,
-        NULL
+        NULL,
+        0
     };
 
     last_offset = NUM_INDIVIDUAL_ELEMS;

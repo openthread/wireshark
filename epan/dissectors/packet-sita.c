@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Use indentation = 4 */
@@ -66,6 +54,8 @@ static int                  hf_cts              = -1;
 static int                  hf_rts              = -1;
 static int                  hf_dcd              = -1;
 static int                  hf_signals          = -1;
+
+static dissector_handle_t  sita_handle;
 
 #define MAX_FLAGS_LEN 64                                    /* max size of a 'flags' decoded string */
 #define IOP                 "Local"
@@ -159,34 +149,49 @@ dissect_sita(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
                                                 signal_flags, signals, BMT_NO_FALSE|BMT_NO_TFS);
 
         if ((flags & SITA_FRAME_DIR) == SITA_FRAME_DIR_RXED) {
+            static const int * errors1_flags[] = {
+                &hf_shortframe,
+                &hf_longframe,
+                &hf_collision,
+                &hf_parity,
+                &hf_framing,
+                NULL
+            };
+
+            static const int * errors2_flags[] = {
+                &hf_break,
+                &hf_crc,
+                &hf_length,
+                &hf_overrun,
+                &hf_rxdpll,
+                &hf_lostcd,
+                &hf_abort,
+                &hf_nonaligned,
+                NULL
+            };
+
             errors1_string = format_flags_string(errors1, rx_errors1_str);
             sita_errors1_tree = proto_tree_add_subtree_format(sita_tree, tvb, 0, 0,
                 ett_sita_errors1, NULL, "Receive Status: 0x%02x %s", errors1, errors1_string);
-            proto_tree_add_boolean(sita_errors1_tree, hf_shortframe,    tvb, 0, 0, errors1);
-            proto_tree_add_boolean(sita_errors1_tree, hf_longframe,     tvb, 0, 0, errors1);
-            proto_tree_add_boolean(sita_errors1_tree, hf_collision,     tvb, 0, 0, errors1);
-            proto_tree_add_boolean(sita_errors1_tree, hf_parity,        tvb, 0, 0, errors1);
-            proto_tree_add_boolean(sita_errors1_tree, hf_framing,       tvb, 0, 0, errors1);
+            proto_tree_add_bitmask_list_value(sita_errors1_tree, tvb, 0, 0, errors1_flags, errors1);
 
             errors2_string = format_flags_string(errors2, rx_errors2_str);
             sita_errors2_tree = proto_tree_add_subtree_format(sita_tree, tvb, 0, 0,
                 ett_sita_errors2, NULL, "Receive Status: 0x%02x %s", errors2, errors2_string);
-            proto_tree_add_boolean(sita_errors2_tree, hf_break,         tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_crc,           tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_length,        tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_overrun,       tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_rxdpll,        tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_lostcd,        tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_abort,         tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors2_tree, hf_nonaligned,    tvb, 0, 0, errors2);
+            proto_tree_add_bitmask_list_value(sita_errors2_tree, tvb, 0, 0, errors2_flags, errors2);
         } else {
+            static const int * errors2_flags[] = {
+                &hf_rtxlimit,
+                &hf_uarterror,
+                &hf_lostcts,
+                &hf_underrun,
+                NULL
+            };
+
             errors2_string = format_flags_string(errors2, tx_errors2_str);
             sita_errors1_tree = proto_tree_add_subtree_format(sita_tree, tvb, 0, 0,
                 ett_sita_errors1, NULL, "Transmit Status: 0x%02x %s", errors2, errors2_string);
-            proto_tree_add_boolean(sita_errors1_tree, hf_rtxlimit,      tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors1_tree, hf_uarterror,     tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors1_tree, hf_lostcts,       tvb, 0, 0, errors2);
-            proto_tree_add_boolean(sita_errors1_tree, hf_underrun,      tvb, 0, 0, errors2);
+            proto_tree_add_bitmask_list_value(sita_errors1_tree, tvb, 0, 0, errors2_flags, errors2);
         }
     }
 
@@ -375,10 +380,10 @@ proto_register_sita(void)
     };
 
     proto_sita = proto_register_protocol("Societe Internationale de Telecommunications Aeronautiques", "SITA", "sita"); /* name, short name,abbreviation */
-    sita_dissector_table = register_dissector_table("sita.proto", "SITA protocol number", proto_sita, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    sita_dissector_table = register_dissector_table("sita.proto", "SITA protocol number", proto_sita, FT_UINT8, BASE_HEX);
     proto_register_field_array(proto_sita, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    register_dissector("sita", dissect_sita, proto_sita);
+    sita_handle = register_dissector("sita", dissect_sita, proto_sita);
 }
 
 void
@@ -388,13 +393,11 @@ proto_reg_handoff_sita(void)
     dissector_handle_t  frame_relay_handle;
     dissector_handle_t  uts_handle;
     dissector_handle_t  ipars_handle;
-    dissector_handle_t  sita_handle;
 
     lapb_handle     = find_dissector("lapb");
     frame_relay_handle  = find_dissector("fr");
     uts_handle      = find_dissector("uts");
     ipars_handle        = find_dissector("ipars");
-    sita_handle         = find_dissector("sita");
 
     dissector_add_uint("sita.proto", SITA_PROTO_BOP_LAPB,   lapb_handle);
     dissector_add_uint("sita.proto", SITA_PROTO_BOP_FRL,        frame_relay_handle);

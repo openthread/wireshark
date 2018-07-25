@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -37,7 +25,6 @@
 #include <epan/addr_resolv.h>
 #include <epan/wmem/wmem.h>
 #include <epan/conversation.h>
-#include <epan/g_int64_hash_routines.h>
 #include <epan/dissectors/packet-tcp.h>
 
 #define RTITCP_MAGIC_NUMBER             0xdd54dd55
@@ -120,7 +107,7 @@
 #define NDDS_TRANSPORT_TCPV4_CONTROL_PROTOCOL_ERROR_NO_MATCH_COOKIE                           4
 /* fatal internal processing error (caller is not responsible) */
 #define NDDS_TRANSPORT_TCPV4_CONTROL_PROTOCOL_ERROR_INTERNAL                                  5
-/* the operation should be retried at the first occurence */
+/* the operation should be retried at the first occurrence */
 #define NDDS_TRANSPORT_TCPV4_CONTROL_PROTOCOL_ERROR_RETRY                                     6
 #define NDDS_TRANSPORT_TCP_CONTROL_ERROR_CODE_ATTRIBUTE_BAD_REQUEST_ID                        400
 #define NDDS_TRANSPORT_TCP_CONTROL_ERROR_CODE_ATTRIBUTE_UNKNOWN_ATTRIBUTE_ID                  420

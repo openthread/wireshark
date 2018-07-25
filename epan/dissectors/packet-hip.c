@@ -17,19 +17,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -42,6 +30,8 @@
 
 void proto_register_hip(void);
 void proto_reg_handoff_hip(void);
+
+#define HIP_UDP_PORT 10500
 
 #define HI_ALG_DSA 3
 #define HI_ALG_RSA 5
@@ -308,6 +298,7 @@ static int hf_hip_shim6_fixed_bit_s = -1;
 static int hf_hip_controls = -1;
 static int hf_hip_controls_anon = -1;
 static int hf_hip_checksum = -1;
+static int hf_hip_checksum_status = -1;
 static int hf_hip_hit_sndr = -1;
 static int hf_hip_hit_rcvr = -1;
 
@@ -411,8 +402,9 @@ static gint ett_hip_tlv_host_id_hdr = -1;
 static gint ett_hip_locator_data = -1;
 
 static expert_field ei_hip_tlv_host_id_len = EI_INIT;
-static expert_field ei_hip_tlv_host_id_e_len = EI_INIT;
+/* static expert_field ei_hip_tlv_host_id_e_len = EI_INIT; */
 static expert_field ei_hip_tlv_host_id_hdr_alg = EI_INIT;
+static expert_field ei_hip_checksum = EI_INIT;
 
 /* Dissect the HIP packet */
 static void
@@ -421,7 +413,7 @@ dissect_hip_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     proto_tree *hip_tree, *hip_tlv_tree=NULL;
     proto_item *ti, *ti_tlv;
     int length, offset = 0, newoffset = 0;
-    guint16 control_h, checksum_h, computed_checksum;
+    guint16 control_h, checksum_h;
     guint16 tlv_type_h, tlv_length_h; /* For storing in host order */
     guint len;
     guint reported_len;
@@ -510,32 +502,16 @@ dissect_hip_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
             }
             /* pointer to the HIP header (packet data) */
             SET_CKSUM_VEC_TVB(cksum_vec[3], tvb, 0, reported_len);
-            computed_checksum = in_cksum(cksum_vec, 4);
-            if (computed_checksum == 0) {
-                    proto_tree_add_uint_format_value(hip_tree, hf_hip_checksum, tvb,
-                                                offset+4, 2, checksum_h,
-                                                "0x%04x (correct)",
-                                                checksum_h);
+            if (checksum_h == 0 && udp) {
+                    proto_tree_add_checksum(hip_tree, tvb, offset+4, hf_hip_checksum, hf_hip_checksum_status, &ei_hip_checksum, pinfo, 0,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
             } else {
-                    if (checksum_h == 0 && udp) {
-                            proto_tree_add_uint_format_value(hip_tree, hf_hip_checksum, tvb,
-                                                        offset+4, 2, checksum_h,
-                                                        "0x%04x (correct)",
-                                                        checksum_h);
-                    } else {
-                            proto_tree_add_uint_format_value(hip_tree, hf_hip_checksum, tvb,
-                                                        offset+4, 2, checksum_h,
-                                                        "0x%04x (incorrect, should be 0x%04x)",
-                                                        checksum_h,
-                                                        in_cksum_shouldbe(checksum_h,
-                                                        computed_checksum));
-                    }
+                    proto_tree_add_checksum(hip_tree, tvb, offset+4, hf_hip_checksum, hf_hip_checksum_status, &ei_hip_checksum, pinfo, in_cksum(cksum_vec, 4),
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
             }
     } else {
-            proto_tree_add_uint_format_value(hip_tree, hf_hip_checksum, tvb,
-                                        offset+4, 2, checksum_h,
-                                        "0x%04x (unverified)",
-                                        checksum_h);
+            proto_tree_add_checksum(hip_tree, tvb, offset+4, hf_hip_checksum, hf_hip_checksum_status, &ei_hip_checksum, pinfo, 0,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
 
     ti = proto_tree_add_item(hip_tree, hf_hip_controls, tvb, offset+6, 2, ENC_BIG_ENDIAN);
@@ -1214,6 +1190,10 @@ proto_register_hip(void)
                   { "Checksum", "hip.checksum",
                     FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
+                { &hf_hip_checksum_status,
+                  { "Checksum Status", "hip.checksum.status",
+                    FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
+
                 { &hf_hip_hit_sndr,
                   { "Sender's HIT", "hip.hit_sndr",
                     FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -1590,8 +1570,11 @@ proto_register_hip(void)
 
         static ei_register_info ei[] = {
             { &ei_hip_tlv_host_id_len, { "hip.tlv.host_id_length.invalid", PI_PROTOCOL, PI_WARN, "Invalid HI length", EXPFILL }},
+#if 0
             { &ei_hip_tlv_host_id_e_len, { "hip.tlv.host_id_e_length.invalid", PI_PROTOCOL, PI_WARN, "e_len too large", EXPFILL }},
+#endif
             { &ei_hip_tlv_host_id_hdr_alg, { "hip.tlv.host_id_header_algo.invalid", PI_PROTOCOL, PI_WARN, "Unknown algorithm type", EXPFILL }},
+            { &ei_hip_checksum, { "hip.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
         };
 
         expert_module_t* expert_hip;
@@ -1614,7 +1597,7 @@ proto_reg_handoff_hip(void)
         dissector_add_uint("ip.proto", IP_PROTO_HIP, hip_handle);
 
         hip_handle2 = create_dissector_handle(dissect_hip_in_udp, proto_hip);
-        dissector_add_uint("udp.port", 10500, hip_handle2);
+        dissector_add_uint_with_preference("udp.port", HIP_UDP_PORT, hip_handle2);
 }
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

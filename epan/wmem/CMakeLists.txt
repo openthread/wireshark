@@ -4,24 +4,29 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
 include_directories(
 	${CMAKE_CURRENT_BINARY_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set(WMEM_PUBLIC_HEADERS
+	wmem.h
+	wmem_array.h
+	wmem_core.h
+	wmem_list.h
+	wmem_map.h
+	wmem_miscutl.h
+	wmem_queue.h
+	wmem_scopes.h
+	wmem_stack.h
+	wmem_strbuf.h
+	wmem_strutl.h
+	wmem_tree.h
+	wmem_interval_tree.h
+	wmem_user_cb.h
 )
 
 set(WMEM_FILES
@@ -44,13 +49,11 @@ set(WMEM_FILES
 )
 source_group(wmem FILES ${WMEM_FILES})
 
-if(WERROR_COMMON_FLAGS)
-	set_source_files_properties(
-		${WMEM_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
-	)
-endif()
+set_source_files_properties(
+	${WMEM_FILES}
+	PROPERTIES
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
+)
 
 add_library(wmem OBJECT
 	${WMEM_FILES}
@@ -63,11 +66,27 @@ set_target_properties(wmem PROPERTIES
 
 add_executable(wmem_test EXCLUDE_FROM_ALL wmem_test.c $<TARGET_OBJECTS:wmem>)
 
-target_link_libraries(wmem_test ${GLIB2_LIBRARIES})
+target_link_libraries(wmem_test ${GLIB2_LIBRARIES} wsutil)
 
 set_target_properties(wmem_test PROPERTIES
 	FOLDER "Tests"
+	EXCLUDE_FROM_DEFAULT_BUILD True
 	COMPILE_DEFINITIONS "WS_BUILD_DLL"
+)
+
+if(NOT WIN32)
+	install(FILES ${WMEM_PUBLIC_HEADERS}
+		DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${CPACK_PACKAGE_NAME}/epan/wmem"
+	)
+endif()
+
+CHECKAPI(
+	NAME
+	  wmem
+	SWITCHES
+	  -g termoutput -build
+	SOURCES
+	  ${WMEM_FILES}
 )
 
 #

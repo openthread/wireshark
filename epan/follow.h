@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
 
@@ -32,6 +20,7 @@ extern "C" {
 #include <epan/epan.h>
 #include <epan/packet.h>
 #include <epan/ipv6.h>
+#include <epan/wmem/wmem.h>
 #include "ws_symbol_export.h"
 
 typedef enum {
@@ -63,7 +52,8 @@ typedef enum {
     SHOW_CARRAY,
     SHOW_RAW,
     SHOW_YAML,
-    SHOW_UTF8
+    SHOW_UTF8,
+    SHOW_UTF16
 } show_type_t;
 
 
@@ -76,7 +66,7 @@ typedef enum {
 
 typedef union _stream_addr {
   guint32 ipv4;
-  struct e_in6_addr ipv6;
+  ws_in6_addr ipv6;
 } stream_addr;
 
 struct _follow_info;
@@ -87,14 +77,17 @@ typedef frs_return_t (*follow_read_stream_func)(struct _follow_info *follow_info
 typedef struct {
     gboolean is_server;
     guint32 packet_num;
+    guint32 seq; /* TCP only */
     GByteArray *data;
 } follow_record_t;
 
 typedef struct _follow_info {
     show_stream_t   show_stream;
     char            *filter_out_filter;
-    GList           *payload;
+    GList           *payload;   /* "follow_record_t" entries, in reverse order. */
     guint           bytes_written[2]; /* Index with FROM_CLIENT or FROM_SERVER for readability. */
+    guint32         seq[2]; /* TCP only */
+    GList           *fragments[2]; /* TCP only */
     guint           client_port;
     guint           server_port;
     address         client_ip;
@@ -184,7 +177,7 @@ follow_tvb_tap_listener(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _
  * @param func action to be performed on all converation tables
  * @param user_data any data needed to help perform function
  */
-WS_DLL_PUBLIC void follow_iterate_followers(GFunc func, gpointer user_data);
+WS_DLL_PUBLIC void follow_iterate_followers(wmem_foreach_func func, gpointer user_data);
 
 /** Generate -z stat (tap) name for a follower
  * Currently used only by TShark
@@ -199,6 +192,13 @@ WS_DLL_PUBLIC gchar* follow_get_stat_tap_string(register_follow_t* follower);
  * @param info [in] follower info
  */
 WS_DLL_PUBLIC void follow_reset_stream(follow_info_t* info);
+
+/** Free follow_info_t structure
+ * Free everything except the GUI element
+ *
+ * @param follow_info [in] follower info
+ */
+WS_DLL_PUBLIC void follow_info_free(follow_info_t* follow_info);
 
 #ifdef __cplusplus
 }

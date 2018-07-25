@@ -6,25 +6,12 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include "packet-tcp.h"
 
 void proto_register_pdc(void);
@@ -57,7 +44,6 @@ void proto_reg_handoff_pdc(void);
 static dissector_handle_t asterix_handle;
 
 static int		  proto_pdc	     = -1;
-static guint		  gPREF_PORT_NUM_TCP = 0;
 
 /*HF Declarations*/
 static gint hf_pdc_len = -1;
@@ -475,8 +461,6 @@ static int tcp_dissect_pdc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 
 void proto_register_pdc(void)
 {
-	module_t *pdc_pref_module;
-
 	static hf_register_info hf[] =
 	{
 		{ &hf_pdc_len,
@@ -579,37 +563,17 @@ void proto_register_pdc(void)
 	/*Required Function Calls to register the header fields and subtrees used*/
 	proto_register_field_array(proto_pdc, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	/*Register Preferences Module*/
-	pdc_pref_module = prefs_register_protocol(proto_pdc, proto_reg_handoff_pdc);
-
-	/*Register Preferences*/
-	prefs_register_uint_preference(pdc_pref_module, "tcp.port", "PDC Port", "PDC Port if other then the default", 10, &gPREF_PORT_NUM_TCP);
 }
 
 /* Function to add pdc dissector to tcp.port dissector table and to get handle for asterix dissector */
 void proto_reg_handoff_pdc(void)
 {
-	static dissector_handle_t pdc_tcp_handle;
-	static int		  pdc_tcp_port;
-	static gboolean		  initialized = FALSE;
+	dissector_handle_t pdc_tcp_handle;
 
-	if (! initialized)
-	{
-		asterix_handle = find_dissector_add_dependency("asterix", proto_pdc);
-		pdc_tcp_handle = create_dissector_handle(tcp_dissect_pdc, proto_pdc);
-		dissector_add_for_decode_as("tcp.port", pdc_tcp_handle);
-		initialized    = TRUE;
-	}
-	else
-	{
-		if (pdc_tcp_port != 0)
-			dissector_delete_uint("tcp.port", pdc_tcp_port, pdc_tcp_handle);
-	}
+	asterix_handle = find_dissector_add_dependency("asterix", proto_pdc);
+	pdc_tcp_handle = create_dissector_handle(tcp_dissect_pdc, proto_pdc);
 
-	pdc_tcp_port = gPREF_PORT_NUM_TCP;
-	if (pdc_tcp_port != 0)
-		dissector_add_uint("tcp.port", pdc_tcp_port, pdc_tcp_handle);
+	dissector_add_for_decode_as_with_preference("tcp.port", pdc_tcp_handle);
 }
 
 /*

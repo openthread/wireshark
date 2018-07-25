@@ -12,30 +12,21 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include "wslua.h"
+#include <wsutil/nstime.h>
 
+/* 1s = 10^9 ns. */
+#define NS_PER_S 1000000000
 
 /* WSLUA_CONTINUE_MODULE Pinfo */
 
 
-WSLUA_CLASS_DEFINE(NSTime,FAIL_ON_NULL("NSTime"),NOP);
+WSLUA_CLASS_DEFINE(NSTime,FAIL_ON_NULL("NSTime"));
 /* NSTime represents a nstime_t.  This is an object with seconds and nanoseconds. */
 
 WSLUA_CONSTRUCTOR NSTime_new(lua_State *L) {
@@ -61,11 +52,45 @@ WSLUA_METAMETHOD NSTime__call(lua_State* L) { /* Creates a NSTime object. */
     WSLUA_RETURN(NSTime_new(L)); /* The new NSTime object. */
 }
 
+WSLUA_METHOD NSTime_tonumber(lua_State* L) {
+        /* Returns a Lua number of the `NSTime` representing seconds from epoch
+           @since 2.4.0
+         */
+        NSTime nstime = checkNSTime(L,1);
+        lua_pushnumber(L, (lua_Number)nstime_to_sec(nstime));
+        WSLUA_RETURN(1); /* The Lua number. */
+}
+
 WSLUA_METAMETHOD NSTime__tostring(lua_State* L) {
     NSTime nstime = checkNSTime(L,1);
     gchar *str;
+    long secs = (long)nstime->secs;
+    gint nsecs = nstime->nsecs;
+    gboolean negative_zero = FALSE;
 
-    str = wmem_strdup_printf(NULL, "%ld.%09d", (long)nstime->secs, nstime->nsecs);
+    /* Time is defined as sec + nsec/10^9, both parts can be negative.
+     * Translate this into the more familiar sec.nsec notation instead. */
+    if (secs > 0 && nsecs < 0) {
+        /* sign mismatch: (2, -3ns) -> 1.7 */
+        nsecs += NS_PER_S;
+        secs--;
+    } else if (secs < 0 && nsecs > 0) {
+        /* sign mismatch: (-2, 3ns) -> -1.7 */
+        nsecs = NS_PER_S - nsecs;
+        secs--;
+    } else if (nsecs < 0) {
+        /* Drop sign, the integer part already has it: (-2, -3ns) -> -2.3 */
+        nsecs = -nsecs;
+        /* In case the integer part is zero, it does not has a sign, so remember
+         * that it must be explicitly added. */
+        negative_zero = secs == 0;
+    }
+
+    if (negative_zero) {
+        str = wmem_strdup_printf(NULL, "-0.%09d", nsecs);
+    } else {
+        str = wmem_strdup_printf(NULL, "%ld.%09d", secs, nsecs);
+    }
     lua_pushstring(L, str);
     wmem_free(NULL, str);
 
@@ -174,6 +199,7 @@ WSLUA_ATTRIBUTES NSTime_attributes[] = {
 
 WSLUA_METHODS NSTime_methods[] = {
     WSLUA_CLASS_FNREG(NSTime,new),
+    WSLUA_CLASS_FNREG(NSTime,tonumber),
     { NULL, NULL }
 };
 

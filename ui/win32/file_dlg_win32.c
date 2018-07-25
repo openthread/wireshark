@@ -1,23 +1,11 @@
-/* win32-file-dlg.c
+/* file_dlg_win32.c
  * Native Windows file dialog routines
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2004 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,14 +19,13 @@
 #include <richedit.h>
 #include <strsafe.h>
 
-#include "file.h"
+#include "globals.h"
 
 #include "wsutil/file_util.h"
 #include "wsutil/str_util.h"
 #include "wsutil/unicode-utils.h"
 
 #include "wsutil/filesystem.h"
-#include "epan/addr_resolv.h"
 #include "epan/prefs.h"
 
 #include "epan/color_filters.h"
@@ -49,10 +36,16 @@
 #include "ui/simple_dialog.h"
 #include "ui/ssl_key_export.h"
 #include "ui/util.h"
-#include "ui/ui_util.h"
+#include "ui/ws_ui_util.h"
 #include "ui/all_files_wildcard.h"
 
 #include "file_dlg_win32.h"
+
+typedef enum {
+    merge_append,
+    merge_chrono,
+    merge_prepend
+} merge_action_e;
 
 #define FILE_OPEN_DEFAULT 1 /* All Files */
 
@@ -64,7 +57,20 @@
     _T("CSV (Comma Separated Values summary) (*.csv)\0") _T("*.csv\0")   \
     _T("PSML (XML packet summary) (*.psml)\0")           _T("*.psml\0")  \
     _T("PDML (XML packet detail) (*.pdml)\0")            _T("*.pdml\0")  \
-    _T("C Arrays (packet bytes) (*.c)\0")                _T("*.c\0")
+    _T("C Arrays (packet bytes) (*.c)\0")                _T("*.c\0")     \
+    _T("JSON (*.json)\0")                                _T("*.json\0")
+
+static TCHAR *FILE_EXT_EXPORT[] =
+{
+    _T(""), /* export type starts at 1 */
+    _T("txt"),
+    _T("ps"),
+    _T("csv"),
+    _T("psml"),
+    _T("pdml"),
+    _T("c"),
+    _T("json")
+};
 
 #define FILE_TYPES_RAW \
     _T("Raw data (*.bin, *.dat, *.raw)\0")               _T("*.bin;*.dat;*.raw\0") \
@@ -99,6 +105,57 @@ static void range_handle_wm_command(HWND dlg_hwnd, HWND ctrl, WPARAM w_param, pa
 static TCHAR *build_file_open_type_list(void);
 static TCHAR *build_file_save_type_list(GArray *savable_file_types);
 
+#ifdef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+typedef DPI_AWARENESS_CONTEXT (WINAPI *GetThreadDpiAwarenessContextProc)(void);
+typedef DPI_AWARENESS_CONTEXT (WINAPI *SetThreadDpiAwarenessContextProc)(DPI_AWARENESS_CONTEXT);
+
+static GetThreadDpiAwarenessContextProc GetThreadDpiAwarenessContextP;
+static SetThreadDpiAwarenessContextProc SetThreadDpiAwarenessContextP;
+static gboolean got_proc_addresses = FALSE;
+
+static gboolean get_proc_addresses(void) {
+    if (got_proc_addresses) return TRUE;
+
+    HMODULE u32_module = LoadLibrary(_T("User32.dll"));
+    if (!u32_module) {
+        got_proc_addresses = FALSE;
+        return FALSE;
+    }
+    gboolean got_all = TRUE;
+    GetThreadDpiAwarenessContextP = (GetThreadDpiAwarenessContextProc) GetProcAddress(u32_module, "GetThreadDpiAwarenessContext");
+    if (!GetThreadDpiAwarenessContextP) got_all = FALSE;
+    SetThreadDpiAwarenessContextP = (SetThreadDpiAwarenessContextProc) GetProcAddress(u32_module, "SetThreadDpiAwarenessContext");
+    if (!SetThreadDpiAwarenessContextP) got_all = FALSE;
+
+    got_proc_addresses = got_all;
+    return got_all;
+}
+
+// Enabling DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 causes issues
+// when dragging our open file dialog between differently-DPIed
+// displays. It might be time to break down and switch to common
+// item dialogs.
+HANDLE set_thread_per_monitor_v2_awareness(void) {
+    if (! get_proc_addresses()) return 0;
+#if 0
+    WCHAR info[100];
+    StringCchPrintf(info, 100,
+                    L"GetThrDpiAwarenessCtx: %d",
+                    GetThreadDpiAwarenessContextP());
+    MessageBox(NULL, info, _T("DPI info"), MB_OK);
+#endif
+    return (HANDLE) SetThreadDpiAwarenessContextP(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+}
+
+void revert_thread_per_monitor_v2_awareness(HANDLE context) {
+    if (! get_proc_addresses()) return;
+    SetThreadDpiAwarenessContextP((DPI_AWARENESS_CONTEXT) context);
+}
+#else // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+HANDLE set_thread_per_monitor_v2_awareness(void) { return 0; }
+void revert_thread_per_monitor_v2_awareness(HANDLE context _U_) { }
+#endif // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+
 static int             g_filetype;
 static gboolean        g_compressed;
 static packet_range_t *g_range;
@@ -120,65 +177,6 @@ static HWND  g_sf_hwnd = NULL;
 static char *g_dfilter_str = NULL;
 static unsigned int g_format_type = WTAP_TYPE_AUTO;
 
-static int
-win32_get_ofnsize()
-{
-    gboolean bVerGE5 = FALSE;
-    int ofnsize;
-    /* Remarks on OPENFILENAME_SIZE_VERSION_400:
-    *
-    * MSDN states that OPENFILENAME_SIZE_VERSION_400 should be used with
-    * WINVER and _WIN32_WINNT >= 0x0500.
-    * Unfortunately all these are compiler constants, while the underlying is a
-    * problem based is a length check of the runtime version used.
-    *
-    * Instead of using OPENFILENAME_SIZE_VERSION_400, just malloc
-    * the OPENFILENAME size plus 12 bytes.
-    * These 12 bytes are the difference between the two versions of this struct.
-    *
-    * Interestingly this fixes a bug, so the places bar e.g. "My Documents"
-    * is displayed - which wasn't the case with the former implementation.
-    *
-    * XXX - It's unclear if this length+12 works on all supported platforms,
-    * NT4 is the question here. However, even if it fails, we must calculate
-    * the length based on the runtime, not the compiler version anyway ...
-    */
-    /* This assumption does not work when compiling with MSVC2008EE as
-    * the open dialog window does not appear.
-    * Instead detect Windows version at runtime and choose size accordingly */
-#if (_MSC_VER >= 1500)
-    /*
-    * On VS2103, GetVersionEx is deprecated. Microsoft recommend to
-    * use VerifyVersionInfo instead
-    */
-#if (_MSC_VER >= 1800)
-    OSVERSIONINFOEX osvi;
-    DWORDLONG dwlConditionMask = 0;
-    int op = VER_GREATER_EQUAL;
-    /* Initialize the OSVERSIONINFOEX structure. */
-    SecureZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));
-    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
-    osvi.dwMajorVersion = 5;
-    /* Initialize the condition mask. */
-    VER_SET_CONDITION(dwlConditionMask, VER_MAJORVERSION, op);
-    /* Perform the test. */
-    bVerGE5=VerifyVersionInfo(
-        &osvi,
-        VER_MAJORVERSION,
-        dwlConditionMask);
-#else
-    OSVERSIONINFO osvi;
-    SecureZeroMemory(&osvi, sizeof(OSVERSIONINFO));
-    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
-    GetVersionEx(&osvi);
-    bVerGE5 = (osvi.dwMajorVersion >= 5);
-#endif /* _MSC_VER >= 1800 */
-    ofnsize = (bVerGE5)?sizeof(OPENFILENAME):OPENFILENAME_SIZE_VERSION_400;
-#else
-    ofnsize = sizeof(OPENFILENAME)+12;
-#endif /* _MSC_VER >= 1500 */
-    return ofnsize;
-}
 /*
  * According to http://msdn.microsoft.com/en-us/library/bb776913.aspx
  * we should use IFileOpenDialog and IFileSaveDialog on Windows Vista
@@ -189,8 +187,8 @@ gboolean
 win32_open_file (HWND h_wnd, GString *file_name, unsigned int *type, GString *display_filter) {
     OPENFILENAME *ofn;
     TCHAR file_name16[MAX_PATH] = _T("");
-    int ofnsize;
-    gboolean gofn_ok;
+    int ofnsize = sizeof(OPENFILENAME);
+    BOOL gofn_ok;
 
     if (!file_name || !display_filter)
         return FALSE;
@@ -205,7 +203,7 @@ win32_open_file (HWND h_wnd, GString *file_name, unsigned int *type, GString *di
         g_free(g_dfilter_str);
         g_dfilter_str = NULL;
     }
-    ofnsize = win32_get_ofnsize();
+
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -232,7 +230,9 @@ win32_open_file (HWND h_wnd, GString *file_name, unsigned int *type, GString *di
     ofn->lpfnHook = open_file_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_OPENFILENAME_TEMPLATE");
 
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
     gofn_ok = GetOpenFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
 
     if (gofn_ok) {
         g_string_printf(file_name, "%s", utf_16to8(file_name16));
@@ -271,24 +271,22 @@ win32_check_save_as_with_comments(HWND parent, capture_file *cf, int file_type)
            format you selected", or "Cancel", meaning "don't bother
            saving the file at all".
 
-           XXX - sadly, customizing buttons in a MessageBox() is
-           Really Painful; there are tricks out there to do it
-           with a "computer-based training" hook that gets called
-           before the window is activated and sets the text of the
-           buttons, but if you change the text of the buttons you
-           also have to make the buttons bigger.  There *has* to
-           be a better way of doing that, given that Microsoft's
-           own UI guidelines have examples of dialog boxes with
-           action buttons that have custom labels, but maybe we'd
-           have to go with Windows Forms or XAML or whatever the
-           heck the technology of the week is.
+           XXX - given that we no longer support releases prior to
+           Windows Vista, we should use a task dialog:
 
-           Therefore, we ask a yes-or-no question - "do you want
-           to discard the comments and save in the format you
-           chose?" - and have "no" mean "I want to save the
-           file but I don't want to discard the comments, meaning
-           we should reopen the dialog and not offer the user any
-           choices that would involve discarding the comments. */
+               https://msdn.microsoft.com/en-us/library/windows/desktop/ff486057(v=vs.85).aspx
+
+           created with TaskDialogIndirect():
+
+               https://msdn.microsoft.com/en-us/library/windows/desktop/bb760544(v=vs.85).aspx
+
+           because the TASKDIALOGCONFIG structure
+
+               https://msdn.microsoft.com/en-us/library/windows/desktop/bb787473(v=vs.85).aspx
+
+           supports adding custom buttons, with custom labels, unlike
+           a MessageBox(), which doesn't appear to offer a clean way to
+           do that. */
         response = MessageBox(parent,
   _T("The capture has comments, but the file format you chose ")
   _T("doesn't support comments.  Do you want to discard the comments ")
@@ -311,7 +309,7 @@ win32_check_save_as_with_comments(HWND parent, capture_file *cf, int file_type)
     switch (response) {
 
     case IDNO: /* "No" means "Save in another format" in the first dialog */
-        /* OK, the only other format we support is pcap-ng.  Make that
+        /* OK, the only other format we support is pcapng.  Make that
            the one and only format in the combo box, and return to
            let the user continue with the dialog.
 
@@ -319,7 +317,7 @@ win32_check_save_as_with_comments(HWND parent, capture_file *cf, int file_type)
            the compressed checkbox; get the current value and restore
            it.
 
-           XXX - we know pcap-ng can be compressed; if we ever end up
+           XXX - we know pcapng can be compressed; if we ever end up
            supporting saving comments in a format that *can't* be
            compressed, such as NetMon format, we must check this. */
         /* XXX - need a compressed checkbox here! */
@@ -346,8 +344,8 @@ win32_save_as_file(HWND h_wnd, capture_file *cf, GString *file_name, int *file_t
     GArray *savable_file_types;
     OPENFILENAME *ofn;
     TCHAR  file_name16[MAX_PATH] = _T("");
-    int    ofnsize;
-    gboolean gsfn_ok;
+    int    ofnsize = sizeof(OPENFILENAME);
+    BOOL gsfn_ok;
 
     if (!file_name || !file_type || !compressed)
         return FALSE;
@@ -369,7 +367,6 @@ win32_save_as_file(HWND h_wnd, capture_file *cf, GString *file_name, int *file_t
         return FALSE;  /* shouldn't happen - the "Save As..." item should be disabled if we can't save the file */
     g_compressed = FALSE;
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -393,7 +390,9 @@ win32_save_as_file(HWND h_wnd, capture_file *cf, GString *file_name, int *file_t
     ofn->lpfnHook = save_as_file_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_SAVEASFILENAME_TEMPLATE");
 
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
     gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
 
     if (gsfn_ok) {
         g_string_printf(file_name, "%s", utf_16to8(file_name16));
@@ -423,11 +422,8 @@ gboolean win32_save_as_statstree(HWND h_wnd, GString *file_name, int *file_type)
 {
     OPENFILENAME *ofn;
     TCHAR  file_name16[MAX_PATH] = _T("");
-    int    ofnsize;
-    gboolean gsfn_ok;
-#if (_MSC_VER >= 1500)
-    OSVERSIONINFO osvi;
-#endif
+    int    ofnsize = sizeof(OPENFILENAME);
+    BOOL gsfn_ok;
 
     if (!file_name || !file_type)
         return FALSE;
@@ -436,20 +432,7 @@ gboolean win32_save_as_statstree(HWND h_wnd, GString *file_name, int *file_type)
         StringCchCopy(file_name16, MAX_PATH, utf_8to16(file_name->str));
     }
 
-    /* see OPENFILENAME comment in win32_open_file */
-#if (_MSC_VER >= 1500)
-    SecureZeroMemory(&osvi, sizeof(OSVERSIONINFO));
-    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
-    GetVersionEx(&osvi);
-    if (osvi.dwMajorVersion >= 5) {
-        ofnsize = sizeof(OPENFILENAME);
-    } else {
-        ofnsize = OPENFILENAME_SIZE_VERSION_400;
-    }
-#else
-    ofnsize = sizeof(OPENFILENAME) + 12;
-#endif
-    ofn = g_malloc0(ofnsize);
+    ofn = g_malloc0(sizeof(OPENFILENAME));
 
     ofn->lStructSize = ofnsize;
     ofn->hwndOwner = h_wnd;
@@ -471,7 +454,9 @@ gboolean win32_save_as_statstree(HWND h_wnd, GString *file_name, int *file_type)
     ofn->lpfnHook = save_as_statstree_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_SAVEASSTATSTREENAME_TEMPLATE");
 
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
     gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
 
     if (gsfn_ok) {
         g_string_printf(file_name, "%s", utf_16to8(file_name16));
@@ -494,8 +479,8 @@ win32_export_specified_packets_file(HWND h_wnd, capture_file *cf,
     GArray *savable_file_types;
     OPENFILENAME *ofn;
     TCHAR  file_name16[MAX_PATH] = _T("");
-    int    ofnsize;
-    gboolean gsfn_ok;
+    int    ofnsize = sizeof(OPENFILENAME);
+    BOOL gsfn_ok;
 
     if (!file_name || !file_type || !compressed || !range)
         return FALSE;
@@ -513,7 +498,6 @@ win32_export_specified_packets_file(HWND h_wnd, capture_file *cf,
     g_cf = cf;
     g_compressed = FALSE;
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -537,7 +521,9 @@ win32_export_specified_packets_file(HWND h_wnd, capture_file *cf,
     ofn->lpfnHook = export_specified_packets_file_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_EXPORT_SPECIFIED_PACKETS_FILENAME_TEMPLATE");
 
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
     gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
 
     if (gsfn_ok) {
         g_string_printf(file_name, "%s", utf_16to8(file_name16));
@@ -570,8 +556,8 @@ gboolean
 win32_merge_file (HWND h_wnd, GString *file_name, GString *display_filter, int *merge_type) {
     OPENFILENAME *ofn;
     TCHAR         file_name16[MAX_PATH] = _T("");
-    int           ofnsize;
-    gboolean gofn_ok;
+    int           ofnsize = sizeof(OPENFILENAME);
+    BOOL          gofn_ok;
 
     if (!file_name || !display_filter || !merge_type)
         return FALSE;
@@ -587,7 +573,6 @@ win32_merge_file (HWND h_wnd, GString *file_name, GString *display_filter, int *
         g_dfilter_str = NULL;
     }
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -614,7 +599,9 @@ win32_merge_file (HWND h_wnd, GString *file_name, GString *display_filter, int *
     ofn->lpfnHook = merge_file_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_MERGEFILENAME_TEMPLATE");
 
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
     gofn_ok = GetOpenFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
 
     if (gofn_ok) {
         g_string_printf(file_name, "%s", utf_16to8(file_name16));
@@ -648,11 +635,10 @@ win32_export_file(HWND h_wnd, capture_file *cf, export_type_e export_type) {
     TCHAR             file_name[MAX_PATH] = _T("");
     char             *dirname;
     cf_print_status_t status;
-    int               ofnsize;
+    int               ofnsize = sizeof(OPENFILENAME);
 
     g_cf = cf;
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -671,7 +657,7 @@ win32_export_file(HWND h_wnd, capture_file *cf, export_type_e export_type) {
     ofn->Flags = OFN_ENABLESIZING  | OFN_ENABLETEMPLATE  | OFN_EXPLORER     |
                  OFN_NOCHANGEDIR   | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY |
                  OFN_PATHMUSTEXIST | OFN_ENABLEHOOK      | OFN_SHOWHELP;
-    ofn->lpstrDefExt = NULL;
+    ofn->lpstrDefExt = FILE_EXT_EXPORT[export_type];
     ofn->lCustData = (LPARAM) cf;
     ofn->lpfnHook = export_file_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_EXPORTFILENAME_TEMPLATE");
@@ -686,8 +672,13 @@ win32_export_file(HWND h_wnd, capture_file *cf, export_type_e export_type) {
     print_args.print_dissections   = print_dissections_as_displayed;
     print_args.print_hex           = FALSE;
     print_args.print_formfeed      = FALSE;
+    print_args.stream              = NULL;
 
-    if (GetSaveFileName(ofn)) {
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
+    BOOL gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
+
+    if (gsfn_ok) {
         print_args.file = utf_16to8(file_name);
         switch (ofn->nFilterIndex) {
             case export_type_text:      /* Text */
@@ -719,6 +710,9 @@ win32_export_file(HWND h_wnd, capture_file *cf, export_type_e export_type) {
                 break;
             case export_type_pdml:      /* PDML */
                 status = cf_write_pdml_packets(cf, &print_args);
+                break;
+            case export_type_json:      /* JSON */
+                status = cf_write_json_packets(cf, &print_args);
                 break;
             default:
                 g_free( (void *) ofn);
@@ -752,7 +746,7 @@ win32_export_raw_file(HWND h_wnd, capture_file *cf) {
     const guint8 *data_p;
     char         *file_name8;
     int           fd;
-    int           ofnsize;
+    int           ofnsize = sizeof(OPENFILENAME);
 
     if (!cf->finfo_selected) {
         /* This shouldn't happen */
@@ -760,7 +754,6 @@ win32_export_raw_file(HWND h_wnd, capture_file *cf) {
         return;
     }
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -789,7 +782,11 @@ win32_export_raw_file(HWND h_wnd, capture_file *cf) {
      * grab the info from cf->finfo_selected.  Which is more "correct"?
      */
 
-    if (GetSaveFileName(ofn)) {
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
+    BOOL gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
+
+    if (gsfn_ok) {
         g_free( (void *) ofn);
         file_name8 = utf_16to8(file_name);
         data_p = tvb_get_ptr(cf->finfo_selected->ds_tvb, 0, -1) +
@@ -825,7 +822,7 @@ win32_export_sslkeys_file(HWND h_wnd) {
     gchar        *keylist = NULL;
     char         *file_name8;
     int           fd;
-    int           ofnsize;
+    int           ofnsize = sizeof(OPENFILENAME);
     int           keylist_size;
 
     keylist_size = ssl_session_key_count();
@@ -835,7 +832,6 @@ win32_export_sslkeys_file(HWND h_wnd) {
         return;
     }
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -859,7 +855,11 @@ win32_export_sslkeys_file(HWND h_wnd) {
     ofn->lpfnHook = export_sslkeys_file_hook_proc;
     ofn->lpTemplateName = _T("WIRESHARK_EXPORTSSLKEYSFILENAME_TEMPLATE");
 
-    if (GetSaveFileName(ofn)) {
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
+    BOOL gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
+
+    if (gsfn_ok) {
         g_free( (void *) ofn);
         file_name8 = utf_16to8(file_name);
         keylist = ssl_export_sessions();
@@ -899,10 +899,9 @@ win32_export_color_file(HWND h_wnd, capture_file *cf, gpointer filter_list) {
     OPENFILENAME *ofn;
     TCHAR  file_name[MAX_PATH] = _T("");
     gchar *dirname;
-    int    ofnsize;
+    int    ofnsize = sizeof(OPENFILENAME);
     gchar *err_msg = NULL;
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -928,7 +927,11 @@ win32_export_color_file(HWND h_wnd, capture_file *cf, gpointer filter_list) {
     g_filetype = cf->cd_t;
 
     /* XXX - Support marked filters */
-    if (GetSaveFileName(ofn)) {
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
+    BOOL gsfn_ok = GetSaveFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
+
+    if (gsfn_ok) {
         g_free( (void *) ofn);
         if (!color_filters_export(utf_16to8(file_name), filter_list, FALSE /* all filters */, &err_msg))
         {
@@ -950,10 +953,9 @@ win32_import_color_file(HWND h_wnd, gpointer color_filters) {
     OPENFILENAME *ofn;
     TCHAR  file_name[MAX_PATH] = _T("");
     gchar *dirname;
-    int    ofnsize;
+    int    ofnsize = sizeof(OPENFILENAME);
     gchar *err_msg = NULL;
 
-    ofnsize = win32_get_ofnsize();
     ofn = g_malloc0(ofnsize);
 
     ofn->lStructSize = ofnsize;
@@ -977,7 +979,11 @@ win32_import_color_file(HWND h_wnd, gpointer color_filters) {
     ofn->lpTemplateName = NULL;
 
     /* XXX - Support export limited to selected filters */
-    if (GetOpenFileName(ofn)) {
+    HANDLE save_da_ctx = set_thread_per_monitor_v2_awareness();
+    BOOL gofn_ok = GetOpenFileName(ofn);
+    revert_thread_per_monitor_v2_awareness(save_da_ctx);
+
+    if (gofn_ok) {
         g_free( (void *) ofn);
         if (!color_filters_import(utf_16to8(file_name), color_filters, &err_msg, color_filter_add_cb)) {
             simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
@@ -1115,31 +1121,26 @@ preview_set_file_info(HWND of_hwnd, gchar *preview_file) {
     HWND        cur_ctrl;
     int         i;
     wtap       *wth;
-    const struct wtap_pkthdr *phdr;
-    int         err = 0;
+    int         err;
     gchar      *err_info;
+    ws_file_preview_stats stats;
+    ws_file_preview_stats_status status;
     TCHAR       string_buff[PREVIEW_STR_MAX];
-    gint64      data_offset;
-    guint       packet = 0;
+    TCHAR       first_buff[PREVIEW_STR_MAX];
     gint64      filesize;
+    gchar      *size_str;
     time_t      ti_time;
     struct tm  *ti_tm;
     guint       elapsed_time;
-    time_t      time_preview;
-    time_t      time_current;
-    double      start_time = 0;
-    double      stop_time = 0;
-    double      cur_time;
-    gboolean    is_breaked = FALSE;
 
-    for (i = EWFD_PTX_FORMAT; i <= EWFD_PTX_ELAPSED; i++) {
+    for (i = EWFD_PTX_FORMAT; i <= EWFD_PTX_START_ELAPSED; i++) {
         cur_ctrl = GetDlgItem(of_hwnd, i);
         if (cur_ctrl) {
             EnableWindow(cur_ctrl, FALSE);
         }
     }
 
-    for (i = EWFD_PTX_FORMAT; i <= EWFD_PTX_ELAPSED; i++) {
+    for (i = EWFD_PTX_FORMAT; i <= EWFD_PTX_START_ELAPSED; i++) {
         cur_ctrl = GetDlgItem(of_hwnd, i);
         if (cur_ctrl) {
             SetWindowText(cur_ctrl, _T("-"));
@@ -1168,7 +1169,7 @@ preview_set_file_info(HWND of_hwnd, gchar *preview_file) {
     }
 
     /* Success! */
-    for (i = EWFD_PT_FORMAT; i <= EWFD_PTX_ELAPSED; i++) {
+    for (i = EWFD_PT_FORMAT; i <= EWFD_PTX_START_ELAPSED; i++) {
         cur_ctrl = GetDlgItem(of_hwnd, i);
         if (cur_ctrl) {
             EnableWindow(cur_ctrl, TRUE);
@@ -1181,82 +1182,86 @@ preview_set_file_info(HWND of_hwnd, gchar *preview_file) {
 
     /* Size */
     filesize = wtap_file_size(wth, &err);
-    utf_8to16_snprintf(string_buff, PREVIEW_STR_MAX, "%" G_GINT64_FORMAT " bytes", filesize);
-    cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_SIZE);
-    SetWindowText(cur_ctrl, string_buff);
+    // Windows Explorer uses IEC.
+    size_str = format_size(filesize, format_size_unit_bytes|format_size_prefix_iec);
 
-    time(&time_preview);
-    while ( (wtap_read(wth, &err, &err_info, &data_offset)) ) {
-        phdr = wtap_phdr(wth);
-        cur_time = nstime_to_sec( (const nstime_t *) &phdr->ts );
-        if(packet == 0) {
-            start_time  = cur_time;
-            stop_time = cur_time;
-        }
-        if (cur_time < start_time) {
-            start_time = cur_time;
-        }
-        if (cur_time > stop_time){
-            stop_time = cur_time;
-        }
-        packet++;
-        if(packet%100 == 0) {
-            time(&time_current);
-            if(time_current-time_preview >= (time_t) prefs.gui_fileopen_preview) {
-                is_breaked = TRUE;
-                break;
-            }
-        }
-    }
+    status = get_stats_for_preview(wth, &stats, &err, &err_info);
 
-    if(err != 0) {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("error after reading %u packets"), packet);
-        cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_PACKETS);
+    if(status == PREVIEW_READ_ERROR) {
+        /* XXX - give error details? */
+        g_free(err_info);
+        utf_8to16_snprintf(string_buff, PREVIEW_STR_MAX, "%s, error after %u records",
+            size_str, stats.records);
+        g_free(size_str);
+        cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_SIZE);
         SetWindowText(cur_ctrl, string_buff);
         wtap_close(wth);
         return TRUE;
     }
 
-    /* Packets */
-    if(is_breaked) {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("more than %u packets (preview timeout)"), packet);
+    /* Packet count */
+    if(status == PREVIEW_TIMED_OUT) {
+        utf_8to16_snprintf(string_buff, PREVIEW_STR_MAX, "%s, timed out at %u data records",
+            size_str, stats.data_records);
     } else {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%u"), packet);
+        utf_8to16_snprintf(string_buff, PREVIEW_STR_MAX, "%s, %u data records",
+            size_str, stats.data_records);
     }
-    cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_PACKETS);
+    g_free(size_str);
+    cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_SIZE);
     SetWindowText(cur_ctrl, string_buff);
 
-    /* First packet */
-    ti_time = (long)start_time;
-    ti_tm = localtime( &ti_time );
-    if(ti_tm) {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX,
-                 _T("%04d-%02d-%02d %02d:%02d:%02d"),
-                 ti_tm->tm_year + 1900,
-                 ti_tm->tm_mon + 1,
-                 ti_tm->tm_mday,
-                 ti_tm->tm_hour,
-                 ti_tm->tm_min,
-                 ti_tm->tm_sec);
+    /* First packet / elapsed time */
+    if(stats.have_times) {
+        /*
+         * We saw at least one record with a time stamp, so we can give
+         * a start time (if we have a mix of records with and without
+         * time stamps, and there were records without time stamps
+         * before the one with a time stamp, this may be inaccurate).
+         */
+        ti_time = (long)stats.start_time;
+        ti_tm = localtime( &ti_time );
+        if(ti_tm) {
+            StringCchPrintf(first_buff, PREVIEW_STR_MAX,
+                     _T("%04d-%02d-%02d %02d:%02d:%02d"),
+                     ti_tm->tm_year + 1900,
+                     ti_tm->tm_mon + 1,
+                     ti_tm->tm_mday,
+                     ti_tm->tm_hour,
+                     ti_tm->tm_min,
+                     ti_tm->tm_sec);
+        } else {
+            StringCchPrintf(first_buff, PREVIEW_STR_MAX, _T("?"));
+        }
     } else {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("?"));
+        StringCchPrintf(first_buff, PREVIEW_STR_MAX, _T("unknown"));
     }
-    cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_FIRST_PKT);
-    SetWindowText(cur_ctrl, string_buff);
 
     /* Elapsed time */
-    elapsed_time = (unsigned int)(stop_time-start_time);
-    if(elapsed_time/86400) {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%02u days %02u:%02u:%02u"),
-        elapsed_time/86400, elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60);
+    if(status == PREVIEW_SUCCEEDED && stats.have_times) {
+        /*
+         * We didn't time out, so we looked at all packets, and we got
+         * at least one packet with a time stamp, so we can calculate
+         * an elapsed time from the time stamp of the last packet with
+         * with a time stamp (if we have a mix of records with and without
+         * time stamps, and there were records without time stamps after
+         * the last one with a time stamp, this may be inaccurate).
+         */
+        elapsed_time = (unsigned int)(stats.stop_time-stats.start_time);
+        if(status == PREVIEW_TIMED_OUT) {
+            StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%s / unknown"), first_buff);
+        } else if(elapsed_time/86400) {
+            StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%s / %02u days %02u:%02u:%02u"),
+                first_buff, elapsed_time/86400, elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60);
+        } else {
+            StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%s / %02u:%02u:%02u"),
+                first_buff, elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60);
+        }
     } else {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%02u:%02u:%02u"),
-        elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60);
+        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("%s / unknown"),
+            first_buff);
     }
-    if(is_breaked) {
-        StringCchPrintf(string_buff, PREVIEW_STR_MAX, _T("unknown"));
-    }
-    cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_ELAPSED);
+    cur_ctrl = GetDlgItem(of_hwnd, EWFD_PTX_START_ELAPSED);
     SetWindowText(cur_ctrl, string_buff);
 
     wtap_close(wth);
@@ -1318,8 +1323,7 @@ filter_tb_syntax_check(HWND hwnd, TCHAR *filter_text) {
         SendMessage(hwnd, EM_SETBKGNDCOLOR, (WPARAM) 1, COLOR_WINDOW);
         return;
     } else if (dfilter_compile(utf_16to8(strval), &dfp, NULL)) { /* colorize filter string entry */
-        if (dfp != NULL)
-            dfilter_free(dfp);
+        dfilter_free(dfp);
         /* Valid (light green) */
         SendMessage(hwnd, EM_SETBKGNDCOLOR, 0, RGB(0xe4, 0xff, 0xc7)); /* tango_chameleon_1 */
     } else {
@@ -1327,9 +1331,8 @@ filter_tb_syntax_check(HWND hwnd, TCHAR *filter_text) {
         SendMessage(hwnd, EM_SETBKGNDCOLOR, 0, RGB(0xff, 0xcc, 0xcc)); /* tango_scarlet_red_1 */
     }
 
-    if (strval) g_free(strval);
+    g_free(strval);
 }
-
 
 static UINT_PTR CALLBACK
 open_file_hook_proc(HWND of_hwnd, UINT msg, WPARAM w_param, LPARAM l_param) {
@@ -1347,21 +1350,11 @@ open_file_hook_proc(HWND of_hwnd, UINT msg, WPARAM w_param, LPARAM l_param) {
             }
 
             cur_ctrl = GetDlgItem(of_hwnd, EWFD_FORMAT_TYPE);
-            SendMessage(cur_ctrl, CB_ADDSTRING, 0, (WPARAM) _T("Automatic"));
+            SendMessage(cur_ctrl, CB_ADDSTRING, 0, (WPARAM) _T("Automatically detect file type"));
             for (i = 0; open_routines[i].name != NULL; i += 1) {
                 SendMessage(cur_ctrl, CB_ADDSTRING, 0, (WPARAM) utf_8to16(open_routines[i].name));
             }
             SendMessage(cur_ctrl, CB_SETCURSEL, 0, 0);
-
-            /* Fill in our resolution values */
-            cur_ctrl = GetDlgItem(of_hwnd, EWFD_MAC_NR_CB);
-            SendMessage(cur_ctrl, BM_SETCHECK, gbl_resolv_flags.mac_name, 0);
-            cur_ctrl = GetDlgItem(of_hwnd, EWFD_NET_NR_CB);
-            SendMessage(cur_ctrl, BM_SETCHECK, gbl_resolv_flags.network_name, 0);
-            cur_ctrl = GetDlgItem(of_hwnd, EWFD_TRANS_NR_CB);
-            SendMessage(cur_ctrl, BM_SETCHECK, gbl_resolv_flags.transport_name, 0);
-            cur_ctrl = GetDlgItem(of_hwnd, EWFD_EXTERNAL_NR_CB);
-            SendMessage(cur_ctrl, BM_SETCHECK, gbl_resolv_flags.use_external_net_name_resolver, 0);
 
             preview_set_file_info(of_hwnd, NULL);
             break;
@@ -1370,26 +1363,12 @@ open_file_hook_proc(HWND of_hwnd, UINT msg, WPARAM w_param, LPARAM l_param) {
                 case CDN_FILEOK:
                     /* Fetch the read filter */
                     cur_ctrl = GetDlgItem(of_hwnd, EWFD_FILTER_EDIT);
-                    if (g_dfilter_str)
-                        g_free(g_dfilter_str);
+                    g_free(g_dfilter_str);
                     g_dfilter_str = filter_tb_get(cur_ctrl);
 
                     cur_ctrl = GetDlgItem(of_hwnd, EWFD_FORMAT_TYPE);
                     g_format_type = (unsigned int) SendMessage(cur_ctrl, CB_GETCURSEL, 0, 0);
 
-                    /* Fetch our resolution values */
-                    cur_ctrl = GetDlgItem(of_hwnd, EWFD_MAC_NR_CB);
-                    if (SendMessage(cur_ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED)
-                        gbl_resolv_flags.mac_name = TRUE;
-                    cur_ctrl = GetDlgItem(of_hwnd, EWFD_NET_NR_CB);
-                    if (SendMessage(cur_ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED)
-                        gbl_resolv_flags.network_name = TRUE;
-                    cur_ctrl = GetDlgItem(of_hwnd, EWFD_TRANS_NR_CB);
-                    if (SendMessage(cur_ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED)
-                        gbl_resolv_flags.transport_name = TRUE;
-                    cur_ctrl = GetDlgItem(of_hwnd, EWFD_EXTERNAL_NR_CB);
-                    if (SendMessage(cur_ctrl, BM_GETCHECK, 0, 0) == BST_CHECKED)
-                        gbl_resolv_flags.use_external_net_name_resolver = TRUE;
                     break;
                 case CDN_SELCHANGE:
                     /* This _almost_ works correctly. We need to handle directory
@@ -1438,7 +1417,7 @@ append_file_extension_type(GArray *sa, int et)
     GString* description_str = g_string_new("");
     gchar sep;
     GSList *extensions_list, *extension;
-    TCHAR *str16;
+    const TCHAR *str16;
     guint16 zero = 0;
 
     /* Construct the list of patterns. */
@@ -1471,7 +1450,7 @@ append_file_extension_type(GArray *sa, int et)
 
 static TCHAR *
 build_file_open_type_list(void) {
-    TCHAR *str16;
+    const TCHAR *str16;
     int et;
     GArray* sa;
     static const guint16 zero = 0;
@@ -1507,19 +1486,18 @@ build_file_open_type_list(void) {
     sa = g_array_append_val(sa, zero);
 
     /*
-     * Add an "All Capture Files" entry, with all the extensions we
-     * know about.
+     * Add an "All Capture Files" entry, with all the capture file
+     * extensions we know about.
      */
     str16 = utf_8to16("All Capture Files");
     sa = g_array_append_vals(sa, str16, (guint) strlen("All Capture Files"));
     sa = g_array_append_val(sa, zero);
 
     /*
-     * Construct its list of patterns from a list of all extensions
-     * we support.
+     * Construct its list of patterns.
      */
     pattern_str = g_string_new("");
-    extensions_list = wtap_get_all_file_extensions_list();
+    extensions_list = wtap_get_all_capture_file_extensions_list();
     sep = '\0';
     for (extension = extensions_list; extension != NULL;
          extension = g_slist_next(extension)) {
@@ -1565,7 +1543,7 @@ append_file_type(GArray *sa, int ft)
     GString* description_str = g_string_new("");
     gchar sep;
     GSList *extensions_list, *extension;
-    TCHAR *str16;
+    const TCHAR *str16;
     guint16 zero = 0;
 
     extensions_list = wtap_get_file_extensions_list(ft, TRUE);
@@ -1904,7 +1882,6 @@ export_specified_packets_file_hook_proc(HWND sf_hwnd, UINT msg, WPARAM w_param, 
     return 0;
 }
 
-
 #define STATIC_LABEL_CHARS 100
 /* For each range static control, fill in its value and enable/disable it. */
 static void
@@ -2239,8 +2216,7 @@ merge_file_hook_proc(HWND mf_hwnd, UINT msg, WPARAM w_param, LPARAM l_param) {
                 case CDN_FILEOK:
                     /* Fetch the read filter */
                     cur_ctrl = GetDlgItem(mf_hwnd, EWFD_FILTER_EDIT);
-                    if (g_dfilter_str)
-                        g_free(g_dfilter_str);
+                    g_free(g_dfilter_str);
                     g_dfilter_str = filter_tb_get(cur_ctrl);
 
                     cur_ctrl = GetDlgItem(mf_hwnd, EWFD_MERGE_CHRONO_BTN);
@@ -2359,7 +2335,7 @@ export_raw_file_hook_proc(HWND ef_hwnd, UINT msg, WPARAM w_param, LPARAM l_param
     switch(msg) {
         case WM_INITDIALOG:
             StringCchPrintf(raw_msg, STATIC_LABEL_CHARS, _T("%d byte%s of raw binary data will be written"),
-                    ofnp->lCustData, utf_8to16(plurality(ofnp->lCustData, "", "s")));
+                    (int)ofnp->lCustData, utf_8to16(plurality(ofnp->lCustData, "", "s")));
             cur_ctrl = GetDlgItem(ef_hwnd, EWFD_EXPORTRAW_ST);
             SetWindowText(cur_ctrl, raw_msg);
             break;
@@ -2387,7 +2363,7 @@ export_sslkeys_file_hook_proc(HWND ef_hwnd, UINT msg, WPARAM w_param, LPARAM l_p
     switch(msg) {
         case WM_INITDIALOG:
             StringCchPrintf(sslkeys_msg, STATIC_LABEL_CHARS, _T("%d SSL Session Key%s will be written"),
-                    ofnp->lCustData, utf_8to16(plurality(ofnp->lCustData, "", "s")));
+                    (int)ofnp->lCustData, utf_8to16(plurality(ofnp->lCustData, "", "s")));
             cur_ctrl = GetDlgItem(ef_hwnd, EWFD_EXPORTSSLKEYS_ST);
             SetWindowText(cur_ctrl, sslkeys_msg);
             break;

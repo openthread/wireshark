@@ -3,19 +3,7 @@
  * Dissector for the CAST Client Control Protocol
  *   (The "D-Channel"-Protocol for Cisco Systems' IP-Phones)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This implementation is based on a draft version of the 3.0
@@ -29,7 +17,7 @@
 
 #include "packet-tcp.h"
 
-#define TCP_PORT_CAST 4224
+#define TCP_PORT_CAST 4224 /* Not IANA registered */
 
 void proto_register_cast(void);
 void proto_reg_handoff_cast(void);
@@ -123,8 +111,7 @@ static const value_string  message_id[] = {
 };
 
 static const value_string  audioCodecTypes[] = {
-  {1  , "G711"},
-  {1  , "G729"},
+  {1  , "G711/G729"},
   {2  , "GSM"},
   {3  , "G723"},
   {4  , "G722"},
@@ -1709,7 +1696,7 @@ proto_reg_handoff_cast(void)
   dissector_handle_t cast_handle;
 
   cast_handle = create_dissector_handle(dissect_cast, proto_cast);
-  dissector_add_uint("tcp.port", TCP_PORT_CAST, cast_handle);
+  dissector_add_uint_with_preference("tcp.port", TCP_PORT_CAST, cast_handle);
 }
 
 /*

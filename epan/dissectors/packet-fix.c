@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Documentation: http://www.fixprotocol.org/
  * Fields and messages from http://www.quickfixengine.org/ and http://sourceforge.net/projects/quickfix/files/ xml
@@ -32,6 +20,8 @@
 #include <epan/packet.h>
 #include <epan/expert.h>
 #include <epan/prefs.h>
+
+#include <wsutil/strtoi.h>
 
 #include "packet-tcp.h"
 #include "packet-ssl.h"
@@ -60,6 +50,9 @@ static gint ett_badfield = -1;
 static gint ett_checksum = -1;
 
 static expert_field ei_fix_checksum_bad = EI_INIT;
+static expert_field ei_fix_missing_field = EI_INIT;
+static expert_field ei_fix_tag_invalid = EI_INIT;
+static expert_field ei_fix_field_invalid = EI_INIT;
 
 static int hf_fix_data = -1; /* continuation data */
 static int hf_fix_checksum_good = -1;
@@ -68,9 +61,6 @@ static int hf_fix_field_value = -1;
 static int hf_fix_field_tag = -1;
 
 static dissector_handle_t fix_handle;
-
-static range_t *global_fix_tcp_range = NULL;
-static range_t *fix_tcp_range = NULL;
 
 /* 8=FIX */
 #define MARKER_TAG "8=FIX"
@@ -161,7 +151,7 @@ static fix_parameter *fix_param(tvbuff_t *tvb, int offset)
 static int fix_header_len(tvbuff_t *tvb, int offset)
 {
     int            base_offset, ctrla_offset;
-    char          *value;
+    gint32         value;
     int            size;
     fix_parameter *tag;
 
@@ -189,11 +179,13 @@ static int fix_header_len(tvbuff_t *tvb, int offset)
         return fix_next_header(tvb, offset);
     }
 
-    value = tvb_get_string_enc(wmem_packet_scope(), tvb, tag->value_offset, tag->value_len, ENC_ASCII);
+    if (!ws_strtoi32(tvb_get_string_enc(wmem_packet_scope(), tvb, tag->value_offset,
+            tag->value_len, ENC_ASCII), NULL, &value))
+        return fix_next_header(tvb, base_offset +MARKER_LEN)  +MARKER_LEN;
     /* Fix version, msg type, length and checksum aren't in body length.
      * If the packet is big enough find the checksum
     */
-    size = atoi(value) +tag->ctrla_offset - base_offset +1;
+    size = value + tag->ctrla_offset - base_offset + 1;
     if (tvb_reported_length_remaining(tvb, base_offset) > size +4) {
         /* 10= should be there */
         offset = base_offset +size;
@@ -226,7 +218,9 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
     int            field_offset, ctrla_offset;
     int            tag_value;
     char          *value;
-    char          *tag_str;
+    guint32        ivalue;
+    gboolean       ivalue_valid;
+    proto_item*    pi;
     fix_parameter *tag;
     const char *msg_type;
 
@@ -251,6 +245,7 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
     /* begin string */
     ctrla_offset = tvb_find_guint8(tvb, offset, -1, 0x01);
     if (ctrla_offset == -1) {
+        expert_add_info_format(pinfo, ti, &ei_fix_missing_field, "Missing BeginString field");
         return tvb_captured_length(tvb);
     }
     offset = ctrla_offset + 1;
@@ -258,18 +253,16 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
     /* msg length */
     ctrla_offset = tvb_find_guint8(tvb, offset, -1, 0x01);
     if (ctrla_offset == -1) {
+        expert_add_info_format(pinfo, ti, &ei_fix_missing_field, "Missing BodyLength field");
         return tvb_captured_length(tvb);
     }
     offset = ctrla_offset + 1;
 
     /* msg type */
     if (!(tag = fix_param(tvb, offset)) || tag->value_len < 1) {
+        expert_add_info_format(pinfo, ti, &ei_fix_missing_field, "Missing MsgType field");
         return tvb_captured_length(tvb);
     }
-
-    value = tvb_get_string_enc(wmem_packet_scope(), tvb, tag->value_offset, tag->value_len, ENC_ASCII);
-    msg_type = str_to_str(value, messages_val, "FIX Message (%s)");
-    col_add_str(pinfo->cinfo, COL_INFO, msg_type);
 
     /* In the interest of speed, if "tree" is NULL, don't do any work not
      * necessary to generate protocol tree items.
@@ -280,12 +273,15 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         int i, found;
 
         if (tag->tag_len < 1) {
-            field_offset =  tag->ctrla_offset + 1;
+            field_offset = tag->ctrla_offset + 1;
             continue;
         }
 
-        tag_str = tvb_get_string_enc(wmem_packet_scope(), tvb, field_offset, tag->tag_len, ENC_ASCII);
-        tag_value = atoi(tag_str);
+        if (!ws_strtou32(tvb_get_string_enc(wmem_packet_scope(), tvb, field_offset, tag->tag_len, ENC_ASCII),
+                NULL, &tag_value)) {
+            proto_tree_add_expert(fix_tree, pinfo, &ei_fix_tag_invalid, tvb, field_offset, tag->tag_len);
+            break;
+        }
         if (tag->value_len < 1) {
             proto_tree *field_tree;
             /* XXX - put an error indication here.  It's too late
@@ -308,6 +304,7 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         }
 
         value = tvb_get_string_enc(wmem_packet_scope(), tvb, tag->value_offset, tag->value_len, ENC_ASCII);
+        ivalue_valid = ws_strtoi32(value, NULL, &ivalue);
         if (found) {
             if (fix_fields[i].table) {
                 if (tree) {
@@ -315,14 +312,25 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
                     case 1: /* strings */
                         proto_tree_add_string_format_value(fix_tree, fix_fields[i].hf_id, tvb, field_offset, tag->field_len, value,
                             "%s (%s)", value, str_to_str(value, (const string_string *)fix_fields[i].table, "unknown %s"));
+                        if (tag_value == 35) {
+                            /* Make message type part of the Info column */
+                            msg_type = str_to_str(value, messages_val, "FIX Message (%s)");
+                            col_append_sep_str(pinfo->cinfo, COL_INFO, ", ", msg_type);
+                            col_set_fence(pinfo->cinfo, COL_INFO);
+                        }
                         break;
                     case 2: /* char */
                         proto_tree_add_string_format_value(fix_tree, fix_fields[i].hf_id, tvb, field_offset, tag->field_len, value,
                             "%s (%s)", value, val_to_str(*value, (const value_string *)fix_fields[i].table, "unknown %d"));
                         break;
                     default:
-                        proto_tree_add_string_format_value(fix_tree, fix_fields[i].hf_id, tvb, field_offset, tag->field_len, value,
-                            "%s (%s)", value, val_to_str(atoi(value), (const value_string *)fix_fields[i].table, "unknown %d"));
+                        if (ivalue_valid)
+                            proto_tree_add_string_format_value(fix_tree, fix_fields[i].hf_id, tvb, field_offset, tag->field_len, value,
+                                "%s (%s)", value, val_to_str(ivalue, (const value_string *)fix_fields[i].table, "unknown %d"));
+                        else {
+                            pi = proto_tree_add_string(fix_tree, fix_fields[i].hf_id, tvb, field_offset, tag->field_len, value);
+                            expert_add_info_format(pinfo, pi, &ei_fix_field_invalid, "Invalid string %s for fix field %u", value, i);
+                        }
                         break;
                     }
                 }
@@ -343,7 +351,7 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
                     for (j = 0; j < field_offset; j++, sum_data++) {
                          sum += *sum_data;
                     }
-                    sum_ok = (atoi(value) == sum);
+                    sum_ok = (ivalue == sum);
                     if (sum_ok) {
                         item = proto_tree_add_string_format_value(fix_tree, fix_fields[i].hf_id, tvb, field_offset, tag->field_len,
                                 value, "%s [correct]", value);
@@ -378,8 +386,6 @@ dissect_fix_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         }
 
         field_offset =  tag->ctrla_offset + 1;
-
-        tag_str = NULL;
     }
     return tvb_captured_length(tvb);
 }
@@ -454,15 +460,6 @@ dissect_fix_heur_ssl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
     return TRUE;
 }
 
-/* Register the protocol with Wireshark */
-static void fix_prefs(void)
-{
-    dissector_delete_uint_range("tcp.port", fix_tcp_range, fix_handle);
-    g_free(fix_tcp_range);
-    fix_tcp_range = range_copy(global_fix_tcp_range);
-    dissector_add_uint_range("tcp.port", fix_tcp_range, fix_handle);
-}
-
 /* this format is require because a script is used to build the C function
    that calls all the protocol registration.
 */
@@ -503,6 +500,9 @@ proto_register_fix(void)
 
     static ei_register_info ei[] = {
         { &ei_fix_checksum_bad, { "fix.checksum_bad.expert", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+        { &ei_fix_missing_field, { "fix.missing_field", PI_MALFORMED, PI_ERROR, "Missing mandatory field", EXPFILL }},
+        { &ei_fix_tag_invalid, { "fix.tag.invalid", PI_MALFORMED, PI_ERROR, "Invalid Tag", EXPFILL }},
+        { &ei_fix_field_invalid, { "fix.invalid_integer_string", PI_MALFORMED, PI_ERROR, "Invalid integer string", EXPFILL }}
     };
 
     module_t *fix_module;
@@ -512,8 +512,7 @@ proto_register_fix(void)
     register_init_routine(&dissect_fix_init);
 
     /* Register the protocol name and description */
-    proto_fix = proto_register_protocol("Financial Information eXchange Protocol",
-                                        "FIX", "fix");
+    proto_fix = proto_register_protocol("Financial Information eXchange Protocol", "FIX", "fix");
 
     /* Allow dissector to find be found by name. */
     fix_handle = register_dissector("fix", dissect_fix, proto_fix);
@@ -524,17 +523,13 @@ proto_register_fix(void)
     expert_fix = expert_register_protocol(proto_fix);
     expert_register_field_array(expert_fix, ei, array_length(ei));
 
-    fix_module = prefs_register_protocol(proto_fix, fix_prefs);
+    fix_module = prefs_register_protocol(proto_fix, NULL);
     prefs_register_bool_preference(fix_module, "desegment",
                                    "Reassemble FIX messages spanning multiple TCP segments",
                                    "Whether the FIX dissector should reassemble messages spanning multiple TCP segments."
                                    " To use this option, you must also enable"
                                    " \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
                                    &fix_desegment);
-
-    prefs_register_range_preference(fix_module, "tcp.port", "TCP Ports", "TCP Ports range", &global_fix_tcp_range, 65535);
-
-    fix_tcp_range = range_empty();
 }
 
 
@@ -544,8 +539,7 @@ proto_reg_handoff_fix(void)
     /* Let the tcp dissector know that we're interested in traffic      */
     heur_dissector_add("tcp", dissect_fix_heur, "FIX over TCP", "fix_tcp", proto_fix, HEURISTIC_ENABLE);
     heur_dissector_add("ssl", dissect_fix_heur_ssl, "FIX over SSL", "fix_ssl", proto_fix, HEURISTIC_ENABLE);
-    /* Register a fix handle to "tcp.port" to be able to do 'decode-as' */
-    dissector_add_for_decode_as("tcp.port", fix_handle);
+    dissector_add_uint_range_with_preference("tcp.port", "", fix_handle);
 }
 
 /*

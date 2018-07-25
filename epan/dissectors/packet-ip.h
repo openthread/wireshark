@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -26,21 +14,36 @@
 
 #include "ws_symbol_export.h"
 
-extern int proto_ip;
+/*
+ * IP Version numbers, from
+ *
+ *  https://www.iana.org/assignments/version-numbers/version-numbers.xhtml
+ */
+#define IP_VERSION_NUM_RESERVED          0       /* Reserved */
+#define IP_VERSION_NUM_INET              4       /* IP (IP version 4)           */
+#define IP_VERSION_NUM_ST                5       /* ST Datagram Mode            */
+#define IP_VERSION_NUM_INET6             6       /* IP6 (IP version 6)          */
+#define IP_VERSION_NUM_TPIX              7       /* TP/IX: The Next Internet    */
+#define IP_VERSION_NUM_PIP               8       /* The P Internet Protocol     */
+#define IP_VERSION_NUM_TUBA              9       /* TUBA     */
 
-typedef struct _ws_ip
+extern const value_string ip_version_vals[];
+
+typedef struct _ws_ip4
 {
-    guint8  ip_v_hl; /* combines ip_v and ip_hl */
-    guint8  ip_tos;
-    guint16 ip_len;
-    guint16 ip_id;
-    guint16 ip_off;
-    guint8  ip_ttl;
-    guint8  ip_p;
-    guint16 ip_sum;
-    address ip_src;
-    address ip_dst;
-} ws_ip;
+    guint8  ip_ver;     /* 4 */
+    guint8  ip_tos;     /* type of service */
+    guint32 ip_len;     /* total length */
+    guint16 ip_id;      /* identification */
+    guint16 ip_off;     /* fragment offset */
+    guint8  ip_ttl;     /* time-to-live */
+    guint8  ip_proto;   /* protocol */
+    guint16 ip_sum;     /* checksum */
+    address ip_src;     /* source address */
+    address ip_dst;     /* destination address */
+} ws_ip4;
+
+#define WS_IP4_PTR(p)         ((ws_ip4 *)(((p) && *(guint8 *)(p) == 4) ? (p) : NULL))
 
 /* Differentiated Services Codepoint  */
 #define IPDSFIELD_DSCP_MASK     0xFC
@@ -50,16 +53,69 @@ typedef struct _ws_ip
 #define IPDSFIELD_ECN_MASK      0x03
 #define IPDSFIELD_ECN(dsfield)  ((dsfield) & IPDSFIELD_ECN_MASK)
 
-gboolean capture_ip(const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
-
-gboolean ip_try_dissect(gboolean heur_first, tvbuff_t *tvb,
-                        packet_info *pinfo, proto_tree *tree, ws_ip *iph);
+gboolean ip_try_dissect(gboolean heur_first, guint nxt, tvbuff_t *tvb,
+                        packet_info *pinfo, proto_tree *tree, void *iph);
 
 /* Export the DSCP/ECN extended value-string table for other protocols */
 WS_DLL_PUBLIC value_string_ext dscp_vals_ext;
 WS_DLL_PUBLIC value_string_ext ecn_vals_ext;
 WS_DLL_PUBLIC value_string_ext dscp_short_vals_ext;
 WS_DLL_PUBLIC value_string_ext ecn_short_vals_ext;
+
+typedef struct _ws_ip6
+{
+    guint8  ip6_ver;     /* 6 */
+    guint8  ip6_tc;      /* traffic class */
+    guint32 ip6_flw;     /* flow label */
+    guint32 ip6_len;     /* payload length */
+    guint8  ip6_nxt;     /* next header */
+    guint8  ip6_hop;     /* hop limit */
+    address ip6_src;     /* source address */
+    address ip6_dst;     /* destination address */
+} ws_ip6;
+
+#define WS_IP6_PTR(p)         ((ws_ip6 *)(((p) && *(guint8 *)(p) == 6) ? (p) : NULL))
+
+struct ws_rthdr {
+    struct ip6_rthdr hdr;
+    proto_item *ti_len;
+    proto_item *ti_type;
+    proto_item *ti_segleft;
+};
+
+typedef ws_ip6 ipv6_tap_info_t;
+
+/* Packet info for shared state between IPv6 header and extensions */
+typedef struct {
+    guint32     jumbo_plen;
+    guint16     ip6_plen;
+    gint        frag_plen;
+    proto_tree *ipv6_tree;
+    gint        ipv6_item_len;
+} ipv6_pinfo_t;
+
+ipv6_pinfo_t *p_get_ipv6_pinfo(packet_info *pinfo);
+
+proto_tree *p_ipv6_pinfo_select_root(packet_info *pinfo, proto_tree *tree);
+
+ipv6_pinfo_t *p_ipv6_pinfo_add_len(packet_info *pinfo, int exthdr_len);
+
+void ipv6_dissect_next(guint nxt, tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, ws_ip6 *iph);
+
+static inline int
+ws_ip_protocol(void *iph)
+{
+    ws_ip4 *ip4;
+    ws_ip6 *ip6;
+
+    if (iph != NULL) {
+        if ((ip4 = WS_IP4_PTR(iph)) != NULL)
+            return ip4->ip_proto;
+        if ((ip6 = WS_IP6_PTR(iph)) != NULL)
+            return ip6->ip6_nxt;
+    }
+    return -1;
+}
 
 #endif /* __PACKET_IP_H__ */
 

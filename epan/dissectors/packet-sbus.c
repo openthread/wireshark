@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,6 +17,8 @@
 
 void proto_register_sbus(void);
 void proto_reg_handoff_sbus(void);
+
+#define SBUS_UDP_PORT   5050 /* Not IANA registered */
 
 /* Attribute values*/
 #define SBUS_REQUEST                   0x00
@@ -240,7 +230,7 @@ static int hf_sbus_week_day = -1;
 static int hf_sbus_date = -1;
 static int hf_sbus_time = -1;
 static int hf_sbus_crc = -1;
-static int hf_sbus_crc_bad = -1;
+static int hf_sbus_crc_status = -1;
 static int hf_sbus_flags_accu = -1;
 static int hf_sbus_flags_error = -1;
 static int hf_sbus_flags_negative = -1;
@@ -556,7 +546,7 @@ typedef struct {
 } sbus_request_val;
 
 /* The hash structure (for conversations)*/
-static GHashTable *sbus_request_hash = NULL;
+static wmem_map_t *sbus_request_hash = NULL;
 
 static guint crc_calc (guint crc, guint val)
 {
@@ -589,15 +579,6 @@ static guint sbus_hash(gconstpointer v)
 
        val = key->conversation + key->sequence;
        return val;
-}
-
-/*Protocol initialisation*/
-static void sbus_init_protocol(void){
-       sbus_request_hash = g_hash_table_new(sbus_hash, sbus_equal);
-}
-
-static void sbus_cleanup_protocol(void){
-       g_hash_table_destroy(sbus_request_hash);
 }
 
 /* check whether the packet looks like SBUS or not */
@@ -650,7 +631,7 @@ dissect_sbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 {
 
 /* Set up structures needed to add the protocol subtree and manage it */
-       proto_item *ti, *hi, *cs;
+       proto_item *ti, *hi;
        proto_tree *sbus_tree, *ethsbus_tree, *sbusdata_tree;
 
        gint i;        /*for CRC calculation*/
@@ -698,10 +679,10 @@ dissect_sbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 
        conversation = find_or_create_conversation(pinfo);
 
-       request_key.conversation = conversation->index;
+       request_key.conversation = conversation->conv_index;
        request_key.sequence = tvb_get_ntohs(tvb,6);
 
-       request_val = (sbus_request_val *) g_hash_table_lookup(sbus_request_hash,
+       request_val = (sbus_request_val *) wmem_map_lookup(sbus_request_hash,
                             &request_key);
        /*Get type of telegram for finding retries
         *As we are storing the info in a hash table we need to update the info
@@ -754,7 +735,7 @@ dissect_sbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                      request_val->block_tlg = 0x0;
               }
 
-              g_hash_table_insert(sbus_request_hash, new_request_key, request_val);
+              wmem_map_insert(sbus_request_hash, new_request_key, request_val);
        }
 /* End of attaching data to hash table*/
 
@@ -1593,14 +1574,10 @@ dissect_sbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                                    /* Response: Firmware version */
                             case SBUS_RD_PROGRAM_VERSION:
                                    /*PCD type*/
-                                   tmp_string = tvb_get_string_enc(wmem_packet_scope(), tvb , offset, 5, ENC_ASCII);
-                                   proto_tree_add_string(sbus_tree,
-                                                         hf_sbus_cpu_type, tvb, offset, 5, tmp_string);
+                                   proto_tree_add_item(sbus_tree, hf_sbus_cpu_type, tvb, offset, 5, ENC_ASCII|ENC_NA);
                                    offset += 5;
                                    /*FW version*/
-                                   tmp_string = tvb_get_string_enc(wmem_packet_scope(), tvb , offset, 3, ENC_ASCII);
-                                   proto_tree_add_string(sbus_tree,
-                                                         hf_sbus_fw_version, tvb, offset, 3, tmp_string);
+                                   proto_tree_add_item(sbus_tree, hf_sbus_fw_version, tvb, offset, 3, ENC_ASCII|ENC_NA);
                                    offset += 4;
                                    break;
 
@@ -1859,22 +1836,9 @@ dissect_sbus(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
               sbus_crc_calc = 0;
               for (i = 0; i < sbus_eth_len - 2; i++)
                      sbus_crc_calc = crc_calc (sbus_crc_calc, tvb_get_guint8(tvb, i));
-              /*Show CRC and add hidden item for wrong CRC*/
-              sbus_helper = tvb_get_ntohs(tvb, offset);
-              if (sbus_helper == sbus_crc_calc) {
-                     proto_tree_add_uint_format_value(sbus_tree,
-                                                hf_sbus_crc, tvb, offset, 2, sbus_helper,
-                                                "0x%04x (correct)", sbus_helper);
-              } else {
-                     cs = proto_tree_add_uint_format_value(sbus_tree,
-                                                     hf_sbus_crc, tvb, offset, 2, sbus_helper,
-                                                     "0x%04x (NOT correct)", sbus_helper);
-                     expert_add_info(pinfo, cs, &ei_sbus_crc_bad);
-                     hi = proto_tree_add_boolean(sbus_tree,
-                                                 hf_sbus_crc_bad, tvb, offset, 2, TRUE);
-                     PROTO_ITEM_SET_HIDDEN(hi);
-                     PROTO_ITEM_SET_GENERATED(hi);
-              }
+
+              proto_tree_add_checksum(sbus_tree, tvb, offset, hf_sbus_crc, hf_sbus_crc_status, &ei_sbus_crc_bad, pinfo, sbus_crc_calc,
+                            ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
               offset += 2; /*now at the end of the telegram*/
        }
        return offset;
@@ -2235,10 +2199,10 @@ proto_register_sbus(void)
                      "CRC 16", HFILL }
               },
 
-              { &hf_sbus_crc_bad,
-                     { "Bad Checksum",      "sbus.crc_bad",
-                     FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-                     "A bad checksum in the telegram", HFILL }},
+              { &hf_sbus_crc_status,
+                     { "Checksum Status",      "sbus.crc.status",
+                     FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+                     NULL, HFILL }},
 
               { &hf_sbus_flags_accu,
                      { "ACCU", "sbus.flags.accu",
@@ -2321,8 +2285,7 @@ proto_register_sbus(void)
        proto_register_subtree_array(ett, array_length(ett));
        expert_sbus = expert_register_protocol(proto_sbus);
        expert_register_field_array(expert_sbus, ei, array_length(ei));
-       register_init_routine(&sbus_init_protocol);
-       register_cleanup_routine(&sbus_cleanup_protocol);
+       sbus_request_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), sbus_hash, sbus_equal);
 }
 
 void
@@ -2331,7 +2294,7 @@ proto_reg_handoff_sbus(void)
        dissector_handle_t sbus_handle;
 
        sbus_handle = create_dissector_handle(dissect_sbus, proto_sbus);
-       dissector_add_uint("udp.port", 5050, sbus_handle);
+       dissector_add_uint_with_preference("udp.port", SBUS_UDP_PORT, sbus_handle);
 }
 
 /*

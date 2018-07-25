@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Please refer to RFC 3489 for protocol detail.
  * (supports extra message attributes described in draft-ietf-behave-rfc3489bis-00)
@@ -217,7 +205,8 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
     guint16                    msg_length;
     const char                *msg_type_str;
     guint16                    att_type;
-    guint16                    att_length;
+    guint16                    att_length, clear_port;
+    guint32                    clear_ip;
     guint16                    offset;
     guint                      len;
     guint                      i;
@@ -491,9 +480,8 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
                         /* Show the port 'in the clear'
                            XOR (host order) transid with (host order) xor-port.
                            Add host-order port into tree. */
-                        ti = proto_tree_add_uint(att_tree, classicstun_att_port, tvb, offset+2, 2,
-                                     tvb_get_ntohs(tvb, offset+2) ^
-                                     (transaction_id_first_word >> 16));
+                        clear_port = tvb_get_ntohs(tvb, offset+2) ^ (transaction_id_first_word >> 16);
+                        ti = proto_tree_add_uint(att_tree, classicstun_att_port, tvb, offset+2, 2, clear_port);
                         PROTO_ITEM_SET_GENERATED(ti);
 
                         switch( tvb_get_guint8(tvb, offset+1) ){
@@ -505,8 +493,8 @@ dissect_classicstun(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
                                 /* Show the address 'in the clear'.
                                    XOR (host order) transid with (host order) xor-address.
                                    Add in network order tree. */
-                                ti = proto_tree_add_ipv4(att_tree, classicstun_att_ipv4, tvb, offset+4, 4,
-                                             tvb_get_ipv4(tvb, offset+4) ^ g_htonl(transaction_id_first_word));
+                                clear_ip = tvb_get_ipv4(tvb, offset+4) ^ g_htonl(transaction_id_first_word);
+                                ti = proto_tree_add_ipv4(att_tree, classicstun_att_ipv4, tvb, offset+4, 4, clear_ip);
                                 PROTO_ITEM_SET_GENERATED(ti);
                                 break;
 
@@ -704,8 +692,8 @@ proto_reg_handoff_classicstun(void)
 
     classicstun_handle = find_dissector("classicstun");
 
-    dissector_add_uint("tcp.port", TCP_PORT_STUN, classicstun_handle);
-    dissector_add_uint("udp.port", UDP_PORT_STUN, classicstun_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_STUN, classicstun_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_STUN, classicstun_handle);
 #endif
     heur_dissector_add("udp", dissect_classicstun_heur, "Classic STUN over UDP", "classicstun_udp", proto_classicstun, HEURISTIC_ENABLE);
     heur_dissector_add("tcp", dissect_classicstun_heur, "Classic STUN over TCP", "classicstun_tcp", proto_classicstun, HEURISTIC_ENABLE);

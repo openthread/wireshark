@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,6 +21,8 @@
 #include "wmem_allocator_block_fast.h"
 #include "wmem_allocator_simple.h"
 #include "wmem_allocator_strict.h"
+
+#include <wsutil/time_util.h>
 
 #define STRING_80               "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
 #define MAX_ALLOC_SIZE          (1024*64)
@@ -331,7 +321,8 @@ wmem_test_allocator(wmem_allocator_type_t type, wmem_verify_func verify,
             ptrs[ptrs_index] = (char *) wmem_realloc(allocator,
                     ptrs[ptrs_index], new_size);
 
-            memset(ptrs[ptrs_index], 0, new_size);
+            if (new_size)
+                memset(ptrs[ptrs_index], 0, new_size);
         }
         else {
             /* the index is used, and our random bit has determined we will be
@@ -388,6 +379,9 @@ wmem_test_miscutls(void)
     char               *ret;
 
     allocator = wmem_allocator_new(WMEM_ALLOCATOR_STRICT);
+
+    ret = (char*) wmem_memdup(allocator, NULL, 0);
+    g_assert(ret == NULL);
 
     ret = (char*) wmem_memdup(allocator, source, 5);
     ret[4] = '\0';
@@ -447,15 +441,31 @@ wmem_test_strutls(void)
     split_str = wmem_strsplit(allocator, "A-C", "-", 2);
     g_assert_cmpstr(split_str[0], ==, "A");
     g_assert_cmpstr(split_str[1], ==, "C");
+    g_assert(split_str[2] == NULL);
+    split_str = wmem_strsplit(allocator, "A-C", "-", 0);
+    g_assert_cmpstr(split_str[0], ==, "A");
+    g_assert_cmpstr(split_str[1], ==, "C");
+    g_assert(split_str[2] == NULL);
     split_str = wmem_strsplit(allocator, "--aslkf-asio--asfj-as--", "-", 10);
-    g_assert_cmpstr(split_str[0], ==, "aslkf");
-    g_assert_cmpstr(split_str[1], ==, "asio");
-    g_assert_cmpstr(split_str[2], ==, "asfj");
-    g_assert_cmpstr(split_str[3], ==, "as");
-    split_str = wmem_strsplit(allocator, "--aslkf-asio--asfj-as--", "-", 4);
-    g_assert_cmpstr(split_str[0], ==, "aslkf");
-    g_assert_cmpstr(split_str[1], ==, "asio");
-    g_assert_cmpstr(split_str[2], ==, "-asfj-as--");
+    g_assert_cmpstr(split_str[0], ==, "");
+    g_assert_cmpstr(split_str[1], ==, "");
+    g_assert_cmpstr(split_str[2], ==, "aslkf");
+    g_assert_cmpstr(split_str[3], ==, "asio");
+    g_assert_cmpstr(split_str[4], ==, "");
+    g_assert_cmpstr(split_str[5], ==, "asfj");
+    g_assert_cmpstr(split_str[6], ==, "as");
+    g_assert_cmpstr(split_str[7], ==, "");
+    g_assert_cmpstr(split_str[8], ==, "");
+    g_assert(split_str[9] == NULL);
+    split_str = wmem_strsplit(allocator, "--aslkf-asio--asfj-as--", "-", 5);
+    g_assert_cmpstr(split_str[0], ==, "");
+    g_assert_cmpstr(split_str[1], ==, "");
+    g_assert_cmpstr(split_str[2], ==, "aslkf");
+    g_assert_cmpstr(split_str[3], ==, "asio");
+    g_assert_cmpstr(split_str[4], ==, "-asfj-as--");
+    g_assert(split_str[5] == NULL);
+    split_str = wmem_strsplit(allocator, "", "-", -1);
+    g_assert(split_str[0] == NULL);
     wmem_strict_check_canaries(allocator);
 
     orig_str = "TeStAsCiIsTrDoWn";
@@ -463,6 +473,162 @@ wmem_test_strutls(void)
     g_assert_cmpstr(new_str, ==, "testasciistrdown");
 
     wmem_destroy_allocator(allocator);
+}
+
+#define RESOURCE_USAGE_START get_resource_usage(&start_utime, &start_stime)
+
+#define RESOURCE_USAGE_END \
+    get_resource_usage(&end_utime, &end_stime); \
+    utime_ms = (end_utime - start_utime) * 1000.0; \
+    stime_ms = (end_stime - start_stime) * 1000.0
+
+/* NOTE: You have to run "wmem_test --verbose" to see results. */
+static void
+wmem_test_stringperf(void)
+{
+#define LOOP_COUNT (1 * 1000 * 1000)
+    wmem_allocator_t   *allocator;
+#ifdef _WIN32
+    char                buffer[1];
+#endif
+    char               **str_ptr = g_new(char *, LOOP_COUNT);
+    char               *s_val = "test string";
+    double              d_val = 1000.2;
+    unsigned            u_val = 54321;
+    int                 i_val = -12345;
+    int                 i;
+    double              start_utime, start_stime, end_utime, end_stime, utime_ms, stime_ms;
+
+    allocator = wmem_allocator_new(WMEM_ALLOCATOR_STRICT);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_snprintf(NULL, 0, "%s", s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_printf_string_upper_bound (via g_snprintf) 1 string: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_snprintf(NULL, 0, "%s%s%s%s%s", s_val, s_val, s_val, s_val, s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_printf_string_upper_bound (via g_snprintf) 5 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_snprintf(NULL, 0, "%s%u%3.5f%02d", s_val, u_val, d_val, i_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_printf_string_upper_bound (via g_snprintf) mixed args: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+#ifdef _WIN32
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+		_snprintf_s(buffer, 1, _TRUNCATE, "%s", s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "_snprintf_s upper bound 1 string: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+		_snprintf_s(buffer, 1, _TRUNCATE, "%s%s%s%s%s", s_val, s_val, s_val, s_val, s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "_snprintf_s upper bound 5 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+		_snprintf_s(buffer, 1, _TRUNCATE, "%s%u%3.5f%02d", s_val, u_val, d_val, i_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "_snprintf_s upper bound mixed args: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+#endif
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        str_ptr[i] = g_strdup_printf("%s%s", s_val, s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_strdup_printf 2 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_free(str_ptr[i]);
+    }
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        str_ptr[i] = g_strconcat(s_val, s_val, NULL);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_strconcat 2 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_free(str_ptr[i]);
+    }
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        str_ptr[i] = g_strdup_printf("%s%s%s%s%s", s_val, s_val, s_val, s_val, s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_strdup_printf 5 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_free(str_ptr[i]);
+    }
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        str_ptr[i] = g_strconcat(s_val, s_val, s_val, s_val, s_val, NULL);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "g_strconcat 5 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+    for (i = 0; i < LOOP_COUNT; i++) {
+        g_free(str_ptr[i]);
+    }
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        wmem_strdup_printf(allocator, "%s%s", s_val, s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "wmem_strdup_printf 2 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        wmem_strconcat(allocator, s_val, s_val, NULL);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "wmem_strconcat 2 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        wmem_strdup_printf(allocator, "%s%s%s%s%s", s_val, s_val, s_val, s_val, s_val);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "wmem_strdup_printf 5 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    RESOURCE_USAGE_START;
+    for (i = 0; i < LOOP_COUNT; i++) {
+        wmem_strconcat(allocator, s_val, s_val, s_val, s_val, s_val, NULL);
+    }
+    RESOURCE_USAGE_END;
+    g_test_minimized_result(utime_ms + stime_ms,
+        "wmem_strconcat 5 strings: u %.3f ms s %.3f ms", utime_ms, stime_ms);
+
+    wmem_destroy_allocator(allocator);
+    g_free(str_ptr);
 }
 
 /* DATA STRUCTURE TESTING FUNCTIONS (/wmem/datastruct/) */
@@ -549,12 +715,34 @@ wmem_test_array(void)
 }
 
 static void
+check_val_list(gpointer val, gpointer val_to_check)
+{
+    g_assert(val == val_to_check);
+}
+
+static gint
+int_compare(gconstpointer a, gconstpointer b)
+{
+    return GPOINTER_TO_INT(a) - GPOINTER_TO_INT(b);
+}
+
+static gint
+str_compare(gconstpointer a, gconstpointer b)
+{
+    return strcmp((const char*)a, (const char*)b);
+}
+
+static void
 wmem_test_list(void)
 {
     wmem_allocator_t  *allocator;
     wmem_list_t       *list;
     wmem_list_frame_t *frame;
     unsigned int       i;
+    int                int1;
+    int                int2;
+    char*              str1;
+    char*              str2;
 
     allocator = wmem_allocator_new(WMEM_ALLOCATOR_STRICT);
 
@@ -635,18 +823,82 @@ wmem_test_list(void)
     }
     g_assert(wmem_list_count(list) == CONTAINER_ITERS);
     wmem_destroy_list(list);
+
+    list = wmem_list_new(NULL);
+    for (i=0; i<CONTAINER_ITERS; i++) {
+        wmem_list_append(list, GINT_TO_POINTER(1));
+    }
+    wmem_list_foreach(list, check_val_list, GINT_TO_POINTER(1));
+    wmem_destroy_list(list);
+
+    list = wmem_list_new(NULL);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(5), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(8), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(1), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(2), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(9), int_compare);
+    frame = wmem_list_head(list);
+    int1 = GPOINTER_TO_INT(wmem_list_frame_data(frame));
+    while ((frame = wmem_list_frame_next(frame))) {
+        int2 = GPOINTER_TO_INT(wmem_list_frame_data(frame));
+        g_assert(int1 <= int2);
+        int1 = int2;
+    }
+    wmem_destroy_list(list);
+
+    list = wmem_list_new(NULL);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(5), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(1), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(7), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(3), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(2), int_compare);
+    wmem_list_insert_sorted(list, GINT_TO_POINTER(2), int_compare);
+    frame = wmem_list_head(list);
+    int1 = GPOINTER_TO_INT(wmem_list_frame_data(frame));
+    while ((frame = wmem_list_frame_next(frame))) {
+        int2 = GPOINTER_TO_INT(wmem_list_frame_data(frame));
+        g_assert(int1 <= int2);
+        int1 = int2;
+    }
+    wmem_destroy_list(list);
+
+    list = wmem_list_new(NULL);
+    wmem_list_insert_sorted(list, "abc", str_compare);
+    wmem_list_insert_sorted(list, "bcd", str_compare);
+    wmem_list_insert_sorted(list, "aaa", str_compare);
+    wmem_list_insert_sorted(list, "bbb", str_compare);
+    wmem_list_insert_sorted(list, "zzz", str_compare);
+    wmem_list_insert_sorted(list, "ggg", str_compare);
+    frame = wmem_list_head(list);
+    str1 = (char*)wmem_list_frame_data(frame);
+    while ((frame = wmem_list_frame_next(frame))) {
+        str2 = (char*)wmem_list_frame_data(frame);
+        g_assert(strcmp(str1, str2) <= 0);
+        str1 = str2;
+    }
+    wmem_destroy_list(list);
+}
+
+void
+check_val_map(gpointer key _U_, gpointer val, gpointer user_data)
+{
+    g_assert(val == user_data);
 }
 
 static void
 wmem_test_map(void)
 {
-    wmem_allocator_t *allocator;
+    wmem_allocator_t   *allocator, *extra_allocator;
     wmem_map_t       *map;
     gchar            *str_key;
+    const void       *str_key_ret;
     unsigned int      i;
+    unsigned int     *key_ret;
+    unsigned int     *value_ret;
     void             *ret;
 
     allocator = wmem_allocator_new(WMEM_ALLOCATOR_STRICT);
+    extra_allocator = wmem_allocator_new(WMEM_ALLOCATOR_STRICT);
 
     /* insertion, lookup and removal of simple integer keys */
     map = wmem_map_new(allocator, g_direct_hash, g_direct_equal);
@@ -663,12 +915,43 @@ wmem_test_map(void)
     for (i=0; i<CONTAINER_ITERS; i++) {
         ret = wmem_map_lookup(map, GINT_TO_POINTER(i));
         g_assert(ret == GINT_TO_POINTER(i));
+        g_assert(wmem_map_contains(map, GINT_TO_POINTER(i)) == TRUE);
+        g_assert(wmem_map_lookup_extended(map, GINT_TO_POINTER(i), NULL, NULL));
+        key_ret = NULL;
+        g_assert(wmem_map_lookup_extended(map, GINT_TO_POINTER(i), GINT_TO_POINTER(&key_ret), NULL));
+        g_assert(key_ret == GINT_TO_POINTER(i));
+        value_ret = NULL;
+        g_assert(wmem_map_lookup_extended(map, GINT_TO_POINTER(i), NULL, GINT_TO_POINTER(&value_ret)));
+        g_assert(value_ret == GINT_TO_POINTER(i));
+        key_ret = NULL;
+        value_ret = NULL;
+        g_assert(wmem_map_lookup_extended(map, GINT_TO_POINTER(i), GINT_TO_POINTER(&key_ret), GINT_TO_POINTER(&value_ret)));
+        g_assert(key_ret == GINT_TO_POINTER(i));
+        g_assert(value_ret == GINT_TO_POINTER(i));
         ret = wmem_map_remove(map, GINT_TO_POINTER(i));
         g_assert(ret == GINT_TO_POINTER(i));
+        g_assert(wmem_map_contains(map, GINT_TO_POINTER(i)) == FALSE);
         ret = wmem_map_lookup(map, GINT_TO_POINTER(i));
         g_assert(ret == NULL);
         ret = wmem_map_remove(map, GINT_TO_POINTER(i));
         g_assert(ret == NULL);
+    }
+    wmem_free_all(allocator);
+
+    /* test auto-reset functionality */
+    map = wmem_map_new_autoreset(allocator, extra_allocator, g_direct_hash, g_direct_equal);
+    g_assert(map);
+    for (i=0; i<CONTAINER_ITERS; i++) {
+        ret = wmem_map_insert(map, GINT_TO_POINTER(i), GINT_TO_POINTER(777777));
+        g_assert(ret == NULL);
+        ret = wmem_map_insert(map, GINT_TO_POINTER(i), GINT_TO_POINTER(i));
+        g_assert(ret == GINT_TO_POINTER(777777));
+        ret = wmem_map_insert(map, GINT_TO_POINTER(i), GINT_TO_POINTER(i));
+        g_assert(ret == GINT_TO_POINTER(i));
+    }
+    wmem_free_all(extra_allocator);
+    for (i=0; i<CONTAINER_ITERS; i++) {
+        g_assert(wmem_map_lookup(map, GINT_TO_POINTER(i)) == NULL);
     }
     wmem_free_all(allocator);
 
@@ -681,8 +964,32 @@ wmem_test_map(void)
         wmem_map_insert(map, str_key, GINT_TO_POINTER(i));
         ret = wmem_map_lookup(map, str_key);
         g_assert(ret == GINT_TO_POINTER(i));
+        g_assert(wmem_map_contains(map, str_key) == TRUE);
+        str_key_ret = NULL;
+        value_ret = NULL;
+        g_assert(wmem_map_lookup_extended(map, str_key, &str_key_ret, GINT_TO_POINTER(&value_ret)) == TRUE);
+        g_assert(g_str_equal(str_key_ret, str_key));
+        g_assert(value_ret == GINT_TO_POINTER(i));
     }
 
+    /* test foreach */
+    map = wmem_map_new(allocator, wmem_str_hash, g_str_equal);
+    g_assert(map);
+    for (i=0; i<CONTAINER_ITERS; i++) {
+        str_key = wmem_test_rand_string(allocator, 1, 64);
+        wmem_map_insert(map, str_key, GINT_TO_POINTER(2));
+    }
+    wmem_map_foreach(map, check_val_map, GINT_TO_POINTER(2));
+
+    /* test size */
+    map = wmem_map_new(allocator, g_direct_hash, g_direct_equal);
+    g_assert(map);
+    for (i=0; i<CONTAINER_ITERS; i++) {
+        wmem_map_insert(map, GINT_TO_POINTER(i), GINT_TO_POINTER(i));
+    }
+    g_assert(wmem_map_size(map) == CONTAINER_ITERS);
+
+    wmem_destroy_allocator(extra_allocator);
     wmem_destroy_allocator(allocator);
 }
 
@@ -872,14 +1179,19 @@ wmem_test_tree(void)
         g_assert(wmem_tree_lookup32(tree, i) == GINT_TO_POINTER(i));
         g_assert(!wmem_tree_is_empty(tree));
     }
+    g_assert(wmem_tree_count(tree) == CONTAINER_ITERS);
     wmem_free_all(allocator);
 
     tree = wmem_tree_new(allocator);
     for (i=0; i<CONTAINER_ITERS; i++) {
-        guint32 rand_int = g_test_rand_int();
+        guint32 rand_int;
+        do {
+            rand_int = g_test_rand_int();
+        } while (wmem_tree_lookup32(tree, rand_int));
         wmem_tree_insert32(tree, rand_int, GINT_TO_POINTER(i));
         g_assert(wmem_tree_lookup32(tree, rand_int) == GINT_TO_POINTER(i));
     }
+    g_assert(wmem_tree_count(tree) == CONTAINER_ITERS);
     wmem_free_all(allocator);
 
     /* test auto-reset functionality */
@@ -889,7 +1201,9 @@ wmem_test_tree(void)
         wmem_tree_insert32(tree, i, GINT_TO_POINTER(i));
         g_assert(wmem_tree_lookup32(tree, i) == GINT_TO_POINTER(i));
     }
+    g_assert(wmem_tree_count(tree) == CONTAINER_ITERS);
     wmem_free_all(extra_allocator);
+    g_assert(wmem_tree_count(tree) == 0);
     for (i=0; i<CONTAINER_ITERS; i++) {
         g_assert(wmem_tree_lookup32(tree, i) == NULL);
         g_assert(wmem_tree_lookup32_le(tree, i) == NULL);
@@ -1114,6 +1428,10 @@ main(int argc, char **argv)
 
     g_test_add_func("/wmem/utils/misc",    wmem_test_miscutls);
     g_test_add_func("/wmem/utils/strings", wmem_test_strutls);
+
+    if (!g_test_perf ()) {
+        g_test_add_func("/wmem/utils/stringperf", wmem_test_stringperf);
+    }
 
     g_test_add_func("/wmem/datastruct/array",  wmem_test_array);
     g_test_add_func("/wmem/datastruct/list",   wmem_test_list);

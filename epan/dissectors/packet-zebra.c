@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -88,7 +76,7 @@ static gint ett_zebra = -1;
 static gint ett_zebra_request = -1;
 static gint ett_message = -1;
 
-#define TCP_PORT_ZEBRA			2600
+#define TCP_PORT_ZEBRA			2600 /* Not IANA registered */
 
 /* Zebra message types. */
 #define ZEBRA_INTERFACE_ADD                1
@@ -370,7 +358,7 @@ zebra_route(proto_tree *tree, tvbuff_t *tvb, int offset, guint16 len,
 		tvb_memcpy(tvb, buffer6, offset,
 			   MIN((unsigned) PSIZE(prefixlen), sizeof buffer6));
 		proto_tree_add_ipv6(tree, hf_zebra_prefix6,
-				    tvb, offset, PSIZE(prefixlen), (struct e_in6_addr *)buffer6);
+				    tvb, offset, PSIZE(prefixlen), (ws_in6_addr *)buffer6);
 	}else {
 		prefix4 = 0;
 		tvb_memcpy(tvb, (guint8 *)&prefix4, offset,
@@ -879,7 +867,7 @@ proto_reg_handoff_zebra(void)
 	dissector_handle_t zebra_handle;
 
 	zebra_handle = create_dissector_handle(dissect_zebra, proto_zebra);
-	dissector_add_uint("tcp.port", TCP_PORT_ZEBRA, zebra_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_ZEBRA, zebra_handle);
 }
 
 /*

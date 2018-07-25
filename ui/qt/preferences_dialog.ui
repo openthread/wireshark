@@ -16,7 +16,7 @@
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
      </property>
-     <widget class="QTreeWidget" name="prefsTree">
+     <widget class="PrefModuleTreeView" name="prefsView">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Preferred" vsizetype="MinimumExpanding">
         <horstretch>0</horstretch>
@@ -29,46 +29,9 @@
       <property name="headerHidden">
        <bool>true</bool>
       </property>
-      <column>
-       <property name="text">
-        <string notr="true">1</string>
-       </property>
-      </column>
-      <item>
-       <property name="text">
-        <string>Appearance</string>
-       </property>
-       <item>
-        <property name="text">
-         <string>Layout</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>Columns</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>Font and Colors</string>
-        </property>
-       </item>
-      </item>
-      <item>
-       <property name="text">
-        <string>Capture</string>
-       </property>
-      </item>
-      <item>
-       <property name="text">
-        <string>Filter Expressions</string>
-       </property>
-      </item>
-      <item>
-       <property name="text">
-        <string>Advanced</string>
-       </property>
-      </item>
+      <property name="sortingEnabled">
+        <bool>true</bool>
+      </property>
      </widget>
      <widget class="QStackedWidget" name="stackedWidget">
       <property name="sizePolicy">
@@ -85,7 +48,8 @@
       <widget class="ColumnPreferencesFrame" name="columnFrame"/>
       <widget class="FontColorPreferencesFrame" name="fontandcolorFrame"/>
       <widget class="CapturePreferencesFrame" name="captureFrame"/>
-      <widget class="FilterExpressionsPreferencesFrame" name="filterExpressonsFrame"/>
+      <widget class="UatFrame" name="expertFrame"/>
+      <widget class="UatFrame" name="filterExpressonsFrame"/>
       <widget class="QFrame" name="advancedFrame">
        <layout class="QVBoxLayout" name="verticalLayout_2">
         <item>
@@ -116,33 +80,13 @@
          </layout>
         </item>
         <item>
-         <widget class="QTreeWidget" name="advancedTree">
+         <widget class="QTreeView" name="advancedView">
           <property name="indentation">
            <number>0</number>
           </property>
           <property name="uniformRowHeights">
            <bool>true</bool>
           </property>
-          <column>
-           <property name="text">
-            <string>Name</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>Status</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>Type</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>Value</string>
-           </property>
-          </column>
          </widget>
         </item>
        </layout>
@@ -194,9 +138,15 @@
    <container>1</container>
   </customwidget>
   <customwidget>
-   <class>FilterExpressionsPreferencesFrame</class>
+   <class>UatFrame</class>
    <extends>QFrame</extends>
-   <header>filter_expressions_preferences_frame.h</header>
+   <header>uat_frame.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PrefModuleTreeView</class>
+   <extends>QTreeView</extends>
+   <header>widgets/pref_module_view.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

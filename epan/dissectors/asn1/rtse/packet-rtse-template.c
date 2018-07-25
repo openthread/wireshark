@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -67,7 +55,7 @@ static expert_field ei_rtse_unknown_rtse_pdu = EI_INIT;
 static expert_field ei_rtse_abstract_syntax = EI_INIT;
 
 static dissector_table_t rtse_oid_dissector_table=NULL;
-static GHashTable *oid_table=NULL;
+static dissector_handle_t rtse_handle = NULL;
 static gint ett_rtse_unknown = -1;
 
 static reassembly_table rtse_reassembly_table;
@@ -115,16 +103,10 @@ register_rtse_oid_dissector_handle(const char *oid, dissector_handle_t dissector
 {
 /* XXX: Note that this fcn is called from proto_reg_handoff in *other* dissectors ... */
 
-  static  dissector_handle_t rtse_handle = NULL;
   static  dissector_handle_t ros_handle = NULL;
 
-  if (rtse_handle == NULL)
-    rtse_handle = find_dissector("rtse");
   if (ros_handle == NULL)
     ros_handle = find_dissector("ros");
-
-  /* save the name - but not used */
-  g_hash_table_insert(oid_table, (gpointer)oid, (gpointer)name);
 
   /* register RTSE with the BER (ACSE) */
   register_ber_oid_dissector_handle(oid, rtse_handle, proto, name);
@@ -232,11 +214,9 @@ dissect_rtse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
          (session->spdu_type == SES_MAJOR_SYNC_POINT)))
     {
         /* Use conversation index as fragment id */
-        conversation  = find_conversation (pinfo->num,
-                           &pinfo->src, &pinfo->dst, pinfo->ptype,
-                           pinfo->srcport, pinfo->destport, 0);
+        conversation  = find_conversation_pinfo(pinfo, 0);
         if (conversation != NULL) {
-            rtse_id = conversation->index;
+            rtse_id = conversation->conv_index;
         }
         session->rtse_reassemble = TRUE;
     }
@@ -308,17 +288,6 @@ dissect_rtse(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* d
     return tvb_captured_length(tvb);
 }
 
-static void rtse_reassemble_init (void)
-{
-    reassembly_table_init (&rtse_reassembly_table,
-                   &addresses_reassembly_table_functions);
-}
-
-static void rtse_reassemble_cleanup(void)
-{
-    reassembly_table_destroy(&rtse_reassembly_table);
-}
-
 /*--- proto_register_rtse -------------------------------------------*/
 void proto_register_rtse(void) {
 
@@ -385,14 +354,16 @@ void proto_register_rtse(void) {
 
   /* Register protocol */
   proto_rtse = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  register_dissector("rtse", dissect_rtse, proto_rtse);
+  rtse_handle = register_dissector("rtse", dissect_rtse, proto_rtse);
   /* Register fields and subtrees */
   proto_register_field_array(proto_rtse, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_rtse = expert_register_protocol(proto_rtse);
   expert_register_field_array(expert_rtse, ei, array_length(ei));
-  register_init_routine (&rtse_reassemble_init);
-  register_cleanup_routine (&rtse_reassemble_cleanup);
+
+  reassembly_table_register (&rtse_reassembly_table,
+                   &addresses_reassembly_table_functions);
+
   rtse_module = prefs_register_protocol_subtree("OSI", proto_rtse, NULL);
 
   prefs_register_bool_preference(rtse_module, "reassemble",
@@ -402,10 +373,7 @@ void proto_register_rtse(void) {
                  " \"Allow subdissectors to reassemble TCP streams\""
                  " in the TCP protocol settings.", &rtse_reassemble);
 
-  rtse_oid_dissector_table = register_dissector_table("rtse.oid", "RTSE OID Dissectors", proto_rtse, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  oid_table=g_hash_table_new(g_str_hash, g_str_equal);
-
-
+  rtse_oid_dissector_table = register_dissector_table("rtse.oid", "RTSE OID Dissectors", proto_rtse, FT_STRING, BASE_NONE);
 }
 
 

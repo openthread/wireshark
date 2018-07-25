@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -124,8 +112,6 @@ static expert_field ei_icep_context_too_long = EI_INIT;
 static guint icep_max_batch_requests    = 64;
 static guint icep_max_ice_string_len    = 512;
 static guint icep_max_ice_context_pairs = 64;
-static guint icep_tcp_port              = 0;
-static guint icep_udp_port              = 0;
 
 
 static const value_string icep_msgtype_vals[] = {
@@ -170,7 +156,7 @@ static const value_string icep_mode_vals[] = {
  * "*dest" is a null terminated version of the dissected Ice string.
  */
 static void dissect_ice_string(packet_info *pinfo, proto_tree *tree, proto_item *item, int hf_icep,
-                               tvbuff_t *tvb, guint32 offset, gint32 *consumed, char **dest)
+                               tvbuff_t *tvb, guint32 offset, gint32 *consumed, const guint8 **dest)
 {
     /* p. 586 chapter 23.2.1 and p. 588 chapter 23.2.5
      * string == Size + content
@@ -180,7 +166,7 @@ static void dissect_ice_string(packet_info *pinfo, proto_tree *tree, proto_item 
      */
 
     guint32 Size = 0;
-    char *s = NULL;
+    const guint8 *s = NULL;
 
     (*consumed) = 0;
 
@@ -240,8 +226,7 @@ static void dissect_ice_string(packet_info *pinfo, proto_tree *tree, proto_item 
 
 
     if ( Size != 0 ) {
-        s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, Size, ENC_ASCII);
-        proto_tree_add_string(tree, hf_icep, tvb, offset, Size, s);
+        proto_tree_add_item_ret_string(tree, hf_icep, tvb, offset, Size, ENC_ASCII, wmem_packet_scope(), &s);
     } else {
         s = wmem_strdup(wmem_packet_scope(), "(empty)");
         /* display the 0x00 Size byte when click on a empty ice_string */
@@ -412,10 +397,10 @@ static void dissect_ice_context(packet_info *pinfo, proto_tree *tree, proto_item
     for ( i = 0; i < Size; i++ ) {
         /* key */
         gint32 consumed_key = 0;
-        char *str_key = NULL;
+        const guint8 *str_key = NULL;
         /* value */
         gint32 consumed_value = 0;
-        char *str_value = NULL;
+        const guint8 *str_value = NULL;
         proto_item *ti;
         proto_tree *context_tree;
 
@@ -555,8 +540,8 @@ static void dissect_icep_request_common(tvbuff_t *tvb, guint32 offset,
      */
 
     gint32 consumed = 0;
-    char *namestr = NULL;
-    char *opstr = NULL;
+    const guint8 *namestr = NULL;
+    const guint8 *opstr = NULL;
 
     (*total_consumed) = 0;
 
@@ -1296,19 +1281,6 @@ void proto_register_icep(void)
     expert_register_field_array(expert_icep, ei, array_length(ei));
 
     icep_module = prefs_register_protocol(proto_icep, NULL);
-
-    prefs_register_uint_preference(icep_module, "tcp.port",
-                                 "ICEP TCP Port",
-                                 "ICEP TCP port",
-                                 10,
-                                 &icep_tcp_port);
-
-    prefs_register_uint_preference(icep_module, "udp.port",
-                                 "ICEP UDP Port",
-                                 "ICEP UDP port",
-                                 10,
-                                 &icep_udp_port);
-
     prefs_register_uint_preference(icep_module, "max_batch_requests",
                                   "Maximum batch requests",
                                   "Maximum number of batch requests allowed",
@@ -1328,43 +1300,19 @@ void proto_register_icep(void)
 
 void proto_reg_handoff_icep(void)
 {
-    static gboolean icep_prefs_initialized = FALSE;
-    static dissector_handle_t icep_tcp_handle, icep_udp_handle;
-    static guint old_icep_tcp_port = 0;
-    static guint old_icep_udp_port = 0;
+    dissector_handle_t icep_tcp_handle, icep_udp_handle;
 
     /* Register as a heuristic TCP/UDP dissector */
-    if (icep_prefs_initialized == FALSE) {
-        icep_tcp_handle = create_dissector_handle(dissect_icep_tcp, proto_icep);
-        icep_udp_handle = create_dissector_handle(dissect_icep_udp, proto_icep);
+    icep_tcp_handle = create_dissector_handle(dissect_icep_tcp, proto_icep);
+    icep_udp_handle = create_dissector_handle(dissect_icep_udp, proto_icep);
 
-        heur_dissector_add("tcp", dissect_icep_tcp, "ICEP over TCP", "icep_tcp", proto_icep, HEURISTIC_ENABLE);
-        heur_dissector_add("udp", dissect_icep_udp, "ICEP over UDP", "icep_udp", proto_icep, HEURISTIC_ENABLE);
-
-        icep_prefs_initialized = TRUE;
-    }
+    heur_dissector_add("tcp", dissect_icep_tcp, "ICEP over TCP", "icep_tcp", proto_icep, HEURISTIC_ENABLE);
+    heur_dissector_add("udp", dissect_icep_udp, "ICEP over UDP", "icep_udp", proto_icep, HEURISTIC_ENABLE);
 
     /* Register TCP port for dissection */
-    if(old_icep_tcp_port != 0 && old_icep_tcp_port != icep_tcp_port){
-        dissector_delete_uint("tcp.port", old_icep_tcp_port, icep_tcp_handle);
-    }
-
-    if(icep_tcp_port != 0 && old_icep_tcp_port != icep_tcp_port) {
-        dissector_add_uint("tcp.port", icep_tcp_port, icep_tcp_handle);
-    }
-
-    old_icep_tcp_port = icep_tcp_port;
-
+    dissector_add_for_decode_as_with_preference("tcp.port", icep_tcp_handle);
     /* Register UDP port for dissection */
-    if(old_icep_udp_port != 0 && old_icep_udp_port != icep_udp_port){
-        dissector_delete_uint("udp.port", old_icep_udp_port, icep_udp_handle);
-    }
-
-    if(icep_udp_port != 0 && old_icep_udp_port != icep_udp_port) {
-        dissector_add_uint("udp.port", icep_udp_port, icep_udp_handle);
-    }
-
-    old_icep_udp_port = icep_udp_port;
+    dissector_add_for_decode_as_with_preference("udp.port", icep_udp_handle);
 }
 
 /*

@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -73,8 +61,6 @@ static void dissect_simulcrypt_data(proto_tree *simulcrypt_tree, proto_item *sim
 static guint proto_simulcrypt = -1;
 
 /* Preferences (with default values) */
-static guint global_simulcrypt_tcp_port = 0;   /* Simulcrypt registered only if pref set to non-zero value */
-static guint global_simulcrypt_udp_port = 0;   /* Simulcrypt registered only if pref set to non-zero value */
 static int ca_system_id_mikey = CA_SYSTEM_ID_MIKEY; /* MIKEY ECM CA_system_ID */
 
 /* MIKEY payload start bytes */
@@ -806,32 +792,25 @@ dissect_ecmg_parameter_value (proto_tree *tree, tvbuff_t *tvb, packet_info *pinf
 		proto_tree_add_item(tree, hf_simulcrypt_ecm_channel_id, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_DELAY_START:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_delay_start, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_delay_start, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_DELAY_STOP:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_delay_stop, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_delay_stop, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_TRANSITION_DELAY_START:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_transition_delay_start, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_transition_delay_start, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_TRANSITION_DELAY_STOP:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_transition_delay_stop, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_transition_delay_stop, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_AC_DELAY_START:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_ac_delay_start, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_ac_delay_start, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_AC_DELAY_STOP:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_ac_delay_stop, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_ac_delay_stop, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_ECM_REP_PERIOD:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_ecm_rep_period, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_ecm_rep_period, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_MAX_STREAMS:
 		proto_tree_add_item(tree, hf_simulcrypt_max_streams, tvb, offset, plen, ENC_BIG_ENDIAN);
@@ -850,8 +829,7 @@ dissect_ecmg_parameter_value (proto_tree *tree, tvbuff_t *tvb, packet_info *pinf
 		proto_tree_add_item(tree, hf_simulcrypt_cw_per_msg, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_MAX_COMP_TIME:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_max_comp_time, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_max_comp_time, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_ECMG_ACCESS_CRITERIA:
 		proto_tree_add_item(tree, hf_simulcrypt_access_criteria, tvb, offset, plen, ENC_NA);
@@ -921,8 +899,6 @@ static void
 dissect_emmg_parameter_value (proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo _U_, guint32 offset,
 			      guint16 plen, guint16 ptype, gchar *pvalue_char)
 {
-	proto_item *simulcrypt_item;
-
 	switch (ptype) {
 	case SIMULCRYPT_EMMG_CLIENT_ID:
 		proto_tree_add_item(tree, hf_simulcrypt_client_id, tvb, offset, plen, ENC_BIG_ENDIAN);
@@ -940,8 +916,7 @@ dissect_emmg_parameter_value (proto_tree *tree, tvbuff_t *tvb, packet_info *pinf
 		proto_tree_add_item(tree, hf_simulcrypt_datagram, tvb, offset, plen, ENC_NA);
 		break;
 	case SIMULCRYPT_EMMG_BANDWIDTH:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_bandwidth, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " kbit/s");
+		proto_tree_add_item(tree, hf_simulcrypt_bandwidth, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_EMMG_DATA_TYPE:
 		proto_tree_add_item(tree, hf_simulcrypt_data_type, tvb, offset, plen, ENC_BIG_ENDIAN);
@@ -1185,16 +1160,13 @@ dissect_psig_parameter_value (proto_tree *tree, tvbuff_t *tvb, packet_info *pinf
 		proto_tree_add_item(tree, hf_simulcrypt_datagram, tvb, offset, plen, ENC_NA);
 		break;
 	case SIMULCRYPT_PSIG_BANDWIDTH:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_bandwidth, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " kbit/s");
+		proto_tree_add_item(tree, hf_simulcrypt_bandwidth, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_PSIG_INITIAL_BANDWIDTH:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_initial_bandwidth, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " kbit/s");
+		proto_tree_add_item(tree, hf_simulcrypt_initial_bandwidth, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_PSIG_MAX_COMP_TIME:
-		simulcrypt_item = proto_tree_add_item(tree, hf_simulcrypt_max_comp_time, tvb, offset, plen, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " ms");
+		proto_tree_add_item(tree, hf_simulcrypt_max_comp_time, tvb, offset, plen, ENC_BIG_ENDIAN);
 		break;
 	case SIMULCRYPT_PSIG_ASI_INPUT_PACKET_ID:
 		proto_tree_add_item(tree, hf_simulcrypt_asi_input_packet_id, tvb, offset, plen, ENC_BIG_ENDIAN);
@@ -1263,8 +1235,7 @@ dissect_simulcrypt_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 		offset+=2;
 
 		/* Message Length 2 Bytes */
-		simulcrypt_item = proto_tree_add_item(simulcrypt_header_tree, hf_simulcrypt_message_length, tvb, offset, 2, ENC_BIG_ENDIAN);
-		proto_item_append_text(simulcrypt_item, " (bytes)");
+		proto_tree_add_item(simulcrypt_header_tree, hf_simulcrypt_message_length, tvb, offset, 2, ENC_BIG_ENDIAN);
 		msg_length = tvb_get_ntohs(tvb, offset); /* read 2 byte message length value */
 		offset+=2;
 
@@ -1365,8 +1336,7 @@ dissect_simulcrypt_data(proto_tree *simulcrypt_tree, proto_item *simulcrypt_item
 			proto_tree_add_item(simulcrypt_parameter_tree, hf_simulcrypt_parameter_type, tvb, offset, 2, ENC_BIG_ENDIAN);
 			break;
 		}
-		simulcrypt_item = proto_tree_add_item(simulcrypt_parameter_tree, hf_simulcrypt_parameter_length, tvb, offset+2, 2, ENC_BIG_ENDIAN); /* length item */
-		proto_item_append_text(simulcrypt_item, " (bytes)");
+		proto_tree_add_item(simulcrypt_parameter_tree, hf_simulcrypt_parameter_length, tvb, offset+2, 2, ENC_BIG_ENDIAN); /* length item */
 		offset += 2+2;  /* offset --> parameter value */
 
 		switch (iftype) {
@@ -1462,7 +1432,7 @@ proto_register_simulcrypt (void)
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_message_length,
-		{ "Message Length", "simulcrypt.message.len", FT_UINT16, BASE_DEC, NULL, 0x0,  /* length 2 bytes, print as decimal value */
+		{ "Message Length", "simulcrypt.message.len", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,  /* length 2 bytes, print as decimal value */
 		NULL, HFILL }},
 
 		{ &hf_simulcrypt_message,
@@ -1486,7 +1456,7 @@ proto_register_simulcrypt (void)
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_parameter_length,
-		{ "Parameter Length", "simulcrypt.parameter.len", FT_UINT16, BASE_DEC, NULL, 0x0,  /* length 2 bytes, print as decimal value */
+		{ "Parameter Length", "simulcrypt.parameter.len", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,  /* length 2 bytes, print as decimal value */
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_ca_system_id,
@@ -1510,31 +1480,31 @@ proto_register_simulcrypt (void)
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_delay_start,
-		{ "Delay start", "simulcrypt.delay_start", FT_INT16, BASE_DEC, NULL, 0x0,
+		{ "Delay start", "simulcrypt.delay_start", FT_INT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_delay_stop,
-		{ "Delay stop", "simulcrypt.delay_stop", FT_INT16, BASE_DEC, NULL, 0x0,
+		{ "Delay stop", "simulcrypt.delay_stop", FT_INT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_ac_delay_start,
-		{ "AC delay start", "simulcrypt.ac_delay_start", FT_INT16, BASE_DEC, NULL, 0x0,
+		{ "AC delay start", "simulcrypt.ac_delay_start", FT_INT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_ac_delay_stop,
-		{ "AC delay stop", "simulcrypt.ac_delay_stop", FT_INT16, BASE_DEC, NULL, 0x0,
+		{ "AC delay stop", "simulcrypt.ac_delay_stop", FT_INT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_transition_delay_start,
-		{ "Transition delay start", "simulcrypt.transition_delay_start", FT_INT16, BASE_DEC, NULL, 0x0,
+		{ "Transition delay start", "simulcrypt.transition_delay_start", FT_INT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_transition_delay_stop,
-		{ "Transition delay stop", "simulcrypt.transition_delay_stop", FT_INT16, BASE_DEC, NULL, 0x0,
+		{ "Transition delay stop", "simulcrypt.transition_delay_stop", FT_INT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_ecm_rep_period,
-		{ "ECM repetition period", "simulcrypt.ecm_rep_period", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "ECM repetition period", "simulcrypt.ecm_rep_period", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_max_streams,
@@ -1554,7 +1524,7 @@ proto_register_simulcrypt (void)
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_max_comp_time,
-		{ "Max comp time", "simulcrypt.max_comp_time", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "Max comp time", "simulcrypt.max_comp_time", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_access_criteria,
@@ -1614,7 +1584,7 @@ proto_register_simulcrypt (void)
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_bandwidth,
-		{ "Bandwidth", "simulcrypt.bandwidth", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "Bandwidth", "simulcrypt.bandwidth", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_kbps, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_data_type,
@@ -1794,7 +1764,7 @@ proto_register_simulcrypt (void)
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_initial_bandwidth,
-		{ "Initial bandwidth", "simulcrypt.parameter.initial_bandwidth", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "Initial bandwidth", "simulcrypt.parameter.initial_bandwidth", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_kbps, 0x0,
 		 NULL, HFILL }},
 
 		{ &hf_simulcrypt_asi_input_packet_id,
@@ -1838,14 +1808,6 @@ proto_register_simulcrypt (void)
 	/*  called when preferences are applied.                                     */
 	simulcrypt_module = prefs_register_protocol(proto_simulcrypt, proto_reg_handoff_simulcrypt);
 
-	prefs_register_uint_preference(simulcrypt_module, "tcp.port", "Simulcrypt TCP Port",
-				 "Set the TCP port for Simulcrypt messages ('0' means no port is assigned)",
-				 10, &global_simulcrypt_tcp_port);
-
-	prefs_register_uint_preference(simulcrypt_module, "udp.port", "Simulcrypt UDP Port",
-				 "Set the UDP port for Simulcrypt messages ('0' means no port is assigned)",
-				 10, &global_simulcrypt_udp_port);
-
 	prefs_register_uint_preference(simulcrypt_module, "ca_system_id_mikey","MIKEY ECM CA_system_ID (in hex)",
 					"Set the CA_system_ID used to decode ECM datagram as MIKEY", 16, &ca_system_id_mikey);
 }
@@ -1855,8 +1817,7 @@ void
 proto_reg_handoff_simulcrypt(void)
 {
 	static gboolean initialized=FALSE;
-	static dissector_handle_t simulcrypt_handle;
-	static guint tcp_port, udp_port;
+	dissector_handle_t simulcrypt_handle;
 	guint  i;
 
 	if (!initialized) {
@@ -1865,22 +1826,10 @@ proto_reg_handoff_simulcrypt(void)
 		{
 			tab_ecm_inter[i].protocol_handle = find_dissector(tab_ecm_inter[i].protocol_name);
 		}
-		dissector_add_for_decode_as("tcp.port", simulcrypt_handle);
-		dissector_add_for_decode_as("udp.port", simulcrypt_handle);
+		dissector_add_for_decode_as_with_preference("udp.port", simulcrypt_handle);
+		dissector_add_for_decode_as_with_preference("tcp.port", simulcrypt_handle);
 		initialized = TRUE;
 	}
-	else {
-		dissector_delete_uint("tcp.port", tcp_port, simulcrypt_handle);
-		dissector_delete_uint("udp.port", udp_port, simulcrypt_handle);
-	}
-	if (global_simulcrypt_tcp_port != 0) {
-		dissector_add_uint("tcp.port", global_simulcrypt_tcp_port, simulcrypt_handle);
-	}
-	if (global_simulcrypt_udp_port != 0) {
-		dissector_add_uint("udp.port", global_simulcrypt_udp_port, simulcrypt_handle);
-	}
-	tcp_port = global_simulcrypt_tcp_port;
-	udp_port = global_simulcrypt_udp_port;
 
 	/* update tab_ecm_inter table (always do this) */
 	tab_ecm_inter[ECM_MIKEY_INDEX].ca_system_id=ca_system_id_mikey;

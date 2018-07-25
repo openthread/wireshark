@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -95,7 +83,7 @@ oid_repr_len(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_)
 }
 
 static void
-oid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+oid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size _U_)
 {
 	char* oid_str = oid_encoded2string(NULL, fv->value.bytes->data,fv->value.bytes->len);
 	/*
@@ -116,7 +104,7 @@ rel_oid_repr_len(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_)
 }
 
 static void
-rel_oid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+rel_oid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size _U_)
 {
 	char* oid_str = rel_oid_encoded2string(NULL, fv->value.bytes->data,fv->value.bytes->len);
 	/*
@@ -132,13 +120,13 @@ rel_oid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *b
 }
 
 static void
-system_id_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display, char *buf)
+system_id_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
-	print_system_id_buf(fv->value.bytes->data,fv->value.bytes->len, buf, bytes_repr_len(fv, rtype, field_display));
+	print_system_id_buf(fv->value.bytes->data,fv->value.bytes->len, buf, size);
 }
 
 static void
-bytes_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display, char *buf)
+bytes_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display, char *buf, unsigned int size _U_)
 {
 	char separator;
 
@@ -370,8 +358,6 @@ vines_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value, g
 static gboolean
 ether_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value, gchar **err_msg)
 {
-	guint8	*mac;
-
 	/*
 	 * Don't request an error message if bytes_from_unparsed fails;
 	 * if it does, we'll report an error specific to this address
@@ -396,17 +382,11 @@ ether_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value, g
 		return TRUE;
 	}
 
-	mac = get_ether_addr(s);
-	if (!mac) {
-		if (err_msg != NULL) {
-			*err_msg = g_strdup_printf("\"%s\" is not a valid hostname or Ethernet address.",
-			    s);
-		}
-		return FALSE;
-	}
+	/* XXX - Try resolving as an Ethernet host name and parse that? */
 
-	ether_fvalue_set(fv, mac);
-	return TRUE;
+	if (err_msg != NULL)
+		*err_msg = g_strdup_printf("\"%s\" is not a valid Ethernet address.", s);
+	return FALSE;
 }
 
 static gboolean
@@ -737,24 +717,8 @@ ftype_register_bytes(void)
 		bytes_to_repr,			/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		bytes_fvalue_set,		/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_byte_array = bytes_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -782,24 +746,8 @@ ftype_register_bytes(void)
 		bytes_to_repr,			/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		bytes_fvalue_set,		/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_byte_array = bytes_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -827,24 +775,8 @@ ftype_register_bytes(void)
 		bytes_to_repr,			/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		ax25_fvalue_set,		/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_integer */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* get_value_integer */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_bytes = ax25_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -872,24 +804,8 @@ ftype_register_bytes(void)
 		bytes_to_repr,			/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		vines_fvalue_set,		/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_integer */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* get_value_integer */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_bytes = vines_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -917,24 +833,8 @@ ftype_register_bytes(void)
 		bytes_to_repr,			/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		ether_fvalue_set,		/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_bytes = ether_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -962,24 +862,8 @@ ftype_register_bytes(void)
 		oid_to_repr,			/* val_to_string_repr */
 		oid_repr_len,			/* len_string_repr */
 
-		oid_fvalue_set,		/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_byte_array = oid_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -1007,24 +891,8 @@ ftype_register_bytes(void)
 		rel_oid_to_repr,		/* val_to_string_repr */
 		rel_oid_repr_len,		/* len_string_repr */
 
-		oid_fvalue_set,		/* set_value_byte_array (same as full oid) */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_byte_array = oid_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -1052,24 +920,8 @@ ftype_register_bytes(void)
 		system_id_to_repr,		/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		system_id_fvalue_set,	/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_byte_array = system_id_fvalue_set }, /* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -1097,24 +949,8 @@ ftype_register_bytes(void)
 		bytes_to_repr,			/* val_to_string_repr */
 		bytes_repr_len,			/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		fcwwn_fvalue_set,		/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_bytes = fcwwn_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },			/* union get_value */
 
 		cmp_eq,
 		cmp_ne,

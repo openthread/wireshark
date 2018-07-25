@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "multicast_statistics_dialog.h"
@@ -26,8 +14,8 @@
 #include <QPushButton>
 #include <QTreeWidget>
 
-#include "qt_ui_utils.h"
-#include "syntax_line_edit.h"
+#include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/widgets/syntax_line_edit.h>
 #include "wireshark_application.h"
 
 enum {
@@ -55,8 +43,18 @@ public:
     MulticastStatTreeWidgetItem(QTreeWidget *parent) :
         QTreeWidgetItem (parent, mcast_table_type_)
     {
-        memset(&src_addr_, 0, sizeof(src_addr_));
-        memset(&dst_addr_, 0, sizeof(dst_addr_));
+        clear_address(&src_addr_);
+        clear_address(&dst_addr_);
+        src_port_ = 0;
+        dst_port_ = 0;
+        num_packets_ = 0;
+        avg_pps_ = 0;
+        avg_bw_ = 0;
+        max_bw_ = 0;
+        top_burst_size_ = 0;
+        num_bursts_ = 0;
+        top_buff_usage_ = 0;
+        num_buff_alarms_ = 0;
     }
 
     void updateStreamInfo(const mcast_stream_info_t *stream_info) {
@@ -245,8 +243,8 @@ MulticastStatisticsDialog::MulticastStatisticsDialog(QWidget &parent, CaptureFil
     connect(this, SIGNAL(updateFilter(QString)),
             this, SLOT(updateMulticastParameters()));
 
-    connect(&cap_file_, SIGNAL(captureFileClosing()),
-            this, SLOT(captureFileClosing()));
+    connect(&cap_file_, SIGNAL(captureEvent(CaptureEvent)),
+            this, SLOT(captureEvent(CaptureEvent)));
 
     /* Register the tap listener */
     register_tap_listener_mcast_stream(tapinfo_);
@@ -298,6 +296,17 @@ void MulticastStatisticsDialog::tapDraw(mcaststream_tapinfo_t *tapinfo)
 
         ms_ti->updateStreamInfo(stream_info);
         cur_row++;
+    }
+}
+
+QList<QVariant> MulticastStatisticsDialog::treeItemData(QTreeWidgetItem *ti) const
+{
+    MulticastStatTreeWidgetItem *ms_ti = dynamic_cast<MulticastStatTreeWidgetItem*>(ti);
+    if (ms_ti) {
+        return ms_ti->rowData();
+    }
+    else {
+        return QList<QVariant>();
     }
 }
 
@@ -405,7 +414,7 @@ void MulticastStatisticsDialog::updateMulticastParameters()
 
     param = buffer_alarm_threshold_le_->text().toInt(&ok);
     if (ok && param > 0) {
-        mcast_stream_trigger = param;
+        mcast_stream_bufferalarm = param;
     }
 
     param = stream_empty_speed_le_->text().toInt(&ok);
@@ -437,13 +446,17 @@ void MulticastStatisticsDialog::fillTree()
     updateWidgets();
 }
 
-void MulticastStatisticsDialog::captureFileClosing()
+void MulticastStatisticsDialog::captureEvent(CaptureEvent e)
 {
-    /* Remove the stream tap listener */
-    remove_tap_listener_mcast_stream(tapinfo_);
+    if ((e.captureContext() == CaptureEvent::File) &&
+            (e.eventType() == CaptureEvent::Closing))
+    {
+        /* Remove the stream tap listener */
+        remove_tap_listener_mcast_stream(tapinfo_);
 
-    updateWidgets();
-    WiresharkDialog::captureFileClosing();
+        updateWidgets();
+        WiresharkDialog::captureFileClosing();
+    }
 }
 
 // Stat command + args

@@ -1,26 +1,14 @@
 /* packet-k12.c
-* Helper-dissector for Tektronix k12xx-k15xx .rf5 file type
-*
-* Luis E. Garcia Ontanon <luis@ontanon.org>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ * Helper-dissector for Tektronix k12xx-k15xx .rf5 file type
+ *
+ * Luis E. Garcia Ontanon <luis@ontanon.org>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 #include "config.h"
 
 
@@ -184,7 +172,7 @@ fill_fp_info(fp_info* p_fp_info, guchar* extra_info, guint32 length)
 static int
 dissect_k12(tvbuff_t* tvb,packet_info* pinfo,proto_tree* tree, void* data _U_)
 {
-	static dissector_handle_t data_handles[] = {NULL, NULL};
+	static dissector_handle_t data_handles[2] = {NULL, NULL};
 	proto_item* k12_item;
 	proto_tree* k12_tree;
 	proto_item* stack_item;
@@ -223,7 +211,7 @@ dissect_k12(tvbuff_t* tvb,packet_info* pinfo,proto_tree* tree, void* data _U_)
 			     * XXX: this is prone to collisions!
 			     * we need an uniform way to manage circuits between dissectors
 			     */
-		pinfo->circuit_id = g_str_hash(circuit_str);
+		conversation_create_endpoint_by_id(pinfo, ENDPOINT_NONE, g_str_hash(circuit_str), 0);
 
 		proto_tree_add_uint(k12_tree, hf_k12_atm_vp, tvb, 0, 0,
 				    pinfo->pseudo_header->k12.input_info.atm.vp);
@@ -312,17 +300,20 @@ k12_update_cb(void* r, char** err)
 		g_strstrip(protos[num_protos]);
 
 	g_free(h->handles);
-	h->handles = (dissector_handle_t *)g_malloc0(sizeof(dissector_handle_t)*(num_protos < 2 ? 2 : num_protos));
+	/* Allocate extra space for NULL marker */
+	h->handles = (dissector_handle_t *)g_malloc0(sizeof(dissector_handle_t)*(num_protos+1));
 
 	for (i = 0; i < num_protos; i++) {
 		if ( ! (h->handles[i] = find_dissector(protos[i])) ) {
 			h->handles[i] = data_handle;
+			h->handles[i+1] = NULL;
 			g_strfreev(protos);
 			*err = g_strdup_printf("Could not find dissector for: '%s'",protos[i]);
 			return FALSE;
 		}
 	}
 
+	h->handles[i] = NULL;
 	g_strfreev(protos);
 	*err = NULL;
 	return TRUE;
@@ -333,7 +324,7 @@ k12_copy_cb(void* dest, const void* orig, size_t len _U_)
 {
 	k12_handles_t* d = (k12_handles_t *)dest;
 	const k12_handles_t* o = (const k12_handles_t *)orig;
-	gchar** protos = wmem_strsplit(NULL,d->protos,":",0);
+	gchar** protos = g_strsplit(d->protos,":",0);
 	guint num_protos;
 
 	for (num_protos = 0; protos[num_protos]; num_protos++)
@@ -343,7 +334,7 @@ k12_copy_cb(void* dest, const void* orig, size_t len _U_)
 	d->protos  = g_strdup(o->protos);
 	d->handles = (dissector_handle_t *)g_memdup(o->handles,(guint)(sizeof(dissector_handle_t)*(num_protos+1)));
 
-	wmem_free(NULL, protos);
+	g_strfreev(protos);
 
 	return dest;
 }
@@ -369,15 +360,15 @@ protos_chk_cb(void* r _U_, const char* p, guint len, const void* u1 _U_, const v
 	g_strstrip(line);
 	ascii_strdown_inplace(line);
 
-	protos = wmem_strsplit(NULL,line,":",0);
+	protos = g_strsplit(line,":",0);
 
 	for (num_protos = 0; protos[num_protos]; num_protos++)
 		g_strstrip(protos[num_protos]);
 
 	if (!num_protos) {
-		*err = g_strdup_printf("No protocols given");
+		*err = g_strdup("No protocols given");
 		wmem_free(NULL, line);
-		wmem_free(NULL, protos);
+		g_strfreev(protos);
 		return FALSE;
 	}
 
@@ -385,13 +376,13 @@ protos_chk_cb(void* r _U_, const char* p, guint len, const void* u1 _U_, const v
 		if (!find_dissector(protos[i])) {
 			*err = g_strdup_printf("Could not find dissector for: '%s'",protos[i]);
 			wmem_free(NULL, line);
-			wmem_free(NULL, protos);
+			g_strfreev(protos);
 			return FALSE;
 		}
 	}
 
 	wmem_free(NULL, line);
-	wmem_free(NULL, protos);
+	g_strfreev(protos);
 	return TRUE;
 }
 
@@ -478,7 +469,7 @@ proto_register_k12(void)
 	proto_register_subtree_array(ett, array_length(ett));
 	expert_k12 = expert_register_protocol(proto_k12);
 	expert_register_field_array(expert_k12, ei, array_length(ei));
-	register_dissector("k12", dissect_k12, proto_k12);
+	k12_handle = register_dissector("k12", dissect_k12, proto_k12);
 
 	k12_uat = uat_new("K12 Protocols",
 			  sizeof(k12_handles_t),
@@ -491,6 +482,7 @@ proto_register_k12(void)
 			  k12_copy_cb,
 			  k12_update_cb,
 			  k12_free_cb,
+			  NULL,
 			  NULL,
 			  uat_k12_flds);
 
@@ -509,7 +501,6 @@ proto_register_k12(void)
 
 void proto_reg_handoff_k12(void)
 {
-	k12_handle   = find_dissector("k12");
 	data_handle  = find_dissector("data");
 	sscop_handle = find_dissector("sscop");
 	fp_handle    = find_dissector("fp");

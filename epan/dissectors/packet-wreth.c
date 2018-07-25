@@ -5,18 +5,11 @@
  * By Clement Marrast <clement.marrast@molex.com>
  * Copyright 2012 Clement Marrast
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -739,13 +732,13 @@ static int dissect_wreth(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
     guint8      Offset = 0 ;
 
 
-    col_set_str(pinfo->cinfo, COL_PROTOCOL, "Wreth");
-    /* Clear out stuff in the info column */
-    col_clear(pinfo->cinfo,COL_INFO);
-
     /*Read the packet type, if not good, exit*/
     packet_type = tvb_get_ntohs(tvb,0);
     if(packet_type != WSE_RETH_SUBTYPE) return 1;
+
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "Wreth");
+    /* Clear out stuff in the info column */
+    col_clear(pinfo->cinfo,COL_INFO);
 
     mi = proto_tree_add_protocol_format(tree, wreth_proto, tvb, Offset, -1, "WSE remote ethernet");
     pWrethTree = proto_item_add_subtree(mi, ett_wreth);
@@ -1099,7 +1092,7 @@ gint WrethMailDissection(tvbuff_t *tvb, guint8 Offset, packet_info * pInfo, prot
 {
     proto_item *mi;
     proto_tree *pWrethMailboxTree;
-    gint        Nb    = 0;
+    guint32     Nb    = 0;
     guint16     Codef = 0;
 
     mi = proto_tree_add_protocol_format(pWrethTree, wreth_proto, tvb, Offset, -1, "MailBox");
@@ -1151,8 +1144,7 @@ gint WrethMailDissection(tvbuff_t *tvb, guint8 Offset, packet_info * pInfo, prot
         proto_tree_add_item(pWrethMailboxTree, hf_Wreth_Mail_Nes, tvb, Offset, 2, ENC_LITTLE_ENDIAN);
         Offset += 2;
         /*Mail Nb*/
-        Nb = (gint)tvb_get_letohs(tvb,Offset);
-        proto_tree_add_item(pWrethMailboxTree, hf_Wreth_Mail_Nb, tvb, Offset, 2, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item_ret_uint(pWrethMailboxTree, hf_Wreth_Mail_Nb, tvb, Offset, 2, ENC_LITTLE_ENDIAN, &Nb);
         Offset += 2;
         /*Mail TypVar*/
         proto_tree_add_item(pWrethMailboxTree, hf_Wreth_Mail_TypVar, tvb, Offset, 2, ENC_LITTLE_ENDIAN);

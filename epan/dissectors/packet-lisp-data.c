@@ -6,20 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
- * USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -289,7 +276,7 @@ proto_reg_handoff_lisp_data(void)
 
     lisp_data_handle = create_dissector_handle(dissect_lisp_data,
                              proto_lisp_data);
-    dissector_add_uint("udp.port", LISP_DATA_PORT, lisp_data_handle);
+    dissector_add_uint_with_preference("udp.port", LISP_DATA_PORT, lisp_data_handle);
     ipv4_handle = find_dissector_add_dependency("ip", proto_lisp_data);
     ipv6_handle = find_dissector_add_dependency("ipv6", proto_lisp_data);
     lisp_handle = find_dissector_add_dependency("lisp", proto_lisp_data);

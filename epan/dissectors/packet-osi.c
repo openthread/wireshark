@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -50,25 +38,19 @@ static dissector_handle_t osi_handle;
 
 /* Preferences for OSI over TPKT over TCP */
 static gboolean tpkt_desegment = FALSE;
-static guint global_tcp_port_osi_over_tpkt = 0;
 
-cksum_status_t
-calc_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum) {
-  const gchar  *buffer;
+gboolean
+osi_calc_checksum( tvbuff_t *tvb, int offset, guint len, guint32* c0, guint32* c1) {
   guint         available_len;
   const guint8 *p;
-  guint32       c0, c1;
   guint         seglen;
   guint         i;
 
-  if ( 0 == checksum )
-    return( NO_CKSUM );
-
   available_len = tvb_captured_length_remaining( tvb, offset );
   if ( available_len < len )
-    return( DATA_MISSING );
+    return FALSE;
 
-  buffer = tvb_get_ptr( tvb, offset, len );
+  p = tvb_get_ptr( tvb, offset, len );
 
   /*
    * The maximum values of c0 and c1 will occur if all bytes have the
@@ -81,33 +63,29 @@ calc_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum) {
    * we can solve this by taking c0 and c1 mod 255 every
    * 5803 bytes.
    */
-  p = buffer;
-  c0 = 0;
-  c1 = 0;
+  *c0 = 0;
+  *c1 = 0;
   while (len != 0) {
     seglen = len;
     if (seglen > 5803)
       seglen = 5803;
     for (i = 0; i < seglen; i++) {
-      c0 = c0 + *(p++);
-      c1 += c0;
+      (*c0) += *(p++);
+      (*c1) += (*c0);
     }
 
-    c0 = c0 % 255;
-    c1 = c1 % 255;
+    (*c0) = (*c0) % 255;
+    (*c1) = (*c1) % 255;
 
     len -= seglen;
   }
-  if (c0 != 0 || c1 != 0)
-    return( CKSUM_NOT_OK );  /* XXX - what should the checksum field be? */
-  else
-    return( CKSUM_OK );
+
+  return TRUE;
 }
 
 
-cksum_status_t
-check_and_get_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum, int offset_check, guint16* result) {
-  const gchar  *buffer;
+gboolean
+osi_check_and_get_checksum( tvbuff_t *tvb, int offset, guint len, int offset_check, guint16* result) {
   guint         available_len;
   const guint8 *p;
   guint8        discard         = 0;
@@ -116,15 +94,12 @@ check_and_get_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum, in
   guint         i;
   int           block, x, y;
 
-  if ( 0 == checksum )
-    return( NO_CKSUM );
-
   available_len = tvb_captured_length_remaining( tvb, offset );
   offset_check -= offset;
   if ( ( available_len < len ) || ( offset_check < 0 ) || ( (guint)(offset_check+2) > len ) )
-    return( DATA_MISSING );
+    return FALSE;
 
-  buffer = tvb_get_ptr( tvb, offset, len );
+  p = tvb_get_ptr( tvb, offset, len );
   block  = offset_check / 5803;
 
   /*
@@ -138,7 +113,6 @@ check_and_get_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum, in
    * we can solve this by taking c0 and c1 mod 255 every
    * 5803 bytes.
    */
-  p = buffer;
   c0 = 0;
   c1 = 0;
 
@@ -189,11 +163,7 @@ check_and_get_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum, in
   if (y == 0) y = 0x01;
 
   *result = ( x << 8 ) | ( y & 0xFF );
-
-  if (*result != checksum)
-    return( CKSUM_NOT_OK );  /* XXX - what should the checksum field be? */
-  else
-    return( CKSUM_OK );
+  return TRUE;
 }
 
 /* 4 octet ATN extended checksum: ICAO doc 9705 Ed3 Volume V section 5.5.4.6.4 */
@@ -201,7 +171,7 @@ check_and_get_checksum( tvbuff_t *tvb, int offset, guint len, guint checksum, in
 /* of length SRC-NSAP, SRC-NSAP, length DST-NSAP, DST-NSAP and ATN extended checksum. */
 /* In case of a CR TPDU, the value of the ISO 8073 16-bit fletcher checksum parameter shall */
 /* be set to zero. */
-gboolean check_atn_ec_32(
+guint32 check_atn_ec_32(
   tvbuff_t *tvb, guint tpdu_len,
   guint offset_ec_32_val,   /* offset ATN extended checksum value, calculated at last as part of pseudo trailer */
   guint offset_iso8073_val, /* offset ISO 8073 fletcher checksum, CR only*/
@@ -314,12 +284,8 @@ gboolean check_atn_ec_32(
       c3 -= 0x000000FF;
   }
 
-  sum = (c3 << 24) + (c2 << 16 ) + (c1 << 8) + c0 ;
-
-  if(!sum)
-    return TRUE;
-  else
-    return FALSE;
+  sum = (c3 << 24) + (c2 << 16 ) + (c1 << 8) + c0;
+  return sum;
 }
 
 /* 2 octet ATN extended checksum: ICAO doc 9705 Ed3 Volume V section 5.5.4.6.4 */
@@ -328,7 +294,7 @@ gboolean check_atn_ec_32(
 /* In case of a CR TPDU, the value of the ISO 8073 16-bit fletcher checksum parameter shall */
 /* be set to zero. */
 /* this routine is currently *untested* because of the unavailability of samples.*/
-gboolean check_atn_ec_16(
+guint16 check_atn_ec_16(
   tvbuff_t *tvb,
   guint tpdu_len,
   guint offset_ec_16_val,   /* offset ATN extended checksum value, calculated at last as part of pseudo trailer */
@@ -341,7 +307,7 @@ gboolean check_atn_ec_16(
   guint i = 0;
   guint16 c0 = 0;
   guint16 c1 = 0;
-  guint16 sum = 0;
+  guint16 sum;
 
   /* sum across complete TPDU */
   for ( i =0; i< tpdu_len; i++){
@@ -405,11 +371,7 @@ gboolean check_atn_ec_16(
   }
 
   sum =  (c1 << 8) + c0 ;
-
-  if(!sum)
-    return TRUE;
-  else
-    return FALSE;
+  return sum;
 }
 
 
@@ -525,44 +487,30 @@ static int dissect_osi(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 void
 proto_reg_handoff_osi(void)
 {
-  static gboolean           osi_prefs_initialized = FALSE;
-  static dissector_handle_t osi_tpkt_handle, osi_juniper_handle;
-  static guint              tcp_port_osi_over_tpkt;
+  dissector_handle_t osi_tpkt_handle, osi_juniper_handle;
 
-  if (!osi_prefs_initialized) {
-    osi_handle = create_dissector_handle(dissect_osi, proto_osi);
-    dissector_add_uint("llc.dsap", SAP_OSINL1, osi_handle);
-    dissector_add_uint("llc.dsap", SAP_OSINL2, osi_handle);
-    dissector_add_uint("llc.dsap", SAP_OSINL3, osi_handle);
-    dissector_add_uint("llc.dsap", SAP_OSINL4, osi_handle);
-    dissector_add_uint("llc.dsap", SAP_OSINL5, osi_handle);
-    dissector_add_uint("ppp.protocol", PPP_OSI, osi_handle);
-    dissector_add_uint("chdlc.protocol", CHDLCTYPE_OSI, osi_handle);
-    dissector_add_uint("null.type", BSD_AF_ISO, osi_handle);
-    dissector_add_uint("gre.proto", SAP_OSINL5, osi_handle);
-    dissector_add_uint("ip.proto", IP_PROTO_ISOIP, osi_handle); /* ISO network layer PDUs [RFC 1070] */
+  osi_handle = create_dissector_handle(dissect_osi, proto_osi);
+  dissector_add_uint("llc.dsap", SAP_OSINL1, osi_handle);
+  dissector_add_uint("llc.dsap", SAP_OSINL2, osi_handle);
+  dissector_add_uint("llc.dsap", SAP_OSINL3, osi_handle);
+  dissector_add_uint("llc.dsap", SAP_OSINL4, osi_handle);
+  dissector_add_uint("llc.dsap", SAP_OSINL5, osi_handle);
+  dissector_add_uint("ppp.protocol", PPP_OSI, osi_handle);
+  dissector_add_uint("chdlc.protocol", CHDLCTYPE_OSI, osi_handle);
+  dissector_add_uint("null.type", BSD_AF_ISO, osi_handle);
+  dissector_add_uint("gre.proto", SAP_OSINL5, osi_handle);
+  dissector_add_uint("ip.proto", IP_PROTO_ISOIP, osi_handle); /* ISO network layer PDUs [RFC 1070] */
 
-    osi_juniper_handle = create_dissector_handle(dissect_osi_juniper, proto_osi);
-    dissector_add_uint("juniper.proto", JUNIPER_PROTO_ISO, osi_juniper_handle);
-    dissector_add_uint("juniper.proto", JUNIPER_PROTO_CLNP, osi_juniper_handle);
-    dissector_add_uint("juniper.proto", JUNIPER_PROTO_MPLS_CLNP, osi_juniper_handle);
+  osi_juniper_handle = create_dissector_handle(dissect_osi_juniper, proto_osi);
+  dissector_add_uint("juniper.proto", JUNIPER_PROTO_ISO, osi_juniper_handle);
+  dissector_add_uint("juniper.proto", JUNIPER_PROTO_CLNP, osi_juniper_handle);
+  dissector_add_uint("juniper.proto", JUNIPER_PROTO_MPLS_CLNP, osi_juniper_handle);
 
-    ppp_handle  = find_dissector("ppp");
+  ppp_handle  = find_dissector("ppp");
 
+  osi_tpkt_handle = create_dissector_handle(dissect_osi_tpkt, proto_osi);
 
-    osi_tpkt_handle = create_dissector_handle(dissect_osi_tpkt, proto_osi);
-    dissector_add_for_decode_as("tcp.port", osi_tpkt_handle);
-    osi_prefs_initialized = TRUE;
-  } else {
-    if (tcp_port_osi_over_tpkt != 0) {
-      dissector_delete_uint("tcp.port", tcp_port_osi_over_tpkt, osi_tpkt_handle);
-    }
-  }
-
-  if (global_tcp_port_osi_over_tpkt != 0) {
-    dissector_add_uint("tcp.port", global_tcp_port_osi_over_tpkt, osi_tpkt_handle);
-  }
-  tcp_port_osi_over_tpkt = global_tcp_port_osi_over_tpkt;
+  dissector_add_for_decode_as_with_preference("tcp.port", osi_tpkt_handle);
 }
 
 void
@@ -585,21 +533,17 @@ proto_register_osi(void)
      should register here
   */
   osinl_incl_subdissector_table = register_dissector_table("osinl.incl",
-                                                           "OSI incl NLPID", proto_osi, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                           "OSI incl NLPID", proto_osi, FT_UINT8, BASE_HEX);
 
   /* This dissector table is for those protocols whose PDUs
    * aren't* defined to begin with an NLPID.
    * (typically non OSI protocols like IP,IPv6,PPP */
   osinl_excl_subdissector_table = register_dissector_table("osinl.excl",
-                                                           "OSI excl NLPID", proto_osi, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                           "OSI excl NLPID", proto_osi, FT_UINT8, BASE_HEX);
 
   /* Preferences how OSI protocols should be dissected */
-  osi_module = prefs_register_protocol(proto_osi, proto_reg_handoff_osi);
+  osi_module = prefs_register_protocol(proto_osi, NULL);
 
-  prefs_register_uint_preference(osi_module, "tpkt_port",
-                                 "TCP port for OSI over TPKT",
-                                 "TCP port for OSI over TPKT",
-                                 10, &global_tcp_port_osi_over_tpkt);
   prefs_register_bool_preference(osi_module, "tpkt_reassemble",
                                  "Reassemble segmented TPKT datagrams",
                                  "Whether segmented TPKT datagrams should be reassembled",

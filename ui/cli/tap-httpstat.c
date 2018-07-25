@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -64,6 +52,8 @@ typedef struct _http_request_methode_t {
 static const value_string vals_status_code[] = {
 	{ 100, "Continue" },
 	{ 101, "Switching Protocols" },
+	{ 102, "Processing" },
+	{ 103, "Early Hints" },
 	{ 199, "Informational - Others" },
 
 	{ 200, "OK"},
@@ -73,6 +63,9 @@ static const value_string vals_status_code[] = {
 	{ 204, "No Content"},
 	{ 205, "Reset Content"},
 	{ 206, "Partial Content"},
+	{ 207, "Multi-Status"},
+	{ 208, "Already Reported"},
+	{ 226, "IM Used"},
 	{ 299, "Success - Others"},	/* used to keep track of others Success packets */
 
 	{ 300, "Multiple Choices"},
@@ -81,6 +74,8 @@ static const value_string vals_status_code[] = {
 	{ 303, "See Other"},
 	{ 304, "Not Modified"},
 	{ 305, "Use Proxy"},
+	{ 307, "Temporary Redirect"},
+	{ 308, "Permanent Redirect"},
 	{ 399, "Redirection - Others"},
 
 	{ 400, "Bad Request"},
@@ -99,6 +94,17 @@ static const value_string vals_status_code[] = {
 	{ 413, "Request Entity Too Large"},
 	{ 414, "Request-URI Too Large"},
 	{ 415, "Unsupported Media Type"},
+	{ 416, "Range Not Satifiable"},
+	{ 417, "Expectation Failed"},
+	{ 421, "Misdirected Request"},
+	{ 422, "Unprocessable Entity"},
+	{ 423, "Locked"},
+	{ 424, "Failed Dependency"},
+	{ 426, "Upgrade Required"},
+	{ 428, "Precondition Required"},
+	{ 429, "Too Many Requests"},
+	{ 431, "Request Header Fields Too Large"},
+	{ 451, "Unavailable For Legal Reasons"},
 	{ 499, "Client Error - Others"},
 
 	{ 500, "Internal Server Error"},
@@ -107,6 +113,11 @@ static const value_string vals_status_code[] = {
 	{ 503, "Service Unavailable"},
 	{ 504, "Gateway Time-out"},
 	{ 505, "HTTP Version not supported"},
+	{ 506, "Variant Also Negotiates"},
+	{ 507, "Insufficient Storage"},
+	{ 508, "Loop Detected"},
+	{ 510, "Not Extended"},
+	{ 511, "Network Authentication Required"},
 	{ 599, "Server Error - Others"},
 
 	{ 0, 	NULL}
@@ -118,18 +129,16 @@ http_init_hash(httpstat_t *sp)
 {
 	int i;
 
-	sp->hash_responses = g_hash_table_new(g_int_hash, g_int_equal);
+	sp->hash_responses = g_hash_table_new(g_direct_hash, g_direct_equal);
 
 	for (i=0; vals_status_code[i].strptr; i++ )
 	{
-		gint *key = g_new (gint, 1);
 		http_response_code_t *sc = g_new (http_response_code_t, 1);
-		*key = vals_status_code[i].value;
 		sc->packets = 0;
-		sc->response_code =  *key;
+		sc->response_code = vals_status_code[i].value;
 		sc->name = vals_status_code[i].strptr;
 		sc->sp = sp;
-		g_hash_table_insert(sc->sp->hash_responses, key, sc);
+		g_hash_table_insert(sc->sp->hash_responses, GUINT_TO_POINTER(vals_status_code[i].value), sc);
 	}
 	sp->hash_requests = g_hash_table_new(g_str_hash, g_str_equal);
 }
@@ -195,13 +204,12 @@ httpstat_packet(void *psp , packet_info *pinfo _U_, epan_dissect_t *edt _U_, con
 	/* We are only interested in reply packets with a status code */
 	/* Request or reply packets ? */
 	if (value->response_code != 0) {
-		guint *key = g_new(guint, 1);
 		http_response_code_t *sc;
+		guint key = value->response_code;
 
-		*key = value->response_code;
 		sc = (http_response_code_t *)g_hash_table_lookup(
 				sp->hash_responses,
-				key);
+				GUINT_TO_POINTER(key));
 		if (sc == NULL) {
 			/* non standard status code ; we classify it as others
 			 * in the relevant category (Informational,Success,Redirection,Client Error,Server Error)
@@ -211,23 +219,23 @@ httpstat_packet(void *psp , packet_info *pinfo _U_, epan_dissect_t *edt _U_, con
 				return 0;
 			}
 			else if (i < 200) {
-				*key = 199;	/* Hopefully, this status code will never be used */
+				key = 199;	/* Hopefully, this status code will never be used */
 			}
 			else if (i < 300) {
-				*key = 299;
+				key = 299;
 			}
 			else if (i < 400) {
-				*key = 399;
+				key = 399;
 			}
 			else if (i < 500) {
-				*key = 499;
+				key = 499;
 			}
 			else{
-				*key = 599;
+				key = 599;
 			}
 			sc = (http_response_code_t *)g_hash_table_lookup(
 				sp->hash_responses,
-				key);
+				GUINT_TO_POINTER(key));
 			if (sc == NULL)
 				return 0;
 		}
@@ -293,11 +301,7 @@ httpstat_init(const char *opt_arg, void *userdata _U_)
 	}
 
 	sp = g_new(httpstat_t, 1);
-	if (filter) {
-		sp->filter = g_strdup(filter);
-	} else {
-		sp->filter = NULL;
-	}
+	sp->filter = g_strdup(filter);
 	/*g_hash_table_foreach(http_status, (GHFunc)http_reset_hash_responses, NULL);*/
 
 
@@ -308,7 +312,8 @@ httpstat_init(const char *opt_arg, void *userdata _U_)
 			0,
 			httpstat_reset,
 			httpstat_packet,
-			httpstat_draw);
+			httpstat_draw,
+			NULL);
 	if (error_string) {
 		/* error, we failed to attach to the tap. clean up */
 		g_free(sp->filter);

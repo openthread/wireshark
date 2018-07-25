@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -290,6 +278,7 @@ dissect_bthid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
         case 0x0B: /* DATC */
             if (show_deprecated)
                 expert_add_info(pinfo, pitem, &ei_bthid_transaction_type_deprecated);
+            /* FALL THROUGH */
         case 0x0A: /* DATA */
             proto_tree_add_item(bthid_tree, hf_bthid_parameter_reserved_32, tvb, offset, 1, ENC_BIG_ENDIAN);
             proto_tree_add_item(bthid_tree, hf_bthid_parameter_report_type, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -407,7 +396,7 @@ proto_register_bthid(void)
     expert_bthid = expert_register_protocol(proto_bthid);
     expert_register_field_array(expert_bthid, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_bthid, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_bthid, NULL);
     prefs_register_static_text_preference(module, "hid.version",
             "Bluetooth Profile HID version: 1.1",
             "Version of profile supported by this dissector.");

@@ -4,27 +4,22 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
 include_directories(
 	${CMAKE_CURRENT_BINARY_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}
+	${CMAKE_SOURCE_DIR}/epan
+	${CMAKE_SOURCE_DIR}/tools/lemon
 )
 
-set(DFILTER_FILES
+set(DFILTER_PUBLIC_HEADERS
+	dfilter.h
+	drange.h
+)
+
+set(DFILTER_NONGENERATED_FILES
 	dfilter.c
 	dfilter-macro.c
 	dfunctions.c
@@ -41,31 +36,50 @@ set(DFILTER_FILES
 	sttype-test.c
 	syntax-tree.c
 )
-source_group(dfilter FILES ${DFILTER_FILES})
+source_group(dfilter FILES ${DFILTER_NONGENERATED_FILES})
 
-if(WERROR_COMMON_FLAGS)
-	set_source_files_properties(
-		${DFILTER_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
-	)
-endif()
+set(DFILTER_FILES ${DFILTER_NONGENERATED_FILES})
 
-add_lex_files(DFILTER_FILES
+add_lex_files(LEX_FILES DFILTER_FILES
 	scanner.l
 )
 
-add_lemon_files(DFILTER_FILES
+add_lemon_files(LEMON_FILES DFILTER_FILES
 	grammar.lemon
 )
 
-add_library(dfilter OBJECT
+#
+# All files are warning-clean.  (Let's keep it that way.)
+#
+set_source_files_properties(
 	${DFILTER_FILES}
+	PROPERTIES
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
 )
+
+add_library(dfilter OBJECT ${DFILTER_FILES})
 
 set_target_properties(dfilter PROPERTIES
 	FOLDER "Libs/epan/dfilter"
 	COMPILE_DEFINITIONS "WS_BUILD_DLL"
+)
+
+if(NOT WIN32)
+	install(FILES ${DFILTER_PUBLIC_HEADERS}
+		DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${CPACK_PACKAGE_NAME}/epan/dfilter"
+	)
+endif()
+
+CHECKAPI(
+	NAME
+	  dfilter
+	SWITCHES
+	  -g termoutput -build
+	SOURCES
+	  ${DFILTER_NONGENERATED_FILES}
+# LEX files commented out due to use of malloc, free etc.
+#	  ${LEX_FILES}
+	  ${LEMON_FILES}
 )
 
 #

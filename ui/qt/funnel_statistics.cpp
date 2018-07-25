@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -69,8 +57,8 @@ static void progress_window_destroy(struct progdlg *progress_dialog);
 class FunnelAction : public QAction
 {
 public:
-    FunnelAction(const QString title, funnel_menu_callback callback, gpointer callback_data, gboolean retap) :
-        QAction(NULL),
+    FunnelAction(const QString title, funnel_menu_callback callback, gpointer callback_data, gboolean retap, QObject *parent = 0) :
+        QAction(parent),
         title_(title),
         callback_(callback),
         callback_data_(callback_data),
@@ -209,7 +197,7 @@ void funnel_statistics_logger(const gchar *,
                           GLogLevelFlags,
                           const gchar *message,
                           gpointer) {
-    qDebug() << message;
+    fputs(message, stderr);
 }
 
 void funnel_statistics_retap_packets(funnel_ops_id_t *ops_id) {
@@ -239,7 +227,7 @@ void funnel_statistics_set_filter(funnel_ops_id_t *ops_id, const char* filter_st
 
 void funnel_statistics_set_color_filter_slot(guint8 filter_num, const gchar* filter_string) {
     gchar *err_msg = NULL;
-    if (!color_filters_set_tmp(filter_num, (gchar *)filter_string, FALSE, &err_msg)) {
+    if (!color_filters_set_tmp(filter_num, filter_string, FALSE, &err_msg)) {
         simple_dialog(ESD_TYPE_ERROR, ESD_BTN_OK, "%s", err_msg);
         g_free(err_msg);
     }
@@ -310,7 +298,7 @@ static void register_menu_cb(const char *name,
                              gpointer callback_data,
                              gboolean retap)
 {
-    FunnelAction *funnel_action = new FunnelAction(name, callback, callback_data, retap);
+    FunnelAction *funnel_action = new FunnelAction(name, callback, callback_data, retap, wsApp);
     if (menus_registered) {
         wsApp->appendDynamicMenuGroupItem(group, funnel_action);
     } else {

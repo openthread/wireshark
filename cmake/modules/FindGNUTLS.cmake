@@ -17,8 +17,10 @@ ENDIF (GNUTLS_INCLUDE_DIRS)
 INCLUDE(FindWSWinLibs)
 FindWSWinLibs("gnutls-.*" "GNUTLS_HINTS")
 
-find_package(PkgConfig)
-pkg_search_module(GNUTLS gnutls)
+if (NOT WIN32)
+  find_package(PkgConfig)
+  pkg_search_module(GNUTLS gnutls)
+endif()
 
 # sources include gnutls/gnutls.h, look for that location instead of gnutls.h.
 FIND_PATH(GNUTLS_INCLUDE_DIR
@@ -31,12 +33,17 @@ FIND_PATH(GNUTLS_INCLUDE_DIR
     "${GNUTLS_HINTS}"
 )
 
-SET(GNUTLS_NAMES gnutls libgnutls-28)
+SET(GNUTLS_NAMES gnutls libgnutls-28 libgnutls-30)
+SET(HOGWEED_NAMES libhogweed-2-4 libhogweed-4-2)
+SET(NETTLE_NAMES libnettle-4-6 libnettle-6-2)
 FIND_LIBRARY(GNUTLS_LIBRARY
   NAMES
     ${GNUTLS_NAMES}
-    libgmp-10 libgcc_s_sjlj-1 libffi-6 libhogweed-2-4 libnettle-4-6
+    ${HOGWEED_NAMES}
+    ${NETTLE_NAMES}
+    libgmp-10 libgcc_s_sjlj-1 libffi-6
     libp11-kit-0 libtasn1-6
+    libwinpthread-1
   HINTS
     "${GNUTLS_LIBDIR}"
     "${GNUTLS_HINTS}/bin"
@@ -69,13 +76,14 @@ IF(GNUTLS_FOUND)
     )
     file( GLOB _gnutls_dlls RELATIVE "${GNUTLS_DLL_DIR}"
       "${GNUTLS_DLL_DIR}/libgmp-*.dll"
-      "${GNUTLS_DLL_DIR}/libgcc_s_*.dll"
+      #"${GNUTLS_DLL_DIR}/libgcc_s_*.dll"
       "${GNUTLS_DLL_DIR}/libffi-*.dll"
       "${GNUTLS_DLL_DIR}/libgnutls-*.dll"
       "${GNUTLS_DLL_DIR}/libhogweed-*.dll"
       "${GNUTLS_DLL_DIR}/libnettle-*.dll"
       "${GNUTLS_DLL_DIR}/libp11-kit-*.dll"
       "${GNUTLS_DLL_DIR}/libtasn1-*.dll"
+      "${GNUTLS_DLL_DIR}/libwinpthread-*.dll"
     )
     set ( GNUTLS_DLLS ${_gnutls_dlls}
       # We're storing filenames only. Should we use STRING instead?

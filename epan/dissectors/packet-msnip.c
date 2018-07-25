@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
 
@@ -36,6 +24,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 #include <epan/to_str.h>
 #include "packet-igmp.h"
 
@@ -44,7 +33,7 @@ void proto_reg_handoff_msnip(void);
 
 static int proto_msnip = -1;
 static int hf_checksum = -1;
-static int hf_checksum_bad = -1;
+static int hf_checksum_status = -1;
 static int hf_type = -1;
 static int hf_count = -1;
 static int hf_holdtime = -1;
@@ -57,6 +46,8 @@ static int hf_rec_type = -1;
 
 static int ett_msnip = -1;
 static int ett_groups = -1;
+
+static expert_field ei_checksum = EI_INIT;
 
 #define MC_ALL_IGMPV3_ROUTERS	0xe0000016
 
@@ -89,7 +80,7 @@ dissect_msnip_rmr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, in
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	while (count--) {
@@ -135,15 +126,15 @@ dissect_msnip_is(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, int
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* 16 bit holdtime */
-	proto_tree_add_uint(parent_tree, hf_holdtime16, tvb, offset, 2, tvb_get_ntohs(tvb, offset));
+	proto_tree_add_item(parent_tree, hf_holdtime16, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset += 2;
 
 	/* Generation ID */
-	proto_tree_add_uint(parent_tree, hf_genid, tvb, offset, 2, tvb_get_ntohs(tvb, offset));
+	proto_tree_add_item(parent_tree, hf_genid, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset += 2;
 
 	return offset;
@@ -161,7 +152,7 @@ dissect_msnip_gm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, int
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* holdtime */
@@ -214,8 +205,8 @@ dissect_msnip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 	guint32 dst = g_htonl(MC_ALL_IGMPV3_ROUTERS);
 
 	/* Shouldn't be destined for us */
-	if (memcmp(pinfo->dst.data, &dst, 4))
-	return 0;
+	if ((pinfo->dst.type != AT_IPv4) || memcmp(pinfo->dst.data, &dst, 4))
+		return 0;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "MSNIP");
 	col_clear(pinfo->cinfo, COL_INFO);
@@ -264,9 +255,9 @@ proto_register_msnip(void)
 			{ "Checksum", "msnip.checksum", FT_UINT16, BASE_HEX,
 			  NULL, 0, "MSNIP Checksum", HFILL }},
 
-		{ &hf_checksum_bad,
-			{ "Bad Checksum", "msnip.checksum_bad", FT_BOOLEAN, BASE_NONE,
-			  NULL, 0x0, "Bad MSNIP Checksum", HFILL }},
+		{ &hf_checksum_status,
+			{ "Checksum Status", "msnip.checksum.status", FT_UINT8, BASE_NONE,
+			  VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 
 		{ &hf_count,
 			{ "Count", "msnip.count", FT_UINT8, BASE_DEC,
@@ -306,10 +297,17 @@ proto_register_msnip(void)
 		&ett_groups,
 	};
 
-	proto_msnip = proto_register_protocol("MSNIP: Multicast Source Notification of Interest Protocol",
-	    "MSNIP", "msnip");
+	static ei_register_info ei[] = {
+		{ &ei_checksum, { "msnip.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+	};
+
+	expert_module_t* expert_msnip;
+
+	proto_msnip = proto_register_protocol("MSNIP: Multicast Source Notification of Interest Protocol", "MSNIP", "msnip");
 	proto_register_field_array(proto_msnip, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+	expert_msnip = expert_register_protocol(proto_msnip);
+	expert_register_field_array(expert_msnip, ei, array_length(ei));
 }
 
 void

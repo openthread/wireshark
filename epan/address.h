@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __ADDRESS_H__
@@ -46,15 +34,11 @@ typedef enum {
     AT_IPv4,               /* IPv4 */
     AT_IPv6,               /* IPv6 */
     AT_IPX,                /* IPX */
-    AT_VINES,              /* Banyan Vines */
     AT_FC,                 /* Fibre Channel */
     AT_FCWWN,              /* Fibre Channel WWN */
-    AT_SS7PC,              /* SS7 Point Code */
     AT_STRINGZ,            /* null-terminated string */
     AT_EUI64,              /* IEEE EUI-64 */
     AT_IB,                 /* Infiniband GID/LID */
-    AT_USB,                /* USB Device address
-                            * (0xffffffff represents the host) */
     AT_AX25,               /* AX.25 */
 
     AT_END_OF_LIST         /* Must be last in list */
@@ -86,11 +70,20 @@ clear_address(address *addr)
  * @param addr [in,out] The address to initialize.
  * @param addr_type [in] Address type.
  * @param addr_len [in] The length in bytes of the address data. For example, 4 for
- *                     AT_IPv4 or sizeof(struct e_in6_addr) for AT_IPv6.
+ *                     AT_IPv4 or sizeof(ws_in6_addr) for AT_IPv6.
  * @param addr_data [in] Pointer to the address data.
  */
 static inline void
 set_address(address *addr, int addr_type, int addr_len, const void *addr_data) {
+    if (addr_len == 0) {
+        /* Zero length must mean no data */
+        g_assert(addr_data == NULL);
+    } else {
+        /* Must not be AT_NONE - AT_NONE must have no data */
+        g_assert(addr_type != AT_NONE);
+        /* Make sure we *do* have data */
+        g_assert(addr_data != NULL);
+    }
     addr->type = addr_type;
     addr->len  = addr_len;
     addr->data = addr_data;
@@ -110,15 +103,17 @@ set_address(address *addr, int addr_type, int addr_len, const void *addr_data) {
  * @param tvb [in] Pointer to the TVB.
  * @param offset [in] Offset within the TVB.
  * @param addr_len [in] The length in bytes of the address data. For example, 4 for
- *                     AT_IPv4 or sizeof(struct e_in6_addr) for AT_IPv6.
+ *                     AT_IPv4 or sizeof(ws_in6_addr) for AT_IPv6.
  */
 static inline void
 set_address_tvb(address *addr, int addr_type, int addr_len, tvbuff_t *tvb, int offset) {
     const void *p;
 
-    if (addr_len != 0)
+    if (addr_len != 0) {
+        /* Must not be AT_NONE - AT_NONE must have no data */
+        g_assert(addr_type != AT_NONE);
         p = tvb_get_ptr(tvb, offset, addr_len);
-    else
+    } else
         p = NULL;
     set_address(addr, addr_type, addr_len, p);
 }
@@ -130,7 +125,7 @@ set_address_tvb(address *addr, int addr_type, int addr_len, tvbuff_t *tvb, int o
  * @param addr [in,out] The address to initialize.
  * @param addr_type [in] Address type.
  * @param addr_len [in] The length in bytes of the address data. For example, 4 for
- *                     AT_IPv4 or sizeof(struct e_in6_addr) for AT_IPv6.
+ *                     AT_IPv4 or sizeof(ws_in6_addr) for AT_IPv6.
  * @param addr_data [in] Pointer to the address data.
  */
 static inline void
@@ -139,11 +134,16 @@ alloc_address_wmem(wmem_allocator_t *scope, address *addr,
     g_assert(addr);
     clear_address(addr);
     addr->type = addr_type;
-    if (addr_type == AT_NONE || addr_len <= 0 || addr_data == NULL) {
-        g_assert(addr_len <= 0);
+    if (addr_len == 0) {
+        /* Zero length must mean no data */
         g_assert(addr_data == NULL);
+        /* Nothing to copy */
         return;
     }
+    /* Must not be AT_NONE - AT_NONE must have no data */
+    g_assert(addr_type != AT_NONE);
+    /* Make sure we *do* have data to copy */
+    g_assert(addr_data != NULL);
     addr->data = addr->priv = wmem_memdup(scope, addr_data, addr_len);
     addr->len = addr_len;
 }
@@ -156,7 +156,7 @@ alloc_address_wmem(wmem_allocator_t *scope, address *addr,
  * @param addr [in,out] The address to initialize.
  * @param addr_type [in] Address type.
  * @param addr_len [in] The length in bytes of the address data. For example, 4 for
- *                     AT_IPv4 or sizeof(struct e_in6_addr) for AT_IPv6.
+ *                     AT_IPv4 or sizeof(ws_in6_addr) for AT_IPv6.
  * @param tvb [in] Pointer to the TVB.
  * @param offset [in] Offset within the TVB.
  */
@@ -183,29 +183,40 @@ cmp_address(const address *addr1, const address *addr2) {
     if (addr1->type < addr2->type) return -1;
     if (addr1->len  > addr2->len) return 1;
     if (addr1->len  < addr2->len) return -1;
+    if (addr1->len == 0) {
+        /*
+         * memcmp(NULL, NULL, 0) is *not* guaranteed to work, so
+         * if both addresses are zero-length, don't compare them
+         * (there's nothing to compare, so they're equal).
+         */
+        return 0;
+    }
     return memcmp(addr1->data, addr2->data, addr1->len);
 }
 
 /** Check two addresses for equality.
  *
  * Given two addresses, return "true" if they're equal, "false" otherwise.
- * Addresses are equal only if they have the same type; if the type is
- * AT_NONE, they are then equal, otherwise they must have the same
- * amount of data and the data must be the same.
+ * Addresses are equal only if they have the same type and length; if the
+ * length is zero, they are then equal, otherwise the data must be the
+ * same.
  *
  * @param addr1 [in] The first address to compare.
  * @param addr2 [in] The second address to compare.
- * @return TRUE if the adresses are equal, FALSE otherwise.
+ * @return TRUE if the addresses are equal, FALSE otherwise.
  */
 static inline gboolean
 addresses_equal(const address *addr1, const address *addr2) {
-    if (addr1->type == addr2->type
-            && ( addr1->type == AT_NONE
-                 || ( addr1->len == addr2->len
-                      && memcmp(addr1->data, addr2->data, addr1->len) == 0
-                      )
-                 )
-            ) return TRUE;
+    /*
+     * memcmp(NULL, NULL, 0) is *not* guaranteed to work, so
+     * if both addresses are zero-length, don't compare them
+     * (there's nothing to compare, so they're equal).
+     */
+    if (addr1->type == addr2->type &&
+        addr1->len == addr2->len &&
+        (addr1->len == 0 ||
+         memcmp(addr1->data, addr2->data, addr1->len) == 0))
+        return TRUE;
     return FALSE;
 }
 
@@ -218,7 +229,7 @@ addresses_equal(const address *addr1, const address *addr2) {
  *
  * @param addr1 [in] The first address to compare.
  * @param addr2 [in] The second address to compare.
- * @return TRUE if the adresses are equal, FALSE otherwise.
+ * @return TRUE if the addresses are equal, FALSE otherwise.
  */
 static inline gboolean
 addresses_data_equal(const address *addr1, const address *addr2) {
@@ -329,6 +340,8 @@ add_address_to_hash64(guint64 hash_val, const address *addr) {
     return hash_val;
 }
 
+WS_DLL_PUBLIC guint address_to_bytes(const address *addr, guint8 *buf, guint buf_len);
+
 /* Types of port numbers Wireshark knows about. */
 typedef enum {
     PT_NONE,            /* no port number */
@@ -337,35 +350,13 @@ typedef enum {
     PT_UDP,             /* UDP */
     PT_DCCP,            /* DCCP */
     PT_IPX,             /* IPX sockets */
-    PT_NCP,             /* NCP connection */
-    PT_EXCHG,           /* Fibre Channel exchange */
     PT_DDP,             /* DDP AppleTalk connection */
-    PT_SBCCS,           /* FICON */
     PT_IDP,             /* XNS IDP sockets */
-    PT_TIPC,            /* TIPC PORT */
     PT_USB,             /* USB endpoint 0xffff means the host */
     PT_I2C,
     PT_IBQP,            /* Infiniband QP number */
-    PT_BLUETOOTH,
-    PT_TDMOP
+    PT_BLUETOOTH
 } port_type;
-
-/* Types of circuit IDs Wireshark knows about. */
-typedef enum {
-    CT_NONE,            /* no circuit type */
-    CT_DLCI,            /* Frame Relay DLCI */
-    CT_ISDN,            /* ISDN channel number */
-    CT_X25,             /* X.25 logical channel number */
-    CT_ISUP,            /* ISDN User Part CIC */
-    CT_IAX2,            /* IAX2 call id */
-    CT_H223,            /* H.223 logical channel number */
-    CT_BICC,            /* BICC Circuit identifier */
-    CT_DVBCI,           /* DVB-CI session number|transport connection id */
-    CT_ISO14443         /* ISO14443 connection between terminal and card
-                           the circuit ID is always 0, there's only one
-                           such connection */
-    /* Could also have ATM VPI/VCI pairs */
-} circuit_type;
 
 #ifdef __cplusplus
 }

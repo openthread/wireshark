@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -38,7 +26,7 @@ void proto_reg_handoff_umts_mac(void);
 
 int proto_umts_mac = -1;
 extern int proto_fp;
-extern int proto_rlc;
+extern int proto_umts_rlc;
 
 /* dissector fields */
 static int hf_mac_fach_fdd_tctf = -1;
@@ -47,6 +35,8 @@ static int hf_mac_ct = -1;
 static int hf_mac_ueid_type = -1;
 static int hf_mac_crnti = -1;
 static int hf_mac_urnti = -1;
+static int hf_mac_resolved_urnti = -1;
+static int hf_mac_crnti_urnti_match_frame = -1;
 static int hf_mac_channel = -1;
 /* static int hf_mac_channel_str = -1; */
 
@@ -78,6 +68,7 @@ static int ett_mac_edch = -1;
 static int ett_mac_hsdsch = -1;
 static int ett_mac_edch_type2 = -1;
 static int ett_mac_edch_type2_sdu = -1;
+static int ett_mac_resolved_urnti = -1;
 
 static expert_field ei_mac_cs_dtch_not_implemented = EI_INIT;
 static expert_field ei_mac_rach_tctf_unknown = EI_INIT;
@@ -91,7 +82,7 @@ static expert_field ei_mac_macis_sdu_first = EI_INIT;
 static expert_field ei_mac_macis_sdu_middle = EI_INIT;
 static expert_field ei_mac_macis_sdu_last = EI_INIT;
 static expert_field ei_mac_macis_sdu_complete = EI_INIT;
-
+static expert_field ei_mac_reserved_c_t = EI_INIT;
 
 static dissector_handle_t rlc_pcch_handle;
 static dissector_handle_t rlc_ccch_handle;
@@ -231,17 +222,87 @@ static guint16 tree_add_common_dcch_dtch_fields(tvbuff_t *tvb, packet_info *pinf
     proto_tree *tree, guint16 bitoffs, fp_info *fpinf, umts_mac_info *macinf, rlc_info  *rlcinf)
 {
     guint8 ueid_type;
+    conversation_t   *p_conv;
+    umts_fp_conversation_info_t *umts_fp_conversation_info = NULL;
+    fp_rach_channel_info_t *fp_rach_channel_info = NULL;
+    fp_fach_channel_info_t *fp_fach_channel_info = NULL;
+    wmem_tree_t* channel_rnti_map = NULL;
+    guint16 c_rnti;
+    fp_crnti_allocation_info_t *fp_crnti_allocation_info = NULL;
 
     ueid_type = tvb_get_bits8(tvb, bitoffs, 2);
     proto_tree_add_bits_item(tree, hf_mac_ueid_type, tvb, bitoffs, 2, ENC_BIG_ENDIAN);
     bitoffs += 2;
     if (ueid_type == MAC_UEID_TYPE_URNTI) {
         proto_tree_add_bits_item(tree, hf_mac_urnti, tvb, bitoffs, 32, ENC_BIG_ENDIAN);
-        rlcinf->urnti[fpinf->cur_tb] = tvb_get_bits32(tvb, bitoffs, 32,ENC_BIG_ENDIAN);
+        rlcinf->ueid[fpinf->cur_tb] = tvb_get_bits32(tvb, bitoffs, 32,ENC_BIG_ENDIAN);
         bitoffs += 32;
     } else if (ueid_type == MAC_UEID_TYPE_CRNTI) {
         proto_tree_add_bits_item(tree, hf_mac_crnti, tvb, 4, 16, ENC_BIG_ENDIAN);
-        rlcinf->urnti[fpinf->cur_tb] = tvb_get_bits16(tvb, bitoffs, 16,ENC_BIG_ENDIAN);
+        c_rnti = tvb_get_bits16(tvb, bitoffs, 16,ENC_BIG_ENDIAN);
+        p_conv = (conversation_t *)find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
+                        conversation_pt_to_endpoint_type(pinfo->ptype),
+                        pinfo->destport, pinfo->srcport, NO_ADDR_B);
+        if (p_conv != NULL) {
+            umts_fp_conversation_info = (umts_fp_conversation_info_t *)conversation_get_proto_data(p_conv, proto_fp);
+        }
+        /* Trying to resolve the U-RNTI for this C-RNTI based on the channel type*/
+        switch(fpinf->channel){
+            case CHANNEL_RACH_FDD:
+                /* In RACH: Get the channel's RNTIs map */
+                if (umts_fp_conversation_info) {
+                    fp_rach_channel_info = (fp_rach_channel_info_t *)umts_fp_conversation_info->channel_specific_info;
+                    if(fp_rach_channel_info) {
+                        channel_rnti_map = fp_rach_channel_info->crnti_to_urnti_map;
+                    }
+                }
+                break;
+            case CHANNEL_FACH_FDD:
+                /* In FACH: Get the channel's RNTIs map */
+                if (umts_fp_conversation_info) {
+                    fp_fach_channel_info = (fp_fach_channel_info_t *)umts_fp_conversation_info->channel_specific_info;
+                    if(fp_fach_channel_info) {
+                        channel_rnti_map = fp_fach_channel_info->crnti_to_urnti_map;
+                    }
+                }
+                break;
+        }
+        if(channel_rnti_map) {
+            fp_crnti_allocation_info = (fp_crnti_allocation_info_t *)wmem_tree_lookup32(channel_rnti_map, c_rnti);
+        }
+        /* If not found in the RACH/FACH channel's map, Look in the global RNTIs map */
+        if(fp_crnti_allocation_info == NULL) {
+            fp_crnti_allocation_info = (fp_crnti_allocation_info_t *)wmem_tree_lookup32(rrc_global_urnti_crnti_map, c_rnti);
+            if(fp_crnti_allocation_info != NULL) {
+                /* If found in the global map, check how many times it was retrieved (including this one) */
+                fp_crnti_allocation_info->global_retrieval_count++;
+                /* If seen 2 times (RACH + fast FACH) remove from global map */
+                if(fp_crnti_allocation_info->global_retrieval_count == 2) {
+                    wmem_tree_remove32(rrc_global_urnti_crnti_map, c_rnti);
+                }
+                /* Also add to this channel's map for later retrieval */
+                if(channel_rnti_map) {
+                    wmem_tree_insert32(channel_rnti_map, c_rnti, (void *)fp_crnti_allocation_info);
+                }
+            }
+        }
+        /* Choosing between resolved U-RNTI (if found) or the C-RNTI as UE-ID for RLC */
+        if(fp_crnti_allocation_info != NULL) {
+            /* Using U-RNTI */
+            rlcinf->ueid[fpinf->cur_tb] = fp_crnti_allocation_info->urnti;
+            /* Adding 'Resolved U-RNTI' related tree items*/
+            proto_item *temp;
+            proto_tree *resolved_urnti_tree;
+            temp = proto_tree_add_uint(tree, hf_mac_resolved_urnti, tvb, 0, 0, fp_crnti_allocation_info->urnti);
+            PROTO_ITEM_SET_GENERATED(temp);
+            resolved_urnti_tree = proto_item_add_subtree(temp, ett_mac_resolved_urnti);
+            temp = proto_tree_add_uint(resolved_urnti_tree , hf_mac_crnti_urnti_match_frame, tvb, 0, 0, fp_crnti_allocation_info->alloc_frame_number);
+            PROTO_ITEM_SET_GENERATED(temp);
+        }
+        else {
+            /* Using C-RNTI */
+            rlcinf->ueid[fpinf->cur_tb] = c_rnti;
+        }
         bitoffs += 16;
     }
 
@@ -307,7 +368,7 @@ static int dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 
     macinf = (umts_mac_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0);
     fpinf  = (fp_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_fp, 0);
-    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
+    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0);
     if (!macinf || !fpinf) {
         proto_tree_add_expert(rach_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
         return 1;
@@ -333,6 +394,11 @@ static int dissect_mac_fdd_rach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
         case TCTF_DCCH_DTCH_RACH_FDD:
             /*Set RLC Mode/MAC content based on the L-CHID derived from the C/T flag*/
             c_t = tvb_get_bits8(tvb,bitoffs-4,4);
+            if (c_t == 15) {
+                /* reserved value, discard PDU */
+                expert_add_info(pinfo, NULL, &ei_mac_reserved_c_t);
+                break;
+            }
             rlcinf->mode[chan] = lchId_rlc_map[c_t+1];
             macinf->content[chan] = lchId_type_table[c_t+1];
             rlcinf->rbid[chan] = c_t+1;
@@ -399,7 +465,7 @@ static int dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 
     macinf = (umts_mac_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0);
     fpinf  = (fp_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_fp, 0);
-    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
+    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0);
 
     if (!macinf || !fpinf) {
         proto_tree_add_expert(fach_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
@@ -426,6 +492,11 @@ static int dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 
             /*Set RLC Mode based on the L-CHID derived from the C/T flag*/
             c_t = tvb_get_bits8(tvb,bitoffs-4,4);
+            if (c_t == 15) {
+                /* reserved value, discard PDU */
+                expert_add_info(pinfo, NULL, &ei_mac_reserved_c_t);
+                break;
+            }
             rlcinf->mode[fpinf->cur_tb] = lchId_rlc_map[c_t+1];
             macinf->content[fpinf->cur_tb] = lchId_type_table[c_t+1];
             switch (macinf->content[fpinf->cur_tb]) {
@@ -452,7 +523,7 @@ static int dissect_mac_fdd_fach(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
                     /* TODO */
                     break;
                 default:
-                    proto_item_append_text(ti, " (Unknown FACH Content");
+                    proto_item_append_text(ti, " (Unknown FACH Content)");
                     expert_add_info_format(pinfo, NULL, &ei_mac_unknown_content, "Unknown FACH Content for this transportblock");
             }
             break;
@@ -517,7 +588,7 @@ static int dissect_mac_fdd_dch(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 
     macinf = (umts_mac_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0);
     fpinf  = (fp_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_fp, 0);
-    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
+    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0);
 
     if (!macinf || !fpinf) {
         proto_tree_add_expert(dch_tree, pinfo, &ei_mac_per_frame_info_missing, tvb, 0, -1);
@@ -610,7 +681,7 @@ static void init_frag(tvbuff_t * tvb, body_parts * bp, guint length, guint offse
     mac_is_fragment * frag = wmem_new(wmem_file_scope(), mac_is_fragment);
     frag->type = type;
     frag->length = length;
-    frag->data = (guint8 *)g_malloc(length);
+    frag->data = (guint8 *)wmem_alloc(wmem_file_scope(), length);
     frag->frame_num = frame_num;
     frag->tsn = tsn;
     frag->next = NULL;
@@ -640,7 +711,7 @@ static void mac_is_copy(mac_is_sdu * sdu, mac_is_fragment * frag, guint total_le
         memcpy(sdu->data+sdu->length, frag->data, frag->length);
     }
     sdu->length += frag->length;
-    g_free(frag->data);
+    wmem_free(wmem_file_scope(), frag->data);
 }
 
 /*
@@ -732,7 +803,7 @@ static tvbuff_t * add_to_tree(tvbuff_t * tvb, packet_info * pinfo, proto_tree * 
         }
         return new_tvb;
     } else {
-        new_tvb = tvb_new_subset(tvb, offset, maclength, -1);
+        new_tvb = tvb_new_subset_length_caplen(tvb, offset, maclength, -1);
         switch (type) {
             case MAC_IS_HEAD:
                 proto_tree_add_expert(tree, pinfo, &ei_mac_macis_sdu_first, new_tvb, 0, -1);
@@ -806,7 +877,7 @@ static tvbuff_t * mac_is_add_fragment(tvbuff_t * tvb _U_, packet_info *pinfo, pr
     ch.ueid = ueid;
 
     /* If in first scan-through. */
-    if (pinfo->fd->flags.visited == FALSE) {
+    if (!PINFO_FD_VISITED(pinfo)) {
         /* Get body parts array for this channel. */
         body_parts ** body_parts_array = get_body_parts(&ch);
         /* Middle segment */
@@ -845,7 +916,7 @@ static tvbuff_t * mac_is_add_fragment(tvbuff_t * tvb _U_, packet_info *pinfo, pr
         /* If our SDU is not fragmented. */
         } else {
             DISSECTOR_ASSERT((sdu_no == 0) ? (ss&1) == 0 : ((sdu_no == no_sdus-1) ? (ss&2) == 0 : TRUE));
-            return tvb_new_subset(tvb, offset, maclength, -1);
+            return tvb_new_subset_length_caplen(tvb, offset, maclength, -1);
         }
     /* If clicking on a packet. */
     } else {
@@ -871,7 +942,7 @@ static tvbuff_t * mac_is_add_fragment(tvbuff_t * tvb _U_, packet_info *pinfo, pr
                 return add_to_tree(tvb, pinfo, tree, sdu, offset, maclength, MAC_IS_HEAD);
             }
         } else {
-            new_tvb = tvb_new_subset(tvb, offset, maclength, -1);
+            new_tvb = tvb_new_subset_length_caplen(tvb, offset, maclength, -1);
             proto_tree_add_expert(tree, pinfo, &ei_mac_macis_sdu_complete, new_tvb, 0, -1);
             proto_tree_add_item(tree, hf_mac_edch_type2_sdu_data, new_tvb, 0, -1, ENC_NA);
             return new_tvb;
@@ -955,7 +1026,7 @@ static int dissect_mac_fdd_edch_type2(tvbuff_t *tvb, packet_info *pinfo, proto_t
     proto_item *pi, *temp;
     proto_tree *macis_pdu_tree, *macis_sdu_tree;
     umts_mac_is_info * mac_is_info = (umts_mac_is_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0);
-    rlc_info * rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
+    rlc_info * rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0);
     struct fp_info *p_fp_info = (struct fp_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_fp, 0);
 
     DISSECTOR_ASSERT(mac_is_info != NULL && rlcinf != NULL && p_fp_info != NULL);
@@ -989,7 +1060,7 @@ static int dissect_mac_fdd_edch_type2(tvbuff_t *tvb, packet_info *pinfo, proto_t
         PROTO_ITEM_SET_GENERATED(temp);
         /*Set up information needed for MAC and lower layers*/
         rlcinf->mode[sdu_no] = lchId_rlc_map[lchid]; /* Set RLC mode by lchid to RLC_MODE map in nbap.h */
-        rlcinf->urnti[sdu_no] = p_fp_info->com_context_id;
+        rlcinf->ueid[sdu_no] = p_fp_info->com_context_id;
         rlcinf->rbid[sdu_no] = lchid;
         rlcinf->li_size[sdu_no] = RLC_LI_7BITS;
         rlcinf->ciphered[sdu_no] = FALSE;
@@ -1179,7 +1250,7 @@ static int dissect_mac_fdd_hsdsch(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
         macinf->fake_chid[pos] = FALSE;
         macinf->content[pos] = lchId_type_table[macinf->lchid[pos]];    /*Lookup MAC content*/
 
-        rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
+        rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0);
         rlcinf->rbid[pos] = macinf->lchid[pos];
         rlcinf->mode[pos] =  lchId_rlc_map[macinf->lchid[pos]]; /*Look up RLC mode*/
         bitoffs += 4;
@@ -1311,7 +1382,8 @@ proto_register_umts_mac(void)
         &ett_mac_edch,
         &ett_mac_hsdsch,
         &ett_mac_edch_type2,
-        &ett_mac_edch_type2_sdu
+        &ett_mac_edch_type2_sdu,
+        &ett_mac_resolved_urnti
     };
     /** XX: Looks like some duplicate filter names ?? **/
     /** XX: May be OK: See doc/README.developer       **/
@@ -1339,6 +1411,18 @@ proto_register_umts_mac(void)
         { &hf_mac_urnti,
           { "U-RNTI (UEID)", "mac.ueid",
             FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }
+        },
+        { &hf_mac_resolved_urnti,
+          { "Resolved U-RNTI", "mac.resolved_urnti",
+            FT_UINT32, BASE_HEX, NULL, 0x0,
+            "The U-RNTI of the UE which is using the C-RNTI seen in this frame",
+            HFILL }
+        },
+        { &hf_mac_crnti_urnti_match_frame,
+          { "C-RNTI Allocation Frame", "mac.crnti_urnti_match_frame",
+            FT_FRAMENUM, BASE_NONE, NULL, 0x0,
+            "The frame number where the C-RNTI was allocated for the UE",
+            HFILL }
         },
         { &hf_mac_channel,
           { "Logical Channel Type", "mac.logical_channel",
@@ -1459,6 +1543,7 @@ proto_register_umts_mac(void)
         { &ei_mac_macis_sdu_middle, { "mac.macis_sdu.middle", PI_REASSEMBLE, PI_CHAT, "This MAC-is SDU is a middle segment of a MAC-d PDU or MAC-c PDU", EXPFILL }},
         { &ei_mac_macis_sdu_last, { "mac.macis_sdu.last", PI_REASSEMBLE, PI_CHAT, "This MAC-is SDU is the last segment of a MAC-d PDU or MAC-c PDU", EXPFILL }},
         { &ei_mac_macis_sdu_complete, { "mac.macis_sdu.complete", PI_REASSEMBLE, PI_CHAT, "This MAC-is SDU is a complete MAC-d PDU or MAC-c PDU", EXPFILL }},
+        { &ei_mac_reserved_c_t, { "mac.reserved_ct", PI_PROTOCOL, PI_WARN, "C/T has a reserved value, PDU is discarded", EXPFILL }}
     };
 
     expert_module_t* expert_umts_mac;

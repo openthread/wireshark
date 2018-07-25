@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "simple_statistics_dialog.h"
@@ -49,16 +37,17 @@ simple_stat_init(const char *args, void*) {
 }
 }
 
-void register_simple_stat_tables(gpointer data, gpointer) {
-    stat_tap_table_ui *stu = (stat_tap_table_ui*)data;
+gboolean register_simple_stat_tables(const void *key, void *value, void*) {
+    stat_tap_table_ui *stu = (stat_tap_table_ui*)value;
 
     cfg_str_to_stu_[stu->cli_string] = stu;
     TapParameterDialog::registerDialog(
                 stu->title,
-                stu->cli_string,
+                (const char*)key,
                 stu->group,
                 simple_stat_init,
                 SimpleStatisticsDialog::createSimpleStatisticsDialog);
+    return FALSE;
 }
 
 enum {
@@ -158,6 +147,7 @@ SimpleStatisticsDialog::SimpleStatisticsDialog(QWidget &parent, CaptureFile &cf,
     TapParameterDialog(parent, cf, help_topic),
     stu_(stu)
 {
+    stu->refcount++;
     setWindowSubtitle(stu_->title);
     loadGeometry(0, 0, stu_->title);
 
@@ -188,7 +178,7 @@ TapParameterDialog *SimpleStatisticsDialog::createSimpleStatisticsDialog(QWidget
     return new SimpleStatisticsDialog(parent, cf, stu, filter);
 }
 
-void SimpleStatisticsDialog::addMissingRows(struct _new_stat_data_t *stat_data)
+void SimpleStatisticsDialog::addMissingRows(struct _stat_data_t *stat_data)
 {
     // Hierarchy:
     // - tables (GTK+ UI only supports one currently)
@@ -211,11 +201,13 @@ void SimpleStatisticsDialog::addMissingRows(struct _new_stat_data_t *stat_data)
             ti = statsTreeWidget()->topLevelItem(table_idx);
         }
         for (guint element = ti->childCount(); element < st_table->num_elements; element++) {
-            stat_tap_table_item_type* fields = new_stat_tap_get_field_data(st_table, element, 0);
-            SimpleStatisticsTreeWidgetItem *ss_ti = new SimpleStatisticsTreeWidgetItem(ti, st_table->num_fields, fields);
-            for (int col = 0; col < (int) stu_->nfields; col++) {
-                if (stu_->fields[col].align == TAP_ALIGN_RIGHT) {
-                    ss_ti->setTextAlignment(col, Qt::AlignRight);
+            stat_tap_table_item_type* fields = stat_tap_get_field_data(st_table, element, 0);
+            if (stu_->nfields > 0) {
+                SimpleStatisticsTreeWidgetItem *ss_ti = new SimpleStatisticsTreeWidgetItem(ti, st_table->num_fields, fields);
+                for (int col = 0; col < (int) stu_->nfields; col++) {
+                    if (stu_->fields[col].align == TAP_ALIGN_RIGHT) {
+                        ss_ti->setTextAlignment(col, Qt::AlignRight);
+                    }
                 }
             }
         }
@@ -224,17 +216,17 @@ void SimpleStatisticsDialog::addMissingRows(struct _new_stat_data_t *stat_data)
 
 void SimpleStatisticsDialog::tapReset(void *sd_ptr)
 {
-    new_stat_data_t *sd = (new_stat_data_t*) sd_ptr;
+    stat_data_t *sd = (stat_data_t*) sd_ptr;
     SimpleStatisticsDialog *ss_dlg = static_cast<SimpleStatisticsDialog *>(sd->user_data);
     if (!ss_dlg) return;
 
-    reset_stat_table(sd->stat_tap_data, NULL, NULL);
+    reset_stat_table(sd->stat_tap_data);
     ss_dlg->statsTreeWidget()->clear();
 }
 
 void SimpleStatisticsDialog::tapDraw(void *sd_ptr)
 {
-    new_stat_data_t *sd = (new_stat_data_t*) sd_ptr;
+    stat_data_t *sd = (stat_data_t*) sd_ptr;
     SimpleStatisticsDialog *ss_dlg = static_cast<SimpleStatisticsDialog *>(sd->user_data);
     if (!ss_dlg) return;
 
@@ -256,11 +248,11 @@ void SimpleStatisticsDialog::tapDraw(void *sd_ptr)
 
 void SimpleStatisticsDialog::fillTree()
 {
-    new_stat_data_t stat_data;
+    stat_data_t stat_data;
     stat_data.stat_tap_data = stu_;
     stat_data.user_data = this;
 
-    stu_->stat_tap_init_cb(stu_, NULL, NULL);
+    stu_->stat_tap_init_cb(stu_);
 
     QString display_filter = displayFilter();
     if (!registerTapListener(stu_->tap_name,
@@ -270,7 +262,7 @@ void SimpleStatisticsDialog::fillTree()
                              tapReset,
                              stu_->packet_func,
                              tapDraw)) {
-        free_stat_tables(stu_, NULL, NULL);
+        free_stat_tables(stu_);
         reject(); // XXX Stay open instead?
         return;
     }
@@ -285,7 +277,29 @@ void SimpleStatisticsDialog::fillTree()
     tapDraw(&stat_data);
 
     removeTapListeners();
-    free_stat_tables(stu_, NULL, NULL);
+}
+
+// This is how an item is represented for exporting.
+QList<QVariant> SimpleStatisticsDialog::treeItemData(QTreeWidgetItem *it) const
+{
+    // Cast up to our type.
+    SimpleStatisticsTreeWidgetItem *rit = dynamic_cast<SimpleStatisticsTreeWidgetItem*>(it);
+    if (rit) {
+        return rit->rowData();
+    }
+    else {
+        return QList<QVariant>();
+    }
+}
+
+
+SimpleStatisticsDialog::~SimpleStatisticsDialog()
+{
+    stu_->refcount--;
+    if (stu_->refcount == 0) {
+        if (stu_->tables)
+            free_stat_tables(stu_);
+    }
 }
 
 /*

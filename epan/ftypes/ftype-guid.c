@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -61,16 +49,13 @@ get_guid(const char *s, e_guid_t *guid)
     }
 
     p = s;
-    strncpy(digits, p, 8);
-    digits[8] = '\0';
+    g_strlcpy(digits, p, 9);
     guid->data1 = (guint32)strtoul(digits, NULL, 16);
     p += 9;
-    strncpy(digits, p, 4);
-    digits[4] = '\0';
+    g_strlcpy(digits, p, 5);
     guid->data2 = (guint16)strtoul(digits, NULL, 16);
     p += 5;
-    strncpy(digits, p, 4);
-    digits[4] = '\0';
+    g_strlcpy(digits, p, 5);
     guid->data3 = (guint16)strtoul(digits, NULL, 16);
     p += 5;
     for (i=0; i < sizeof(guid->data4); i++) {
@@ -105,9 +90,9 @@ guid_repr_len(fvalue_t *fv _U_, ftrepr_t rtype _U_, int field_display _U_)
 }
 
 static void
-guid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+guid_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
-    guid_to_str_buf(&fv->value.guid, buf, GUID_STR_LEN);
+    guid_to_str_buf(&fv->value.guid, buf, size);
 }
 
 static gboolean
@@ -138,24 +123,8 @@ ftype_register_guid(void)
         guid_to_repr,        /* val_to_string_repr */
         guid_repr_len,       /* len_string_repr */
 
-        NULL,                /* set_value_byte_array */
-        NULL,                /* set_value_bytes */
-        guid_fvalue_set_guid, /* set_value_guid */
-        NULL,                /* set_value_time */
-        NULL,                /* set_value_string */
-        NULL,                /* set_value_tvbuff */
-        NULL,                /* set_value_uinteger */
-        NULL,                /* set_value_sinteger */
-        NULL,                /* set_value_uinteger64 */
-        NULL,                /* set_value_sinteger64 */
-        NULL,                /* set_value_floating */
-
-        value_get,           /* get_value */
-        NULL,                /* get_value_uinteger */
-        NULL,                /* get_value_sinteger */
-        NULL,                /* get_value_uinteger64 */
-        NULL,                /* get_value_sinteger64 */
-        NULL,                /* get_value_floating */
+        { .set_value_guid = guid_fvalue_set_guid }, /* union set_value */
+        { .get_value_ptr = value_get },             /* union get_value */
 
         cmp_eq,
         cmp_ne,

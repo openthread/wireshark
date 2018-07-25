@@ -1,25 +1,13 @@
 /* packet-nt-tpcp.c
-* Routines for Transparent Proxy Cache Protocol packet disassembly
-* (c) Copyright Giles Scott <giles.scott1 [AT] btinternet.com>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998 Gerald Combs
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ * Routines for Transparent Proxy Cache Protocol packet disassembly
+ * (c) Copyright Giles Scott <giles.scott1 [AT] btinternet.com>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
 #include "config.h"
 
@@ -30,7 +18,7 @@
 void proto_register_tpcp(void);
 void proto_reg_handoff_tpcp(void);
 
-#define UDP_PORT_TPCP   3121
+#define UDP_PORT_TPCP   3121 /* Not IANA registered */
 
 /* TPCP version1/2 PDU format */
 typedef struct _tpcppdu_t {
@@ -232,8 +220,7 @@ proto_register_tpcp(void)
 		&ett_tpcp_flags,
 	};
 
-	proto_tpcp = proto_register_protocol("Alteon - Transparent Proxy Cache Protocol",
-					     "TPCP", "tpcp");
+	proto_tpcp = proto_register_protocol("Alteon - Transparent Proxy Cache Protocol", "TPCP", "tpcp");
 	proto_register_field_array(proto_tpcp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 }
@@ -244,7 +231,7 @@ proto_reg_handoff_tpcp(void)
 	dissector_handle_t tpcp_handle;
 
 	tpcp_handle = create_dissector_handle(dissect_tpcp, proto_tpcp);
-	dissector_add_uint("udp.port", UDP_PORT_TPCP, tpcp_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_TPCP, tpcp_handle);
 }
 
 /*

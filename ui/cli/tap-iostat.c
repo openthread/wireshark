@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -107,7 +95,7 @@ iostat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt, const void *du
 
     /* If this frame's relative time is negative, set its relative time to last_relative_time
        rather than disincluding it from the calculations. */
-    if (pinfo->rel_ts.secs >= 0) {
+    if ((pinfo->rel_ts.secs >= 0) && (pinfo->rel_ts.nsecs >= 0)) {
         relative_time = ((guint64)pinfo->rel_ts.secs * G_GUINT64_CONSTANT(1000000)) +
                         ((guint64)((pinfo->rel_ts.nsecs+500)/1000));
         last_relative_time = relative_time;
@@ -464,7 +452,7 @@ iostat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt, const void *du
             if (it->calc_type == CALC_TYPE_FRAMES_AND_BYTES)
                 parent->max_vals[it->colnum] =
                     MAX(parent->max_vals[it->colnum], it->counter);
-
+            break;
         case CALC_TYPE_BYTES:
         case CALC_TYPE_COUNT:
         case CALC_TYPE_LOAD:
@@ -596,9 +584,9 @@ iostat_draw(void *arg)
 
     /* The following prevents gross inaccuracies when the user specifies an interval that is greater
     *  than the capture duration. */
-    if (iot->interval > duration || iot->interval == G_MAXINT32) {
+    if (iot->interval > duration || iot->interval == G_MAXUINT64) {
         interval = duration;
-        iot->interval = G_MAXINT32;
+        iot->interval = G_MAXUINT64;
     } else {
         interval = iot->interval;
     }
@@ -645,7 +633,7 @@ iostat_draw(void *arg)
          * Recalc dur_mag in case rounding has increased its magnitude */
         dur_mag  = magnitude((guint64)dur_secs, 5);
     }
-    if (iot->interval == G_MAXINT32)
+    if (iot->interval == G_MAXUINT64)
         interval = duration;
 
     /* Calc the width of the time interval column (incl borders and padding). */
@@ -1013,60 +1001,78 @@ iostat_draw(void *arg)
         switch (timestamp_get_type()) {
         case TS_ABSOLUTE:
           tm_time = localtime(&the_time);
-          printf("| %02d:%02d:%02d |",
-             tm_time->tm_hour,
-             tm_time->tm_min,
-             tm_time->tm_sec);
+          if (tm_time != NULL) {
+            printf("| %02d:%02d:%02d |",
+               tm_time->tm_hour,
+               tm_time->tm_min,
+               tm_time->tm_sec);
+          } else
+            printf("| XX:XX:XX |");
           break;
 
         case TS_ABSOLUTE_WITH_YMD:
           tm_time = localtime(&the_time);
-          printf("| %04d-%02d-%02d %02d:%02d:%02d |",
-             tm_time->tm_year + 1900,
-             tm_time->tm_mon + 1,
-             tm_time->tm_mday,
-             tm_time->tm_hour,
-             tm_time->tm_min,
-             tm_time->tm_sec);
+          if (tm_time != NULL) {
+            printf("| %04d-%02d-%02d %02d:%02d:%02d |",
+               tm_time->tm_year + 1900,
+               tm_time->tm_mon + 1,
+               tm_time->tm_mday,
+               tm_time->tm_hour,
+               tm_time->tm_min,
+               tm_time->tm_sec);
+          } else
+            printf("| XXXX-XX-XX XX:XX:XX |");
           break;
 
         case TS_ABSOLUTE_WITH_YDOY:
           tm_time = localtime(&the_time);
-          printf("| %04d/%03d %02d:%02d:%02d |",
-             tm_time->tm_year + 1900,
-             tm_time->tm_yday + 1,
-             tm_time->tm_hour,
-             tm_time->tm_min,
-             tm_time->tm_sec);
+          if (tm_time != NULL) {
+            printf("| %04d/%03d %02d:%02d:%02d |",
+               tm_time->tm_year + 1900,
+               tm_time->tm_yday + 1,
+               tm_time->tm_hour,
+               tm_time->tm_min,
+               tm_time->tm_sec);
+          } else
+            printf("| XXXX/XXX XX:XX:XX |");
           break;
 
         case TS_UTC:
           tm_time = gmtime(&the_time);
-          printf("| %02d:%02d:%02d |",
-             tm_time->tm_hour,
-             tm_time->tm_min,
-             tm_time->tm_sec);
+          if (tm_time != NULL) {
+            printf("| %02d:%02d:%02d |",
+               tm_time->tm_hour,
+               tm_time->tm_min,
+               tm_time->tm_sec);
+          } else
+            printf("| XX:XX:XX |");
           break;
 
         case TS_UTC_WITH_YMD:
           tm_time = gmtime(&the_time);
-          printf("| %04d-%02d-%02d %02d:%02d:%02d |",
-             tm_time->tm_year + 1900,
-             tm_time->tm_mon + 1,
-             tm_time->tm_mday,
-             tm_time->tm_hour,
-             tm_time->tm_min,
-             tm_time->tm_sec);
+          if (tm_time != NULL) {
+            printf("| %04d-%02d-%02d %02d:%02d:%02d |",
+               tm_time->tm_year + 1900,
+               tm_time->tm_mon + 1,
+               tm_time->tm_mday,
+               tm_time->tm_hour,
+               tm_time->tm_min,
+               tm_time->tm_sec);
+          } else
+            printf("| XXXX-XX-XX XX:XX:XX |");
           break;
 
         case TS_UTC_WITH_YDOY:
           tm_time = gmtime(&the_time);
-          printf("| %04d/%03d %02d:%02d:%02d |",
-             tm_time->tm_year + 1900,
-             tm_time->tm_yday + 1,
-             tm_time->tm_hour,
-             tm_time->tm_min,
-             tm_time->tm_sec);
+          if (tm_time != NULL) {
+            printf("| %04d/%03d %02d:%02d:%02d |",
+               tm_time->tm_year + 1900,
+               tm_time->tm_yday + 1,
+               tm_time->tm_hour,
+               tm_time->tm_min,
+               tm_time->tm_sec);
+          } else
+            printf("| XXXX/XXX XX:XX:XX |");
           break;
 
         case TS_RELATIVE:
@@ -1184,8 +1190,7 @@ iostat_draw(void *arg)
                 }
 
                 if (last_row) {
-                    if (fmt)
-                        g_free(fmt);
+                    g_free(fmt);
                 } else {
                     item_in_column[j] = item_in_column[j]->next;
                 }
@@ -1363,11 +1368,11 @@ register_io_tap(io_stat_t *io, int i, const char *filter)
             }
             break;
         }
-        g_free(field);
     }
+    g_free(field);
 
     error_string = register_tap_listener("frame", &io->items[i], flt, TL_REQUIRES_PROTO_TREE, NULL,
-                                       iostat_packet, i ? NULL : iostat_draw);
+                                       iostat_packet, i ? NULL : iostat_draw, NULL);
     if (error_string) {
         g_free(io->items);
         g_free(io);
@@ -1421,9 +1426,9 @@ iostat_init(const char *opt_arg, void *userdata _U_)
     io = (io_stat_t *)g_malloc(sizeof(io_stat_t));
 
     /* If interval is 0, calculate statistics over the whole file by setting the interval to
-    *  G_MAXINT32 */
+    *  G_MAXUINT64 */
     if (interval_float == 0) {
-        io->interval = G_MAXINT32;
+        io->interval = G_MAXUINT64;
         io->invl_prec = 0;
     } else {
         /* Set interval to the number of us rounded to the nearest integer */

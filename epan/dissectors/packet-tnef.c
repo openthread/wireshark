@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -595,8 +583,11 @@ static int dissect_tnef(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
         break;
       case ATP_STRING:
-        proto_tree_add_item(attr_tree, hf_tnef_attribute_string, tvb, offset, length, ENC_ASCII|ENC_NA);
-        proto_item_append_text(attr_item, " %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_ASCII));
+        {
+        const guint8* atp;
+        proto_tree_add_item_ret_string(attr_tree, hf_tnef_attribute_string, tvb, offset, length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &atp);
+        proto_item_append_text(attr_item, " %s", atp);
+        }
         break;
       default:
         proto_tree_add_item(attr_tree, hf_tnef_attribute_value, tvb, offset, length, ENC_NA);
@@ -609,7 +600,7 @@ static int dissect_tnef(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
       offset += length;
     }
 
-    proto_tree_add_item(attr_tree, hf_tnef_attribute_checksum, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    proto_tree_add_checksum(attr_tree, tvb, offset, hf_tnef_attribute_checksum, -1, NULL, pinfo, 0, ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     offset += 2;
 
     proto_item_set_len(attr_item, offset - start_offset);

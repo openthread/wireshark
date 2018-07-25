@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* LDSS is a protocol for peers on a LAN to cooperatively download
@@ -40,7 +28,6 @@
 #include <math.h>
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/strutil.h>
 #include "packet-tcp.h"
@@ -204,29 +191,26 @@ static expert_field ei_ldss_unrecognized_line = EI_INIT;
 static dissector_handle_t	ldss_udp_handle;
 static dissector_handle_t	ldss_tcp_handle;
 
-/* Global variables associated with the preferences for ldss */
-static guint	global_udp_port_ldss	= UDP_PORT_LDSS;
-
-/* Avoid creating conversations and data twice */
-static unsigned int highest_num_seen = 0;
-
 /* When seeing a broadcast talking about an open TCP port on a host, create
  * a conversation to dissect anything sent/received at that address.  Setup
  * protocol data so the TCP dissection knows what broadcast triggered it. */
 static void
 prepare_ldss_transfer_conv(ldss_broadcast_t *broadcast)
 {
-	conversation_t *transfer_conv;
-	ldss_transfer_info_t *transfer_info;
+	if (!find_conversation(broadcast->num, &broadcast->broadcaster->addr, &broadcast->broadcaster->addr,
+						ENDPOINT_TCP, broadcast->broadcaster->port, broadcast->broadcaster->port, NO_ADDR2|NO_PORT2)) {
+		conversation_t *transfer_conv;
+		ldss_transfer_info_t *transfer_info;
 
-	transfer_info = wmem_new0(wmem_file_scope(), ldss_transfer_info_t);
-	transfer_info->broadcast = broadcast;
+		transfer_info = wmem_new0(wmem_file_scope(), ldss_transfer_info_t);
+		transfer_info->broadcast = broadcast;
 
-	/* Preparation for later push/pull dissection */
-	transfer_conv = conversation_new (broadcast->num, &broadcast->broadcaster->addr, &broadcast->broadcaster->addr,
-					  PT_TCP, broadcast->broadcaster->port, broadcast->broadcaster->port, NO_ADDR2|NO_PORT2);
-	conversation_add_proto_data(transfer_conv, proto_ldss, transfer_info);
-	conversation_set_dissector(transfer_conv, ldss_tcp_handle);
+		/* Preparation for later push/pull dissection */
+		transfer_conv = conversation_new (broadcast->num, &broadcast->broadcaster->addr, &broadcast->broadcaster->addr,
+						ENDPOINT_TCP, broadcast->broadcaster->port, broadcast->broadcaster->port, NO_ADDR2|NO_PORT2);
+		conversation_add_proto_data(transfer_conv, proto_ldss, transfer_info);
+		conversation_set_dissector(transfer_conv, ldss_tcp_handle);
+	}
 }
 
 /* Broadcasts are searches, offers or promises.
@@ -284,7 +268,7 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	digest_type = tvb_get_guint8 (tvb,  2);
 	compression = tvb_get_guint8 (tvb,  3);
 	cookie      = tvb_get_ntohl  (tvb,  4);
-	digest      = (guint8 *)tvb_memdup (NULL, tvb,  8, DIGEST_LEN);
+	digest      = (guint8 *)tvb_memdup (wmem_file_scope(), tvb,  8, DIGEST_LEN);
 	size	    = tvb_get_ntoh64 (tvb, 40);
 	offset	    = tvb_get_ntoh64 (tvb, 48);
 	targetTime  = tvb_get_ntohl  (tvb, 56);
@@ -327,66 +311,64 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	/* If we have a non-null tree (ie we are building the proto_tree
 	 * instead of just filling out the columns), then give more detail. */
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_ldss,
-					 tvb, 0, (tvb_captured_length(tvb) > 72) ? tvb_captured_length(tvb) : 72, ENC_NA);
-		ldss_tree = proto_item_add_subtree(ti, ett_ldss_broadcast);
+	ti = proto_tree_add_item(tree, proto_ldss,
+			tvb, 0, (tvb_captured_length(tvb) > 72) ? tvb_captured_length(tvb) : 72, ENC_NA);
+	ldss_tree = proto_item_add_subtree(ti, ett_ldss_broadcast);
 
-		proto_tree_add_item(ldss_tree, hf_ldss_message_id,
-				    tvb, 0, 2, ENC_BIG_ENDIAN);
-		ti = proto_tree_add_uint(ldss_tree, hf_ldss_message_detail,
-					 tvb, 0, 0, messageDetail);
-		PROTO_ITEM_SET_GENERATED(ti);
-		proto_tree_add_item(ldss_tree, hf_ldss_digest_type,
-				    tvb, 2,	    1,	ENC_BIG_ENDIAN);
-		proto_tree_add_item(ldss_tree, hf_ldss_compression,
-				    tvb, 3,	    1,	ENC_BIG_ENDIAN);
-		proto_tree_add_uint_format_value(ldss_tree, hf_ldss_cookie,
-						 tvb, 4,	    4,	FALSE,
-						 "0x%x%s",
-						 cookie,
-						 (cookie == 0)
-						 ? " - shutdown (promises from this peer are no longer valid)"
-						 : "");
-		proto_tree_add_item(ldss_tree, hf_ldss_digest,
-				    tvb, 8,	    DIGEST_LEN, ENC_NA);
-		proto_tree_add_item(ldss_tree, hf_ldss_size,
-				    tvb, 40,    8,	ENC_BIG_ENDIAN);
-		proto_tree_add_item(ldss_tree, hf_ldss_offset,
-				    tvb, 48,    8,	ENC_BIG_ENDIAN);
-		proto_tree_add_uint_format_value(ldss_tree, hf_ldss_target_time,
-						 tvb, 56,    4,	FALSE,
-						 "%d:%02d:%02d",
-						 (int)(targetTime / 3600),
-						 (int)((targetTime / 60) % 60),
-						 (int)(targetTime % 60));
-		proto_tree_add_item(ldss_tree, hf_ldss_reserved_1,
-				    tvb, 60,    4,	ENC_BIG_ENDIAN);
-		proto_tree_add_uint_format_value(ldss_tree, hf_ldss_port,
-						 tvb, 64,    2,	FALSE,
-						 "%d%s",
-						 port,
-						 (messageID == MESSAGE_ID_WILLSEND &&
-						  size > 0 &&
-						  size == offset)
-						 ? " - file can be pulled at this TCP port"
-						 : (messageID == MESSAGE_ID_NEEDFILE
-						    ? " - file can be pushed to this TCP port"
-						    : ""));
-		proto_tree_add_uint_format_value(ldss_tree, hf_ldss_rate,
-						 tvb, 66,    2,	FALSE,
-						 "%ld",
-						 (rate > 0)
-						 ? (long)floor(exp(rate * G_LN2 / 2048))
-						 : 0);
-		proto_tree_add_item(ldss_tree, hf_ldss_priority,
-				    tvb, 68, 2, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ldss_tree, hf_ldss_property_count,
-				    tvb, 70, 2, ENC_BIG_ENDIAN);
-		if (tvb_reported_length(tvb) > 72) {
-			proto_tree_add_item(ldss_tree, hf_ldss_properties,
-					    tvb, 72, tvb_captured_length(tvb) - 72, ENC_NA);
-		}
+	proto_tree_add_item(ldss_tree, hf_ldss_message_id,
+			tvb, 0, 2, ENC_BIG_ENDIAN);
+	ti = proto_tree_add_uint(ldss_tree, hf_ldss_message_detail,
+			tvb, 0, 0, messageDetail);
+	PROTO_ITEM_SET_GENERATED(ti);
+	proto_tree_add_item(ldss_tree, hf_ldss_digest_type,
+			tvb, 2,	    1,	ENC_BIG_ENDIAN);
+	proto_tree_add_item(ldss_tree, hf_ldss_compression,
+			tvb, 3,	    1,	ENC_BIG_ENDIAN);
+	proto_tree_add_uint_format_value(ldss_tree, hf_ldss_cookie,
+			tvb, 4,	    4,	FALSE,
+			"0x%x%s",
+			cookie,
+			(cookie == 0)
+			? " - shutdown (promises from this peer are no longer valid)"
+			: "");
+	proto_tree_add_item(ldss_tree, hf_ldss_digest,
+			tvb, 8,	    DIGEST_LEN, ENC_NA);
+	proto_tree_add_item(ldss_tree, hf_ldss_size,
+			tvb, 40,    8,	ENC_BIG_ENDIAN);
+	proto_tree_add_item(ldss_tree, hf_ldss_offset,
+			tvb, 48,    8,	ENC_BIG_ENDIAN);
+	proto_tree_add_uint_format_value(ldss_tree, hf_ldss_target_time,
+			tvb, 56,    4,	FALSE,
+			"%d:%02d:%02d",
+			(int)(targetTime / 3600),
+			(int)((targetTime / 60) % 60),
+			(int)(targetTime % 60));
+	proto_tree_add_item(ldss_tree, hf_ldss_reserved_1,
+			tvb, 60,    4,	ENC_BIG_ENDIAN);
+	proto_tree_add_uint_format_value(ldss_tree, hf_ldss_port,
+			tvb, 64,    2,	FALSE,
+			"%d%s",
+			port,
+			(messageID == MESSAGE_ID_WILLSEND &&
+			 size > 0 &&
+			 size == offset)
+			? " - file can be pulled at this TCP port"
+			: (messageID == MESSAGE_ID_NEEDFILE
+				? " - file can be pushed to this TCP port"
+				: ""));
+	proto_tree_add_uint_format_value(ldss_tree, hf_ldss_rate,
+			tvb, 66,    2,	FALSE,
+			"%ld",
+			(rate > 0)
+			? (long)floor(exp(rate * G_LN2 / 2048))
+			: 0);
+	proto_tree_add_item(ldss_tree, hf_ldss_priority,
+			tvb, 68, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_item(ldss_tree, hf_ldss_property_count,
+			tvb, 70, 2, ENC_BIG_ENDIAN);
+	if (tvb_reported_length(tvb) > 72) {
+		proto_tree_add_item(ldss_tree, hf_ldss_properties,
+				tvb, 72, tvb_captured_length(tvb) - 72, ENC_NA);
 	}
 
 	/* Finally, store the broadcast and register ourselves to dissect
@@ -400,9 +382,8 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 	 * These steps only need to be done once per packet, so a variable
 	 * tracks the highest frame number seen. Handles the case of first frame
 	 * being frame zero. */
-	if (messageDetail != INFERRED_PEERSHUTDOWN &&
-	    (highest_num_seen == 0 ||
-	     highest_num_seen < pinfo->num)) {
+	if ((messageDetail != INFERRED_PEERSHUTDOWN) &&
+	    !PINFO_FD_VISITED(pinfo)) {
 
 		ldss_broadcast_t *data;
 
@@ -422,16 +403,13 @@ dissect_ldss_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		data->file->digest_type = digest_type;
 
 		data->broadcaster = wmem_new0(wmem_file_scope(), ldss_broadcaster_t);
-		copy_address(&data->broadcaster->addr, &pinfo->src);
+		copy_address_wmem(wmem_file_scope(), &data->broadcaster->addr, &pinfo->src);
 		data->broadcaster->port = port;
 
 		/* Dissect any future pushes/pulls */
 		if (port > 0) {
 			prepare_ldss_transfer_conv(data);
 		}
-
-		/* Record that the frame was processed */
-		highest_num_seen = pinfo->num;
 	}
 
 	return tvb_captured_length(tvb);
@@ -468,8 +446,10 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 	/* Look for the transfer conversation; this was created during
 	 * earlier broadcast dissection (see prepare_ldss_transfer_conv) */
 	transfer_conv = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
-					   PT_TCP, pinfo->srcport, pinfo->destport, 0);
+					   ENDPOINT_TCP, pinfo->srcport, pinfo->destport, 0);
+	DISSECTOR_ASSERT(transfer_conv);
 	transfer_info = (ldss_transfer_info_t *)conversation_get_proto_data(transfer_conv, proto_ldss);
+	DISSECTOR_ASSERT(transfer_info);
 
 	/* For a pull, the first packet in the TCP connection is the file request.
 	 * First packet is identified by relative seq/ack numbers of 1.
@@ -490,20 +470,16 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 
 		col_set_str(pinfo->cinfo, COL_INFO, "LDSS File Transfer (Requesting file - pull)");
 
-		if (highest_num_seen == 0 ||
-		    highest_num_seen < pinfo->num) {
+		if (transfer_info->req == NULL) {
 
 			already_dissected = FALSE;
 			transfer_info->req = wmem_new0(wmem_file_scope(), ldss_file_request_t);
 			transfer_info->req->file = wmem_new0(wmem_file_scope(), ldss_file_t);
-			highest_num_seen = pinfo->num;
 		}
 
-		if (tree) {
-			ti = proto_tree_add_item(tree, proto_ldss,
-						 tvb, 0, tvb_reported_length(tvb), ENC_NA);
-			ldss_tree = proto_item_add_subtree(ti, ett_ldss_transfer);
-		}
+		ti = proto_tree_add_item(tree, proto_ldss,
+				tvb, 0, tvb_reported_length(tvb), ENC_NA);
+		ldss_tree = proto_item_add_subtree(ti, ett_ldss_transfer);
 
 		/* Populate digest data into the file struct in the request */
 		transfer_info->file = transfer_info->req->file;
@@ -520,7 +496,7 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 			linelen = tvb_find_line_end(tvb, offset, -1, &next_offset, FALSE);
 
 			/* Include new-line in line */
-			line = (guint8 *)tvb_memdup(NULL, tvb, offset, linelen+1); /* XXX - memory leak? */
+			line = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, linelen, ENC_ASCII);
 
 			line_tree = proto_tree_add_subtree(ldss_tree, tvb, offset, linelen,
 							 ett_ldss_transfer_req, NULL,
@@ -555,37 +531,33 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 				/* Sample size line:
 				 * Size: 2550\n */
 				transfer_info->req->size = g_ascii_strtoull(line+6, NULL, 10);
-				if (tree) {
-					ti = proto_tree_add_uint64(line_tree, hf_ldss_size,
-								   tvb, offset+6, linelen-6, transfer_info->req->size);
-					PROTO_ITEM_SET_GENERATED(ti);
-				}
+				ti = proto_tree_add_uint64(line_tree, hf_ldss_size,
+						tvb, offset+6, linelen-6, transfer_info->req->size);
+				PROTO_ITEM_SET_GENERATED(ti);
 			}
 			else if (strncmp(line, "Start: ", 7)==0) {
 				/* Sample offset line:
 				 * Start: 0\n */
 				transfer_info->req->offset = g_ascii_strtoull(line+7, NULL, 10);
-				if (tree) {
-					ti = proto_tree_add_uint64(line_tree, hf_ldss_offset,
-								   tvb, offset+7, linelen-7, transfer_info->req->offset);
-					PROTO_ITEM_SET_GENERATED(ti);
-				}
+				ti = proto_tree_add_uint64(line_tree, hf_ldss_offset,
+						tvb, offset+7, linelen-7, transfer_info->req->offset);
+				PROTO_ITEM_SET_GENERATED(ti);
 			}
 			else if (strncmp(line, "Compression: ", 13)==0) {
 				/* Sample compression line:
 				 * Compression: 0\n */
 				transfer_info->req->compression = (gint8)strtol(line+13, NULL, 10); /* XXX - bad cast */
-				if (tree) {
-					ti = proto_tree_add_uint(line_tree, hf_ldss_compression,
-								 tvb, offset+13, linelen-13, transfer_info->req->compression);
-					PROTO_ITEM_SET_GENERATED(ti);
-				}
+				ti = proto_tree_add_uint(line_tree, hf_ldss_compression,
+						tvb, offset+13, linelen-13, transfer_info->req->compression);
+				PROTO_ITEM_SET_GENERATED(ti);
 			}
 			else {
 				proto_tree_add_expert(line_tree, pinfo, &ei_ldss_unrecognized_line, tvb, offset, linelen);
 			}
 
 			if (is_digest_line) {
+				proto_item *tii = NULL;
+
 				/* Sample digest-type/digest line:
 				 * md5:0123456789ABCDEF\n */
 				if (!already_dissected) {
@@ -593,8 +565,8 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 
 					digest_bytes = g_byte_array_new();
 					hex_str_to_bytes(
-						tvb_get_ptr(tvb, offset+digest_type_len, linelen-digest_type_len),
-						digest_bytes, FALSE);
+							tvb_get_ptr(tvb, offset+digest_type_len, linelen-digest_type_len),
+							digest_bytes, FALSE);
 
 					if(digest_bytes->len >= DIGEST_LEN)
 						digest_bytes->len = (DIGEST_LEN-1);
@@ -604,24 +576,21 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 
 					g_byte_array_free(digest_bytes, TRUE);
 				}
-				if (tree) {
-					proto_item *tii = NULL;
 
-					tii = proto_tree_add_uint(line_tree, hf_ldss_digest_type,
-								 tvb, offset, digest_type_len, transfer_info->file->digest_type);
-					PROTO_ITEM_SET_GENERATED(tii);
-					tii = proto_tree_add_bytes(line_tree, hf_ldss_digest,
-								  tvb, offset+digest_type_len, MIN(linelen-digest_type_len, DIGEST_LEN),
-								  transfer_info->file->digest);
-					PROTO_ITEM_SET_GENERATED(tii);
-				}
+				tii = proto_tree_add_uint(line_tree, hf_ldss_digest_type,
+						tvb, offset, digest_type_len, transfer_info->file->digest_type);
+				PROTO_ITEM_SET_GENERATED(tii);
+				tii = proto_tree_add_bytes(line_tree, hf_ldss_digest,
+						tvb, offset+digest_type_len, MIN(linelen-digest_type_len, DIGEST_LEN),
+						transfer_info->file->digest);
+				PROTO_ITEM_SET_GENERATED(tii);
 			}
 
 			offset = next_offset;
 		}
 
 		/* Link forwards to the response for this pull. */
-		if (tree && transfer_info->resp_num != 0) {
+		if (transfer_info->resp_num != 0) {
 			ti = proto_tree_add_uint(ldss_tree, hf_ldss_response_in,
 						 tvb, 0, 0, transfer_info->resp_num);
 			PROTO_ITEM_SET_GENERATED(ti);
@@ -662,7 +631,7 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 			if (size == 0 || tvb_captured_length(tvb) < size) {
 				pinfo->desegment_offset = 0;
 				pinfo->desegment_len = DESEGMENT_UNTIL_FIN;
-				return 0;
+				return -1;
 			}
 		}
 
@@ -675,67 +644,65 @@ dissect_ldss_transfer (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
 				     ? "pull"
 				     : "push");
 
-		if (tree) {
-			ti = proto_tree_add_item(tree, proto_ldss,
-						 tvb, 0, tvb_reported_length(tvb), ENC_NA);
-			ldss_tree = proto_item_add_subtree(ti, ett_ldss_transfer);
-			proto_tree_add_bytes_format(ldss_tree, hf_ldss_file_data,
-						    tvb, 0, tvb_captured_length(tvb), NULL,
-						    compression == COMPRESSION_GZIP
-						    ? "Gzip compressed data: %d bytes"
-						    : "File data: %d bytes",
-						    tvb_captured_length(tvb));
-#ifdef HAVE_LIBZ
-			/* Be nice and uncompress the file data. */
-			if (compression == COMPRESSION_GZIP) {
-				tvbuff_t *uncomp_tvb;
-				uncomp_tvb = tvb_child_uncompress(tvb, tvb, 0, tvb_captured_length(tvb));
-				if (uncomp_tvb != NULL) {
-					/* XXX: Maybe not a good idea to add a data_source for
-					        what may very well be a large buffer since then
-						the full uncompressed buffer will be shown in a tab
-						in the hex bytes pane ?
-						However, if we don't, bytes in an unrelated tab will
-						be highlighted.
-					*/
-					add_new_data_source(pinfo, uncomp_tvb, "Uncompressed Data");
-					proto_tree_add_bytes_format_value(ldss_tree, hf_ldss_file_data,
-									  uncomp_tvb, 0, tvb_captured_length(uncomp_tvb),
-									  NULL, "Uncompressed data: %d bytes",
-									  tvb_captured_length(uncomp_tvb));
-				}
+		ti = proto_tree_add_item(tree, proto_ldss,
+				tvb, 0, tvb_reported_length(tvb), ENC_NA);
+		ldss_tree = proto_item_add_subtree(ti, ett_ldss_transfer);
+		proto_tree_add_bytes_format(ldss_tree, hf_ldss_file_data,
+				tvb, 0, tvb_captured_length(tvb), NULL,
+				compression == COMPRESSION_GZIP
+				? "Gzip compressed data: %d bytes"
+				: "File data: %d bytes",
+				tvb_captured_length(tvb));
+#ifdef HAVE_ZLIB
+		/* Be nice and uncompress the file data. */
+		if (compression == COMPRESSION_GZIP) {
+			tvbuff_t *uncomp_tvb;
+			uncomp_tvb = tvb_child_uncompress(tvb, tvb, 0, tvb_captured_length(tvb));
+			if (uncomp_tvb != NULL) {
+				/* XXX: Maybe not a good idea to add a data_source for
+				   what may very well be a large buffer since then
+				   the full uncompressed buffer will be shown in a tab
+				   in the hex bytes pane ?
+				   However, if we don't, bytes in an unrelated tab will
+				   be highlighted.
+				 */
+				add_new_data_source(pinfo, uncomp_tvb, "Uncompressed Data");
+				proto_tree_add_bytes_format_value(ldss_tree, hf_ldss_file_data,
+						uncomp_tvb, 0, tvb_captured_length(uncomp_tvb),
+						NULL, "Uncompressed data: %d bytes",
+						tvb_captured_length(uncomp_tvb));
 			}
+		}
 #endif
-			ti = proto_tree_add_uint(ldss_tree, hf_ldss_digest_type,
-						 tvb, 0, 0, transfer_info->file->digest_type);
+		ti = proto_tree_add_uint(ldss_tree, hf_ldss_digest_type,
+				tvb, 0, 0, transfer_info->file->digest_type);
+		PROTO_ITEM_SET_GENERATED(ti);
+		if (transfer_info->file->digest != NULL) {
+			/* This is ugly. You can't add bytes of nonzero length and have
+			 * filtering work correctly unless you give a valid location in
+			 * the packet. This hack pretends the first 32 bytes of the packet
+			 * are the digest, which they aren't: they're actually the first 32
+			 * bytes of the file that was sent. */
+			ti = proto_tree_add_bytes(ldss_tree, hf_ldss_digest,
+					tvb, 0, DIGEST_LEN, transfer_info->file->digest);
+		}
+		PROTO_ITEM_SET_GENERATED(ti);
+		ti = proto_tree_add_uint64(ldss_tree, hf_ldss_size,
+				tvb, 0, 0, size);
+		PROTO_ITEM_SET_GENERATED(ti);
+		ti = proto_tree_add_uint64(ldss_tree, hf_ldss_offset,
+				tvb, 0, 0, offset);
+		PROTO_ITEM_SET_GENERATED(ti);
+		ti = proto_tree_add_uint(ldss_tree, hf_ldss_compression,
+				tvb, 0, 0, compression);
+		PROTO_ITEM_SET_GENERATED(ti);
+		/* Link to the request for a pull. */
+		if (transfer_info->broadcast->message_id == MESSAGE_ID_WILLSEND &&
+				transfer_info->req != NULL &&
+				transfer_info->req->num != 0) {
+			ti = proto_tree_add_uint(ldss_tree, hf_ldss_response_to,
+					tvb, 0, 0, transfer_info->req->num);
 			PROTO_ITEM_SET_GENERATED(ti);
-			if (transfer_info->file->digest != NULL) {
-				/* This is ugly. You can't add bytes of nonzero length and have
-				 * filtering work correctly unless you give a valid location in
-				 * the packet. This hack pretends the first 32 bytes of the packet
-				 * are the digest, which they aren't: they're actually the first 32
-				 * bytes of the file that was sent. */
-				ti = proto_tree_add_bytes(ldss_tree, hf_ldss_digest,
-							  tvb, 0, DIGEST_LEN, transfer_info->file->digest);
-			}
-			PROTO_ITEM_SET_GENERATED(ti);
-			ti = proto_tree_add_uint64(ldss_tree, hf_ldss_size,
-						   tvb, 0, 0, size);
-			PROTO_ITEM_SET_GENERATED(ti);
-			ti = proto_tree_add_uint64(ldss_tree, hf_ldss_offset,
-						   tvb, 0, 0, offset);
-			PROTO_ITEM_SET_GENERATED(ti);
-			ti = proto_tree_add_uint(ldss_tree, hf_ldss_compression,
-						 tvb, 0, 0, compression);
-			PROTO_ITEM_SET_GENERATED(ti);
-			/* Link to the request for a pull. */
-			if (transfer_info->broadcast->message_id == MESSAGE_ID_WILLSEND &&
-			    transfer_info->req != NULL &&
-			    transfer_info->req->num != 0) {
-				ti = proto_tree_add_uint(ldss_tree, hf_ldss_response_to,
-							 tvb, 0, 0, transfer_info->req->num);
-				PROTO_ITEM_SET_GENERATED(ti);
-			}
 		}
 	}
 
@@ -801,15 +768,6 @@ dissect_ldss (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 
 	/* Definitely not LDSS */
 	return 0;
-}
-
-/* Initialize the highest num seen each time a
- * new file is loaded or re-loaded in wireshark */
-static void
-ldss_init_protocol(void)
-{
-	/* We haven't dissected anything yet. */
-	highest_num_seen = 0;
 }
 
 void
@@ -965,7 +923,6 @@ proto_register_ldss (void) {
 		{ &ei_ldss_unrecognized_line, { "ldss.unrecognized_line", PI_PROTOCOL, PI_WARN, "Unrecognized line ignored", EXPFILL }},
 	};
 
-	module_t     *ldss_module;
 	expert_module_t* expert_ldss;
 
 	proto_ldss = proto_register_protocol("Local Download Sharing Service", "LDSS", "ldss");
@@ -973,16 +930,6 @@ proto_register_ldss (void) {
 	proto_register_subtree_array(ett, array_length(ett));
 	expert_ldss = expert_register_protocol(proto_ldss);
 	expert_register_field_array(expert_ldss, ei, array_length(ei));
-
-	ldss_module = prefs_register_protocol(	proto_ldss, proto_reg_handoff_ldss);
-	prefs_register_uint_preference(		ldss_module, "udp_port",
-						"LDSS UDP Port",
-						"The UDP port on which "
-						"Local Download Sharing Service "
-						"broadcasts will be sent",
-						10, &global_udp_port_ldss);
-
-	register_init_routine(&ldss_init_protocol);
 }
 
 
@@ -990,19 +937,9 @@ proto_register_ldss (void) {
 void
 proto_reg_handoff_ldss (void)
 {
-	static guint	  saved_udp_port_ldss;
-	static gboolean	  ldss_initialized	= FALSE;
-
-	if (!ldss_initialized) {
-		ldss_udp_handle = create_dissector_handle(dissect_ldss, proto_ldss);
-		ldss_tcp_handle = create_dissector_handle(dissect_ldss_transfer, proto_ldss);
-		ldss_initialized = TRUE;
-	}
-	else {
-		dissector_delete_uint("udp.port", saved_udp_port_ldss, ldss_udp_handle);
-	}
-	dissector_add_uint("udp.port", global_udp_port_ldss, ldss_udp_handle);
-	saved_udp_port_ldss = global_udp_port_ldss;
+	ldss_udp_handle = create_dissector_handle(dissect_ldss, proto_ldss);
+	ldss_tcp_handle = create_dissector_handle(dissect_ldss_transfer, proto_ldss);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_LDSS, ldss_udp_handle);
 }
 
 /*

@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *
  * References to source files point in general to the glusterfs sources.
@@ -119,7 +107,7 @@ gluster_gd_mgmt_dissect_uuid(tvbuff_t *tvb, proto_tree *tree, int hfindex,
 
 static int
 gluster_gd_mgmt_probe_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -149,7 +137,7 @@ gluster_gd_mgmt_probe_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 
 static int
 gluster_gd_mgmt_friend_add_reply(tvbuff_t *tvb,
-					packet_info *pinfo, proto_tree *tree, void* data _U_)
+					packet_info *pinfo, proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -182,7 +170,7 @@ gluster_gd_mgmt_friend_add_call(tvbuff_t *tvb,
 /* gluster_gd_mgmt_cluster_lock_reply is used for LOCK and UNLOCK */
 static int
 gluster_gd_mgmt_cluster_lock_reply(tvbuff_t *tvb,
-					packet_info *pinfo, proto_tree *tree, void* data _U_)
+					packet_info *pinfo, proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -203,7 +191,7 @@ gluster_gd_mgmt_cluster_lock_call(tvbuff_t *tvb,
 
 static int
 gluster_gd_mgmt_stage_op_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -230,7 +218,7 @@ gluster_gd_mgmt_stage_op_call(tvbuff_t *tvb,
 
 static int
 gluster_gd_mgmt_commit_op_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -258,7 +246,7 @@ gluster_gd_mgmt_commit_op_call(tvbuff_t *tvb,
 
 static int
 gluster_gd_mgmt_friend_update_reply(tvbuff_t *tvb,
-					packet_info *pinfo, proto_tree *tree, void* data _U_)
+					packet_info *pinfo, proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -286,7 +274,7 @@ gluster_gd_mgmt_friend_update_call(tvbuff_t *tvb,
 /* Below procedure is used for version 2 */
 static int
 glusterd_mgmt_2_cluster_lock_reply(tvbuff_t *tvb,
-					packet_info *pinfo, proto_tree *tree, void* data _U_)
+					packet_info *pinfo, proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -306,7 +294,7 @@ glusterd_mgmt_2_cluster_lock_call(tvbuff_t *tvb,
 
 static int
 glusterd_mgmt_2_stage_op_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -335,7 +323,7 @@ glusterd_mgmt_2_stage_op_call(tvbuff_t *tvb,
 
 static int
 glusterd_mgmt_2_commit_op_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -379,8 +367,8 @@ glusterd_mgmt_3_lock_call(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 static int
-glusterd_mgmt_3_lock_reply(tvbuff_t *tvb, packet_info *pinfo _U_,
-					proto_tree *tree, void* data _U_)
+glusterd_mgmt_3_lock_reply(tvbuff_t *tvb, packet_info *pinfo,
+					proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -407,7 +395,7 @@ glusterd_mgmt_3_pre_val_call(tvbuff_t *tvb,
 
 static int
 glusterd_mgmt_3_pre_val_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -422,7 +410,7 @@ glusterd_mgmt_3_pre_val_reply(tvbuff_t *tvb, packet_info *pinfo,
 
 static int
 glusterd_mgmt_3_commit_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_gd_mgmt_dissect_uuid(tvb, tree, hf_glusterd_uuid,
@@ -454,7 +442,7 @@ glusterd_mgmt_3_post_val_call(tvbuff_t *tvb,
 
 static int
 glusterd_brick_2_common_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
@@ -881,19 +869,18 @@ proto_register_gluster_gd_mgmt(void)
 	};
 
 	/* Register the protocol name and description */
-	proto_glusterd = proto_register_protocol("Gluster Daemon", "GlusterD",
-								"glusterd");
+	proto_glusterd = proto_register_protocol("Gluster Daemon", "GlusterD", "glusterd");
 	proto_register_subtree_array(ett, array_length(ett));
 	proto_register_field_array(proto_glusterd, hf, array_length(hf));
 
-	proto_gd_mgmt = proto_register_protocol("Gluster Daemon Management",
-					"GlusterD Management", "glusterd.mgmt");
-	proto_gd_brick = proto_register_protocol(
+	proto_gd_mgmt = proto_register_protocol_in_name_only("Gluster Daemon Management",
+					"GlusterD Management", "glusterd.mgmt", proto_glusterd, FT_PROTOCOL);
+	proto_gd_brick = proto_register_protocol_in_name_only(
 					"Gluster Daemon Brick Operations",
-					"GlusterD Brick", "glusterd.brick");
-	proto_gd_friend = proto_register_protocol(
+					"GlusterD Brick", "glusterd.brick", proto_glusterd, FT_PROTOCOL);
+	proto_gd_friend = proto_register_protocol_in_name_only(
 					"Gluster Daemon Friend Operations",
-					"GlusterD Friend", "glusterd.friend");
+					"GlusterD Friend", "glusterd.friend", proto_glusterd, FT_PROTOCOL);
 }
 
 void

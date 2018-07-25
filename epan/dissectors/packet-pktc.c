@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -384,7 +372,7 @@ dissect_pktc_ap_reply(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int o
     proto_tree_add_uint_format(tree, hf_pktc_sec_param_lifetime, tvb, offset, 4,
                                tvb_get_ntohl(tvb, offset), "%s: %s",
                                proto_registrar_get_name(hf_pktc_sec_param_lifetime),
-                               time_secs_to_str(wmem_packet_scope(), tvb_get_ntohl(tvb, offset)));
+                               signed_time_secs_to_str(wmem_packet_scope(), tvb_get_ntohl(tvb, offset)));
     offset+=4;
 
     /* grace period */
@@ -435,7 +423,7 @@ dissect_pktc_rekey(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb, int offs
 
     /* Timestamp: YYMMDDhhmmssZ */
     /* They really came up with a two-digit year in late 1990s! =8o */
-    timestr=tvb_get_ptr(tvb, offset, 13);
+    timestr=tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 13, ENC_ASCII);
     proto_tree_add_string_format_value(tree, hf_pktc_timestamp, tvb, offset, 13, timestr,
                                 "%.2s-%.2s-%.2s %.2s:%.2s:%.2s",
                                  timestr, timestr+2, timestr+4, timestr+6, timestr+8, timestr+10);
@@ -495,11 +483,11 @@ dissect_pktc_mtafqdn_krbsafeuserdata(packet_info *pinfo, tvbuff_t *tvb, proto_tr
                    val_to_str(msgtype, pktc_mtafqdn_msgtype_vals, "MsgType %u"));
 
     /* enterprise */
-    proto_tree_add_uint(tree, hf_pktc_mtafqdn_enterprise, tvb, offset, 4, tvb_get_ntohl(tvb, offset));
+    proto_tree_add_item(tree, hf_pktc_mtafqdn_enterprise, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset+=4;
 
     /* protocol version */
-    proto_tree_add_uint(tree, hf_pktc_mtafqdn_version, tvb, offset, 1, tvb_get_guint8(tvb, offset));
+    proto_tree_add_item(tree, hf_pktc_mtafqdn_version, tvb, offset, 1, ENC_NA);
     offset+=1;
 
     switch(msgtype) {
@@ -672,7 +660,7 @@ proto_register_pktc(void)
             "Server Kerberos Principal Identifier", "pktc.server_principal", FT_STRING, BASE_NONE,
             NULL, 0, NULL, HFILL }},
         { &hf_pktc_timestamp, {
-            "Timestamp", "pktc.timestamp", FT_STRING, BASE_NONE,
+            "Timestamp", "pktc.timestamp", FT_STRING, STR_UNICODE,
             NULL, 0, "Timestamp (UTC)", HFILL }},
         { &hf_pktc_app_spec_data, {
             "Application Specific Data", "pktc.asd", FT_NONE, BASE_NONE,
@@ -751,7 +739,7 @@ proto_reg_handoff_pktc(void)
     dissector_handle_t pktc_handle;
 
     pktc_handle = create_dissector_handle(dissect_pktc, proto_pktc);
-    dissector_add_uint("udp.port", PKTC_PORT, pktc_handle);
+    dissector_add_uint_with_preference("udp.port", PKTC_PORT, pktc_handle);
 }
 
 
@@ -812,7 +800,7 @@ proto_reg_handoff_pktc_mtafqdn(void)
     dissector_handle_t pktc_mtafqdn_handle;
 
     pktc_mtafqdn_handle = create_dissector_handle(dissect_pktc_mtafqdn, proto_pktc_mtafqdn);
-    dissector_add_uint("udp.port", PKTC_MTAFQDN_PORT, pktc_mtafqdn_handle);
+    dissector_add_uint_with_preference("udp.port", PKTC_MTAFQDN_PORT, pktc_mtafqdn_handle);
 }
 
 /*

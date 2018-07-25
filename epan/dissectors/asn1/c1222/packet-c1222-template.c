@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -123,6 +111,7 @@ static int hf_c1222_write_size = -1;
 static int hf_c1222_write_data = -1;
 static int hf_c1222_procedure_num = -1;
 static int hf_c1222_write_chksum = -1;
+static int hf_c1222_write_chksum_status = -1;
 static int hf_c1222_wait_secs = -1;
 static int hf_c1222_neg_pkt_size = -1;
 static int hf_c1222_neg_nbr_pkts = -1;
@@ -145,7 +134,6 @@ static int ett_c1222_flags = -1;
 static int ett_c1222_crypto = -1;
 static int ett_c1222_cmd = -1;
 
-#ifdef HAVE_LIBGCRYPT
 /* these pointers are for the header elements that may be needed to verify the crypto */
 static guint8 *aSO_context = NULL;
 static guint8 *called_AP_title = NULL;
@@ -171,18 +159,13 @@ static guint32 user_information_len = 0;
 static guint32 calling_AP_title_len = 0;
 static guint32 key_id_element_len = 0;
 static guint32 iv_element_len = 0;
-#endif /* HAVE_LIBGCRYPT */
 
 #include "packet-c1222-ett.c"
 
 static expert_field ei_c1222_command_truncated = EI_INIT;
 static expert_field ei_c1222_bad_checksum = EI_INIT;
 static expert_field ei_c1222_epsem_missing = EI_INIT;
-#ifdef HAVE_LIBGCRYPT
 static expert_field ei_c1222_epsem_failed_authentication = EI_INIT;
-#else
-static expert_field ei_c1222_epsem_not_authenticated = EI_INIT;
-#endif
 static expert_field ei_c1222_epsem_not_decryped = EI_INIT;
 static expert_field ei_c1222_ed_class_missing = EI_INIT;
 static expert_field ei_c1222_epsem_ber_length_error = EI_INIT;
@@ -190,11 +173,8 @@ static expert_field ei_c1222_epsem_field_length_error = EI_INIT;
 static expert_field ei_c1222_mac_missing = EI_INIT;
 
 /* Preferences */
-static int global_c1222_port = C1222_PORT;
 static gboolean c1222_desegment = TRUE;
-#ifdef HAVE_LIBGCRYPT
 static gboolean c1222_decrypt = TRUE;
-#endif
 static const gchar *c1222_baseoid_str = NULL;
 static guint8 *c1222_baseoid = NULL;
 static guint c1222_baseoid_len = 0;
@@ -283,7 +263,6 @@ static const value_string commandnames[] = {
   { 0, NULL }
 };
 
-#ifdef HAVE_LIBGCRYPT
 /* these are for the key tables */
 typedef struct _c1222_uat_data {
   guint keynum;
@@ -326,12 +305,6 @@ static uat_t *c1222_uat;
       fieldname##_len = length; \
       break; \
   }
-#else /* HAVE_LIBGCRYPT */
-#define FILL_TABLE(fieldname)
-#define FILL_TABLE_TRUNCATE(fieldname, len)
-#define FILL_TABLE_APTITLE(fieldname)
-#define FILL_START
-#endif /* HAVE_LIBGCRYPT */
 
 /*------------------------------
  * Function Prototypes
@@ -374,13 +347,12 @@ static void
 parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cmd, guint32 *length, int *offset)
 {
   guint16 user_id = 0;
-  guint8 *user_name = NULL;
-  guint8 *password = NULL;
+  const guint8 *user_name = NULL;
+  const guint8 *password = NULL;
   guint8 auth_len = 0;
   gchar *auth_req = NULL;
   guint16 table = 0;
   guint16 tblsize = 0;
-  guint8 chksum = 0;
   guint16 calcsum = 0;
   guint8 wait_seconds = 0;
   int numrates = 0;
@@ -392,7 +364,6 @@ parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cm
   guint8 inter_char;
   guint8 resp_to;
   guint8 nbr_retries;
-  proto_item *item = NULL;
 
   /* special case to simplify handling of Negotiate service */
   if ((cmd & 0xF0) == C1222_CMD_NEGOTIATE) {
@@ -408,8 +379,7 @@ parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cm
         user_id = tvb_get_ntohs(tvb, *offset);
         proto_tree_add_uint(tree, hf_c1222_logon_id, tvb, *offset, 2, user_id);
         *offset += 2;
-        user_name = tvb_get_string_enc(wmem_packet_scope(),tvb, *offset, 10, ENC_ASCII);
-        proto_tree_add_string(tree, hf_c1222_logon_user, tvb, *offset, 10, user_name);
+        proto_tree_add_item_ret_string(tree, hf_c1222_logon_user, tvb, *offset, 10, ENC_ASCII|ENC_NA, wmem_packet_scope(), &user_name);
         *offset += 10;
         *length -= 12;
         proto_item_set_text(tree, "C12.22 EPSEM: %s (id %d, user \"%s\")",
@@ -420,8 +390,7 @@ parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cm
       break;
     case C1222_CMD_SECURITY:
       if (*length >= 20) {
-        password = tvb_get_string_enc(wmem_packet_scope(),tvb, *offset, 20, ENC_ASCII);
-        proto_tree_add_string(tree, hf_c1222_security_password, tvb, *offset, 20, password);
+        proto_tree_add_item_ret_string(tree, hf_c1222_security_password, tvb, *offset, 20, ENC_ASCII|ENC_NA, wmem_packet_scope(), &password);
         *offset += 20;
         *length -= 20;
         if (*length >= 2) {
@@ -511,16 +480,14 @@ parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cm
           proto_tree_add_item(tree, hf_c1222_write_data, tvb, *offset, tblsize, ENC_NA);
           *offset += tblsize;
           *length -= tblsize;
-          chksum = tvb_get_guint8(tvb, *offset);
-          item = proto_tree_add_uint(tree, hf_c1222_write_chksum, tvb, *offset, 1, chksum);
           if (table == 7) {/* is it a procedure call? */
             calcsum = c1222_cksum(tvb, (*offset)-tblsize-2, tblsize+2);
           } else {
             calcsum = c1222_cksum(tvb, (*offset)-tblsize, tblsize);
           }
-          if (chksum != calcsum) {
-            expert_add_info_format(pinfo, item, &ei_c1222_bad_checksum, "Bad checksum [should be 0x%02x]", calcsum);
-          }
+          proto_tree_add_checksum(tree, tvb, *offset, hf_c1222_write_chksum, hf_c1222_write_chksum_status,
+                                  &ei_c1222_bad_checksum, pinfo, calcsum, ENC_NA, PROTO_CHECKSUM_VERIFY);
+
           if (table == 7) {/* is it a procedure call? */
             proto_item_set_text(tree, "C12.22 EPSEM: %s (%s-%d, %s-%d)",
                     val_to_str(cmd,commandnames,"Unknown (0x%02x)"),
@@ -557,12 +524,9 @@ parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cm
           proto_tree_add_item(tree, hf_c1222_write_data, tvb, *offset, tblsize, ENC_NA);
           *offset += tblsize;
           *length -= tblsize;
-          chksum = tvb_get_guint8(tvb, *offset);
-          item = proto_tree_add_uint(tree, hf_c1222_write_chksum, tvb, *offset, 1, chksum);
           calcsum = c1222_cksum(tvb, (*offset)-tblsize, tblsize);
-          if (chksum != calcsum) {
-            expert_add_info_format(pinfo, item, &ei_c1222_bad_checksum, "Bad checksum [should be 0x%02x]", calcsum);
-          }
+          proto_tree_add_checksum(tree, tvb, *offset, hf_c1222_write_chksum, hf_c1222_write_chksum_status,
+                                  &ei_c1222_bad_checksum, pinfo, calcsum, ENC_NA, PROTO_CHECKSUM_VERIFY);
           proto_item_set_text(tree, "C12.22 EPSEM: %s (%s-%d)",
                   val_to_str(cmd,commandnames,"Unknown (0x%02x)"),
                   val_to_str((table >> 8) & 0xF8, tableflags,"Unknown (0x%04x)"), table & 0x7FF);
@@ -638,7 +602,6 @@ parse_c1222_detailed(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int cm
   }
 }
 
-#ifdef HAVE_LIBGCRYPT
 typedef struct tagTOP_ELEMENT_CONTROL
 {
   /* TRUE if this tag is required */
@@ -859,7 +822,6 @@ decrypt_packet(guchar *buffer, guint32 length, gboolean decrypt)
   }
   return status;
 }
-#endif /* HAVE_LIBGCRYPT */
 
 /**
  * Checks to make sure that a complete, valid BER-encoded length is in the buffer.
@@ -923,9 +885,7 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
   gint len2;
   int cmd_err;
   gboolean ind;
-#ifdef HAVE_LIBGCRYPT
   guchar *buffer;
-#endif
   tvbuff_t *epsem_buffer = NULL;
   gboolean crypto_good = FALSE;
   gboolean crypto_bad = FALSE;
@@ -948,9 +908,8 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
       if (len2 <= 0)
         return offset;
       encrypted = TRUE;
-#ifdef HAVE_LIBGCRYPT
       if (c1222_decrypt) {
-        buffer = (guchar *)tvb_memdup(wmem_packet_scope(), tvb, offset, len2);
+        buffer = (guchar *)tvb_memdup(pinfo->pool, tvb, offset, len2);
         if (!decrypt_packet(buffer, len2, TRUE)) {
           crypto_bad = TRUE;
         } else {
@@ -961,7 +920,6 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
           encrypted = FALSE;
         }
       }
-#endif
       break;
     case EAX_MODE_CLEARTEXT_AUTH:
       /* mode is cleartext with authentication */
@@ -970,7 +928,6 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
       if (len2 <= 0)
         return offset;
       epsem_buffer = tvb_new_subset_remaining(tvb, offset);
-#ifdef HAVE_LIBGCRYPT
       buffer = (guchar *)tvb_memdup(wmem_packet_scope(), tvb, offset, len2);
       if (c1222_decrypt) {
         if (!decrypt_packet(buffer, len2, FALSE)) {
@@ -980,9 +937,6 @@ dissect_epsem(tvbuff_t *tvb, int offset, guint32 len, packet_info *pinfo, proto_
           crypto_good = TRUE;
         }
       }
-#else /* HAVE_LIBGCRYPT */
-      expert_add_info(pinfo, tree, &ei_c1222_epsem_not_authenticated);
-#endif /* HAVE_LIBGCRYPT */
       break;
     default:
       /* it's not encrypted */
@@ -1261,6 +1215,12 @@ void proto_register_c1222(void) {
     NULL, 0x0,
     NULL, HFILL }
    },
+   { &hf_c1222_write_chksum_status,
+    { "C12.22 Table Data Checksum Status", "c1222.write.chksum.status",
+    FT_UINT8, BASE_NONE,
+    VALS(proto_checksum_vals), 0x0,
+    NULL, HFILL }
+   },
    { &hf_c1222_procedure_num,
     { "C12.22 Procedure Number", "c1222.procedure.num",
     FT_UINT16, BASE_DEC,
@@ -1344,11 +1304,7 @@ void proto_register_c1222(void) {
     { &ei_c1222_command_truncated, { "c1222.command_truncated", PI_MALFORMED, PI_ERROR, "C12.22 command truncated", EXPFILL }},
     { &ei_c1222_bad_checksum, { "c1222.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
     { &ei_c1222_epsem_missing, { "c1222.epsem.missing", PI_MALFORMED, PI_ERROR, "C12.22 EPSEM missing", EXPFILL }},
-#ifdef HAVE_LIBGCRYPT
     { &ei_c1222_epsem_failed_authentication, { "c1222.epsem.failed_authentication", PI_SECURITY, PI_ERROR, "C12.22 EPSEM failed authentication", EXPFILL }},
-#else
-    { &ei_c1222_epsem_not_authenticated, { "c1222.epsem.not_authenticated", PI_SECURITY, PI_WARN, "C12.22 EPSEM could not be authenticated", EXPFILL }},
-#endif
     { &ei_c1222_epsem_not_decryped, { "c1222.epsem.not_decryped", PI_UNDECODED, PI_WARN, "C12.22 EPSEM could not be decrypted", EXPFILL }},
     { &ei_c1222_ed_class_missing, { "c1222.ed_class_missing", PI_SECURITY, PI_ERROR, "C12.22 ED Class missing", EXPFILL }},
     { &ei_c1222_epsem_ber_length_error, { "c1222.epsem.ber_length_error", PI_MALFORMED, PI_ERROR, "C12.22 EPSEM BER length error", EXPFILL }},
@@ -1359,13 +1315,11 @@ void proto_register_c1222(void) {
   expert_module_t* expert_c1222;
   module_t *c1222_module;
 
-#ifdef HAVE_LIBGCRYPT
   static uat_field_t c1222_uat_flds[] = {
     UAT_FLD_HEX(c1222_users,keynum,"Key ID","Key identifier in hexadecimal"),
     UAT_FLD_BUFFER(c1222_users, key, "Key", "Encryption key as 16-byte hex string"),
     UAT_END_FIELDS
   };
-#endif /* HAVE_LIBGCRYPT */
 
   /* Register protocol */
   proto_c1222 = proto_register_protocol(PNAME, PSNAME, PFNAME);
@@ -1382,7 +1336,6 @@ void proto_register_c1222(void) {
   prefs_register_string_preference(c1222_module, "baseoid", "Base OID to use for relative OIDs",
         "Base object identifier for use in resolving relative object identifiers",
         &c1222_baseoid_str);
-#ifdef HAVE_LIBGCRYPT
   prefs_register_bool_preference(c1222_module, "decrypt",
         "Verify crypto for all applicable C12.22 messages",
         "Whether the C12.22 dissector should verify the crypto for all relevant messages",
@@ -1400,6 +1353,7 @@ void proto_register_c1222(void) {
       c1222_uat_data_update_cb,         /* update callback */
       NULL,                             /* free callback */
       NULL,                             /* post update callback */
+      NULL,                             /* reset callback */
       c1222_uat_flds);                  /* UAT field definitions */
 
   prefs_register_uat_preference(c1222_module,
@@ -1407,7 +1361,6 @@ void proto_register_c1222(void) {
       "Decryption Table",
       "Table of security parameters for decryption of C12.22 packets",
       c1222_uat);
-#endif /* HAVE_LIBGCRYPT */
 }
 
 /*--- proto_reg_handoff_c1222 ---------------------------------------*/
@@ -1420,8 +1373,8 @@ proto_reg_handoff_c1222(void)
   if( !initialized ) {
     c1222_handle = create_dissector_handle(dissect_c1222, proto_c1222);
     c1222_udp_handle = create_dissector_handle(dissect_c1222_common, proto_c1222);
-    dissector_add_uint("tcp.port", global_c1222_port, c1222_handle);
-    dissector_add_uint("udp.port", global_c1222_port, c1222_udp_handle);
+    dissector_add_uint_with_preference("tcp.port", C1222_PORT, c1222_handle);
+    dissector_add_uint_with_preference("udp.port", C1222_PORT, c1222_udp_handle);
     initialized = TRUE;
   }
   if (c1222_baseoid_str && (c1222_baseoid_str[0] != '\0') &&

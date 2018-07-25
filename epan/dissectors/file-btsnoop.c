@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -205,7 +193,7 @@ dissect_btsnoop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
                     pinfo->pseudo_header->bthci.channel = BTHCI_CHANNEL_ACL;
                 }
 
-                next_tvb = tvb_new_subset(tvb, offset, length, length);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset, length, length);
                 call_dissector(hci_h1_handle, next_tvb, pinfo, payload_tree);
                 break;
             case 1002: /* H4 */
@@ -213,7 +201,7 @@ dissect_btsnoop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
                 pinfo->abs_ts = timestamp;
                 pinfo->p2p_dir = (flags & 0x01) ? P2P_DIR_RECV : P2P_DIR_SENT;
 
-                next_tvb = tvb_new_subset(tvb, offset, length, length);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset, length, length);
                 call_dissector(hci_h4_handle, next_tvb, pinfo, payload_tree);
                 break;
             case 2001: /* Linux Monitor */
@@ -223,7 +211,7 @@ dissect_btsnoop(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
                 pinfo->pseudo_header->btmon.opcode = flags & 0xFFFF;
                 pinfo->pseudo_header->btmon.adapter_id = flags >> 16;
 
-                next_tvb = tvb_new_subset(tvb, offset, length, length);
+                next_tvb = tvb_new_subset_length_caplen(tvb, offset, length, length);
                 call_dissector(hci_mon_handle, next_tvb, pinfo, payload_tree);
                 break;
 

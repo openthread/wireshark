@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -440,8 +428,9 @@ dissect_management_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
       if (cmdlen == linelen && 0 == tvb_strneql(tvb, offset, GEARMAN_MGR_CMDS[i], cmdlen))
       {
-        proto_tree_add_item(gearman_tree, hf_gearman_mgr_cmd, tvb, offset, cmdlen, ENC_ASCII|ENC_NA);
-        col_add_fstr(pinfo->cinfo, COL_INFO, "[MGR] %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, linelen, ENC_ASCII));
+        const guint8* cmdstr;
+        proto_tree_add_item_ret_string(gearman_tree, hf_gearman_mgr_cmd, tvb, offset, cmdlen, ENC_ASCII|ENC_NA, wmem_packet_scope(), &cmdstr);
+        col_add_fstr(pinfo->cinfo, COL_INFO, "[MGR] %s", cmdstr);
         type = 1;
         break;
       }
@@ -458,7 +447,7 @@ dissect_management_packet(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
       }
       else
       {
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, ",", "%s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, linelen, ENC_ASCII));
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ",", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, linelen, ENC_ASCII));
       }
     }
 
@@ -550,7 +539,7 @@ proto_reg_handoff_gearman(void)
   dissector_handle_t gearman_handle;
 
   gearman_handle = create_dissector_handle(dissect_gearman, proto_gearman);
-  dissector_add_uint("tcp.port", GEARMAN_PORT, gearman_handle);
+  dissector_add_uint_with_preference("tcp.port", GEARMAN_PORT, gearman_handle);
 }
 
 /*

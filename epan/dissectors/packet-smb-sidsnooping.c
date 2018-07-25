@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -26,7 +14,7 @@
 #include <epan/packet.h>
 #include <epan/epan_dissect.h>
 #include <epan/tap.h>
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 #include "packet-dcerpc.h"
 #include "packet-dcerpc-nt.h"
 #include "packet-smb.h"
@@ -305,7 +293,7 @@ sid_name_snooping=FALSE;
 	error_string=register_tap_listener("dcerpc",
 	    &lsa_policy_information_tap_installed,
 	    "lsa.policy_information and ( lsa.info.level or lsa.domain or nt.domain_sid )",
-	    TL_REQUIRES_PROTO_TREE, NULL, lsa_policy_information, NULL);
+	    TL_REQUIRES_PROTO_TREE, NULL, lsa_policy_information, NULL, NULL);
 	if(error_string){
 		/* error, we failed to attach to the tap. clean up */
 
@@ -319,7 +307,7 @@ sid_name_snooping=FALSE;
 	error_string=register_tap_listener("dcerpc",
 	    &samr_query_dispinfo_tap_installed,
 	    "samr and samr.opnum==40 and ( samr.handle or samr.rid or samr.acct_name or samr.level )",
-	    TL_REQUIRES_PROTO_TREE, NULL, samr_query_dispinfo, NULL);
+	    TL_REQUIRES_PROTO_TREE, NULL, samr_query_dispinfo, NULL, NULL);
 	if(error_string){
 		/* error, we failed to attach to the tap. clean up */
 

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,6 +17,7 @@
 #include "wslua.h"
 #include <math.h>
 #include <epan/stat_tap_ui.h>
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 
 WSLUA_FUNCTION wslua_get_version(lua_State* L) { /* Gets a string of the Wireshark version. */
@@ -66,7 +55,9 @@ WSLUA_FUNCTION wslua_set_plugin_info(lua_State* L) {
         by other strings are ignored, and do not cause an error.
 
         Example:
-        @code
+
+        [source,lua]
+        ----
         local my_info = {
             version = "1.0.1",
             author = "Jane Doe",
@@ -74,7 +65,7 @@ WSLUA_FUNCTION wslua_set_plugin_info(lua_State* L) {
         }
 
         set_plugin_info(my_info)
-        @endcode
+        ----
 
         @since 1.99.8
      */
@@ -158,8 +149,9 @@ static int wslua_log(lua_State* L, GLogLevelFlags log_level) {
 
         lua_pop(L, 1);  /* pop result */
     }
+    g_string_append_c(str, '\n');
 
-    g_log(LOG_DOMAIN_LUA, log_level, "%s\n", str->str);
+    wslua_logger(LOG_DOMAIN_LUA, log_level, str->str, NULL);
     g_string_free(str,TRUE);
 
     return 0;
@@ -222,27 +214,16 @@ char* wslua_get_actual_filename(const char* fname) {
     }
     g_free(filename);
 
+    /*
+     * Try to look in global data directory, nothing extraordinary for normal
+     * installations. For executions from the build dir, it will look for files
+     * copied to DATAFILE_DIR.
+     */
     filename = get_datafile_path(fname_clean);
     if ( file_exists(filename) ) {
         return filename;
     }
     g_free(filename);
-
-    if (running_in_build_directory()) {
-        /* Running in build directory, try the source directory (Autotools) */
-        filename = g_strdup_printf("%s" G_DIR_SEPARATOR_S "epan" G_DIR_SEPARATOR_S "wslua"
-                                   G_DIR_SEPARATOR_S "%s", get_datafile_dir(), fname_clean);
-        if (( ! file_exists(filename))) {
-            /* Try the CMake output directory */
-            g_free(filename);
-            filename = g_strdup_printf("%s" G_DIR_SEPARATOR_S "%s",
-                                       get_progfile_dir(), fname_clean);
-        }
-        if ( file_exists(filename) ) {
-            return filename;
-        }
-        g_free(filename);
-    }
 
     return NULL;
 }
@@ -316,10 +297,10 @@ static void statcmd_init(const char *opt_arg, void* userdata) {
         case 0:
             break;
         case LUA_ERRRUN:
-            g_warning("Runtime error while calling statcmd callback");
+            ws_g_warning("Runtime error while calling statcmd callback");
             break;
         case LUA_ERRMEM:
-            g_warning("Memory alloc error while calling statcmd callback");
+            ws_g_warning("Memory alloc error while calling statcmd callback");
             break;
         default:
             g_assert_not_reached();

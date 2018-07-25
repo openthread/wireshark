@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -78,15 +66,15 @@ ADD: Additional generic (non-checked) ICV length of 128, 192 and 256.
 #include <epan/tap.h>
 #include <epan/exported_pdu.h>
 #include <epan/proto_data.h>
+#include <epan/decode_as.h>
+#include <epan/capture_dissectors.h>
 
-/* If you want to be able to decrypt or Check Authentication of ESP packets you MUST define this : */
-#ifdef HAVE_LIBGCRYPT
 #include <stdio.h>
 #include <epan/uat.h>
 #include <wsutil/wsgcrypt.h>
-#endif /* HAVE_LIBGCRYPT */
 
 #include "packet-ipsec.h"
+#include "packet-ip.h"
 
 void proto_register_ipsec(void);
 void proto_reg_handoff_ipsec(void);
@@ -94,6 +82,7 @@ void proto_reg_handoff_ipsec(void);
 static int proto_ah = -1;
 static int hf_ah_next_header = -1;
 static int hf_ah_length = -1;
+static int hf_ah_reserved = -1;
 static int hf_ah_spi = -1;
 static int hf_ah_iv = -1;
 static int hf_ah_sequence = -1;
@@ -129,7 +118,6 @@ static dissector_handle_t data_handle;
 
 static dissector_table_t ip_dissector_table;
 
-#ifdef  HAVE_LIBGCRYPT
 /* Encryption algorithms defined in RFC 4305 */
 #define IPSEC_ENCRYPT_NULL 0
 #define IPSEC_ENCRYPT_3DES_CBC 1
@@ -172,7 +160,6 @@ static dissector_table_t ip_dissector_table;
 /* the maximum number of bytes (10)(including the terminating nul character(11)) */
 #define IPSEC_SPI_LEN_MAX 11
 
-#endif
 
 /* well-known algorithm number (in CPI), from RFC2409 */
 #define IPCOMP_OUI      1       /* vendor specific */
@@ -188,38 +175,8 @@ static const value_string cpi2val[] = {
   { 0, NULL },
 };
 
-struct newah {
-  guint8        ah_nxt;         /* Next Header */
-  guint8        ah_len;         /* Length of data + 1, in 32bit */
-  guint16       ah_reserve;     /* Reserved for future use */
-  guint32       ah_spi;         /* Security parameter index */
-  guint32       ah_seq;         /* Sequence number field */
-  /* variable size, 32bit bound*/       /* Authentication data */
-};
+#define NEW_ESP_DATA_SIZE       8
 
-struct newesp {
-  guint32       esp_spi;        /* ESP */
-  guint32       esp_seq;        /* Sequence number */
-  /*variable size*/             /* (IV and) Payload data */
-  /*variable size*/             /* padding */
-  /*8bit*/                      /* pad size */
-  /*8bit*/                      /* next header */
-  /*8bit*/                      /* next header */
-  /*variable size, 32bit bound*/        /* Authentication data */
-};
-
-struct ipcomp {
-  guint8 comp_nxt;      /* Next Header */
-  guint8 comp_flags;    /* Must be zero */
-  guint16 comp_cpi;     /* Compression parameter index */
-};
-
-struct ah_header_data {
-  proto_tree *next_tree;
-  guint8 nxt;               /* Next Header */
-};
-
-#ifdef HAVE_LIBGCRYPT
 /*-------------------------------------
  * UAT for ESP
  *-------------------------------------
@@ -269,14 +226,15 @@ static guint num_sa_uat = 0;
 static gint
 compute_ascii_key(gchar **ascii_key, const gchar *key)
 {
-  guint key_len = 0;
+  guint key_len = 0, raw_key_len;
   gint hex_digit;
   guchar key_byte;
   guint i, j;
 
   if(key != NULL)
   {
-    if((strlen(key) > 2) && (key[0] == '0') && ((key[1] == 'x') || (key[1] == 'X')))
+    raw_key_len = (guint)strlen(key);
+    if((raw_key_len > 2) && (key[0] == '0') && ((key[1] == 'x') || (key[1] == 'X')))
     {
       /*
        * Key begins with "0x" or "0X"; skip that and treat the rest
@@ -284,14 +242,14 @@ compute_ascii_key(gchar **ascii_key, const gchar *key)
        */
       i = 2;    /* first character after "0[Xx]" */
       j = 0;
-      if(strlen(key) %2  == 1)
+      if(raw_key_len %2  == 1)
       {
         /*
          * Key has an odd number of characters; we act as if the
          * first character had a 0 in front of it, making the
          * number of characters even.
          */
-        key_len = ((guint) strlen(key) - 2) / 2 + 1;
+        key_len = (raw_key_len - 2) / 2 + 1;
         *ascii_key = (gchar *) g_malloc ((key_len + 1)* sizeof(gchar));
         hex_digit = g_ascii_xdigit_value(key[i]);
         i++;
@@ -310,11 +268,11 @@ compute_ascii_key(gchar **ascii_key, const gchar *key)
          * Key has an even number of characters, so we treat each
          * pair of hex digits as a single byte value.
          */
-        key_len = ((guint) strlen(key) - 2) / 2;
+        key_len = (raw_key_len - 2) / 2;
         *ascii_key = (gchar *) g_malloc ((key_len + 1)* sizeof(gchar));
       }
 
-      while(i < (strlen(key) -1))
+      while(i < (raw_key_len -1))
       {
         hex_digit = g_ascii_xdigit_value(key[i]);
         i++;
@@ -340,13 +298,14 @@ compute_ascii_key(gchar **ascii_key, const gchar *key)
       (*ascii_key)[j] = '\0';
     }
 
-    else if((strlen(key) == 2) && (key[0] == '0') && ((key[1] == 'x') || (key[1] == 'X')))
+    else if((raw_key_len == 2) && (key[0] == '0') && ((key[1] == 'x') || (key[1] == 'X')))
     {
+      *ascii_key = NULL;
       return 0;
     }
     else
     {
-      key_len = (guint) strlen(key);
+      key_len = raw_key_len;
       *ascii_key = g_strdup(key);
     }
   }
@@ -359,15 +318,20 @@ static gboolean uat_esp_sa_record_update_cb(void* r, char** err _U_) {
   uat_esp_sa_record_t* rec = (uat_esp_sa_record_t *)r;
 
   /* Compute keys & lengths once and for all */
+  g_free(rec->encryption_key);
+  if (rec->cipher_hd_created) {
+    gcry_cipher_close(rec->cipher_hd);
+    rec->cipher_hd_created = FALSE;
+  }
   if (rec->encryption_key_string) {
     rec->encryption_key_length = compute_ascii_key(&rec->encryption_key, rec->encryption_key_string);
-    rec->cipher_hd_created = FALSE;
   }
   else {
     rec->encryption_key_length = 0;
     rec->encryption_key = NULL;
   }
 
+  g_free(rec->authentication_key);
   if (rec->authentication_key_string) {
     rec->authentication_key_length = compute_ascii_key(&rec->authentication_key, rec->authentication_key_string);
   }
@@ -383,11 +347,17 @@ static void* uat_esp_sa_record_copy_cb(void* n, const void* o, size_t siz _U_) {
   const uat_esp_sa_record_t* old_rec = (const uat_esp_sa_record_t *)o;
 
   /* Copy UAT fields */
-  new_rec->srcIP = (old_rec->srcIP) ? g_strdup(old_rec->srcIP) : NULL;
-  new_rec->dstIP = (old_rec->dstIP) ? g_strdup(old_rec->dstIP) : NULL;
-  new_rec->spi = (old_rec->spi) ? g_strdup(old_rec->spi) : NULL;
-  new_rec->encryption_key_string = (old_rec->encryption_key_string) ? g_strdup(old_rec->encryption_key_string) : NULL;
-  new_rec->authentication_key_string = (old_rec->authentication_key_string) ? g_strdup(old_rec->authentication_key_string) : NULL;
+  new_rec->protocol = old_rec->protocol;
+  new_rec->srcIP = g_strdup(old_rec->srcIP);
+  new_rec->dstIP = g_strdup(old_rec->dstIP);
+  new_rec->spi = g_strdup(old_rec->spi);
+  new_rec->encryption_algo = old_rec->encryption_algo;
+  new_rec->encryption_key_string = g_strdup(old_rec->encryption_key_string);
+  new_rec->encryption_key = NULL;
+  new_rec->cipher_hd_created = FALSE;
+  new_rec->authentication_algo = old_rec->authentication_algo;
+  new_rec->authentication_key_string = g_strdup(old_rec->authentication_key_string);
+  new_rec->authentication_key = NULL;
 
   /* Parse keys as in an update */
   uat_esp_sa_record_update_cb(new_rec, NULL);
@@ -455,15 +425,13 @@ void esp_sa_record_add_from_dissector(guint8 protocol, const gchar *srcIP, const
    /* Encryption */
    record->encryption_algo = encryption_algo;
    record->encryption_key_string = g_strdup(encryption_key);
+   record->encryption_key = NULL;
+   record->cipher_hd_created = FALSE;
 
    /* Authentication */
    record->authentication_algo = authentication_algo;
-   if (authentication_key) {
-      record->authentication_key_string = g_strdup(authentication_key);
-   }
-   else {
-      record->authentication_key_string = NULL;
-   }
+   record->authentication_key_string = g_strdup(authentication_key);
+   record->authentication_key = NULL;
 
    /* Parse keys */
    uat_esp_sa_record_update_cb(record, NULL);
@@ -477,7 +445,6 @@ static gboolean g_esp_enable_encryption_decode = FALSE;
 
 /* Default ESP payload Authentication Checking to off */
 static gboolean g_esp_enable_authentication_check = FALSE;
-#endif
 
 /**************************************************/
 /* Sequence number analysis                       */
@@ -491,33 +458,19 @@ typedef struct
 
 /* The sequence analysis SPI hash table.
    Maps SPI -> spi_status */
-static GHashTable *esp_sequence_analysis_hash = NULL;
-
-/* Equal keys */
-static gint word_equal(gconstpointer v, gconstpointer v2)
-{
-    /* Key fits in 4 bytes, so just compare pointers! */
-    return (v == v2);
-}
-
-/* Compute a hash value for a given key. */
-static guint word_hash_func(gconstpointer v)
-{
-    /* Just use pointer, as the fields are all in this value */
-    return GPOINTER_TO_UINT(v);
-}
+static wmem_map_t *esp_sequence_analysis_hash = NULL;
 
 /* Results are stored here: framenum -> spi_status */
 /* N.B. only store entries for out-of-order frames, if there is no entry for
    a given frame, it was found to be in-order */
-static GHashTable *esp_sequence_analysis_report_hash = NULL;
+static wmem_map_t *esp_sequence_analysis_report_hash = NULL;
 
 /* During the first pass, update the SPI state.  If the sequence numbers
    are out of order, add an entry to the report table */
 static void check_esp_sequence_info(guint32 spi, guint32 sequence_number, packet_info *pinfo)
 {
   /* Do the table lookup */
-  spi_status *status = (spi_status*)g_hash_table_lookup(esp_sequence_analysis_hash,
+  spi_status *status = (spi_status*)wmem_map_lookup(esp_sequence_analysis_hash,
                                                         GUINT_TO_POINTER((guint)spi));
   if (status == NULL) {
     /* Create an entry for this SPI */
@@ -526,7 +479,7 @@ static void check_esp_sequence_info(guint32 spi, guint32 sequence_number, packet
     status->previousFrameNum = pinfo->num;
 
     /* And add it to the table */
-    g_hash_table_insert(esp_sequence_analysis_hash, GUINT_TO_POINTER((guint)spi), status);
+    wmem_map_insert(esp_sequence_analysis_hash, GUINT_TO_POINTER((guint)spi), status);
   }
   else {
     spi_status *frame_status;
@@ -538,7 +491,7 @@ static void check_esp_sequence_info(guint32 spi, guint32 sequence_number, packet
       /* Copy what was expected */
       *frame_status = *status;
       /* And add it into the report table */
-      g_hash_table_insert(esp_sequence_analysis_report_hash, GUINT_TO_POINTER(pinfo->num), frame_status);
+      wmem_map_insert(esp_sequence_analysis_report_hash, GUINT_TO_POINTER(pinfo->num), frame_status);
     }
     /* Adopt this setting as 'current' regardless of whether expected */
     status->previousSequenceNumber = sequence_number;
@@ -552,7 +505,7 @@ static void show_esp_sequence_info(guint32 spi, guint32 sequence_number,
                                    tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo)
 {
   /* Look up this frame in the report table. */
-  spi_status *status = (spi_status*)g_hash_table_lookup(esp_sequence_analysis_report_hash,
+  spi_status *status = (spi_status*)wmem_map_lookup(esp_sequence_analysis_report_hash,
                                                         GUINT_TO_POINTER(pinfo->num));
   if (status != NULL) {
     proto_item *sn_ti, *frame_ti;
@@ -602,13 +555,7 @@ static gboolean g_esp_enable_null_encryption_decode_heuristic = FALSE;
 /* Default to doing ESP sequence analysis */
 static gboolean g_esp_do_sequence_analysis = TRUE;
 
-/* Place AH payload in sub tree */
-static gboolean g_ah_payload_in_subtree = FALSE;
 
-
-
-#ifdef HAVE_LIBGCRYPT
-#if 0
 
 /*
    Name : static int get_ipv6_suffix(char* ipv6_suffix, char *ipv6_address)
@@ -631,12 +578,7 @@ static int get_ipv6_suffix(char* ipv6_suffix, char *ipv6_address)
   gboolean found = FALSE;
 
   ipv6_len = (int) strlen(ipv6_address);
-  if(ipv6_len  == 0)
-    {
-      /* Found a suffix */
-      found = TRUE;
-    }
-  else
+  if(ipv6_len  != 0)
     {
       while ( (cpt_suffix < IPSEC_STRLEN_IPV6) && (ipv6_len - cpt -1 >= 0) && (found == FALSE))
         {
@@ -684,7 +626,6 @@ static int get_ipv6_suffix(char* ipv6_suffix, char *ipv6_address)
               suffix[IPSEC_STRLEN_IPV6 -1 -cpt_suffix] = '0';
               cpt_suffix ++;
             }
-          cpt_seg = 0;
         }
 
     }
@@ -724,12 +665,27 @@ get_full_ipv6_addr(char* ipv6_addr_expanded, char *ipv6_addr)
   int prefix_remaining = 0;
   int prefix_len = 0;
   int j = 0;
+  guint i = 0;
+  guint addr_byte = 0;
+  guint mask = IPSEC_IPV6_ADDR_LEN;
+  char* mask_begin = NULL;
 
 
   if((ipv6_addr == NULL) || (strcmp(ipv6_addr, "") == 0))  return -1;
+
+  memset(ipv6_addr_expanded, 0x0, IPSEC_STRLEN_IPV6);
+
+  mask_begin = strchr(ipv6_addr, '/');
+  if(mask_begin)
+  {
+    if(sscanf(mask_begin, "/%u", &mask) == EOF)
+      mask = IPSEC_IPV6_ADDR_LEN;
+    mask_begin[0] = '\0';
+  }
+
   if((strlen(ipv6_addr) == 1) && (ipv6_addr[0] == IPSEC_SA_WILDCARDS_ANY))
     {
-      for(j = 0; j <= IPSEC_STRLEN_IPV6; j++)
+      for(j = 0; j < IPSEC_STRLEN_IPV6; j++)
         {
           ipv6_addr_expanded[j] = IPSEC_SA_WILDCARDS_ANY;
         }
@@ -755,6 +711,22 @@ get_full_ipv6_addr(char* ipv6_addr_expanded, char *ipv6_addr)
     }
 
   memcpy(ipv6_addr_expanded + IPSEC_STRLEN_IPV6 - suffix_len, suffix,suffix_len + 1);
+
+  for(i = 0; i < IPSEC_STRLEN_IPV6; i++)
+  {
+    if(4 * (i + 1) > mask)
+    {
+      if(mask <= 4 * i || ipv6_addr_expanded[i] == '*')
+        ipv6_addr_expanded[i] = '*';
+      else {
+        if(sscanf(ipv6_addr_expanded + i, "%X", &addr_byte) == EOF)
+           break;
+        addr_byte &= (0x0F << (4 * (i + 1) - mask));
+        addr_byte &= 0x0F;
+        g_snprintf(ipv6_addr_expanded + i, 4, "%X", addr_byte);
+      }
+    }
+  }
 
   if(suffix_len < IPSEC_STRLEN_IPV6)
     return (prefix_len - prefix_remaining);
@@ -789,8 +761,18 @@ get_full_ipv4_addr(char* ipv4_address_expanded, char *ipv4_address)
   guint k = 0;
   guint cpt = 0;
   gboolean done_flag = FALSE;
+  guint mask = IPSEC_IPV4_ADDR_LEN;
+  char* mask_begin = NULL;
 
   if((ipv4_address == NULL) || (strcmp(ipv4_address, "") == 0))  return done_flag;
+
+  mask_begin = strchr(ipv4_address, '/');
+  if(mask_begin)
+  {
+    if(sscanf(mask_begin, "/%u", &mask) == EOF)
+      mask = IPSEC_IPV4_ADDR_LEN;
+    mask_begin[0] = '\0';
+  }
 
   if((strlen(ipv4_address) == 1) && (ipv4_address[0] == IPSEC_SA_WILDCARDS_ANY))
   {
@@ -821,9 +803,13 @@ get_full_ipv4_addr(char* ipv4_address_expanded, char *ipv4_address)
         }
         else
         {
-          sscanf(addr_byte_string_tmp,"%u",&addr_byte);
-          if(addr_byte < 16) g_snprintf(addr_byte_string,4,"0%X",addr_byte);
-          else g_snprintf(addr_byte_string,4,"%X",addr_byte);
+          if (sscanf(addr_byte_string_tmp,"%u",&addr_byte) == EOF)
+            return FALSE;
+
+          if(addr_byte < 16)
+            g_snprintf(addr_byte_string,4,"0%X",addr_byte);
+          else
+            g_snprintf(addr_byte_string,4,"%X",addr_byte);
           for(i = 0; i < strlen(addr_byte_string); i++)
           {
             ipv4_address_expanded[cpt] = addr_byte_string[i];
@@ -846,9 +832,13 @@ get_full_ipv4_addr(char* ipv4_address_expanded, char *ipv4_address)
         }
         else
         {
-          sscanf(addr_byte_string_tmp,"%u",&addr_byte);
-          if(addr_byte < 16) g_snprintf(addr_byte_string,4,"0%X",addr_byte);
-          else g_snprintf(addr_byte_string,4,"%X",addr_byte);
+          if (sscanf(addr_byte_string_tmp,"%u",&addr_byte) == EOF)
+            return FALSE;
+
+          if(addr_byte < 16)
+            g_snprintf(addr_byte_string,4,"0%X",addr_byte);
+          else
+            g_snprintf(addr_byte_string,4,"%X",addr_byte);
           for(i = 0; i < strlen(addr_byte_string); i++)
           {
             ipv4_address_expanded[cpt] = addr_byte_string[i];
@@ -877,12 +867,26 @@ get_full_ipv4_addr(char* ipv4_address_expanded, char *ipv4_address)
 
     }
 
+    for(i = 0; i < IPSEC_STRLEN_IPV4; i++)
+    {
+      if(4 * (i + 1) > mask)
+      {
+        if(mask <= 4 * i || ipv4_address_expanded[i] == '*')
+          ipv4_address_expanded[i] = '*';
+        else {
+          if(sscanf(ipv4_address_expanded + i, "%X", &addr_byte) == EOF)
+             return FALSE;
+          addr_byte &= (0x0F << (4 * (i + 1) - mask));
+          addr_byte &= 0x0F;
+          g_snprintf(ipv4_address_expanded + i, 4, "%X", addr_byte);
+        }
+      }
+    }
     ipv4_address_expanded[cpt] = '\0';
   }
 
   return done_flag;
 }
-#endif
 
 /*
    Name : static goolean filter_address_match(gchar *addr, gchar *filter, gint len, gint typ)
@@ -897,60 +901,47 @@ static gboolean
 filter_address_match(gchar *addr, gchar *filter, gint typ)
 {
   guint i;
-  guint filter_tmp = 0;
-  guint addr_tmp = 0;
-  char filter_string_tmp[3];
-  char addr_string_tmp[3];
+  char addr_hex[IPSEC_STRLEN_IPV6 + 1];
+  char filter_hex[IPSEC_STRLEN_IPV6 + 1];
   guint addr_len;
-  guint filter_len = (guint)strlen(filter);
+  guint filter_len;
 
-  if((filter_len == 1) && (filter[0] == IPSEC_SA_WILDCARDS_ANY))
-      return TRUE;
-
-  addr_len = (guint)strlen(addr);
-  if(addr_len != filter_len)
+  if (typ == IPSEC_SA_IPV4) {
+      if (!get_full_ipv4_addr(addr_hex, addr))
           return FALSE;
+      if (!get_full_ipv4_addr(filter_hex, filter))
+          return FALSE;
+  } else {
+      if (get_full_ipv6_addr(addr_hex, addr))
+          return FALSE;
+      if (get_full_ipv6_addr(filter_hex, filter))
+          return FALSE;
+  }
+
+  addr_len = (guint)strlen(addr_hex);
+  filter_len = (guint)strlen(filter_hex);
+
+  if((filter_len == 1) && (filter[0] == IPSEC_SA_WILDCARDS_ANY)){
+      return TRUE;
+  }
+
+  if(addr_len != filter_len)
+      return FALSE;
 
   /* No length specified */
-   if( ((typ == IPSEC_SA_IPV6) && (filter_len > IPSEC_IPV6_ADDR_LEN)) ||
-       ((typ == IPSEC_SA_IPV4) && (filter_len > IPSEC_IPV4_ADDR_LEN)))
+   if( ((typ == IPSEC_SA_IPV6) && (filter_len == IPSEC_STRLEN_IPV6)) ||
+       ((typ == IPSEC_SA_IPV4) && (filter_len == IPSEC_STRLEN_IPV4)))
    {
-      /* Filter is longer than address can be... */
+      /* Check byte by byte ... */
       for(i = 0; i < addr_len; i++)
       {
-         if((filter[i] != IPSEC_SA_WILDCARDS_ANY) && (filter[i] != addr[i]))
+         if((filter_hex[i] != IPSEC_SA_WILDCARDS_ANY) && (filter_hex[i] != addr_hex[i]))
             return FALSE;
       }
       return TRUE;
    }
    else
-   {
-      for(i = 0; i < (filter_len/4); i++)
-      {
-         if((filter[i] != IPSEC_SA_WILDCARDS_ANY) && (filter[i] != addr[i]))
-            return FALSE;
-      }
-
-      if(filter[i] == IPSEC_SA_WILDCARDS_ANY)
-         return TRUE;
-      else if (filter_len  % 4 != 0)
-      {
-         /* take the end of the Netmask/Prefixlen into account */
-         filter_string_tmp[0] = filter[i];
-         filter_string_tmp[1] = '\0';
-         addr_string_tmp[0] = addr[i];
-         addr_string_tmp[1] = '\0';
-
-         sscanf(filter_string_tmp,"%x",&filter_tmp);
-         sscanf(addr_string_tmp,"%x",&addr_tmp);
-         for(i = 0; i < (filter_len % 4); i++)
-         {
-            if(((filter_tmp >> (4 -i -1)) & 1) != ((addr_tmp >> (4 -i -1)) & 1))
-               return FALSE;
-         }
-      }
-   }
-
+      return FALSE;
   return TRUE;
 
 }
@@ -961,11 +952,11 @@ filter_address_match(gchar *addr, gchar *filter, gint typ)
    Description : check the matching of a spi with a filter
    Return : Return TRUE if the filter matches the spi.
    Params:
-      - gchar *spi : the spi to check
+      - guint spi : the spi to check
       - gchar *filter : the filter
 */
 static gboolean
-filter_spi_match(gchar *spi, gchar *filter)
+filter_spi_match(guint spi, gchar *filter)
 {
   guint i;
   guint filter_len = (guint)strlen(filter);
@@ -973,22 +964,31 @@ filter_spi_match(gchar *spi, gchar *filter)
   /* "*" matches against anything */
   if((filter_len == 1) && (filter[0] == IPSEC_SA_WILDCARDS_ANY))
     return TRUE;
-  /* Otherwise lengths need to match exactly... */
-  else if(strlen(spi) != filter_len)
-    return FALSE;
 
-  /* ... which means '*' can only appear in the last position of the filter? */
-  /* Start at 2, don't compare "0x" each time */
-  for(i = 2; filter[i]; i++)
-    if((filter[i] != IPSEC_SA_WILDCARDS_ANY) && (filter[i] != spi[i]))
+  /* If the filter has a wildcard, treat SPI as a string */
+  if (strchr(filter, IPSEC_SA_WILDCARDS_ANY) != NULL) {
+    gchar spi_string[IPSEC_SPI_LEN_MAX];
+
+    g_snprintf(spi_string, IPSEC_SPI_LEN_MAX,"0x%08x", spi);
+
+    /* Lengths need to match exactly... */
+    if(strlen(spi_string) != filter_len)
       return FALSE;
 
+    /* ... which means '*' can only appear in the last position of the filter? */
+    /* Start at 2, don't compare "0x" each time */
+    for(i = 2; filter[i]; i++)
+      if((filter[i] != IPSEC_SA_WILDCARDS_ANY) && (filter[i] != spi_string[i]))
+        return FALSE;
+  } else if (strtoul(filter, NULL, 0) != spi) {
+    return FALSE;
+  }
   return TRUE;
 }
 
 
 /*
-   Name : static goolean get_esp_sa(g_esp_sa_database *sad, gint protocol_typ, gchar *src,  gchar *dst,  gint spi,
+   Name : static goolean get_esp_sa(g_esp_sa_database *sad, gint protocol_typ, gchar *src,  gchar *dst,  guint spi,
            gint *encryption_algo,
            gint *authentication_algo,
            gchar **encryption_key,
@@ -1019,7 +1019,7 @@ filter_spi_match(gchar *spi, gchar *filter)
 
 */
 static gboolean
-get_esp_sa(gint protocol_typ, gchar *src,  gchar *dst,  gint spi,
+get_esp_sa(gint protocol_typ, gchar *src,  gchar *dst,  guint spi,
            gint *encryption_algo,
            gint *authentication_algo,
            gchar **encryption_key,
@@ -1032,9 +1032,6 @@ get_esp_sa(gint protocol_typ, gchar *src,  gchar *dst,  gint spi,
 {
   gboolean found = FALSE;
   guint i, j;
-  gchar spi_string[IPSEC_SPI_LEN_MAX];
-
-  g_snprintf(spi_string, IPSEC_SPI_LEN_MAX,"0x%08x", spi);
 
   *cipher_hd = NULL;
   *cipher_hd_created = NULL;
@@ -1056,7 +1053,7 @@ get_esp_sa(gint protocol_typ, gchar *src,  gchar *dst,  gint spi,
     if((protocol_typ == record->protocol)
        && filter_address_match(src, record->srcIP, protocol_typ)
        && filter_address_match(dst, record->dstIP, protocol_typ)
-       && filter_spi_match(spi_string, record->spi))
+       && filter_spi_match(spi, record->spi))
     {
       found = TRUE;
 
@@ -1094,19 +1091,23 @@ get_esp_sa(gint protocol_typ, gchar *src,  gchar *dst,  gint spi,
 
   return found;
 }
-#endif
+
+static void ah_prompt(packet_info *pinfo, gchar *result)
+{
+    g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "IP protocol %u as",
+        GPOINTER_TO_UINT(p_get_proto_data(pinfo->pool, pinfo, proto_ah, pinfo->curr_layer_num)));
+}
+
+static gpointer ah_value(packet_info *pinfo)
+{
+    return p_get_proto_data(pinfo->pool, pinfo, proto_ah, pinfo->curr_layer_num);
+}
 
 static void
 export_ipsec_pdu(dissector_handle_t dissector_handle, packet_info *pinfo, tvbuff_t *tvb)
 {
   if (have_tap_listener(exported_pdu_tap)) {
-    exp_pdu_data_t *exp_pdu_data;
-    guint8 tags = EXP_PDU_TAG_IP_SRC_BIT | EXP_PDU_TAG_IP_DST_BIT | EXP_PDU_TAG_SRC_PORT_BIT |
-                  EXP_PDU_TAG_DST_PORT_BIT | EXP_PDU_TAG_ORIG_FNO_BIT;
-
-    exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME,
-                                        dissector_handle_get_dissector_name(dissector_handle),
-                                        &tags, 1);
+    exp_pdu_data_t *exp_pdu_data = export_pdu_create_common_tags(pinfo, dissector_handle_get_dissector_name(dissector_handle), EXP_PDU_TAG_PROTO_NAME);
 
     exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
     exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
@@ -1116,103 +1117,85 @@ export_ipsec_pdu(dissector_handle_t dissector_handle, packet_info *pinfo, tvbuff
   }
 }
 
-static int
-dissect_ah_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
+static gboolean
+capture_ah(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
-  proto_tree *ah_tree;
-  proto_item *ti;
-  struct newah ah;
-  int advance;
-  struct ah_header_data* header_data;
+  guint8 nxt;
+  int    advance;
+
+  if (!BYTES_ARE_IN_FRAME(offset, len, 2))
+    return FALSE;
+  nxt = pd[offset];
+  advance = 8 + ((pd[offset+1] - 1) << 2);
+  if (!BYTES_ARE_IN_FRAME(offset, len, advance))
+    return FALSE;
+  offset += advance;
+
+  return try_capture_dissector("ip.proto", nxt, pd, offset, len, cpinfo, pseudo_header);
+}
+
+static int
+dissect_ah(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
+{
+  proto_tree *ah_tree, *root_tree;
+  proto_item *pi, *ti;
+  guint       ah_nxt;         /* Next header */
+  guint8      ah_len;         /* Length of header in 32bit words minus 2 */
+  guint       ah_hdr_len;     /* Length of header in octets */
+  guint       ah_icv_len;     /* Length of ICV header field in octets */
+  guint32     ah_spi;         /* Security parameter index */
+  tvbuff_t   *next_tvb;
+  dissector_handle_t dissector_handle;
+  guint32 saved_match_uint;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "AH");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  tvb_memcpy(tvb, (guint8 *)&ah, 0, sizeof(ah));
-  advance = (int)sizeof(ah) + ((ah.ah_len - 1) << 2);
+  ah_nxt = tvb_get_guint8(tvb, 0);
+  ah_len = tvb_get_guint8(tvb, 1);
+  ah_hdr_len = (ah_len + 2) * 4;
+  ah_icv_len = ah_len ? (ah_len - 1) * 4 : 0;
 
-  col_add_fstr(pinfo->cinfo, COL_INFO, "AH (SPI=0x%08x)",
-               (guint32)g_ntohl(ah.ah_spi));
+  root_tree = p_ipv6_pinfo_select_root(pinfo, tree);
+  p_ipv6_pinfo_add_len(pinfo, ah_hdr_len);
 
-  header_data = (struct ah_header_data*)p_get_proto_data(pinfo->pool, pinfo, proto_ah, 0 );
+  pi = proto_tree_add_item(root_tree, proto_ah, tvb, 0, -1, ENC_NA);
+  ah_tree = proto_item_add_subtree(pi, ett_ah);
 
-  if (tree) {
-    /* !!! specify length */
-    ti = proto_tree_add_item(tree, proto_ah, tvb, 0, advance, ENC_NA);
-    ah_tree = proto_item_add_subtree(ti, ett_ah);
+  proto_tree_add_item(ah_tree, hf_ah_next_header, tvb, 0, 1, ENC_BIG_ENDIAN);
+  ti = proto_tree_add_item(ah_tree, hf_ah_length, tvb, 1, 1, ENC_BIG_ENDIAN);
+  proto_item_append_text(ti, " (%u bytes)", ah_hdr_len);
+  proto_tree_add_item(ah_tree, hf_ah_reserved, tvb, 2, 2, ENC_NA);
+  proto_tree_add_item_ret_uint(ah_tree, hf_ah_spi, tvb, 4, 4, ENC_BIG_ENDIAN, &ah_spi);
 
-    proto_tree_add_uint_format_value(ah_tree, hf_ah_next_header, tvb,
-                        offsetof(struct newah, ah_nxt), 1,
-                        ah.ah_nxt, "%s (0x%02x)",
-                        ipprotostr(ah.ah_nxt), ah.ah_nxt);
-    proto_tree_add_uint(ah_tree, hf_ah_length, tvb,
-                        offsetof(struct newah, ah_len), 1,
-                        (ah.ah_len + 2) << 2);
-    proto_tree_add_uint(ah_tree, hf_ah_spi, tvb,
-                        offsetof(struct newah, ah_spi), 4,
-                        (guint32)g_ntohl(ah.ah_spi));
-    proto_tree_add_uint(ah_tree, hf_ah_sequence, tvb,
-                        offsetof(struct newah, ah_seq), 4,
-                        (guint32)g_ntohl(ah.ah_seq));
-    proto_tree_add_item(ah_tree, hf_ah_iv, tvb,
-                        sizeof(ah), (ah.ah_len) ? (ah.ah_len - 1) << 2 : 0,
-                        ENC_NA);
+  col_add_fstr(pinfo->cinfo, COL_INFO, "AH (SPI=0x%08x)", ah_spi);
 
-    if (header_data != NULL) {
-      /* Decide where to place next protocol decode */
-      if (g_ah_payload_in_subtree) {
-        header_data->next_tree = ah_tree;
-      }
-      else {
-        header_data->next_tree = tree;
-      }
+  proto_tree_add_item(ah_tree, hf_ah_sequence, tvb, 8, 4, ENC_BIG_ENDIAN);
+  proto_tree_add_item(ah_tree, hf_ah_iv, tvb, 12, ah_icv_len, ENC_NA);
+
+  proto_item_set_len(pi, ah_hdr_len);
+
+  /* Save next header value for Decode As dialog */
+  p_add_proto_data(pinfo->pool, pinfo, proto_ah,
+                    pinfo->curr_layer_num, GUINT_TO_POINTER(ah_nxt));
+
+  next_tvb = tvb_new_subset_remaining(tvb, ah_hdr_len);
+
+  if (pinfo->dst.type == AT_IPv6) {
+    ipv6_dissect_next(ah_nxt, next_tvb, pinfo, tree, (ws_ip6 *)data);
+  } else {
+    /* do lookup with the subdissector table */
+    saved_match_uint  = pinfo->match_uint;
+    dissector_handle = dissector_get_uint_handle(ip_dissector_table, ah_nxt);
+    if (dissector_handle) {
+      pinfo->match_uint = ah_nxt;
+    } else {
+      dissector_handle = data_handle;
     }
-  } else {
-    if (header_data != NULL)
-      header_data->next_tree = NULL;
+    export_ipsec_pdu(dissector_handle, pinfo, next_tvb);
+    call_dissector(dissector_handle, next_tvb, pinfo, tree);
+    pinfo->match_uint = saved_match_uint;
   }
-
-  if (header_data != NULL)
-    header_data->nxt = ah.ah_nxt;
-
-  /* start of the new header (could be a extension header) */
-  return advance;
-}
-
-static int
-dissect_ah(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
-{
-  struct ah_header_data header_data = {NULL, 0};
-  tvbuff_t *next_tvb;
-  int advance;
-  dissector_handle_t dissector_handle;
-  guint32 saved_match_uint;
-
-  /* "pass" ah_header_data to header dissector.  This is done
-     indirectly to prevent conflicts with IPv6 dissector */
-  p_add_proto_data(pinfo->pool, pinfo, proto_ah, 0, &header_data);
-
-  advance = dissect_ah_header(tvb, pinfo, tree, NULL);
-
-  p_remove_proto_data(pinfo->pool, pinfo, proto_ah, 0);
-
-  next_tvb = tvb_new_subset_remaining(tvb, advance);
-
-  if (g_ah_payload_in_subtree) {
-    col_set_writable(pinfo->cinfo, FALSE);
-  }
-
-  /* do lookup with the subdissector table */
-  saved_match_uint  = pinfo->match_uint;
-  dissector_handle = dissector_get_uint_handle(ip_dissector_table, header_data.nxt);
-  if (dissector_handle) {
-    pinfo->match_uint = header_data.nxt;
-  } else {
-    dissector_handle = data_handle;
-  }
-  export_ipsec_pdu(dissector_handle, pinfo, next_tvb);
-  call_dissector(dissector_handle, next_tvb, pinfo, header_data.next_tree);
-  pinfo->match_uint = saved_match_uint;
   return tvb_captured_length(tvb);
 }
 
@@ -1231,7 +1214,6 @@ Params:
 - gboolean authentication_ok : set to true if the authentication checking has been run successfully
 - gboolean authentication_checking_ok : set to true if the authentication was the one expected
 */
-#ifdef HAVE_LIBGCRYPT
 static void
 dissect_esp_authentication(proto_tree *tree, tvbuff_t *tvb, gint len, gint esp_auth_len, guint8 *authenticator_data_computed,
                            gboolean authentication_ok, gboolean authentication_checking_ok)
@@ -1262,8 +1244,6 @@ dissect_esp_authentication(proto_tree *tree, tvbuff_t *tvb, gint len, gint esp_a
       icv_tree = proto_tree_add_subtree_format(tree, tvb, len - esp_auth_len, esp_auth_len,
                                  ett_esp_icv, NULL, "Authentication Data [incorrect, should be 0x%s]", authenticator_data_computed);
       bad = TRUE;
-
-      g_free(authenticator_data_computed);
     }
 
     else
@@ -1286,24 +1266,19 @@ dissect_esp_authentication(proto_tree *tree, tvbuff_t *tvb, gint len, gint esp_a
                                 tvb, len - esp_auth_len, esp_auth_len, bad);
   PROTO_ITEM_SET_GENERATED(item);
 }
-#endif
 
 static int
 dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_tree *esp_tree = NULL;
   proto_item *ti;
-  struct newesp esp;
-
   gint len = 0;
 
-#ifdef HAVE_LIBGCRYPT
   gint i;
 
   /* Packet Variables related */
   gchar *ip_src = NULL;
   gchar *ip_dst = NULL;
-#endif
 
   guint32 spi = 0;
   guint encapsulated_protocol = 0;
@@ -1312,7 +1287,6 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   dissector_handle_t dissector_handle;
   guint32 saved_match_uint;
 
-#ifdef HAVE_LIBGCRYPT
   gboolean null_encryption_decode_heuristic = FALSE;
   guint8 *decrypted_data = NULL;
   guint8 *authenticator_data = NULL;
@@ -1339,10 +1313,8 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   gboolean authentication_ok = FALSE;
   gboolean authentication_checking_ok = FALSE;
   gboolean sad_is_present = FALSE;
-#endif
   gint esp_pad_len = 0;
 
-#ifdef HAVE_LIBGCRYPT
 
   /* Variables for decryption and authentication checking used for libgrypt */
   int decrypted_len_alloc = 0;
@@ -1357,7 +1329,6 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
   unsigned char ctr_block[16];
 
-#endif
 
   guint32 sequence_number;
 
@@ -1369,31 +1340,22 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "ESP");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  tvb_memcpy(tvb, (guint8 *)&esp, 0, sizeof(esp));
-
-  col_add_fstr(pinfo->cinfo, COL_INFO, "ESP (SPI=0x%08x)",
-               (guint32)g_ntohl(esp.esp_spi));
-
-
   /*
    * populate a tree in the second pane with the status of the link layer
    * (ie none)
    */
-
-
-  spi = (guint32)g_ntohl(esp.esp_spi);
-  sequence_number = (guint32)g_ntohl(esp.esp_seq);
-  len = 0, encapsulated_protocol = 0;
+  len = 0;
+  encapsulated_protocol = 0;
   decrypt_dissect_ok = FALSE;
 
   ti = proto_tree_add_item(tree, proto_esp, tvb, 0, -1, ENC_NA);
   esp_tree = proto_item_add_subtree(ti, ett_esp);
-  proto_tree_add_uint(esp_tree, hf_esp_spi, tvb,
-                      offsetof(struct newesp, esp_spi), 4,
-                      (guint32)g_ntohl(esp.esp_spi));
-  proto_tree_add_uint(esp_tree, hf_esp_sequence, tvb,
-                      offsetof(struct newesp, esp_seq), 4,
-                      sequence_number);
+  proto_tree_add_item_ret_uint(esp_tree, hf_esp_spi, tvb,
+                      0, 4, ENC_BIG_ENDIAN, &spi);
+  proto_tree_add_item_ret_uint(esp_tree, hf_esp_sequence, tvb,
+                      4, 4, ENC_BIG_ENDIAN, &sequence_number);
+
+  col_add_fstr(pinfo->cinfo, COL_INFO, "ESP (SPI=0x%08x)", spi);
 
   /* Sequence number analysis */
   if (g_esp_do_sequence_analysis) {
@@ -1404,9 +1366,6 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
                            tvb, esp_tree, pinfo);
   }
 
-
-
-#ifdef HAVE_LIBGCRYPT
   /* The SAD is not activated */
   if(g_esp_enable_null_encryption_decode_heuristic &&
      !g_esp_enable_encryption_decode)
@@ -1581,20 +1540,18 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
           gcry_control (GCRYCTL_INITIALIZATION_FINISHED, 0);
 
           /* Allocate Buffers for Authenticator Field  */
-          authenticator_data = (guint8 *) g_malloc0 (( esp_auth_len + 1) * sizeof(guint8));
+          authenticator_data = (guint8 *)wmem_alloc0(wmem_packet_scope(), esp_auth_len + 1);
           tvb_memcpy(tvb, authenticator_data, len - esp_auth_len, esp_auth_len);
 
-          esp_data = (guint8 *) g_malloc0 (( len - esp_auth_len + 1) * sizeof(guint8));
+          esp_data = (guint8 *)wmem_alloc0(wmem_packet_scope(), len - esp_auth_len + 1);
           tvb_memcpy(tvb, esp_data, 0, len - esp_auth_len);
 
           err = gcry_md_open (&md_hd, auth_algo_libgcrypt, GCRY_MD_FLAG_HMAC);
           if (err)
           {
             fprintf (stderr, "<IPsec/ESP Dissector> Error in Algorithm %s, gcry_md_open failed: %s\n",
-                     gcry_md_algo_name(auth_algo_libgcrypt), gpg_strerror (err));
+                     gcry_md_algo_name(auth_algo_libgcrypt), gcry_strerror(err));
             authentication_ok = FALSE;
-            g_free(authenticator_data);
-            g_free(esp_data);
           }
           else
           {
@@ -1622,8 +1579,9 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
               {
                 if(memcmp (authenticator_data_computed_md, authenticator_data, esp_auth_len))
                 {
+                  /* XXX - just use bytes_to_str() or is string too big? */
                   unsigned char authenticator_data_computed_car[3];
-                  authenticator_data_computed = (guint8 *) g_malloc (( esp_auth_len * 2 + 1) * sizeof(guint8));
+                  authenticator_data_computed = (guint8 *)wmem_alloc(wmem_packet_scope(), esp_auth_len * 2 + 1);
                   for (i = 0; i < esp_auth_len; i++)
                   {
                     g_snprintf((char *)authenticator_data_computed_car, 3,
@@ -1646,8 +1604,6 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             }
 
             gcry_md_close (md_hd);
-            g_free(authenticator_data);
-            g_free(esp_data);
           }
         }
       }
@@ -1957,8 +1913,8 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
           else
           {
             /* Allocate Buffers for Encrypted and Decrypted data  */
-            decrypted_data = (guint8 *) g_malloc ((decrypted_len + 1)* sizeof(guint8));
-            tvb_memcpy(tvb, decrypted_data , sizeof(struct newesp), decrypted_len);
+            decrypted_data = (guint8 *)wmem_alloc(wmem_packet_scope(), decrypted_len + 1);
+            tvb_memcpy(tvb, decrypted_data, NEW_ESP_DATA_SIZE, decrypted_len);
 
             decrypt_ok = TRUE;
           }
@@ -1968,8 +1924,8 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         if (decrypt_using_libgcrypt)
         {
           /* Allocate Buffers for Encrypted and Decrypted data  */
-          decrypted_data = (guint8 *) g_malloc ((decrypted_len_alloc + esp_iv_len)* sizeof(guint8));
-          tvb_memcpy(tvb, decrypted_data, sizeof(struct newesp), decrypted_len);
+          decrypted_data = (guint8 *)wmem_alloc(wmem_packet_scope(), decrypted_len_alloc + esp_iv_len);
+          tvb_memcpy(tvb, decrypted_data, NEW_ESP_DATA_SIZE, decrypted_len);
 
           /* (Lazily) create the cipher_hd */
           if (!(*cipher_hd_created)) {
@@ -1977,8 +1933,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             if (err)
             {
               fprintf(stderr, "<IPsec/ESP Dissector> Error in Algorithm %s Mode %d, grcy_open_cipher failed: %s\n",
-                      gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, gpg_strerror(err));
-              g_free(decrypted_data);
+                      gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, gcry_strerror(err));
             }
             else
             {
@@ -1998,9 +1953,8 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
                 if (err)
                 {
                   fprintf(stderr, "<IPsec/ESP Dissector> Error in Algorithm %s Mode %d, gcry_cipher_setkey(key_len=%u) failed: %s\n",
-                          gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, esp_crypt_key_len, gpg_strerror (err));
+                          gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, esp_crypt_key_len, gcry_strerror(err));
                   gcry_cipher_close(*cipher_hd);
-                  g_free(decrypted_data);
                 }
               }
 
@@ -2034,9 +1988,8 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
           if (err)
           {
             fprintf(stderr, "<IPsec/ESP Dissector> Error in Algorithm %s, Mode %d, gcry_cipher_decrypt failed: %s\n",
-                    gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, gpg_strerror (err));
+                    gcry_cipher_algo_name(crypt_algo_libgcrypt), crypt_mode_libgcrypt, gcry_strerror(err));
             gcry_cipher_close(*cipher_hd);
-            g_free(decrypted_data);
             decrypt_ok = FALSE;
           }
           else
@@ -2044,7 +1997,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
             /* Copy back the Authentication which was not encrypted */
             if(decrypted_len >= esp_auth_len)
             {
-              tvb_memcpy(tvb, decrypted_data+decrypted_len-esp_auth_len, (gint)(sizeof(struct newesp)+decrypted_len-esp_auth_len), esp_auth_len);
+              tvb_memcpy(tvb, decrypted_data+decrypted_len-esp_auth_len, (gint)(NEW_ESP_DATA_SIZE+decrypted_len-esp_auth_len), esp_auth_len);
             }
 
             /* Decryption has finished */
@@ -2061,15 +2014,11 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
     if(decrypt_ok && (decrypted_len > esp_iv_len))
     {
-      tvb_decrypted = tvb_new_child_real_data(tvb, (guint8 *)g_memdup(decrypted_data+sizeof(guint8)*esp_iv_len,
+      tvb_decrypted = tvb_new_child_real_data(tvb, (guint8 *)wmem_memdup(pinfo->pool, decrypted_data+sizeof(guint8)*esp_iv_len,
                                                                       decrypted_len - esp_iv_len),
                                               decrypted_len - esp_iv_len, decrypted_len - esp_iv_len);
-      g_free(decrypted_data);
 
       add_new_data_source(pinfo, tvb_decrypted, "Decrypted Data");
-
-      /* Handler to free the Decrypted Data Buffer. */
-      tvb_set_free_cb(tvb_decrypted,g_free);
 
       if(tvb_bytes_exist(tvb, 8, esp_iv_len))
       {
@@ -2142,8 +2091,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         export_ipsec_pdu(data_handle, pinfo, next_tvb);
         call_dissector(data_handle, next_tvb, pinfo, esp_tree);
 
-        if(esp_tree)
-          dissect_esp_authentication(esp_tree,
+        dissect_esp_authentication(esp_tree,
                                      tvb_decrypted,
                                      decrypted_len - esp_iv_len, esp_auth_len,
                                      authenticator_data_computed, authentication_ok,
@@ -2157,12 +2105,11 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   */
   if(!g_esp_enable_encryption_decode && g_esp_enable_authentication_check && sad_is_present)
   {
-    next_tvb = tvb_new_subset(tvb, 8, len - 8 - esp_auth_len, -1);
+    next_tvb = tvb_new_subset_length_caplen(tvb, 8, len - 8 - esp_auth_len, -1);
     export_ipsec_pdu(data_handle, pinfo, next_tvb);
     call_dissector(data_handle, next_tvb, pinfo, esp_tree);
 
-    if(esp_tree)
-      dissect_esp_authentication(esp_tree, tvb, len ,
+    dissect_esp_authentication(esp_tree, tvb, len ,
                                  esp_auth_len, authenticator_data_computed,
                                  authentication_ok, authentication_checking_ok );
   }
@@ -2170,7 +2117,6 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   /* The packet does not belong to a security association and the field g_esp_enable_null_encryption_decode_heuristic is set */
   else if(null_encryption_decode_heuristic)
   {
-#endif
     if(g_esp_enable_null_encryption_decode_heuristic)
     {
       /* Get length of whole ESP packet. */
@@ -2222,9 +2168,7 @@ dissect_esp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         }
       }
     }
-#ifdef HAVE_LIBGCRYPT
   }
-#endif
   return tvb_captured_length(tvb);
 }
 
@@ -2234,8 +2178,8 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
 {
   proto_tree *ipcomp_tree;
   proto_item *ti;
-  struct ipcomp ipcomp;
-  const char *p;
+  guint8 comp_nxt;      /* Next Header */
+  guint32 comp_cpi;     /* Compression parameter index */
   dissector_handle_t dissector_handle;
   guint32 saved_match_uint;
   tvbuff_t *data, *decomp;
@@ -2247,14 +2191,7 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "IPComp");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  tvb_memcpy(tvb, (guint8 *)&ipcomp, 0, sizeof(ipcomp));
-
-  p = try_val_to_str(g_ntohs(ipcomp.comp_cpi), cpi2val);
-  if (p == NULL) {
-    col_add_fstr(pinfo->cinfo, COL_INFO, "IPComp (CPI=0x%04x)", g_ntohs(ipcomp.comp_cpi));
-  } else {
-    col_add_fstr(pinfo->cinfo, COL_INFO, "IPComp (CPI=%s)", p);
-  }
+  comp_nxt = tvb_get_guint8(tvb, 0);
 
   /*
    * populate a tree in the second pane with the status of the link layer
@@ -2264,17 +2201,13 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
     ipcomp_tree = proto_item_add_subtree(ti, ett_ipcomp);
 
     proto_tree_add_uint_format_value(ipcomp_tree, hf_ipcomp_next_header, tvb,
-                        offsetof(struct ipcomp, comp_nxt), 1,
-                        ipcomp.comp_nxt, "%s (0x%02x)",
-                        ipprotostr(ipcomp.comp_nxt), ipcomp.comp_nxt);
-    proto_tree_add_uint(ipcomp_tree, hf_ipcomp_flags, tvb,
-                        offsetof(struct ipcomp, comp_flags), 1,
-                        ipcomp.comp_flags);
-    proto_tree_add_uint(ipcomp_tree, hf_ipcomp_cpi, tvb,
-                        offsetof(struct ipcomp, comp_cpi), 2,
-                        g_ntohs(ipcomp.comp_cpi));
+                        0, 1, comp_nxt, "%s (0x%02x)", ipprotostr(comp_nxt), comp_nxt);
+    proto_tree_add_item(ipcomp_tree, hf_ipcomp_flags, tvb, 1, 1, ENC_NA);
+    proto_tree_add_item_ret_uint(ipcomp_tree, hf_ipcomp_cpi, tvb, 2, 2, ENC_BIG_ENDIAN, &comp_cpi);
 
-    data = tvb_new_subset_remaining(tvb, sizeof(struct ipcomp));
+    col_add_fstr(pinfo->cinfo, COL_INFO, "IPComp (CPI=%s)", val_to_str(comp_cpi, cpi2val, "0x%04x"));
+
+    data = tvb_new_subset_remaining(tvb, 4);
     export_ipsec_pdu(data_handle, pinfo, data);
     call_dissector(data_handle, data, pinfo, ipcomp_tree);
 
@@ -2287,9 +2220,9 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
     if (decomp) {
         add_new_data_source(pinfo, decomp, "IPcomp inflated data");
         saved_match_uint  = pinfo->match_uint;
-        dissector_handle = dissector_get_uint_handle(ip_dissector_table, ipcomp.comp_nxt);
+        dissector_handle = dissector_get_uint_handle(ip_dissector_table, comp_nxt);
         if (dissector_handle) {
-          pinfo->match_uint = ipcomp.comp_nxt;
+          pinfo->match_uint = comp_nxt;
         } else {
           dissector_handle = data_handle;
         }
@@ -2301,15 +2234,8 @@ dissect_ipcomp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dissec
 	return tvb_captured_length(tvb);
 }
 
-static void ipsec_init_protocol(void)
-{
-  esp_sequence_analysis_hash = g_hash_table_new(word_hash_func, word_equal);
-  esp_sequence_analysis_report_hash = g_hash_table_new(word_hash_func, word_equal);
-}
-
 static void ipsec_cleanup_protocol(void)
 {
-#ifdef HAVE_LIBGCRYPT
   /* Free any SA records added by other dissectors */
   guint n;
   for (n=0; n < extra_esp_sa_records.num_records; n++) {
@@ -2320,10 +2246,6 @@ static void ipsec_cleanup_protocol(void)
   g_free(extra_esp_sa_records.records);
   extra_esp_sa_records.records = NULL;
   extra_esp_sa_records.num_records = 0;
-#endif
-
-  g_hash_table_destroy(esp_sequence_analysis_hash);
-  g_hash_table_destroy(esp_sequence_analysis_report_hash);
 }
 
 void
@@ -2331,10 +2253,13 @@ proto_register_ipsec(void)
 {
   static hf_register_info hf_ah[] = {
     { &hf_ah_next_header,
-      { "Next header", "ah.next_header", FT_UINT8, BASE_HEX, NULL, 0x0,
+      { "Next header", "ah.next_header", FT_UINT8, BASE_DEC | BASE_EXT_STRING, &ipproto_val_ext, 0x0,
         NULL, HFILL }},
     { &hf_ah_length,
-      { "Length", "ah.length", FT_UINT8, BASE_HEX, NULL, 0x0,
+      { "Length", "ah.length", FT_UINT8, BASE_DEC, NULL, 0x0,
+        NULL, HFILL }},
+    { &hf_ah_reserved,
+      { "Reserved", "ah.reserved", FT_BYTES, BASE_NONE, NULL, 0x0,
         NULL, HFILL }},
     { &hf_ah_spi,
       { "AH SPI", "ah.spi", FT_UINT32, BASE_HEX, NULL, 0x0,
@@ -2407,8 +2332,6 @@ proto_register_ipsec(void)
     { &ei_esp_sequence_analysis_wrong_sequence_number, { "esp.sequence-analysis.wrong-sequence-number", PI_SEQUENCE, PI_WARN, "Wrong Sequence Number", EXPFILL }}
   };
 
-#ifdef HAVE_LIBGCRYPT
-
   static const value_string esp_proto_type_vals[] = {
     { IPSEC_SA_IPV4, "IPv4" },
     { IPSEC_SA_IPV6, "IPv6" },
@@ -2457,7 +2380,11 @@ proto_register_ipsec(void)
       UAT_FLD_CSTRING(uat_esp_sa_records, authentication_key_string, "Authentication Key", "Authentication Key"),
       UAT_END_FIELDS
     };
-#endif
+
+  static build_valid_func ah_da_build_value[1] = {ah_value};
+  static decode_as_value_t ah_da_values = {ah_prompt, 1, ah_da_build_value};
+  static decode_as_t ah_da = {"ah", "Network", "ip.proto", 1, 0, &ah_da_values, NULL, NULL,
+                                  decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
 
   module_t *ah_module;
   module_t *esp_module;
@@ -2480,12 +2407,10 @@ proto_register_ipsec(void)
   expert_esp = expert_register_protocol(proto_esp);
   expert_register_field_array(expert_esp, ei, array_length(ei));
 
-  /* Register a configuration option for placement of AH payload dissection */
   ah_module = prefs_register_protocol(proto_ah, NULL);
-  prefs_register_bool_preference(ah_module, "place_ah_payload_in_subtree",
-                                 "Place AH payload in subtree",
-                                 "Whether the AH payload decode should be placed in a subtree",
-                                 &g_ah_payload_in_subtree);
+
+  prefs_register_obsolete_preference(ah_module, "place_ah_payload_in_subtree");
+
   esp_module = prefs_register_protocol(proto_esp, NULL);
 
   prefs_register_bool_preference(esp_module, "enable_null_encryption_decode_heuristic",
@@ -2500,7 +2425,6 @@ proto_register_ipsec(void)
                                  "Check that successive frames increase sequence number by 1 within an SPI.  This should work OK when only one host is sending frames on an SPI",
                                  &g_esp_do_sequence_analysis);
 
-#ifdef HAVE_LIBGCRYPT
   prefs_register_bool_preference(esp_module, "enable_encryption_decode",
                                  "Attempt to detect/decode encrypted ESP payloads",
                                  "Attempt to decode based on the SAD described hereafter.",
@@ -2523,6 +2447,7 @@ proto_register_ipsec(void)
             uat_esp_sa_record_update_cb,    /* update callback */
             uat_esp_sa_record_free_cb,      /* free callback */
             NULL,                           /* post update callback */
+            NULL,                           /* reset callback */
             esp_uat_flds);                  /* UAT field definitions */
 
   prefs_register_uat_preference(esp_module,
@@ -2530,19 +2455,22 @@ proto_register_ipsec(void)
                                 "ESP SAs",
                                 "Preconfigured ESP Security Associations",
                                 esp_uat);
-#endif
 
-  register_init_routine(&ipsec_init_protocol);
+  esp_sequence_analysis_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal);
+  esp_sequence_analysis_report_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal);
   register_cleanup_routine(&ipsec_cleanup_protocol);
 
   register_dissector("esp", dissect_esp, proto_esp);
   register_dissector("ah", dissect_ah, proto_ah);
+
+  register_decode_as(&ah_da);
 }
 
 void
 proto_reg_handoff_ipsec(void)
 {
-  dissector_handle_t esp_handle, ah_handle, ipv6_ah_handle, ipcomp_handle;
+  dissector_handle_t esp_handle, ah_handle, ipcomp_handle;
+  capture_dissector_handle_t ah_cap_handle;
 
   data_handle = find_dissector("data");
   ah_handle = find_dissector("ah");
@@ -2551,10 +2479,11 @@ proto_reg_handoff_ipsec(void)
   dissector_add_uint("ip.proto", IP_PROTO_ESP, esp_handle);
   ipcomp_handle = create_dissector_handle(dissect_ipcomp, proto_ipcomp);
   dissector_add_uint("ip.proto", IP_PROTO_IPCOMP, ipcomp_handle);
-  ipv6_ah_handle = create_dissector_handle(dissect_ah_header, proto_ah );
-  dissector_add_uint("ipv6.nxt", IP_PROTO_AH, ipv6_ah_handle);
 
   ip_dissector_table = find_dissector_table("ip.proto");
+
+  ah_cap_handle = create_capture_dissector_handle(capture_ah, proto_ah);
+  capture_dissector_add_uint("ip.proto", IP_PROTO_AH, ah_cap_handle);
 
   exported_pdu_tap = find_tap_id(EXPORT_PDU_TAP_NAME_LAYER_3);
 }

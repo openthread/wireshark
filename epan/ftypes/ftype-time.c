@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -172,14 +160,14 @@ relative_val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_v
 {
 	const char    *curptr;
 	char *endptr;
-        gboolean negative = FALSE;
+	gboolean negative = FALSE;
 
 	curptr = s;
 
-        if(*curptr == '-') {
-            negative = TRUE;
-            curptr++;
-        }
+	if (*curptr == '-') {
+		negative = TRUE;
+		curptr++;
+	}
 
 	/*
 	 * If it doesn't begin with ".", it should contain a seconds
@@ -220,10 +208,10 @@ relative_val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_v
 		fv->value.time.nsecs = 0;
 	}
 
-        if(negative) {
-            fv->value.time.secs = -fv->value.time.secs;
-            fv->value.time.nsecs = -fv->value.time.nsecs;
-        }
+	if (negative) {
+		fv->value.time.secs = -fv->value.time.secs;
+		fv->value.time.nsecs = -fv->value.time.nsecs;
+	}
 	return TRUE;
 
 fail:
@@ -339,7 +327,7 @@ absolute_val_repr_len(fvalue_t *fv, ftrepr_t rtype, int field_display _U_)
 }
 
 static void
-absolute_val_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *buf)
+absolute_val_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *buf, unsigned int size)
 {
 	gchar *rep = abs_time_to_str(NULL, &fv->value.time, ABSOLUTE_TIME_LOCAL,
 		rtype == FTREPR_DISPLAY);
@@ -347,7 +335,7 @@ absolute_val_to_repr(fvalue_t *fv, ftrepr_t rtype, int field_display _U_, char *
 		*buf++ = '\"';
 	}
 
-	strcpy(buf, rep);
+	g_strlcpy(buf, rep, size);
 
 	if (rtype == FTREPR_DFILTER) {
 		buf += strlen(rep);
@@ -371,11 +359,11 @@ relative_val_repr_len(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_)
 }
 
 static void
-relative_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+relative_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
 	gchar *rep;
 	rep = rel_time_to_secs_str(NULL, &fv->value.time);
-	strcpy(buf, rep);
+	g_strlcpy(buf, rep, size);
 	wmem_free(NULL, rep);
 }
 
@@ -395,24 +383,8 @@ ftype_register_time(void)
 		absolute_val_to_repr,		/* val_to_string_repr */
 		absolute_val_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		time_fvalue_set,		/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_time = time_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },		/* union get_value */
 
 		cmp_eq,
 		cmp_ne,
@@ -439,24 +411,8 @@ ftype_register_time(void)
 		relative_val_to_repr,		/* val_to_string_repr */
 		relative_val_repr_len,		/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		NULL,				/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		time_fvalue_set,		/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_time = time_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },		/* union get_value */
 
 		cmp_eq,
 		cmp_ne,

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,7 +21,7 @@
 #include "wmem_strutl.h"
 #include "wmem_interval_tree.h"
 #include "wmem_user_cb.h"
-
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
 
 
 static void
@@ -43,7 +31,7 @@ print_range(const void *value)
     if(!value) {
         return;
     }
-    printf("Range: low=%" G_GUINT64_FORMAT " high=%" G_GUINT64_FORMAT " max_edge=%" G_GUINT64_FORMAT "\n", range->low, range->high, range->max_edge);
+    ws_debug_printf("Range: low=%" G_GUINT64_FORMAT " high=%" G_GUINT64_FORMAT " max_edge=%" G_GUINT64_FORMAT "\n", range->low, range->high, range->max_edge);
 }
 
 /**
@@ -57,7 +45,7 @@ update_max_edge(wmem_tree_node_t *node)
     wmem_range_t *range;
     wmem_range_t *range_l;
     wmem_range_t *range_r;
-    guint64 maxEdge  = 0;
+    guint64 maxEdge = 0;
 
     if(!node) {
         return ;
@@ -68,7 +56,7 @@ update_max_edge(wmem_tree_node_t *node)
     range_l = (node->left) ? (wmem_range_t *) (node->left->key) : NULL;
     range_r = (node->right) ? (wmem_range_t *) (node->right->key) : NULL;
 
-    maxEdge = range->max_edge;
+    maxEdge = range->high;
 
     if(range_r) {
         maxEdge = MAX(maxEdge, range_r->max_edge) ;
@@ -77,7 +65,7 @@ update_max_edge(wmem_tree_node_t *node)
         maxEdge = MAX(maxEdge, range_l->max_edge) ;
     }
 
-    /* a change was made, update the parent nodes */
+    /* update the parent nodes only if a change happened (optimization) */
     if(range->max_edge != maxEdge) {
         range->max_edge = maxEdge;
         update_max_edge(node->parent);
@@ -90,11 +78,19 @@ wmem_itree_range_overlap(const wmem_range_t *r1, const wmem_range_t *r2)
     return (r1->low <= r2->high && r2->low <= r1->high);
 }
 
+
+/* after a rotation, some of the children nodes might (dis)appear, thus we need
+ * to refresh children max_edge. Changes will propagate to parents */
+void update_edges_after_rotation(wmem_tree_node_t *node) {
+    if(node->left)  update_max_edge(node->left);
+    if(node->right)  update_max_edge(node->right);
+}
+
 wmem_itree_t *
 wmem_itree_new(wmem_allocator_t *allocator)
 {
     wmem_itree_t *tree      = wmem_tree_new(allocator);
-    tree->post_rotation_cb  = &update_max_edge;
+    tree->post_rotation_cb  = &update_edges_after_rotation;
     return tree;
 }
 
@@ -128,11 +124,11 @@ wmem_itree_insert(wmem_itree_t *tree, const guint64 low, const guint64 high, voi
     g_assert(low <= high);
     range->low = low;
     range->high = high;
-    range->max_edge = high;
+    range->max_edge = 0;
 
     node = wmem_tree_insert(tree, range, data, (compare_func)wmem_tree_compare_ranges);
 
-    /* Even If no rotations, still a need to update max_edge */
+    /* in absence of rotation, we still need to update max_edge */
     update_max_edge(node);
 }
 

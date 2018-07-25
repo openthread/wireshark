@@ -6,22 +6,12 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
+
+#include <stdio.h>
 
 #include <epan/packet.h>
 #include <epan/conversation.h>
@@ -31,7 +21,9 @@
 #include <epan/expert.h>
 #include <epan/proto_data.h>
 
+#include "packet-eapol.h"
 #include "packet-wps.h"
+#include "packet-e212.h"
 
 void proto_register_eap(void);
 void proto_reg_handoff_eap(void);
@@ -44,6 +36,11 @@ static int hf_eap_type = -1;
 static int hf_eap_type_nak = -1;
 
 static int hf_eap_identity = -1;
+static int hf_eap_identity_actual_len = -1;
+static int hf_eap_identity_wlan_prefix = -1;
+static int hf_eap_identity_wlan_mcc = -1;
+static int hf_eap_identity_wlan_mcc_mnc_2digits = -1;
+static int hf_eap_identity_wlan_mcc_mnc_3digits = -1;
 
 static int hf_eap_notification = -1;
 
@@ -182,6 +179,19 @@ static const value_string eap_type_vals[] = {
 };
 value_string_ext eap_type_vals_ext = VALUE_STRING_EXT_INIT(eap_type_vals);
 
+const value_string eap_identity_wlan_prefix_vals[] = {
+  { '0', "EAP-AKA Permanent" },
+  { '1', "EAP-SIM Permanent" },
+  { '2', "EAP-AKA Pseudonym" },
+  { '3', "EAP-SIM Pseudonym" },
+  { '4', "EAP-AKA Reauth ID" },
+  { '5', "EAP-SIM Reauth ID" },
+  { '6', "EAP-AKA Prime Permanent" },
+  { '7', "EAP-AKA Prime Pseudonym" },
+  { '8', "EAP-AKA Prime Reauth ID" },
+  { 0, NULL }
+};
+
 const value_string eap_sim_subtype_vals[] = {
   { SIM_START,             "Start" },
   { SIM_CHALLENGE,         "Challenge" },
@@ -210,6 +220,8 @@ References:
   4) RFC5448
   5) 3GPP TS 24.302
 */
+
+#define AT_IDENTITY 14
 
 static const value_string eap_sim_aka_attribute_vals[] = {
   {   1, "AT_RAND" },
@@ -351,6 +363,7 @@ static gint ett_eap_sim_attr = -1;
 static gint ett_eap_aka_attr = -1;
 static gint ett_eap_exp_attr = -1;
 static gint ett_eap_tls_flags = -1;
+static gint ett_identity = -1;
 
 static const fragment_items eap_tls_frag_items = {
   &ett_eap_tls_fragment,
@@ -416,19 +429,6 @@ static gboolean
 test_flag(unsigned char flag, unsigned char mask)
 {
   return ( ( flag & mask ) != 0 );
-}
-
-static void
-eap_tls_defragment_init(void)
-{
-  reassembly_table_init(&eap_tls_reassembly_table,
-                        &addresses_reassembly_table_functions);
-}
-
-static void
-eap_tls_defragment_cleanup(void)
-{
-  reassembly_table_destroy(&eap_tls_reassembly_table);
 }
 
 static void
@@ -529,8 +529,86 @@ dissect_eap_mschapv2(proto_tree *eap_tree, tvbuff_t *tvb, packet_info *pinfo, in
   }
 }
 
+/* Dissect the WLAN identity */
+static gboolean
+dissect_eap_identity_wlan(tvbuff_t *tvb, packet_info* pinfo, proto_tree* tree, int offset, gint size)
+{
+  guint       mnc = 0;
+  guint       mcc = 0;
+  guint       mcc_mnc = 0;
+  proto_tree* eap_identity_tree = NULL;
+  guint8      eap_identity_prefix = 0;
+  guint8*     identity = NULL;
+  gchar**     tokens = NULL;
+  guint       ntokens = 0;
+  gboolean    ret = TRUE;
+  int         hf_eap_identity_wlan_mcc_mnc;
+
+  identity = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, size, ENC_ASCII);
+
+  tokens = g_strsplit_set(identity, "@.", -1);
+
+  while(tokens[ntokens])
+    ntokens++;
+
+  /* The WLAN identity must have the form of
+     <imsi>@wlan.mnc<mnc>.mcc<mcc>.3gppnetwork.org
+     If not, we don't have a wlan identity
+  */
+  if (ntokens != 6 || g_ascii_strncasecmp(tokens[1], "wlan", 4) ||
+      g_ascii_strncasecmp(tokens[4], "3gppnetwork", 11) ||
+      g_ascii_strncasecmp(tokens[5], "org", 3)) {
+    ret = FALSE;
+    goto end;
+  }
+
+  /* It is very likely that we have a WLAN identity (EAP-AKA/EAP-SIM) */
+  /* Go on with the dissection */
+  eap_identity_tree = proto_item_add_subtree(tree, ett_identity);
+  eap_identity_prefix = tokens[0][0];
+  proto_tree_add_uint(eap_identity_tree, hf_eap_identity_wlan_prefix,
+    tvb, offset, 1, eap_identity_prefix);
+
+  dissect_e212_utf8_imsi(tvb, pinfo, eap_identity_tree, offset + 1, (guint)strlen(tokens[0]) - 1);
+
+  /* guess if we have a 3 bytes mnc by comparing the first bytes with the imsi */
+  if (!sscanf(tokens[2] + 3, "%u", &mnc) || !sscanf(tokens[3] + 3, "%u", &mcc)) {
+    ret = FALSE;
+    goto end;
+  }
+
+  if (!g_ascii_strncasecmp(tokens[0], tokens[2] + 3, 3)) {
+    mcc_mnc = 1000 * mcc + mnc;
+    hf_eap_identity_wlan_mcc_mnc = hf_eap_identity_wlan_mcc_mnc_3digits;
+  } else {
+    mcc_mnc = 100 * mcc + mnc;
+    hf_eap_identity_wlan_mcc_mnc = hf_eap_identity_wlan_mcc_mnc_2digits;
+  }
+
+  proto_tree_add_uint(eap_identity_tree, hf_eap_identity_wlan_mcc_mnc,
+    tvb, offset + (guint)strlen(tokens[0]) + (guint)strlen("@wlan.") +
+    (guint)strlen("mnc"), (guint)strlen(tokens[2]) - (guint)strlen("mnc"),
+    mcc_mnc);
+
+  proto_tree_add_uint(eap_identity_tree, hf_eap_identity_wlan_mcc,
+    tvb, offset + (guint)(strlen(tokens[0]) + strlen("@wlan.") +
+    strlen(tokens[2]) + 1 + strlen("mcc")),
+    (guint)(strlen(tokens[3]) - strlen("mcc")), mcc);
+end:
+  g_strfreev(tokens);
+  return ret;
+}
+
 static void
-dissect_eap_sim(proto_tree *eap_tree, tvbuff_t *tvb, int offset, gint size)
+dissect_eap_identity(tvbuff_t *tvb, packet_info* pinfo, proto_tree* tree, int offset, gint size)
+{
+  /* Try to dissect as WLAN identity */
+  if (dissect_eap_identity_wlan(tvb, pinfo, tree, offset, size))
+    return;
+}
+
+static void
+dissect_eap_sim(proto_tree *eap_tree, tvbuff_t *tvb, packet_info* pinfo, int offset, gint size)
 {
   gint left = size;
 
@@ -574,7 +652,13 @@ dissect_eap_sim(proto_tree *eap_tree, tvbuff_t *tvb, int offset, gint size)
     proto_tree_add_item(attr_tree, hf_eap_sim_subtype_length, tvb, aoffset, 1, ENC_BIG_ENDIAN);
     aoffset += 1;
     aleft   -= 1;
-    proto_tree_add_item(attr_tree, hf_eap_sim_subtype_value, tvb, aoffset, aleft, ENC_NA);
+
+    if (type == AT_IDENTITY) {
+      proto_tree_add_item(attr_tree, hf_eap_identity_actual_len, tvb, aoffset, 2, ENC_BIG_ENDIAN);
+      dissect_eap_identity(tvb, pinfo, attr_tree, aoffset + 2, tvb_get_ntohs(tvb, aoffset));
+    }
+    else
+      proto_tree_add_item(attr_tree, hf_eap_sim_subtype_value, tvb, aoffset, aleft, ENC_NA);
 
     offset += 4 * length;
     left   -= 4 * length;
@@ -582,7 +666,7 @@ dissect_eap_sim(proto_tree *eap_tree, tvbuff_t *tvb, int offset, gint size)
 }
 
 static void
-dissect_eap_aka(proto_tree *eap_tree, tvbuff_t *tvb, int offset, gint size)
+dissect_eap_aka(proto_tree *eap_tree, tvbuff_t *tvb, packet_info* pinfo, int offset, gint size)
 {
   gint left = size;
   proto_tree_add_item(eap_tree, hf_eap_aka_subtype, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -625,11 +709,46 @@ dissect_eap_aka(proto_tree *eap_tree, tvbuff_t *tvb, int offset, gint size)
     proto_tree_add_item(attr_tree, hf_eap_aka_subtype_length, tvb, aoffset, 1, ENC_BIG_ENDIAN);
     aoffset += 1;
     aleft   -= 1;
-    proto_tree_add_item(attr_tree, hf_eap_aka_subtype_value, tvb, aoffset, aleft, ENC_NA);
+
+    if (type == AT_IDENTITY) {
+      proto_tree_add_item(attr_tree, hf_eap_identity_actual_len, tvb, aoffset, 2, ENC_BIG_ENDIAN);
+      dissect_eap_identity(tvb, pinfo, attr_tree, aoffset + 2, tvb_get_ntohs(tvb, aoffset));
+    }
+    else
+      proto_tree_add_item(attr_tree, hf_eap_aka_subtype_value, tvb, aoffset, aleft, ENC_NA);
 
     offset += 4 * length;
     left   -= 4 * length;
   }
+}
+
+static gboolean eap_maybe_from_server(packet_info *pinfo, guint8 eap_code, gboolean default_assume_server)
+{
+  switch (eap_code) {
+  /* Packets which can only be sent by the peer. */
+  case EAP_REQUEST:
+    return FALSE;
+
+  /* Packets which can only be sent by the authenticator. */
+  case EAP_RESPONSE:
+  case EAP_SUCCESS:
+  case EAP_FAILURE:
+    return TRUE;
+  }
+
+  /* EAP_INITIATE and EAP_FINISH can be sent to/from a server (see Figure 2 in
+   * RFC 5296), so an additional heuristic is needed (does not work for EAPOL
+   * which has no ports). */
+  if (pinfo->ptype != PT_NONE) {
+    if (pinfo->match_uint == pinfo->destport) {
+      return FALSE;
+    } else if (pinfo->match_uint == pinfo->srcport) {
+      return TRUE;
+    }
+  }
+
+  /* No idea if this is a server or client, fallback to requested guess. */
+  return default_assume_server;
 }
 
 static int
@@ -639,14 +758,15 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
   guint16         eap_len;
   guint8          eap_type;
   gint            len;
-  conversation_t *conversation;
+  conversation_t *conversation       = NULL;
   conv_state_t   *conversation_state;
   frame_state_t  *packet_state;
   int             leap_state;
   proto_tree     *ti;
-  proto_tree     *eap_tree           = NULL;
-  proto_tree     *eap_tls_flags_tree = NULL;
-  proto_item     *eap_type_item      = NULL;
+  proto_tree     *eap_tree;
+  proto_tree     *eap_tls_flags_tree;
+  proto_item     *eap_type_item;
+  proto_item     *eap_identity_item;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "EAP");
   col_clear(pinfo->cinfo, COL_INFO);
@@ -657,45 +777,52 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 val_to_str(eap_code, eap_code_vals, "Unknown code (0x%02X)"));
 
   /*
-   * Find a conversation to which we belong; create one if we don't find
-   * it.
+   * Find a conversation to which we belong; create one if we don't find it.
    *
-   * We use the source and destination addresses, and the *matched* port
+   * We use the source and destination addresses, and the server's port
    * number, because if this is running over RADIUS, there's no guarantee
    * that the source port number for request and the destination port
    * number for replies will be the same in all messages - the client
    * may use different port numbers for each request.
    *
-   * We have to pair up the matched port number with the corresponding
-   * address; we determine which that is by comparing it with the
-   * destination port - if it matches, we matched on the destination
-   * port (this is a request), otherwise we matched on the source port
-   * (this is a reply).
+   * To figure out whether we are the server (authenticator) or client (peer)
+   * side, use heuristics. First try to exclude the side based on a guess using
+   * the EAP code. For example, a Response always come from the server and not
+   * the client so we could exclude the server side in this case.
    *
-   * XXX - what if we're running over a TCP or UDP protocol with a
-   * heuristic dissector, meaning the matched port number won't be set?
+   * If that yields no match, then try to guess based on the port number. This
+   * could possibly give no (or a false) match with a heuristics dissector
+   * though since the match_uint field is not set (or not overwritten). Assume a
+   * client if the destination port matches and assume a server otherwise.
+   *
+   * If EAP runs over EAPOL (802.1X Authentication), then note that we have no
+   * concept of a port so the port number will always be zero for both sides.
+   * Therefore try to find conversations in both directions unless we are really
+   * sure (based on the EAP Code for example). If no existing conversation
+   * exists, the client side is assumed in case of doubt.
    *
    * XXX - what if we have a capture file with captures on multiple
    * PPP interfaces, with LEAP traffic on all of them?  How can we
    * keep them separate?  (Or is that not going to happen?)
    */
-  if (pinfo->destport == pinfo->match_uint) {
+  if (!eap_maybe_from_server(pinfo, eap_code, FALSE)) {
     conversation = find_conversation(pinfo->num, &pinfo->dst, &pinfo->src,
-                                     pinfo->ptype, pinfo->destport,
+                                     conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->destport,
                                      0, NO_PORT_B);
-  } else {
+  }
+  if (conversation == NULL && eap_maybe_from_server(pinfo, eap_code, TRUE)) {
     conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                     pinfo->ptype, pinfo->srcport,
+                                     conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
                                      0, NO_PORT_B);
   }
   if (conversation == NULL) {
-    if (pinfo->destport == pinfo->match_uint) {
+    if (!eap_maybe_from_server(pinfo, eap_code, FALSE)) {
       conversation = conversation_new(pinfo->num, &pinfo->dst, &pinfo->src,
-                                      pinfo->ptype, pinfo->destport,
+                                      conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->destport,
                                       0, NO_PORT2);
     } else {
       conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                                      pinfo->ptype, pinfo->srcport,
+                                      conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
                                       0, NO_PORT2);
     }
   }
@@ -726,14 +853,12 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
   eap_len = tvb_get_ntohs(tvb, 2);
   len     = eap_len;
 
-  if (tree) {
-    ti = proto_tree_add_item(tree, proto_eap, tvb, 0, len, ENC_NA);
-    eap_tree = proto_item_add_subtree(ti, ett_eap);
+  ti = proto_tree_add_item(tree, proto_eap, tvb, 0, len, ENC_NA);
+  eap_tree = proto_item_add_subtree(ti, ett_eap);
 
-    proto_tree_add_item(eap_tree, hf_eap_code,       tvb, 0, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(eap_tree, hf_eap_identifier, tvb, 1, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(eap_tree, hf_eap_len,        tvb, 2, 2, ENC_BIG_ENDIAN);
-  }
+  proto_tree_add_item(eap_tree, hf_eap_code,       tvb, 0, 1, ENC_BIG_ENDIAN);
+  proto_tree_add_item(eap_tree, hf_eap_identifier, tvb, 1, 1, ENC_BIG_ENDIAN);
+  proto_tree_add_item(eap_tree, hf_eap_len,        tvb, 2, 2, ENC_BIG_ENDIAN);
 
   switch (eap_code) {
 
@@ -748,8 +873,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     col_append_fstr(pinfo->cinfo, COL_INFO, ", %s",
                       val_to_str_ext(eap_type, &eap_type_vals_ext,
                                      "Unknown type (0x%02x)"));
-    if (tree)
-      eap_type_item = proto_tree_add_item(eap_tree, hf_eap_type, tvb, 4, 1, ENC_BIG_ENDIAN);
+    eap_type_item = proto_tree_add_item(eap_tree, hf_eap_type, tvb, 4, 1, ENC_BIG_ENDIAN);
 
     if ((len > 5) || ((len == 5) && (eap_type == EAP_TYPE_ID))) {
       int     offset = 5;
@@ -759,8 +883,9 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         /*********************************************************************
         **********************************************************************/
       case EAP_TYPE_ID:
-        if (tree && size > 0) {
-          proto_tree_add_item(eap_tree, hf_eap_identity, tvb, offset, size, ENC_ASCII|ENC_NA);
+        if (size > 0) {
+          eap_identity_item = proto_tree_add_item(eap_tree, hf_eap_identity, tvb, offset, size, ENC_ASCII|ENC_NA);
+          dissect_eap_identity(tvb, pinfo, eap_identity_item, offset, size);
         }
         if(!pinfo->fd->flags.visited) {
           conversation_state->leap_state  =  0;
@@ -771,19 +896,15 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         /*********************************************************************
         **********************************************************************/
       case EAP_TYPE_NOTIFY:
-        if (tree) {
-          proto_tree_add_item(eap_tree, hf_eap_notification, tvb,
-                              offset, size, ENC_ASCII|ENC_NA);
-        }
+        proto_tree_add_item(eap_tree, hf_eap_notification, tvb,
+            offset, size, ENC_ASCII|ENC_NA);
         break;
 
         /*********************************************************************
         **********************************************************************/
       case EAP_TYPE_NAK:
-        if (tree) {
-          proto_tree_add_item(eap_tree, hf_eap_type_nak, tvb,
-                              offset, 1, ENC_BIG_ENDIAN);
-        }
+        proto_tree_add_item(eap_tree, hf_eap_type_nak, tvb,
+            offset, 1, ENC_BIG_ENDIAN);
         break;
         /*********************************************************************
         **********************************************************************/
@@ -836,25 +957,22 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
           conversation_state->eap_tls_seq = -1;
 
         /* Flags field, 1 byte */
-        if (tree) {
-          ti = proto_tree_add_item(eap_tree, hf_eap_tls_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
-          eap_tls_flags_tree = proto_item_add_subtree(ti, ett_eap_tls_flags);
-          proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flag_l, tvb, offset, 1, ENC_BIG_ENDIAN);
-          proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flag_m, tvb, offset, 1, ENC_BIG_ENDIAN);
-          proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flag_s, tvb, offset, 1, ENC_BIG_ENDIAN);
+        ti = proto_tree_add_item(eap_tree, hf_eap_tls_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+        eap_tls_flags_tree = proto_item_add_subtree(ti, ett_eap_tls_flags);
+        proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flag_l, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flag_m, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flag_s, tvb, offset, 1, ENC_BIG_ENDIAN);
 
-          if ((eap_type == EAP_TYPE_PEAP) || (eap_type == EAP_TYPE_TTLS) ||
-              (eap_type == EAP_TYPE_FAST)) {
-            proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flags_version, tvb, offset, 1, ENC_BIG_ENDIAN);
-          }
+        if ((eap_type == EAP_TYPE_PEAP) || (eap_type == EAP_TYPE_TTLS) ||
+            (eap_type == EAP_TYPE_FAST)) {
+          proto_tree_add_item(eap_tls_flags_tree, hf_eap_tls_flags_version, tvb, offset, 1, ENC_BIG_ENDIAN);
         }
         size   -= 1;
         offset += 1;
 
         /* Length field, 4 bytes, OPTIONAL. */
         if (has_length) {
-          if (tree)
-            proto_tree_add_item(eap_tree, hf_eap_tls_len, tvb, offset, 4, ENC_BIG_ENDIAN);
+          proto_tree_add_item(eap_tree, hf_eap_tls_len, tvb, offset, 4, ENC_BIG_ENDIAN);
           size   -= 4;
           offset += 4;
         }
@@ -906,9 +1024,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             /*
              * We haven't - does this message require reassembly?
              */
-            /**** HACK RCC 20121016: Make packet dissection work ****/
-            // if (!pinfo->fd->flags.visited) {
-            if (1) {
+            if (!pinfo->fd->flags.visited) {
               /*
                * This is the first time we've looked at this frame,
                * so it wouldn't have any remembered information.
@@ -967,7 +1083,6 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 packet_state = wmem_new(wmem_file_scope(), frame_state_t);
                 packet_state->info = eap_reass_cookie;
                 p_add_proto_data(wmem_file_scope(), pinfo, proto_eap, 0, packet_state);
-                pinfo->fd->flags.visited = 0; /**** HACK RCC 20121016: forced it to say it is not visited ****/
               }
             }
           } else {
@@ -1042,7 +1157,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             pinfo->fragmented = save_fragmented;
 
           } else { /* this data is NOT fragmented */
-            next_tvb = tvb_new_subset(tvb, offset, tvb_len, size);
+            next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_len, size);
             call_dissector(ssl_handle, next_tvb, pinfo, eap_tree);
           }
         }
@@ -1050,8 +1165,8 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
       break; /*  EAP_TYPE_TLS */
 
       /*********************************************************************
-                                Cisco's Lightweight EAP (LEAP)
-    http://www.missl.cs.umd.edu/wireless/ethereal/leap.txt
+        Cisco's Lightweight EAP (LEAP)
+        http://www.missl.cs.umd.edu/wireless/ethereal/leap.txt
       **********************************************************************/
       case EAP_TYPE_LEAP:
       {
@@ -1061,22 +1176,16 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         expert_add_info(pinfo, eap_type_item, &ei_eap_dictionary_attacks);
 
         /* Version (byte) */
-        if (tree) {
-          proto_tree_add_item(eap_tree, hf_eap_leap_version, tvb, offset, 1, ENC_BIG_ENDIAN);
-        }
+        proto_tree_add_item(eap_tree, hf_eap_leap_version, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
         /* Unused  (byte) */
-        if (tree) {
-          proto_tree_add_item(eap_tree, hf_eap_leap_reserved, tvb, offset, 1, ENC_BIG_ENDIAN);
-        }
+        proto_tree_add_item(eap_tree, hf_eap_leap_reserved, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
         /* Count   (byte) */
         count = tvb_get_guint8(tvb, offset);
-        if (tree) {
-          proto_tree_add_item(eap_tree, hf_eap_leap_count, tvb, offset, 1, ENC_BIG_ENDIAN);
-        }
+        proto_tree_add_item(eap_tree, hf_eap_leap_count, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
         /* Data    (byte*Count) */
@@ -1115,8 +1224,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         /* Get the remembered state. */
         leap_state = packet_state->info;
 
-        if (tree) {
-          switch (leap_state) {
+        switch (leap_state) {
           case 1:
             proto_tree_add_item(eap_tree, hf_eap_leap_peer_challenge, tvb, offset, count, ENC_NA);
             break;
@@ -1136,16 +1244,13 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
           default:
             proto_tree_add_item(eap_tree, hf_eap_leap_data, tvb, offset, count, ENC_NA);
             break;
-          }
         }
 
         offset += count;
 
         /* Name    (Length-(8+Count)) */
         namesize = eap_len - (8+count);
-        if (tree) {
-          proto_tree_add_item(eap_tree, hf_eap_leap_name, tvb, offset, namesize, ENC_ASCII|ENC_NA);
-        }
+        proto_tree_add_item(eap_tree, hf_eap_leap_name, tvb, offset, namesize, ENC_ASCII|ENC_NA);
       }
 
       break; /* EAP_TYPE_LEAP */
@@ -1161,8 +1266,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
            EAP-SIM - draft-haverinen-pppext-eap-sim-13.txt
         **********************************************************************/
       case EAP_TYPE_SIM:
-        if (tree)
-          dissect_eap_sim(eap_tree, tvb, offset, size);
+        dissect_eap_sim(eap_tree, tvb, pinfo, offset, size);
         break; /* EAP_TYPE_SIM */
 
         /*********************************************************************
@@ -1170,8 +1274,7 @@ dissect_eap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
         **********************************************************************/
       case EAP_TYPE_AKA:
       case EAP_TYPE_AKA_PRIME:
-        if (tree)
-          dissect_eap_aka(eap_tree, tvb, offset, size);
+        dissect_eap_aka(eap_tree, tvb, pinfo, offset, size);
         break; /* EAP_TYPE_AKA */
 
         /*********************************************************************
@@ -1234,6 +1337,28 @@ proto_register_eap(void)
     { &hf_eap_identity, {
       "Identity", "eap.identity",
       FT_STRING, BASE_NONE, NULL, 0x0,
+      NULL, HFILL }},
+
+    { &hf_eap_identity_wlan_prefix, {
+      "WLAN Identity Prefix", "eap.identity.wlan.prefix",
+      FT_CHAR, BASE_HEX, VALS(eap_identity_wlan_prefix_vals), 0x0,
+      NULL, HFILL }},
+
+    { &hf_eap_identity_wlan_mcc, {
+      "WLAN Identity Mobile Country Code", "eap.identity.wlan.mcc",
+      FT_UINT16, BASE_DEC|BASE_EXT_STRING, &E212_codes_ext, 0x0, NULL, HFILL }},
+
+    { &hf_eap_identity_wlan_mcc_mnc_2digits, {
+      "WLAN Identity Mobile Network Code", "eap.identity.wlan.mnc",
+      FT_UINT16, BASE_DEC|BASE_EXT_STRING, &mcc_mnc_2digits_codes_ext, 0x0, NULL, HFILL }},
+
+    { &hf_eap_identity_wlan_mcc_mnc_3digits, {
+      "WLAN Identity Mobile Network Code", "eap.identity.wlan.mnc",
+      FT_UINT16, BASE_DEC|BASE_EXT_STRING, &mcc_mnc_3digits_codes_ext, 0x0, NULL, HFILL }},
+
+    { &hf_eap_identity_actual_len, {
+      "Identity Actual Length", "eap.identity.actual_len",
+      FT_UINT16, BASE_DEC, NULL, 0x0,
       NULL, HFILL }},
 
     { &hf_eap_notification, {
@@ -1529,7 +1654,8 @@ proto_register_eap(void)
     &ett_eap_sim_attr,
     &ett_eap_aka_attr,
     &ett_eap_exp_attr,
-    &ett_eap_tls_flags
+    &ett_eap_tls_flags,
+    &ett_identity
   };
   static ei_register_info ei[] = {
      { &ei_eap_ms_chap_v2_length, { "eap.ms_chap_v2.length.invalid", PI_PROTOCOL, PI_WARN, "Invalid Length", EXPFILL }},
@@ -1550,8 +1676,9 @@ proto_register_eap(void)
   expert_register_field_array(expert_eap, ei, array_length(ei));
 
   eap_handle = register_dissector("eap", dissect_eap, proto_eap);
-  register_init_routine(eap_tls_defragment_init);
-  register_cleanup_routine(eap_tls_defragment_cleanup);
+
+  reassembly_table_register(&eap_tls_reassembly_table,
+                        &addresses_reassembly_table_functions);
 }
 
 void
@@ -1563,6 +1690,7 @@ proto_reg_handoff_eap(void)
   ssl_handle = find_dissector_add_dependency("ssl", proto_eap);
 
   dissector_add_uint("ppp.protocol", PPP_EAP, eap_handle);
+  dissector_add_uint("eapol.type", EAPOL_EAP, eap_handle);
 }
 /*
  * Editor modelines

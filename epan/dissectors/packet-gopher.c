@@ -8,19 +8,7 @@
  *
  * Copied from packet-banana.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -77,7 +65,6 @@ static const value_string item_types[] = {
 
 #define TCP_DEFAULT_RANGE "70"
 
-static range_t *global_gopher_tcp_range = NULL;
 static range_t *gopher_tcp_range = NULL;
 
 /* Returns TRUE if the packet is from a client */
@@ -175,7 +162,7 @@ dissect_gopher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                 ti = proto_tree_add_string(gopher_tree, hf_gopher_dir_item, tvb,
                                 offset, line_len + 1, name);
                 dir_tree = proto_item_add_subtree(ti, ett_dir_item);
-                proto_tree_add_item(dir_tree, hf_gopher_di_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+                proto_tree_add_item(dir_tree, hf_gopher_di_type, tvb, offset, 1, ENC_ASCII|ENC_NA);
                 proto_tree_add_item(dir_tree, hf_gopher_di_name, tvb, offset + 1,
                                     sel_start - offset - 2, ENC_ASCII|ENC_NA);
                 proto_tree_add_item(dir_tree, hf_gopher_di_selector, tvb, sel_start,
@@ -202,21 +189,9 @@ dissect_gopher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
 /* Preference callbacks */
 static void
-range_delete_gopher_tcp_callback(guint32 port) {
-      dissector_delete_uint("tcp.port", port, gopher_handle);
-}
-
-static void
-range_add_gopher_tcp_callback(guint32 port) {
-    dissector_add_uint("tcp.port", port, gopher_handle);
-}
-
-static void
 gopher_prefs_apply(void) {
-    range_foreach(gopher_tcp_range, range_delete_gopher_tcp_callback);
-    g_free(gopher_tcp_range);
-    gopher_tcp_range = range_copy(global_gopher_tcp_range);
-    range_foreach(gopher_tcp_range, range_add_gopher_tcp_callback);
+
+    gopher_tcp_range = prefs_get_range_value("gopher", "tcp.port");
 }
 
 /* Register the protocol with Wireshark */
@@ -238,7 +213,7 @@ proto_register_gopher(void)
         },
         { &hf_gopher_di_type,
             { "Type", "gopher.directory.type",
-                FT_UINT8, BASE_HEX, VALS(item_types), 0,
+                FT_CHAR, BASE_HEX, VALS(item_types), 0,
                 NULL, HFILL }
         },
         { &hf_gopher_di_name,
@@ -269,8 +244,6 @@ proto_register_gopher(void)
         }
     };
 
-    module_t *gopher_module;
-
     /* Setup protocol subtree array */
     static gint *ett[] = {
         &ett_gopher,
@@ -278,28 +251,24 @@ proto_register_gopher(void)
     };
 
     /* Register the protocol name and description */
-    proto_gopher = proto_register_protocol("Gopher",
-        "Gopher", "gopher");
+    proto_gopher = proto_register_protocol("Gopher", "Gopher", "gopher");
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_gopher, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    /* Initialize dissector preferences */
-    gopher_module = prefs_register_protocol(proto_gopher, gopher_prefs_apply);
-
-    range_convert_str(&global_gopher_tcp_range, TCP_DEFAULT_RANGE, 65535);
-    gopher_tcp_range = range_empty();
-    prefs_register_range_preference(gopher_module, "tcp.port", "TCP Ports",
-                                    "TCP Ports range",
-                                    &global_gopher_tcp_range, 65535);
+    /* Preferences for this module are generated when registering with
+       dissector tables and need the callback function to get the
+       port range values
+     */
+    prefs_register_protocol(proto_gopher, gopher_prefs_apply);
 }
 
 void
 proto_reg_handoff_gopher(void)
 {
     gopher_handle = create_dissector_handle(dissect_gopher, proto_gopher);
-    gopher_prefs_apply();
+    dissector_add_uint_range_with_preference("tcp.port", TCP_DEFAULT_RANGE, gopher_handle);
 }
 
 /*

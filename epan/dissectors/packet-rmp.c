@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -44,6 +32,8 @@ static int hf_rmp_size = -1;
 static int hf_rmp_reserved = -1;
 
 static gint ett_rmp = -1;
+
+static dissector_handle_t rmp_handle;
 
 /*
  *  Possible values for "rmp_type" fields.
@@ -91,7 +81,7 @@ const value_string rmp_error_vals[] = {
 	{ RMP_E_NODFLT,       "Default File Does Not Exist" },
 	{ RMP_E_OPENDFLT,     "Default File Open Failed" },
 	{ RMP_E_BADSID,       "Bad Session Id" },
-	{ RMP_E_OPENDFLT,     "Bad Packet Detected" },
+	{ RMP_E_BADPACKET,    "Bad Packet Detected" },
 	{ 0x00,               NULL }
 };
 
@@ -242,15 +232,12 @@ proto_register_rmp(void)
 	proto_register_field_array(proto_rmp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	register_dissector("rmp", dissect_rmp, proto_rmp);
+	rmp_handle = register_dissector("rmp", dissect_rmp, proto_rmp);
 }
 
 void
 proto_reg_handoff_rmp(void)
 {
-	dissector_handle_t rmp_handle;
-
-	rmp_handle = find_dissector("rmp");
 	dissector_add_uint("hpext.dxsap", HPEXT_DXSAP, rmp_handle);
 	dissector_add_uint("hpext.dxsap", HPEXT_SXSAP, rmp_handle);
 }

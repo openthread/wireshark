@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,7 +20,7 @@
 #include <unistd.h>
 #endif
 
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -61,6 +49,12 @@ get_args_as_string(int argc, char **argv, int optindex)
         len += (int) strlen(argv[i]);
         len++;    /* space, or '\0' if this is the last argument */
     }
+
+    /*
+     * If no arguments, return empty string
+     */
+    if (len == 0)
+        return g_strdup("");
 
     /*
      * Allocate the buffer for the string.
@@ -169,9 +163,9 @@ const gchar *get_conn_cfilter(void) {
         if (g_strv_length(tokens) == 4) {
             remip = sanitize_filter_ip(tokens[0]);
             locip = sanitize_filter_ip(tokens[2]);
-            g_string_printf(filter_str, "not (tcp port %s and %s host %s "
-                             "and tcp port %s and %s host %s)", tokens[1], host_ip_af(remip), remip,
-                tokens[3], host_ip_af(locip), locip);
+            g_string_printf(filter_str, "not (tcp port %s and host %s "
+                             "and tcp port %s and host %s)", tokens[1], remip,
+                tokens[3], locip);
             g_free(remip);
             g_free(locip);
         }
@@ -180,8 +174,8 @@ const gchar *get_conn_cfilter(void) {
         tokens = g_strsplit(env, " ", 3);
         if (g_strv_length(tokens) == 3) {
             remip = sanitize_filter_ip(tokens[2]);
-            g_string_printf(filter_str, "not (tcp port %s and %s host %s "
-                "and tcp port %s)", tokens[1], host_ip_af(remip), tokens[0], remip);
+            g_string_printf(filter_str, "not (tcp port %s and host %s "
+                "and tcp port %s)", tokens[1], tokens[0], remip);
             g_free(remip);
         }
         g_strfreev(tokens);
@@ -193,7 +187,7 @@ const gchar *get_conn_cfilter(void) {
             return "";
         }
         remip = sanitize_filter_ip(env);
-        g_string_printf(filter_str, "not %s host %s", host_ip_af(remip), remip);
+        g_string_printf(filter_str, "not host %s", remip);
         g_free(remip);
     } else if ((env = getenv("DISPLAY")) != NULL) {
         /*
@@ -322,8 +316,7 @@ const gchar *get_conn_cfilter(void) {
             }
         }
 
-        g_string_printf(filter_str, "not %s host %s",
-            host_ip_af(phostname), phostname);
+        g_string_printf(filter_str, "not host %s", phostname);
         g_free(phostname);
 #ifdef _WIN32
     } else if (GetSystemMetrics(SM_REMOTESESSION)) {

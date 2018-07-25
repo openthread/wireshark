@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * History:
  * ---------------------------------
@@ -42,6 +30,8 @@ void proto_reg_handoff_pw_hdlc(void);
 
 static dissector_handle_t ppp_handle;
 static dissector_handle_t fr_handle;
+static dissector_handle_t pw_hdlc_nocw_fr_handle;
+static dissector_handle_t pw_ppp_handle;
 
 static gint proto_pw_hdlc_nocw_fr = -1;
 static gint proto_pw_hdlc_nocw_hdlc_ppp = -1;
@@ -218,16 +208,14 @@ void proto_register_pw_hdlc(void)
 
 	proto_register_field_array(proto_pw_hdlc_nocw_fr, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+
+	pw_hdlc_nocw_fr_handle = register_dissector("pw_hdlc_nocw_fr", dissect_pw_hdlc_nocw_fr, proto_pw_hdlc_nocw_fr );
+	pw_ppp_handle = register_dissector("pw_hdlc_nocw_hdlc_ppp", dissect_pw_hdlc_nocw_hdlc_ppp, proto_pw_hdlc_nocw_hdlc_ppp );
 }
 
 void proto_reg_handoff_pw_hdlc(void)
 {
-	dissector_handle_t pw_fr_handle, pw_ppp_handle;
-
-	pw_fr_handle = create_dissector_handle( dissect_pw_hdlc_nocw_fr, proto_pw_hdlc_nocw_fr );
-	dissector_add_for_decode_as( "mpls.label", pw_fr_handle );
-
-	pw_ppp_handle = create_dissector_handle( dissect_pw_hdlc_nocw_hdlc_ppp, proto_pw_hdlc_nocw_hdlc_ppp );
+	dissector_add_for_decode_as( "mpls.label", pw_hdlc_nocw_fr_handle );
 	dissector_add_for_decode_as( "mpls.label", pw_ppp_handle );
 
 	ppp_handle = find_dissector_add_dependency( "ppp", proto_pw_hdlc_nocw_hdlc_ppp );

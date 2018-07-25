@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -683,6 +671,13 @@ dissect_hdfs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     return tvb_captured_length(tvb);
 }
 
+static void
+apply_hdfs_prefs(void)
+{
+  /* HDFS uses the port preference to determine request/response */
+  tcp_port = prefs_get_uint_value("hdfs", "tcp.port");;
+}
+
 /* registers the protcol with the given names */
 void
 proto_register_hdfs(void)
@@ -1040,26 +1035,12 @@ proto_register_hdfs(void)
         &ett_hdfs
     };
 
-    module_t *hdfs_module;
-
-    proto_hdfs = proto_register_protocol (
-        "HDFS Protocol", /* name       */
-        "HDFS",      /* short name */
-        "hdfs"       /* abbrev     */
-        );
+    proto_hdfs = proto_register_protocol ("HDFS Protocol", "HDFS", "hdfs");
 
     proto_register_field_array(proto_hdfs, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    hdfs_module = prefs_register_protocol(proto_hdfs, proto_reg_handoff_hdfs);
-
-    prefs_register_uint_preference(hdfs_module,
-                                   "tcp.port",
-                                   "TCP port for HDFS",
-                                   "Set the TCP port for HDFS",
-                                   10,
-                                   &tcp_port);
-
+    prefs_register_protocol(proto_hdfs, apply_hdfs_prefs);
     hdfs_handle = register_dissector("hdfs", dissect_hdfs, proto_hdfs);
 }
 
@@ -1067,21 +1048,7 @@ proto_register_hdfs(void)
 void
 proto_reg_handoff_hdfs(void)
 {
-    static gboolean initialized = FALSE;
-    static guint saved_tcp_port;
-
-    if (!initialized) {
-        dissector_add_for_decode_as("tcp.port", hdfs_handle);
-        initialized = TRUE;
-    } else if (saved_tcp_port != 0) {
-        dissector_delete_uint("tcp.port", saved_tcp_port, hdfs_handle);
-    }
-
-    if (tcp_port != 0) {
-        dissector_add_uint("tcp.port", tcp_port, hdfs_handle);
-    }
-
-    saved_tcp_port = tcp_port;
+    dissector_add_for_decode_as_with_preference("tcp.port", hdfs_handle);
 }
 /*
  * Editor modelines

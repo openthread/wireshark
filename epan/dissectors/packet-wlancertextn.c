@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -57,7 +45,7 @@ static int hf_wlancertextn_SSIDList_PDU = -1;     /* SSIDList */
 static int hf_wlancertextn_SSIDList_item = -1;    /* SSID */
 
 /*--- End of included file: packet-wlancertextn-hf.c ---*/
-#line 46 "./asn1/wlancertextn/packet-wlancertextn-template.c"
+#line 34 "./asn1/wlancertextn/packet-wlancertextn-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -66,7 +54,7 @@ static int hf_wlancertextn_SSIDList_item = -1;    /* SSID */
 static gint ett_wlancertextn_SSIDList = -1;
 
 /*--- End of included file: packet-wlancertextn-ett.c ---*/
-#line 49 "./asn1/wlancertextn/packet-wlancertextn-template.c"
+#line 37 "./asn1/wlancertextn/packet-wlancertextn-template.c"
 
 
 /*--- Included file: packet-wlancertextn-fn.c ---*/
@@ -106,7 +94,7 @@ static int dissect_SSIDList_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto
 
 
 /*--- End of included file: packet-wlancertextn-fn.c ---*/
-#line 51 "./asn1/wlancertextn/packet-wlancertextn-template.c"
+#line 39 "./asn1/wlancertextn/packet-wlancertextn-template.c"
 
 
 /*--- proto_register_wlancertextn ----------------------------------------------*/
@@ -127,7 +115,7 @@ void proto_register_wlancertextn(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-wlancertextn-hfarr.c ---*/
-#line 59 "./asn1/wlancertextn/packet-wlancertextn-template.c"
+#line 47 "./asn1/wlancertextn/packet-wlancertextn-template.c"
   };
 
   /* List of subtrees */
@@ -138,7 +126,7 @@ void proto_register_wlancertextn(void) {
     &ett_wlancertextn_SSIDList,
 
 /*--- End of included file: packet-wlancertextn-ettarr.c ---*/
-#line 64 "./asn1/wlancertextn/packet-wlancertextn-template.c"
+#line 52 "./asn1/wlancertextn/packet-wlancertextn-template.c"
   };
 
   /* Register protocol */
@@ -161,7 +149,7 @@ void proto_reg_handoff_wlancertextn(void) {
 
 
 /*--- End of included file: packet-wlancertextn-dis-tab.c ---*/
-#line 79 "./asn1/wlancertextn/packet-wlancertextn-template.c"
+#line 67 "./asn1/wlancertextn/packet-wlancertextn-template.c"
   oid_add_from_string("id-kp-eapOverPPP","1.3.6.1.5.5.7.3.13");
   oid_add_from_string("id-kp-eapOverLAN","1.3.6.1.5.5.7.3.14");
 }

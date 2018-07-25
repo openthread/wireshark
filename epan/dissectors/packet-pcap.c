@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Based on the RANAP dissector
  *
@@ -252,7 +240,7 @@ typedef enum _ProtocolIE_ID_enum {
 } ProtocolIE_ID_enum;
 
 /*--- End of included file: packet-pcap-val.h ---*/
-#line 60 "./asn1/pcap/packet-pcap-template.c"
+#line 48 "./asn1/pcap/packet-pcap-template.c"
 
 static dissector_handle_t pcap_handle = NULL;
 
@@ -1405,7 +1393,7 @@ static int hf_pcap_AvailableSubChannelNumbers_subCh1 = -1;
 static int hf_pcap_AvailableSubChannelNumbers_subCh0 = -1;
 
 /*--- End of included file: packet-pcap-hf.c ---*/
-#line 67 "./asn1/pcap/packet-pcap-template.c"
+#line 55 "./asn1/pcap/packet-pcap-template.c"
 
 /* Initialize the subtree pointers */
 static int ett_pcap = -1;
@@ -1808,7 +1796,7 @@ static gint ett_pcap_UnsuccessfulOutcome = -1;
 static gint ett_pcap_Outcome = -1;
 
 /*--- End of included file: packet-pcap-ett.c ---*/
-#line 72 "./asn1/pcap/packet-pcap-template.c"
+#line 60 "./asn1/pcap/packet-pcap-template.c"
 
 /* Global variables */
 static guint32 ProcedureCode;
@@ -13518,7 +13506,7 @@ static int dissect_PCAP_PDU_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto
 
 
 /*--- End of included file: packet-pcap-fn.c ---*/
-#line 96 "./asn1/pcap/packet-pcap-template.c"
+#line 84 "./asn1/pcap/packet-pcap-template.c"
 
 static int dissect_ProtocolIEFieldValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
@@ -13575,7 +13563,6 @@ proto_reg_handoff_pcap(void)
     static range_t *ssn_range;
 
     if (! prefs_initialized) {
-        pcap_handle = find_dissector("pcap");
         sccp_ssn_table = find_dissector_table("sccp.ssn");
         prefs_initialized = TRUE;
 
@@ -13719,12 +13706,12 @@ proto_reg_handoff_pcap(void)
 
 
 /*--- End of included file: packet-pcap-dis-tab.c ---*/
-#line 156 "./asn1/pcap/packet-pcap-template.c"
+#line 143 "./asn1/pcap/packet-pcap-template.c"
     } else {
         dissector_delete_uint_range("sccp.ssn", ssn_range, pcap_handle);
-        g_free(ssn_range);
+        wmem_free(wmem_epan_scope(), ssn_range);
     }
-    ssn_range = range_copy(global_ssn_range);
+    ssn_range = range_copy(wmem_epan_scope(), global_ssn_range);
     dissector_add_uint_range("sccp.ssn", ssn_range, pcap_handle);
 }
 
@@ -18300,7 +18287,7 @@ void proto_register_pcap(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-pcap-hfarr.c ---*/
-#line 172 "./asn1/pcap/packet-pcap-template.c"
+#line 159 "./asn1/pcap/packet-pcap-template.c"
   };
 
   /* List of subtrees */
@@ -18704,7 +18691,7 @@ void proto_register_pcap(void) {
     &ett_pcap_Outcome,
 
 /*--- End of included file: packet-pcap-ettarr.c ---*/
-#line 178 "./asn1/pcap/packet-pcap-template.c"
+#line 165 "./asn1/pcap/packet-pcap-template.c"
   };
 
   module_t *pcap_module;
@@ -18718,22 +18705,22 @@ void proto_register_pcap(void) {
   pcap_module = prefs_register_protocol(proto_pcap, proto_reg_handoff_pcap);
 
   /* Register dissector */
-  register_dissector("pcap", dissect_pcap, proto_pcap);
+  pcap_handle = register_dissector("pcap", dissect_pcap, proto_pcap);
 
   /* Register dissector tables */
-  pcap_ies_dissector_table = register_dissector_table("pcap.ies", "PCAP-PROTOCOL-IES", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_ies_p1_dissector_table = register_dissector_table("pcap.ies.pair.first", "PCAP-PROTOCOL-IES-PAIR FirstValue", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_ies_p2_dissector_table = register_dissector_table("pcap.ies.pair.second", "PCAP-PROTOCOL-IES-PAIR SecondValue", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_extension_dissector_table = register_dissector_table("pcap.extension", "PCAP-PROTOCOL-EXTENSION", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_proc_imsg_dissector_table = register_dissector_table("pcap.proc.imsg", "PCAP-ELEMENTARY-PROCEDURE InitiatingMessage", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_proc_sout_dissector_table = register_dissector_table("pcap.proc.sout", "PCAP-ELEMENTARY-PROCEDURE SuccessfulOutcome", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_proc_uout_dissector_table = register_dissector_table("pcap.proc.uout", "PCAP-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  pcap_proc_out_dissector_table = register_dissector_table("pcap.proc.out", "PCAP-ELEMENTARY-PROCEDURE Outcome", proto_pcap, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  pcap_ies_dissector_table = register_dissector_table("pcap.ies", "PCAP-PROTOCOL-IES", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_ies_p1_dissector_table = register_dissector_table("pcap.ies.pair.first", "PCAP-PROTOCOL-IES-PAIR FirstValue", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_ies_p2_dissector_table = register_dissector_table("pcap.ies.pair.second", "PCAP-PROTOCOL-IES-PAIR SecondValue", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_extension_dissector_table = register_dissector_table("pcap.extension", "PCAP-PROTOCOL-EXTENSION", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_proc_imsg_dissector_table = register_dissector_table("pcap.proc.imsg", "PCAP-ELEMENTARY-PROCEDURE InitiatingMessage", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_proc_sout_dissector_table = register_dissector_table("pcap.proc.sout", "PCAP-ELEMENTARY-PROCEDURE SuccessfulOutcome", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_proc_uout_dissector_table = register_dissector_table("pcap.proc.uout", "PCAP-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", proto_pcap, FT_UINT32, BASE_DEC);
+  pcap_proc_out_dissector_table = register_dissector_table("pcap.proc.out", "PCAP-ELEMENTARY-PROCEDURE Outcome", proto_pcap, FT_UINT32, BASE_DEC);
 
 
   /* Preferences */
   /* Set default SSNs */
-  range_convert_str(&global_ssn_range, "", MAX_SSN);
+  range_convert_str(wmem_epan_scope(), &global_ssn_range, "", MAX_SSN);
 
   prefs_register_range_preference(pcap_module, "ssn", "SCCP SSNs",
                                   "SCCP (and SUA) SSNs to decode as PCAP",

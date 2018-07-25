@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -106,7 +94,7 @@ static int hf_pkix1explicit_min_01 = -1;          /* ASId */
 static int hf_pkix1explicit_max_01 = -1;          /* ASId */
 
 /*--- End of included file: packet-pkix1explicit-hf.c ---*/
-#line 54 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
+#line 42 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -136,7 +124,7 @@ static gint ett_pkix1explicit_ASIdOrRange = -1;
 static gint ett_pkix1explicit_ASRange = -1;
 
 /*--- End of included file: packet-pkix1explicit-ett.c ---*/
-#line 57 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
+#line 45 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
 
 int
 dissect_pkix1explicit_Certificate(gboolean implicit_tag _U_, tvbuff_t *tvb, int offset, asn1_ctx_t *actx _U_, proto_tree *tree, int hf_index) {
@@ -571,7 +559,6 @@ dissect_pkix1explicit_T_addressFamily(gboolean implicit_tag _U_, tvbuff_t *tvb _
 
 
 
-
   return offset;
 }
 
@@ -825,7 +812,7 @@ static int dissect_ASIdentifiers_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, 
 
 
 /*--- End of included file: packet-pkix1explicit-fn.c ---*/
-#line 98 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
+#line 86 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
 
 
 /*--- proto_register_pkix1explicit ----------------------------------------------*/
@@ -941,11 +928,11 @@ void proto_register_pkix1explicit(void) {
         NULL, HFILL }},
     { &hf_pkix1explicit_type_01,
       { "type", "pkix1explicit.type",
-        FT_STRING, BASE_NONE, NULL, 0,
+        FT_STRING, STR_UNICODE, NULL, 0,
         "TeletexString", HFILL }},
     { &hf_pkix1explicit_value_01,
       { "value", "pkix1explicit.value",
-        FT_STRING, BASE_NONE, NULL, 0,
+        FT_STRING, STR_UNICODE, NULL, 0,
         "TeletexString", HFILL }},
     { &hf_pkix1explicit_IPAddrBlocks_item,
       { "IPAddressFamily", "pkix1explicit.IPAddressFamily_element",
@@ -1021,7 +1008,7 @@ void proto_register_pkix1explicit(void) {
         "ASId", HFILL }},
 
 /*--- End of included file: packet-pkix1explicit-hfarr.c ---*/
-#line 117 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
+#line 105 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
   };
 
   /* List of subtrees */
@@ -1054,7 +1041,7 @@ void proto_register_pkix1explicit(void) {
     &ett_pkix1explicit_ASRange,
 
 /*--- End of included file: packet-pkix1explicit-ettarr.c ---*/
-#line 123 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
+#line 111 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
   };
 
   /* Register protocol */
@@ -1081,6 +1068,6 @@ void proto_reg_handoff_pkix1explicit(void) {
 
 
 /*--- End of included file: packet-pkix1explicit-dis-tab.c ---*/
-#line 140 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
+#line 128 "./asn1/pkix1explicit/packet-pkix1explicit-template.c"
 }
 

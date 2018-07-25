@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2002 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -85,7 +73,6 @@
 #include <epan/prefs.h>
 #include <epan/conversation.h>
 #include <epan/tap.h>
-#include <epan/srt_table.h>
 #include <epan/reassemble.h>
 #include <epan/expert.h>
 #include "packet-scsi.h"
@@ -795,19 +782,6 @@ const int *cdb_control_fields[6] = {
     NULL
 };
 
-static void
-scsi_defragment_init(void)
-{
-    reassembly_table_init(&scsi_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-scsi_defragment_cleanup(void)
-{
-    reassembly_table_destroy(&scsi_reassembly_table);
-}
-
 static const fragment_items scsi_frag_items = {
     &ett_scsi_fragment,
     &ett_scsi_fragments,
@@ -866,7 +840,6 @@ static const value_string scsi_spc_vals[] = {
     /* 0x7F */    {SCSI_SPC_VARLENCDB          , "Variable Length CDB"},
     /* 0x83 */    {SCSI_SPC_EXTCOPY            , "Extended Copy"},
     /* 0x84 */    {SCSI_SPC_RECVCOPY           , "Receive Copy"},
-    /* 0x84 */    {SCSI_SPC_RCVCOPYRESULTS     , "Receive Copy Results"},
     /* 0x86 */    {SCSI_SPC_ACCESS_CONTROL_IN  , "Access Control In"},
     /* 0x87 */    {SCSI_SPC_ACCESS_CONTROL_OUT , "Access Control Out"},
     /* 0xA0 */    {SCSI_SPC_REPORTLUNS         , "Report LUNs"},
@@ -964,6 +937,8 @@ static const value_string scsi_naa_designator_type_val[] = {
     {0, NULL},
 };
 
+static const unit_name_string units_100_milliseconds = { "100ms", NULL };
+
 #define SCSI_NUM_PROCEDURES 256
 typedef struct scsistat_tap_data
 {
@@ -974,7 +949,7 @@ typedef struct scsistat_tap_data
 } scsistat_tap_data_t;
 
 static void
-scsistat_init(struct register_srt* srt, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+scsistat_init(struct register_srt* srt, GArray* srt_array)
 {
     scsistat_tap_data_t* tap_data = (scsistat_tap_data_t*)get_srt_table_param_data(srt);
     srt_stat_table *scsi_srt_table;
@@ -982,7 +957,7 @@ scsistat_init(struct register_srt* srt, GArray* srt_array, srt_gui_init_cb gui_c
 
     DISSECTOR_ASSERT(tap_data);
 
-    scsi_srt_table = init_srt_table(tap_data->prog, NULL, srt_array, SCSI_NUM_PROCEDURES, NULL, tap_data->hf_name, gui_callback, gui_data, tap_data);
+    scsi_srt_table = init_srt_table(tap_data->prog, NULL, srt_array, SCSI_NUM_PROCEDURES, NULL, tap_data->hf_name, tap_data);
     for (i = 0; i < SCSI_NUM_PROCEDURES; i++)
     {
         init_srt_table_row(scsi_srt_table, i, val_to_str_ext_const(i, tap_data->cdbnames_ext, "Unknown-0x%02x"));
@@ -1018,7 +993,7 @@ scsistat_packet(void *pss, packet_info *pinfo, epan_dissect_t *edt _U_, const vo
     return 1;
 }
 
-static guint
+guint
 scsistat_param(register_srt_t* srt, const char* opt_arg, char** err)
 {
     int pos = 0;
@@ -1062,7 +1037,7 @@ scsistat_param(register_srt_t* srt, const char* opt_arg, char** err)
     }
     else
     {
-        *err = g_strdup_printf("<cmdset>[,<filter>]");
+        *err = g_strdup("<cmdset>[,<filter>]");
     }
 
     return pos;
@@ -3846,7 +3821,7 @@ dissect_scsi_log_page(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
             if (log_parameter && log_parameter->dissector) {
                 tvbuff_t *param_tvb;
 
-                param_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),paramlen), paramlen);
+                param_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),paramlen), paramlen);
                 log_parameter->dissector(param_tvb, pinfo, log_tree);
             } else {
                 /* We did not have a dissector for this page/parameter so
@@ -4012,10 +3987,13 @@ dissect_scsi_spc_modepage(tvbuff_t *tvb, packet_info *pinfo _U_,
                           proto_tree *tree, guint offset, guint8 pcode, guint8 spf, guint8 subpcode)
 {
     guint8 flags, proto;
+    guint32 burst_size, condition_timer;
 
     switch (pcode) {
     case SCSI_SPC_MODEPAGE_CTL:
         if (!spf) {
+            guint32 timeout_period;
+
             /* standard page for control */
             proto_tree_add_item(tree, hf_scsi_modesns_tst, tvb, offset+2, 1, ENC_BIG_ENDIAN);
             proto_tree_add_item(tree, hf_scsi_spc_modepage_gltsd, tvb, offset+2, 1, ENC_BIG_ENDIAN);
@@ -4028,8 +4006,8 @@ dissect_scsi_spc_modepage(tvbuff_t *tvb, packet_info *pinfo _U_,
             proto_tree_add_item(tree, hf_scsi_spc_modepage_swp, tvb, offset+4, 1, ENC_NA);
             proto_tree_add_item(tree, hf_scsi_spc_modepage_autoload_mode, tvb, offset+5, 1, ENC_BIG_ENDIAN);
             proto_tree_add_item(tree, hf_scsi_spc_modepage_ready_aer_holdoff_period, tvb, offset+6, 2, ENC_BIG_ENDIAN);
-            proto_tree_add_uint(tree, hf_scsi_spc_modepage_busy_timeout_period, tvb, offset+8, 2,
-                                tvb_get_ntohs(tvb, offset+8)*100);
+            timeout_period = tvb_get_ntohs(tvb, offset+8)*100;
+            proto_tree_add_uint(tree, hf_scsi_spc_modepage_busy_timeout_period, tvb, offset+8, 2, timeout_period);
             proto_tree_add_item(tree, hf_scsi_spc_modepage_extended_self_test_completion_time, tvb, offset+10, 2, ENC_BIG_ENDIAN);
         } else {
             switch (subpcode) {
@@ -4058,14 +4036,14 @@ dissect_scsi_spc_modepage(tvbuff_t *tvb, packet_info *pinfo _U_,
         proto_tree_add_item(tree, hf_scsi_spc_modepage_bus_inactivity_limit, tvb, offset+4, 2, ENC_BIG_ENDIAN);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_disconnect_time_limit, tvb, offset+6, 2, ENC_BIG_ENDIAN);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_connect_time_limit, tvb, offset+8, 2, ENC_BIG_ENDIAN);
-        proto_tree_add_uint(tree, hf_scsi_spc_modepage_maximum_burst_size, tvb, offset+10, 2,
-                            tvb_get_ntohs(tvb, offset+10)*512);
+        burst_size = tvb_get_ntohs(tvb, offset+10)*512;
+        proto_tree_add_uint(tree, hf_scsi_spc_modepage_maximum_burst_size, tvb, offset+10, 2, burst_size);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_emdp, tvb, offset+12, 1, ENC_NA);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_faa, tvb, offset+12, 1, ENC_NA);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_fab, tvb, offset+12, 1, ENC_NA);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_fac, tvb, offset+12, 1, ENC_NA);
-        proto_tree_add_uint(tree, hf_scsi_spc_modepage_first_burst_size, tvb, offset+14, 2,
-                            tvb_get_ntohs(tvb, offset+14)*512);
+        burst_size = tvb_get_ntohs(tvb, offset+14)*512;
+        proto_tree_add_uint(tree, hf_scsi_spc_modepage_first_burst_size, tvb, offset+14, 2, burst_size);
         break;
     case SCSI_SPC_MODEPAGE_INFOEXCP:
         flags = tvb_get_guint8(tvb, offset+2);
@@ -4090,10 +4068,10 @@ dissect_scsi_spc_modepage(tvbuff_t *tvb, packet_info *pinfo _U_,
     case SCSI_SPC_MODEPAGE_PWR:
         proto_tree_add_item(tree, hf_scsi_spc_modepage_idle, tvb, offset+3, 1, ENC_NA);
         proto_tree_add_item(tree, hf_scsi_spc_modepage_standby, tvb, offset+3, 1, ENC_NA);
-        proto_tree_add_uint(tree, hf_scsi_spc_modepage_idle_condition_timer, tvb, offset+4, 2,
-                            tvb_get_ntohs(tvb, offset+4) * 100);
-        proto_tree_add_uint(tree, hf_scsi_spc_modepage_standby_condition_timer, tvb, offset+6, 2,
-                            tvb_get_ntohs(tvb, offset+6) * 100);
+        condition_timer = tvb_get_ntohs(tvb, offset+4) * 100;
+        proto_tree_add_uint(tree, hf_scsi_spc_modepage_idle_condition_timer, tvb, offset+4, 2, condition_timer);
+        condition_timer = tvb_get_ntohs(tvb, offset+6) * 100;
+        proto_tree_add_uint(tree, hf_scsi_spc_modepage_standby_condition_timer, tvb, offset+6, 2, condition_timer);
         break;
     case SCSI_SPC_MODEPAGE_LUN:
         return FALSE;
@@ -4642,7 +4620,7 @@ dissect_spc_modeselect6(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         payload_len -= 1;
 
         if (tvb_reported_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
+            blockdesc_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, FALSE);
         }
         offset += desclen;
@@ -4736,7 +4714,7 @@ dissect_spc_modeselect10(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         payload_len -= 2;
 
         if (tvb_reported_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
+            blockdesc_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, longlba);
         }
         offset += desclen;
@@ -4866,7 +4844,7 @@ dissect_spc_modesense6(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 
         if (tvb_reported_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
+            blockdesc_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, FALSE);
         }
         offset += desclen;
@@ -4948,15 +4926,15 @@ dissect_spc_modesense10(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 2;    /* skip LongLBA byte and reserved byte */
         tot_len -= 2;
 
-        if (tot_len < 1)
+        if (tot_len < 2)
             return;
-        desclen = tvb_get_guint8(tvb, offset);
-        proto_tree_add_item(tree, hf_scsi_modesel_block_descriptor_length8, tvb, offset, 1, ENC_BIG_ENDIAN);
+        desclen = tvb_get_ntohs(tvb, offset);
+        proto_tree_add_item(tree, hf_scsi_modesel_block_descriptor_length16, tvb, offset, 2, ENC_BIG_ENDIAN);
         offset += 2;
         tot_len -= 2;
 
         if (tvb_reported_length_remaining(tvb, offset)>0) {
-            blockdesc_tvb = tvb_new_subset(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
+            blockdesc_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(tvb_reported_length_remaining(tvb, offset),desclen), desclen);
             dissect_scsi_blockdescs(blockdesc_tvb, pinfo, tree, cdata, longlba);
         }
         offset += desclen;
@@ -7429,7 +7407,7 @@ proto_register_scsi(void)
       { &hf_scsi_ssc2_modepage_active_partition, { "Active Partition", "scsi.ssc2.modepage.active_partition", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_ssc2_modepage_write_object_buffer_full_ratio, { "Write Object Buffer Full Ratio", "scsi.ssc2.modepage.write_object_buffer_full_ratio", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_ssc2_modepage_read_object_buffer_empty_ratio, { "Read Object Buffer Empty Ratio", "scsi.ssc2.modepage.read_object_buffer_empty_ratio", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_scsi_ssc2_modepage_write_delay_time, { "Write Delay time", "scsi.ssc2.modepage.write_delay_time", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_scsi_ssc2_modepage_write_delay_time, { "Write Delay time", "scsi.ssc2.modepage.write_delay_time", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_100_milliseconds, 0x0, NULL, HFILL }},
       { &hf_scsi_ssc2_modepage_obr, { "OBR", "scsi.ssc2.modepage.obr", FT_BOOLEAN, 8, NULL, 0x80, NULL, HFILL }},
       { &hf_scsi_ssc2_modepage_gap_size, { "Gap Size", "scsi.ssc2.modepage.gap_size", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_scsi_ssc2_modepage_eod_defined, { "EOD Defined", "scsi.ssc2.modepage.eod_defined", FT_UINT8, BASE_DEC, NULL, 0xE0, NULL, HFILL }},
@@ -7767,8 +7745,8 @@ proto_register_scsi(void)
                                    "Reassemble fragmented SCSI DATA IN/OUT transfers",
                                    "Whether fragmented SCSI DATA IN/OUT transfers should be reassembled",
                                    &scsi_defragment);
-    register_init_routine(scsi_defragment_init);
-    register_cleanup_routine(scsi_defragment_cleanup);
+    reassembly_table_register(&scsi_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
     register_srt_table(proto_scsi, NULL, 1, scsistat_packet, scsistat_init, scsistat_param);
 

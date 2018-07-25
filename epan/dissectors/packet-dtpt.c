@@ -11,19 +11,7 @@
  *
  * Copied from packet-quake.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -136,7 +124,7 @@ static dissector_handle_t	dtpt_conversation_handle;
 
 
 /* Server port */
-static unsigned int gbl_dtptServerPort=5721;
+#define TCP_SERVER_PORT     5721
 
 static const value_string names_message_type[] = {
 #define LookupBeginRequest 9
@@ -190,10 +178,14 @@ static const value_string names_socket_type[] = {
 	{	0, NULL	}
 };
 
+#define DTPT_PROTO_IP		0
+#define DTPT_PROTO_TCP		IP_PROTO_TCP
+#define DTPT_PROTO_UDP		IP_PROTO_UDP
+
 static const value_string names_protocol[] = {
-	{	IP_PROTO_IP,	"IPPROTO_IP"	},
-	{	IP_PROTO_TCP,	"IPPROTO_TCP"	},
-	{	IP_PROTO_UDP,	"IPPROTP_UDP"	},
+	{	DTPT_PROTO_IP,	"IPPROTO_IP"	},
+	{	DTPT_PROTO_TCP,	"IPPROTO_TCP"	},
+	{	DTPT_PROTO_UDP,	"IPPROTP_UDP"	},
 	{	0, NULL	}
 };
 
@@ -454,38 +446,36 @@ dissect_dtpt_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		dtpt_queryset_tree = proto_tree_add_subtree(dtpt_tree, tvb, 4, 60,
 			ett_dtpt_queryset, NULL, "QuerySet raw");
 
-		if (dtpt_queryset_tree) {
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_size,
-				tvb, offset+4+0,  4, queryset_size);
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_service_instance_name_pointer,
-				tvb, offset+4+4,  4, tvb_get_letohl(tvb, offset+4+ 4));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_service_class_id_pointer,
-				tvb, offset+4+8,  4, tvb_get_letohl(tvb, offset+4+ 8));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_version,
-				tvb, offset+4+12, 4, tvb_get_letohl(tvb, offset+4+12));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_comment_pointer,
-				tvb, offset+4+16, 4, tvb_get_letohl(tvb, offset+4+16));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_namespace,
-				tvb, offset+4+20, 4, tvb_get_letohl(tvb, offset+4+20));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_provider_id_pointer,
-				tvb, offset+4+24, 4, tvb_get_letohl(tvb, offset+4+24));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_context_pointer,
-				tvb, offset+4+28, 4, tvb_get_letohl(tvb, offset+4+28));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_protocols_number,
-				tvb, offset+4+32, 4, tvb_get_letohl(tvb, offset+4+32));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_protocols_pointer,
-				tvb, offset+4+36, 4, tvb_get_letohl(tvb, offset+4+36));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_query_string_pointer,
-				tvb, offset+4+40, 4, tvb_get_letohl(tvb, offset+4+40));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_cs_addrs_number,
-				tvb, offset+4+44, 4, tvb_get_letohl(tvb, offset+4+44));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_cs_addrs_pointer,
-				tvb, offset+4+48, 4, tvb_get_letohl(tvb, offset+4+48));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_output_flags,
-				tvb, offset+4+52, 4, tvb_get_letohl(tvb, offset+4+52));
-			proto_tree_add_uint(dtpt_queryset_tree, hf_dtpt_queryset_blob_pointer,
-				tvb, offset+4+56, 4, tvb_get_letohl(tvb, offset+4+56));
-		}
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_size,
+			tvb, offset+4+0,  4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_service_instance_name_pointer,
+			tvb, offset+4+4,  4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_service_class_id_pointer,
+			tvb, offset+4+8,  4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_version,
+			tvb, offset+4+12, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_comment_pointer,
+			tvb, offset+4+16, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_namespace,
+			tvb, offset+4+20, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_provider_id_pointer,
+			tvb, offset+4+24, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_context_pointer,
+			tvb, offset+4+28, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_protocols_number,
+			tvb, offset+4+32, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_protocols_pointer,
+			tvb, offset+4+36, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_query_string_pointer,
+			tvb, offset+4+40, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_cs_addrs_number,
+			tvb, offset+4+44, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_cs_addrs_pointer,
+			tvb, offset+4+48, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_output_flags,
+			tvb, offset+4+52, 4, ENC_LITTLE_ENDIAN);
+		proto_tree_add_item(dtpt_queryset_tree, hf_dtpt_queryset_blob_pointer,
+			tvb, offset+4+56, 4, ENC_LITTLE_ENDIAN);
 	}
 
 	offset += 4;
@@ -520,12 +510,10 @@ dissect_dtpt_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				dtpt_protocol_tree = proto_tree_add_subtree_format(dtpt_protocols_tree,
 						tvb, offset+4+4+i*8, 8, ett_dtpt_protocol, NULL, "Protocol[%d]", i+1);
 
-				if (dtpt_protocol_tree) {
-					proto_tree_add_uint(dtpt_protocol_tree, hf_dtpt_protocol_family,
-					tvb, offset+4+4+i*8, 4, tvb_get_letohl(tvb, offset+4+4+i*8));
-					proto_tree_add_uint(dtpt_protocol_tree, hf_dtpt_protocol_protocol,
-					tvb, offset+4+4+i*8+4, 4, tvb_get_letohl(tvb, offset+4+4+i*8+4));
-				}
+				proto_tree_add_item(dtpt_protocol_tree, hf_dtpt_protocol_family,
+					tvb, offset+4+4+i*8, 4, ENC_LITTLE_ENDIAN);
+				proto_tree_add_item(dtpt_protocol_tree, hf_dtpt_protocol_protocol,
+					tvb, offset+4+4+i*8+4, 4, ENC_LITTLE_ENDIAN);
 			}
 		}
 	}
@@ -566,20 +554,18 @@ dissect_dtpt_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				dtpt_addr1_tree = proto_tree_add_subtree_format(dtpt_addrs_tree,
 					tvb, offset, 24, ett_dtpt_cs_addr1, NULL, "Address[%u] Part 1", i+1);
 
-				if (dtpt_addr1_tree) {
-					proto_tree_add_uint(dtpt_addr1_tree, hf_dtpt_cs_addr_local_pointer,
-						tvb, offset+ 0, 4, tvb_get_letohl(tvb, offset+ 0));
-					proto_tree_add_uint(dtpt_addr1_tree, hf_dtpt_cs_addr_local_length,
-						tvb, offset+ 4, 4, tvb_get_letohl(tvb, offset+ 4));
-					proto_tree_add_uint(dtpt_addr1_tree, hf_dtpt_cs_addr_remote_pointer,
-						tvb, offset+ 8, 4, tvb_get_letohl(tvb, offset+ 8));
-					proto_tree_add_uint(dtpt_addr1_tree, hf_dtpt_cs_addr_remote_length,
-						tvb, offset+12, 4, tvb_get_letohl(tvb, offset+12));
-					proto_tree_add_uint(dtpt_addr1_tree, hf_dtpt_cs_addr_socket_type,
-						tvb, offset+16, 4, tvb_get_letohl(tvb, offset+16));
-					proto_tree_add_uint(dtpt_addr1_tree, hf_dtpt_cs_addr_protocol,
-						tvb, offset+20, 4, tvb_get_letohl(tvb, offset+20));
-				}
+				proto_tree_add_item(dtpt_addr1_tree, hf_dtpt_cs_addr_local_pointer,
+					tvb, offset+ 0, 4, ENC_LITTLE_ENDIAN);
+				proto_tree_add_item(dtpt_addr1_tree, hf_dtpt_cs_addr_local_length,
+					tvb, offset+ 4, 4, ENC_LITTLE_ENDIAN);
+				proto_tree_add_item(dtpt_addr1_tree, hf_dtpt_cs_addr_remote_pointer,
+					tvb, offset+ 8, 4, ENC_LITTLE_ENDIAN);
+				proto_tree_add_item(dtpt_addr1_tree, hf_dtpt_cs_addr_remote_length,
+					tvb, offset+12, 4, ENC_LITTLE_ENDIAN);
+				proto_tree_add_item(dtpt_addr1_tree, hf_dtpt_cs_addr_socket_type,
+					tvb, offset+16, 4, ENC_LITTLE_ENDIAN);
+				proto_tree_add_item(dtpt_addr1_tree, hf_dtpt_cs_addr_protocol,
+					tvb, offset+20, 4, ENC_LITTLE_ENDIAN);
 
 				dtpt_addr2_tree = proto_tree_add_subtree_format(dtpt_addrs_tree,
 					tvb, offset2, -1, ett_dtpt_cs_addr2, &dtpt_addr2_item, "Address[%u] Part 2", i+1);
@@ -616,8 +602,8 @@ dissect_dtpt_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 			if (dtpt_blobraw_tree) {
 				proto_tree_add_uint(dtpt_blobraw_tree, hf_dtpt_blob_size,
 					tvb, offset+4+0, 4, blob_size);
-				proto_tree_add_uint(dtpt_blobraw_tree, hf_dtpt_blob_data_pointer,
-					tvb, offset+4+4, 4, tvb_get_letohl(tvb,offset+4+4));
+				proto_tree_add_item(dtpt_blobraw_tree, hf_dtpt_blob_data_pointer,
+					tvb, offset+4+4, 4, ENC_LITTLE_ENDIAN);
 			}
 		}
 	}
@@ -1166,7 +1152,6 @@ proto_register_dtpt(void)
 		&ett_dtpt_blobraw,
 		&ett_dtpt_blob,
 	};
-	module_t *dtpt_module;
 	e_guid_t guid_svcid_inet_hostaddrbyname       = {0x0002A803, 0x0000, 0x0000, {0xC0,0,0,0,0,0,0,0x46}};
 	e_guid_t guid_svcid_inet_hostaddrbyinetstring = {0x0002A801, 0x0000, 0x0000, {0xC0,0,0,0,0,0,0,0x46}};
 	guids_add_guid(&guid_svcid_inet_hostaddrbyname,       "SVCID_INET_HOSTADDRBYNAME");
@@ -1176,38 +1161,19 @@ proto_register_dtpt(void)
 					     "DTPT", "dtpt");
 	proto_register_field_array(proto_dtpt, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	/* Register a configuration option for port */
-	dtpt_module = prefs_register_protocol(proto_dtpt,
-					      proto_reg_handoff_dtpt);
-	prefs_register_uint_preference(dtpt_module, "tcp.port",
-				       "DTPT Server TCP Port",
-				       "Set the TDP port for the DTPT Server",
-				       10, &gbl_dtptServerPort);
 }
 
 
 void
 proto_reg_handoff_dtpt(void)
 {
-	static dissector_handle_t	dtpt_handle;
-	static gboolean Initialized=FALSE;
-	static int ServerPort;
+	dissector_handle_t	dtpt_handle;
 
-	if (!Initialized) {
-		dtpt_handle = create_dissector_handle(dissect_dtpt, proto_dtpt);
-		dtpt_conversation_handle = create_dissector_handle(dissect_dtpt_conversation, proto_dtpt);
-/**		dtpt_data_handle = create_dissector_handle(dissect_dtpt_data, proto_dtpt); **/
+	dtpt_handle = create_dissector_handle(dissect_dtpt, proto_dtpt);
+	dtpt_conversation_handle = create_dissector_handle(dissect_dtpt_conversation, proto_dtpt);
+/**	dtpt_data_handle = create_dissector_handle(dissect_dtpt_data, proto_dtpt); **/
 
-		Initialized=TRUE;
-	} else {
-		dissector_delete_uint("tcp.port", ServerPort, dtpt_handle);
-	}
-
-	/* set port for future deletes */
-	ServerPort=gbl_dtptServerPort;
-
-	dissector_add_uint("tcp.port", gbl_dtptServerPort, dtpt_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_SERVER_PORT, dtpt_handle);
 }
 
 /*

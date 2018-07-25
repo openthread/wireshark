@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef __STATS_TREE_H
 #define __STATS_TREE_H
@@ -28,7 +16,7 @@
 #include <epan/packet_info.h>
 #include <epan/tap.h>
 #include <epan/stat_groups.h>
-#include "../register.h"
+#include "register.h"
 #include "ws_symbol_export.h"
 
 #ifdef __cplusplus
@@ -181,6 +169,9 @@ WS_DLL_PUBLIC int stats_tree_create_pivot_by_pname(stats_tree *st,
 WS_DLL_PUBLIC int stats_tree_tick_pivot(stats_tree *st,
                                         int pivot_id,
                                         const gchar *pivot_value);
+
+extern void stats_tree_cleanup(void);
+
 
 /*
  * manipulates the value of the node whose name is given

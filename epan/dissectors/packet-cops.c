@@ -26,19 +26,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -72,20 +60,10 @@
 
 void proto_register_cops(void);
 
-/* Preference: Variable to hold the tcp port preference */
-static guint global_cops_tcp_port = TCP_PORT_COPS;
-
 /* Preference: desegmentation of COPS */
 static gboolean cops_desegment = TRUE;
 
 #define COPS_OBJECT_HDR_SIZE 4
-
-#if 0
-/* Null string of type "guchar[]". */
-static const guchar nullstring[] = "";
-
-#define SAFE_STRING(s)  (((s) != NULL) ? (s) : nullstring)
-#endif
 
 static const value_string cops_flags_vals[] = {
     { 0x00,          "None" },
@@ -392,7 +370,7 @@ static const value_string table_cops_reason_subcode_delete[] =
     { 0x3,  "Authorization revoked" },
     { 0x4,  "Unexpected Gate-Open" },
     { 0x5,  "Local Gate-Close failure" },
-    { 0x127,"Unspecified error" },
+    { 0x7f,"Unspecified error" },
     { 0, NULL },
 };
 
@@ -407,7 +385,7 @@ static const value_string table_cops_reason_subcode_close[] =
     { 0x5,  "Timer T1 expiration; no Commit received from MTA" },
     { 0x6,  "Timer T7 expiration; Service Flow reservation timeout" },
     { 0x7,  "Timer T8 expiration; Service Flow inactivity in the upstream direction" },
-    { 0x127,"Unspecified error" },
+    { 0x7f,"Unspecified error" },
     { 0, NULL },
 };
 
@@ -421,7 +399,7 @@ static const value_string table_cops_packetcable_error[] =
     { 0x5,  "Gate already set" },
     { 0x6,  "Missing Required Object" },
     { 0x7,  "Invalid Object" },
-    { 0x127,"Unspecified error" },
+    { 0x7f,"Unspecified error" },
     { 0, NULL },
 };
 
@@ -794,12 +772,14 @@ static expert_field ei_cops_trailing_garbage = EI_INIT;
 static expert_field ei_cops_bad_cops_object_length = EI_INIT;
 static expert_field ei_cops_bad_cops_pr_object_length = EI_INIT;
 static expert_field ei_cops_unknown_c_num = EI_INIT;
-static expert_field ei_cops_unknown_s_num = EI_INIT;
+/* static expert_field ei_cops_unknown_s_num = EI_INIT; */
 
 /* For PacketCable */
 static gint ett_cops_subtree = -1;
 
 static gint ett_docsis_request_transmission_policy = -1;
+
+static dissector_handle_t cops_handle;
 
 /* For request/response matching */
 typedef struct _cops_conv_info_t {
@@ -1055,7 +1035,29 @@ dissect_cops_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
         }
 
         if (!pinfo->fd->flags.visited) {
-            cops_call = wmem_new(wmem_file_scope(), cops_call_t);
+            /*
+             * XXX - yes, we're setting all the fields in this
+             * structure, but there's padding between op_code
+             * and solicited, and that can't be set.
+             *
+             * For some reason, on some platforms, valgrind is
+             * complaining about a test of the solicited field
+             * accessing uninitialized data, perhaps because
+             * the 8 bytes containing op_code and solicited is
+             * being loaded as a unit.  If the compiler is, for
+             * example, turning a test of
+             *
+             *   cops_call->op_code == COPS_MSG_KA && !(cops_call->solicited)
+             *
+             * into a load of those 8 bytes and a comparison against a value
+             * with op_code being COPS_MSG_KA, solicited being false (0),
+             * *and* the padding being zero, it's buggy, but overly-"clever"
+             * buggy compilers do exist, so....)
+             *
+             * So we use wmem_new0() to forcibly zero out the entire
+             * structure before filling it in.
+             */
+            cops_call = wmem_new0(wmem_file_scope(), cops_call_t);
             cops_call->op_code = op_code;
             cops_call->solicited = is_solicited;
             cops_call->req_num = pinfo->num;
@@ -1316,7 +1318,7 @@ static void dissect_cops_object_data(tvbuff_t *tvb, packet_info *pinfo, guint32 
     guint16 r_type, m_type, reason, reason_sub, cmd_code, cmd_flags, error, error_sub,
             tcp_port, katimer, accttimer;
     guint32 ifindex;
-    struct e_in6_addr ipv6addr;
+    ws_in6_addr ipv6addr;
     oid_info_t* oid_info = NULL;
     guint32* pprid_subids = NULL;
     guint pprid_subids_len = 0;
@@ -2804,7 +2806,9 @@ void proto_register_cops(void)
         { &ei_cops_bad_cops_object_length, { "cops.bad_cops_object_length", PI_MALFORMED, PI_ERROR, "COPS object length is too short", EXPFILL }},
         { &ei_cops_bad_cops_pr_object_length, { "cops.bad_cops_pr_object_length", PI_MALFORMED, PI_ERROR, "COPS-PR object length is too short", EXPFILL }},
         { &ei_cops_unknown_c_num, { "cops.unknown_c_num", PI_UNDECODED, PI_NOTE, "Unknown C-Num value", EXPFILL }},
+#if 0
         { &ei_cops_unknown_s_num, { "cops.unknown_s_num", PI_UNDECODED, PI_NOTE, "Unknown S-Num value", EXPFILL }},
+#endif
     };
 
 
@@ -2812,8 +2816,7 @@ void proto_register_cops(void)
     expert_module_t* expert_cops;
 
     /* Register the protocol name and description */
-    proto_cops = proto_register_protocol("Common Open Policy Service",
-                                         "COPS", "cops");
+    proto_cops = proto_register_protocol("Common Open Policy Service", "COPS", "cops");
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_cops, hf, array_length(hf));
@@ -2822,14 +2825,10 @@ void proto_register_cops(void)
     expert_register_field_array(expert_cops, ei, array_length(ei));
 
     /* Make dissector findable by name */
-    register_dissector("cops", dissect_cops, proto_cops);
+    cops_handle = register_dissector("cops", dissect_cops, proto_cops);
 
     /* Register our configuration options for cops */
-    cops_module = prefs_register_protocol(proto_cops, proto_reg_handoff_cops);
-    prefs_register_uint_preference(cops_module,"tcp.cops_port",
-                                   "COPS TCP Port",
-                                   "Set the TCP port for COPS messages",
-                                   10,&global_cops_tcp_port);
+    cops_module = prefs_register_protocol(proto_cops, NULL);
     prefs_register_bool_preference(cops_module, "desegment",
                                    "Reassemble COPS messages spanning multiple TCP segments",
                                    "Whether the COPS dissector should reassemble messages spanning multiple TCP segments."
@@ -2851,21 +2850,12 @@ void proto_register_cops(void)
 
 void proto_reg_handoff_cops(void)
 {
-    static gboolean cops_prefs_initialized = FALSE;
-    static dissector_handle_t cops_handle;
-    static guint cops_tcp_port;
+    /* These could use a separate "preference name" (to avoid collision),
+        but they are IANA registered and users could still use Decode As */
+    dissector_add_uint("tcp.port", TCP_PORT_PKTCABLE_COPS, cops_handle);
+    dissector_add_uint("tcp.port", TCP_PORT_PKTCABLE_MM_COPS, cops_handle);
 
-    if (!cops_prefs_initialized) {
-        cops_handle = find_dissector("cops");
-        dissector_add_uint("tcp.port", TCP_PORT_PKTCABLE_COPS, cops_handle);
-        dissector_add_uint("tcp.port", TCP_PORT_PKTCABLE_MM_COPS, cops_handle);
-        cops_prefs_initialized = TRUE;
-    } else {
-        dissector_delete_uint("tcp.port",cops_tcp_port,cops_handle);
-    }
-    cops_tcp_port = global_cops_tcp_port;
-
-    dissector_add_uint("tcp.port", cops_tcp_port, cops_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_COPS, cops_handle);
 }
 
 

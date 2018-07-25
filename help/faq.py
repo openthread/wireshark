@@ -10,19 +10,7 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import sys
 import string
@@ -261,7 +249,7 @@ answer("""
 Wireshark&#174; is a network protocol analyzer. It lets you capture and
 interactively browse the traffic running on a computer network.  It has
 a rich and powerful feature set and is world's most popular tool of its
-kind. It runs on most computing platforms including Windows, OS X,
+kind. It runs on most computing platforms including Windows, macOS,
 Linux, and UNIX. Network professionals, security experts, developers,
 and educators around the world use it regularly. It is freely available
 as open source, and is released under the GNU General Public License
@@ -582,8 +570,7 @@ answer("""
 Many distributions have separate Wireshark packages, one for non-GUI
 components such as TShark, editcap, dumpcap, etc. and one for the GUI.
 If this is the case on your system, there's probably a separate package
-named <code>wireshark-gnome</code> or <code>wireshark-gtk+</code>.  Find it and
-install it.
+named <code>wireshark-qt</code>.  Find it and install it.
 """)
 
 
@@ -608,63 +595,6 @@ It's also possible that pcap.h and bpf.h have been installed in a strange
 location.  If this is the case, you may have to tweak aclocal.m4.
 """)
 
-
-question("""
-Why do I get the error
-
-<em>dftest_DEPENDENCIES was already defined in condition TRUE,
-which implies condition HAVE_PLUGINS_TRUE</em>
-
-when I try to build Wireshark from SVN or a SVN snapshot?
-""")
-
-answer("""
-You probably have automake 1.5 installed on your machine (the command
-<kbd>automake --version</kbd> will report the version of automake on
-your machine).  There is a bug in that version of automake that causes
-this problem; upgrade to a later version of automake (1.6 or later).
-""")
-
-question("""
-Why does the linker fail with a number of "Output line too long." messages
-followed by linker errors when I try to build Wireshark?
-""")
-
-answer("""
-The version of the <code>sed</code> command on your system is incapable of
-handling very long lines.  On Solaris, for example,
-<code>/usr/bin/sed</code> has a line length limit too low to allow
-<code>libtool</code> to work; <code>/usr/xpg4/bin/sed</code> can handle it, as
-can GNU <code>sed</code> if you have it installed.
-
-<br>
-
-On Solaris, changing your command search path to search
-<code>/usr/xpg4/bin</code> before <code>/usr/bin</code> should make the problem
-go away; on any platform on which you have this problem, installing GNU
-<code>sed</code> and changing your command path to search the directory in
-which it is installed before searching the directory with the version of
-<code>sed</code> that came with the OS should make the problem go away.
-""")
-
-question("""
-When I try to build Wireshark on Solaris, why does the link fail
-complaining that <code>plugin_list</code> is undefined?
-""")
-
-answer("""
-This appears to be due to a problem with some versions of the GTK+ and
-GLib packages from www.sunfreeware.org; un-install those packages, and
-try getting the 1.2.10 versions from that site, or the versions from <a
-href="http://www.thewrittenword.com">The Written Word</a>, or the
-versions from Sun's GNOME distribution, or the versions from the
-supplemental software CD that comes with the Solaris media kit, or build
-them from source from <a href="http://www.gtk.org/">the GTK Web
-site</a>.  Then re-run the configuration script, and try rebuilding
-Wireshark.  (If you get the 1.2.10 versions from www.sunfreeware.org, and
-the problem persists, un-install them and try installing one of the
-other versions mentioned.)
-""")
 
 question("""
 When I try to build Wireshark on Windows, why does the build fail because
@@ -694,28 +624,6 @@ section("Starting Wireshark")
 #################################################################
 
 
-question("""Why does Wireshark crash with a Bus Error when I try to run
-it on Solaris 8?""")
-
-answer("""
-Some versions of the GTK+ library from www.sunfreeware.org appear to be
-buggy, causing Wireshark to drop core with a Bus Error.  Un-install those
-packages, and try getting the 1.2.10 version from that site, or the
-version from <a href="http://www.thewrittenword.com">The Written
-Word</a>, or the version from Sun's GNOME distribution, or the version
-from the supplemental software CD that comes with the Solaris media kit,
-or build it from source from <a href="http://www.gtk.org/">the GTK Web
-site</a>.  Update the GLib library to the 1.2.10 version, from the same
-source, as well.  (If you get the 1.2.10 versions from
-www.sunfreeware.org, and the problem persists, un-install them and try
-installing one of the other versions mentioned.)
-
-<br>
-
-Similar problems may exist with older versions of GTK+ for earlier
-versions of Solaris.
-""")
-
 question("""When I try to run Wireshark, why does it complain about
 <code>sprint_realloc_objid</code> being undefined?""")
 
@@ -729,12 +637,12 @@ with version 4.2.2 or a later version.
 """)
 
 question("""
-I've installed Wireshark from Fink on OS X; why is it very slow to
+I've installed Wireshark from Fink on macOS; why is it very slow to
 start up?
 """)
 
 answer("""
-When an application is installed on OS X, prior to 10.4, it is usually
+When an application is installed on macOS, prior to 10.4, it is usually
 "prebound" to speed up launching the application.  (That's what the
 "Optimizing" phase of installation is.)
 
@@ -1204,7 +1112,7 @@ Most OSes do <strong>not</strong> support capturing the FCS of a frame
 on Ethernet, and probably do not support it on most other link-layer
 types.  Some drivres on some OSes do support it, such as some (all?)
 Ethernet drivers on NetBSD and possibly the driver for Apple's gigabit
-Ethernet interface in OS X; in those OSes, you might always get the
+Ethernet interface in macOS; in those OSes, you might always get the
 FCS, or you might only get the FCS if you capture in promiscuous mode
 (you'd have to determine which is the case).
 
@@ -1341,11 +1249,11 @@ Windows XP and Server 2003, and
 <code>\\Users\\<var>your login name</var>\\AppData\\Local\\Temp</code> on the main
 system disk on Windows Vista and later, so the capture file will probably be there.  If you
 are capturing on a single interface, it will have a name of the form,
-<code>wireshark_&lt;fmt&gt;_&lt;iface&gt;_YYYYmmddHHMMSS_XXXXXX</code>, where
+<code>wireshark_&lt;iface&gt;_YYYYmmddHHMMSS_XXXXXX.&lt;fmt&gt;</code>, where
 &lt;fmt&gt; is the capture file format (pcap or pcapng), and &lt;iface&gt; is
 the actual name of the interface you are capturing on; otherwise, if you are
 capturing on multiple interfaces, it will have a name of the form,
-<code>wireshark_&lt;N&gt;_interfaces_YYYYmmddHHMMSS_XXXXXX</code>, where &lt;N&gt;
+<code>wireshark_&lt;N&gt;_interfaces_YYYYmmddHHMMSS_XXXXXX.&lt;fmt&gt;</code>, where &lt;N&gt;
 is the number of simultaneous interfaces you are capturing on.  Please don't
 send a trace file greater than 1 MB when compressed; instead, make it available
 via FTP or HTTP, or say it's available but leave it up to a developer to ask

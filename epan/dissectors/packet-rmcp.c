@@ -9,19 +9,7 @@
  *
  * Copied from packet-tftp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -223,7 +211,7 @@ proto_register_rmcp(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 	rmcp_dissector_table = register_dissector_table(
-		"rmcp.class", "RMCP Class", proto_rmcp, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+		"rmcp.class", "RMCP Class", proto_rmcp, FT_UINT8, BASE_HEX);
 }
 
 void
@@ -255,7 +243,7 @@ proto_reg_handoff_rmcp(void)
 	dissector_handle_t rmcp_handle;
 
 	rmcp_handle = create_dissector_handle(dissect_rmcp, proto_rmcp);
-	dissector_add_uint("udp.port", UDP_PORT_RMCP, rmcp_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_RMCP, rmcp_handle);
 }
 
 void
@@ -264,7 +252,7 @@ proto_reg_handoff_rsp(void)
 	dissector_handle_t rsp_handle;
 
 	rsp_handle = create_dissector_handle(dissect_rsp, proto_rsp);
-	dissector_add_uint("udp.port", UDP_PORT_RMCP_SECURE, rsp_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_RMCP_SECURE, rsp_handle);
 }
 
 /*

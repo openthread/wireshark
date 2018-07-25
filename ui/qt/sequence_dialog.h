@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef SEQUENCE_DIALOG_H
@@ -29,10 +17,9 @@
 #include "cfile.h"
 
 #include "epan/packet.h"
+#include "epan/sequence_analysis.h"
 
-#include "ui/tap-sequence-analysis.h"
-
-#include "qcustomplot.h"
+#include <ui/qt/widgets/qcustomplot.h>
 #include "wireshark_dialog.h"
 
 #include <QMenu>
@@ -64,14 +51,10 @@ public:
     explicit SequenceDialog(QWidget &parent, CaptureFile &cf, SequenceInfo *info = NULL);
     ~SequenceDialog();
 
-signals:
-    void goToPacket(int packet_num);
-
 protected:
     void showEvent(QShowEvent *event);
     void resizeEvent(QResizeEvent *event);
     void keyPressEvent(QKeyEvent *event);
-    void mouseReleaseEvent(QMouseEvent *event);
 
 private slots:
     void updateWidgets();
@@ -81,14 +64,16 @@ private slots:
     void yAxisChanged(QCPRange range);
     void diagramClicked(QMouseEvent *event);
     void mouseMoved(QMouseEvent *event);
-    void mouseReleased(QMouseEvent *event);
+    void mouseWheeled(QWheelEvent *event);
 
     void fillDiagram();
 
     void on_buttonBox_accepted();
     void on_resetButton_clicked();
     void on_actionGoToPacket_triggered();
-    void on_showComboBox_activated(int index);
+    void on_actionGoToNextPacket_triggered() { goToAdjacentPacket(true); }
+    void on_actionGoToPreviousPacket_triggered() { goToAdjacentPacket(false); }
+    void on_displayFilterCheckBox_toggled(bool checked);
     void on_flowComboBox_activated(int index);
     void on_addressComboBox_activated(int index);
     void on_actionReset_triggered();
@@ -100,6 +85,8 @@ private slots:
     void on_actionMoveLeft1_triggered();
     void on_actionMoveUp1_triggered();
     void on_actionMoveDown1_triggered();
+    void on_actionZoomIn_triggered();
+    void on_actionZoomOut_triggered();
 
 private:
     Ui::SequenceDialog *ui;
@@ -108,12 +95,17 @@ private:
     int num_items_;
     guint32 packet_num_;
     double one_em_;
-    int node_label_w_;
+    int sequence_w_;
     QMenu ctx_menu_;
+    QCPItemText *key_text_;
+    QCPItemText *comment_text_;
 
+    void zoomXAxis(bool in);
     void panAxes(int x_pixels, int y_pixels);
     void resetAxes(bool keep_lower = false);
+    void goToAdjacentPacket(bool next);
 
+    static gboolean addFlowSequenceItem(const void *key, void *value, void *userdata);
 };
 
 #endif // SEQUENCE_DIALOG_H

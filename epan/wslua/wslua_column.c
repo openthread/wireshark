@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wslua_pinfo_common.h"
@@ -48,7 +36,7 @@ void Push_Columns(lua_State *L, Columns c)
 }
 
 
-WSLUA_CLASS_DEFINE(Column,FAIL_ON_NULL("Column"),NOP); /* A Column in the packet list. */
+WSLUA_CLASS_DEFINE(Column,FAIL_ON_NULL("Column")); /* A Column in the packet list. */
 
 struct col_names_t {
     const gchar* name;
@@ -261,7 +249,7 @@ int Column_register(lua_State *L) {
 }
 
 
-WSLUA_CLASS_DEFINE(Columns,NOP,NOP);
+WSLUA_CLASS_DEFINE(Columns,NOP);
 /* The Columns of the packet list. */
 
 WSLUA_METAMETHOD Columns__tostring(lua_State *L) {

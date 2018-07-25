@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -101,7 +89,7 @@ dissect_hci_h4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     proto_tree_add_item(main_tree, hf_hci_h4_type,
         tvb, 0, 1, ENC_LITTLE_ENDIAN);
-    col_append_fstr(pinfo->cinfo, COL_INFO, "%s",
+    col_append_str(pinfo->cinfo, COL_INFO,
             val_to_str(type, hci_h4_type_vals, "Unknown HCI packet type 0x%02x"));
 
     next_tvb = tvb_new_subset_remaining(tvb, 1);
@@ -142,7 +130,7 @@ proto_register_hci_h4(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     hci_h4_table = register_dissector_table("hci_h4.type",
-            "HCI H4 pdu type", proto_hci_h4, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+            "HCI H4 pdu type", proto_hci_h4, FT_UINT8, BASE_HEX);
 }
 
 void

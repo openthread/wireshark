@@ -16,19 +16,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Credit to Tomas Kukosa for developing the asn2wrs compiler.
  *
@@ -447,7 +435,7 @@ static int hf_h450_12_ssMWICallbackCall = -1;     /* NULL */
 static int hf_h450_12_ssCISilentMonitorPermitted = -1;  /* NULL */
 
 /*--- End of included file: packet-h450-hf.c ---*/
-#line 54 "./asn1/h450/packet-h450-template.c"
+#line 42 "./asn1/h450/packet-h450-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -625,7 +613,7 @@ static gint ett_h450_12_FeatureValues = -1;
 static gint ett_h450_12_FeatureControl = -1;
 
 /*--- End of included file: packet-h450-ett.c ---*/
-#line 57 "./asn1/h450/packet-h450-template.c"
+#line 45 "./asn1/h450/packet-h450-template.c"
 
 static expert_field ei_h450_unsupported_arg_type = EI_INIT;
 static expert_field ei_h450_unsupported_result_type = EI_INIT;
@@ -732,7 +720,7 @@ static const value_string h450_str_operation[] = {
   {  85, "cmnInform" },
 
 /*--- End of included file: packet-h450-table10.c ---*/
-#line 64 "./asn1/h450/packet-h450-template.c"
+#line 52 "./asn1/h450/packet-h450-template.c"
   {   0, NULL}
 };
 
@@ -820,7 +808,7 @@ static const value_string h450_str_error[] = {
 /* Unknown or empty loop list ERROR */
 
 /*--- End of included file: packet-h450-table20.c ---*/
-#line 69 "./asn1/h450/packet-h450-template.c"
+#line 57 "./asn1/h450/packet-h450-template.c"
   {   0, NULL}
 };
 
@@ -4485,7 +4473,7 @@ static int dissect_h450_12_CmnArg_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
 
 
 /*--- End of included file: packet-h450-fn.c ---*/
-#line 78 "./asn1/h450/packet-h450-template.c"
+#line 66 "./asn1/h450/packet-h450-template.c"
 
 typedef struct _h450_op_t {
   gint32 opcode;
@@ -4594,7 +4582,7 @@ static const h450_op_t h450_op_tab[] = {
   /* cmnInform                */ {  85, dissect_h450_12_CmnArg_PDU, NULL },
 
 /*--- End of included file: packet-h450-table11.c ---*/
-#line 87 "./asn1/h450/packet-h450-template.c"
+#line 75 "./asn1/h450/packet-h450-template.c"
 };
 
 typedef struct _h450_err_t {
@@ -4686,7 +4674,7 @@ static const h450_err_t h450_err_tab[] = {
 /* Unknown or empty loop list ERROR */
 
 /*--- End of included file: packet-h450-table21.c ---*/
-#line 96 "./asn1/h450/packet-h450-template.c"
+#line 84 "./asn1/h450/packet-h450-template.c"
 };
 
 static const h450_op_t *get_op(gint32 opcode) {
@@ -6288,7 +6276,7 @@ void proto_register_h450(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-h450-hfarr.c ---*/
-#line 265 "./asn1/h450/packet-h450-template.c"
+#line 253 "./asn1/h450/packet-h450-template.c"
   };
 
   /* List of subtrees */
@@ -6468,7 +6456,7 @@ void proto_register_h450(void) {
     &ett_h450_12_FeatureControl,
 
 /*--- End of included file: packet-h450-ettarr.c ---*/
-#line 270 "./asn1/h450/packet-h450-template.c"
+#line 258 "./asn1/h450/packet-h450-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -6491,12 +6479,12 @@ void proto_register_h450(void) {
   rose_ctx_init(&h450_rose_ctx);
 
   /* Register dissector tables */
-  h450_rose_ctx.arg_global_dissector_table = register_dissector_table("h450.ros.global.arg", "H.450 Operation Argument (global opcode)", proto_h450, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  h450_rose_ctx.res_global_dissector_table = register_dissector_table("h450.ros.global.res", "H.450 Operation Result (global opcode)", proto_h450, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  h450_rose_ctx.arg_local_dissector_table = register_dissector_table("h450.ros.local.arg", "H.450 Operation Argument (local opcode)", proto_h450, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  h450_rose_ctx.res_local_dissector_table = register_dissector_table("h450.ros.local.res", "H.450 Operation Result (local opcode)", proto_h450, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  h450_rose_ctx.err_global_dissector_table = register_dissector_table("h450.ros.global.err", "H.450 Error (global opcode)", proto_h450, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  h450_rose_ctx.err_local_dissector_table = register_dissector_table("h450.ros.local.err", "H.450 Error (local opcode)", proto_h450, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  h450_rose_ctx.arg_global_dissector_table = register_dissector_table("h450.ros.global.arg", "H.450 Operation Argument (global opcode)", proto_h450, FT_STRING, BASE_NONE);
+  h450_rose_ctx.res_global_dissector_table = register_dissector_table("h450.ros.global.res", "H.450 Operation Result (global opcode)", proto_h450, FT_STRING, BASE_NONE);
+  h450_rose_ctx.arg_local_dissector_table = register_dissector_table("h450.ros.local.arg", "H.450 Operation Argument (local opcode)", proto_h450, FT_UINT32, BASE_HEX);
+  h450_rose_ctx.res_local_dissector_table = register_dissector_table("h450.ros.local.res", "H.450 Operation Result (local opcode)", proto_h450, FT_UINT32, BASE_HEX);
+  h450_rose_ctx.err_global_dissector_table = register_dissector_table("h450.ros.global.err", "H.450 Error (global opcode)", proto_h450, FT_STRING, BASE_NONE);
+  h450_rose_ctx.err_local_dissector_table = register_dissector_table("h450.ros.local.err", "H.450 Error (local opcode)", proto_h450, FT_UINT32, BASE_HEX);
 
 }
 

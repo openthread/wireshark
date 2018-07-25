@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref 3GPP TS 44.031 version 11.0.0 Release 11
  * http://www.3gpp.org
@@ -884,7 +872,7 @@ static int hf_rrlp_GANSSModelID_model7 = -1;
 static int hf_rrlp_GANSSModelID_model8 = -1;
 
 /*--- End of included file: packet-rrlp-hf.c ---*/
-#line 55 "./asn1/rrlp/packet-rrlp-template.c"
+#line 43 "./asn1/rrlp/packet-rrlp-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_rrlp = -1;
@@ -1145,7 +1133,7 @@ static gint ett_rrlp_GANSSModelID = -1;
 static gint ett_rrlp_AssistanceNeeded = -1;
 
 /*--- End of included file: packet-rrlp-ett.c ---*/
-#line 59 "./asn1/rrlp/packet-rrlp-template.c"
+#line 47 "./asn1/rrlp/packet-rrlp-template.c"
 
 /* Include constants */
 
@@ -1157,7 +1145,7 @@ static gint ett_rrlp_AssistanceNeeded = -1;
 #define maxGANSSAssistanceData         40
 
 /*--- End of included file: packet-rrlp-val.h ---*/
-#line 62 "./asn1/rrlp/packet-rrlp-template.c"
+#line 50 "./asn1/rrlp/packet-rrlp-template.c"
 
 
 
@@ -7113,7 +7101,7 @@ static int dissect_PDU_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree
 
 
 /*--- End of included file: packet-rrlp-fn.c ---*/
-#line 65 "./asn1/rrlp/packet-rrlp-template.c"
+#line 53 "./asn1/rrlp/packet-rrlp-template.c"
 
 
 /*--- proto_register_rrlp -------------------------------------------*/
@@ -10403,7 +10391,7 @@ void proto_register_rrlp(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-rrlp-hfarr.c ---*/
-#line 74 "./asn1/rrlp/packet-rrlp-template.c"
+#line 62 "./asn1/rrlp/packet-rrlp-template.c"
   };
 
   /* List of subtrees */
@@ -10666,7 +10654,7 @@ void proto_register_rrlp(void) {
     &ett_rrlp_AssistanceNeeded,
 
 /*--- End of included file: packet-rrlp-ettarr.c ---*/
-#line 80 "./asn1/rrlp/packet-rrlp-template.c"
+#line 68 "./asn1/rrlp/packet-rrlp-template.c"
   };
 
 

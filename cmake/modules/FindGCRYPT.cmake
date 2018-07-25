@@ -15,7 +15,7 @@ IF (GCRYPT_INCLUDE_DIRS)
 ENDIF (GCRYPT_INCLUDE_DIRS)
 
 INCLUDE(FindWSWinLibs)
-FindWSWinLibs("gnutls-.*" "GCRYPT_HINTS")
+FindWSWinLibs("libgcrypt-.*" "GCRYPT_HINTS")
 
 FIND_PATH(GCRYPT_INCLUDE_DIR gcrypt.h
   HINTS
@@ -51,7 +51,7 @@ IF(GCRYPT_FOUND)
       CACHE PATH "Path to the Libgcrypt DLLs"
     )
     file( GLOB _gcrypt_dlls RELATIVE "${GCRYPT_DLL_DIR}"
-      "${GCRYPT_DLL_DIR}/libgcc_s_*.dll"
+      #"${GCRYPT_DLL_DIR}/libgcc_s_*.dll"
       "${GCRYPT_DLL_DIR}/libgcrypt-*.dll"
       "${GCRYPT_DLL_DIR}/libgpg-error*.dll"
     )

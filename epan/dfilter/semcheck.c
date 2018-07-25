@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,6 +21,10 @@
 #include <epan/exceptions.h>
 #include <epan/packet.h>
 
+#ifdef DEBUG_dfilter
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
+#endif
+
 #include <ftypes/ftypes-int.h>
 
 /* Enable debug logging by defining AM_CFLAGS
@@ -41,8 +33,8 @@
 
 #ifdef DEBUG_dfilter
 #define DebugLog(x) \
-	printf("%s:%u: ", __FILE__, __LINE__); \
-	printf x; \
+	ws_debug_printf("%s:%u: ", __FILE__, __LINE__); \
+	ws_debug_printf x; \
 	fflush(stdout)
 #else
 #define DebugLog(x) ;
@@ -99,6 +91,7 @@ compatible_ftypes(ftenum_t a, ftenum_t b)
 
 		case FT_BOOLEAN:
 		case FT_FRAMENUM:
+		case FT_CHAR:
 		case FT_UINT8:
 		case FT_UINT16:
 		case FT_UINT24:
@@ -110,6 +103,7 @@ compatible_ftypes(ftenum_t a, ftenum_t b)
 			switch (b) {
 				case FT_BOOLEAN:
 				case FT_FRAMENUM:
+				case FT_CHAR:
 				case FT_UINT8:
 				case FT_UINT16:
 				case FT_UINT24:
@@ -231,6 +225,7 @@ mk_fvalue_from_val_string(dfwork_t *dfw, header_field_info *hfinfo, char *s)
 			return NULL;
 
 		case FT_BOOLEAN:
+		case FT_CHAR:
 		case FT_UINT8:
 		case FT_UINT16:
 		case FT_UINT24:
@@ -367,6 +362,7 @@ is_bytes_type(enum ftenum type)
 		case FT_STRINGZPAD:
 		case FT_BOOLEAN:
 		case FT_FRAMENUM:
+		case FT_CHAR:
 		case FT_UINT8:
 		case FT_UINT16:
 		case FT_UINT24:
@@ -409,6 +405,7 @@ check_exists(dfwork_t *dfw, stnode_t *st_arg1)
 			/* This is OK */
 			break;
 		case STTYPE_STRING:
+		case STTYPE_CHARCONST:
 		case STTYPE_UNPARSED:
 			dfilter_fail(dfw, "\"%s\" is neither a field nor a protocol name.",
 					(char *)stnode_data(st_arg1));
@@ -603,6 +600,25 @@ check_function(dfwork_t *dfw, stnode_t *st_node)
 	}
 }
 
+/* Convert a character constant to a 1-byte BYTE_STRING containing the
+ * character. */
+static fvalue_t *
+dfilter_fvalue_from_charconst_string(dfwork_t *dfw, ftenum_t ftype, char *s, gboolean allow_partial_value)
+{
+	fvalue_t *fvalue;
+
+	fvalue = dfilter_fvalue_from_unparsed(dfw, FT_CHAR, s, allow_partial_value);
+	if (fvalue) {
+		char *temp_string;
+		/* It's valid. Create a 1-byte BYTE_STRING from its value. */
+		temp_string = g_strdup_printf("%02x", fvalue->value.uinteger);
+		FVALUE_FREE(fvalue);
+		fvalue = dfilter_fvalue_from_unparsed(dfw, ftype, temp_string, allow_partial_value);
+		g_free(temp_string);
+	}
+	return (fvalue);
+}
+
 /* If the LHS of a relation test is a FIELD, run some checks
  * and possibly some modifications of syntax tree nodes. */
 static void
@@ -653,7 +669,8 @@ check_relation_LHS_FIELD(dfwork_t *dfw, const char *relation_string,
 			THROW(TypeError);
 		}
 	}
-	else if (type2 == STTYPE_STRING || type2 == STTYPE_UNPARSED) {
+	else if (type2 == STTYPE_STRING || type2 == STTYPE_UNPARSED ||
+	         type2 == STTYPE_CHARCONST) {
 		s = (char *)stnode_data(st_arg2);
 		if (strcmp(relation_string, "matches") == 0) {
 			/* Convert to a FT_PCRE */
@@ -672,12 +689,32 @@ check_relation_LHS_FIELD(dfwork_t *dfw, const char *relation_string,
 
 			if (type2 == STTYPE_STRING)
 				fvalue = dfilter_fvalue_from_string(dfw, ftype1, s);
-			else
+			else if (type2 == STTYPE_CHARCONST &&
+			    strcmp(relation_string, "contains") == 0) {
+				/* The RHS should be the same type as the LHS,
+				 * but a character is just a one-byte byte
+				 * string. */
+				fvalue = dfilter_fvalue_from_charconst_string(dfw, ftype1, s, allow_partial_value);
+			} else
 				fvalue = dfilter_fvalue_from_unparsed(dfw, ftype1, s, allow_partial_value);
 
-			if (!fvalue) {
+			/*
+			 * If this is a character constant, just report the
+			 * error, don't try to treat it as a string from
+			 * a value_string table.
+			 */
+			if (!fvalue && type2 != STTYPE_CHARCONST) {
 				/* check value_string */
 				fvalue = mk_fvalue_from_val_string(dfw, hfinfo1, s);
+
+				/*
+				 * Ignore previous errors if this can be mapped
+				 * to an item from value_string.
+				 */
+				if (fvalue && dfw->error_message) {
+					g_free(dfw->error_message);
+					dfw->error_message = NULL;
+				}
 			}
 		}
 
@@ -689,6 +726,7 @@ check_relation_LHS_FIELD(dfwork_t *dfw, const char *relation_string,
 		if (stnode_type_id(st_node) == STTYPE_TEST) {
 			sttype_test_set2_args(st_node, st_arg1, new_st);
 		} else {
+			/* Replace STTYPE_UNPARSED element by resolved value. */
 			sttype_set_replace_element(st_node, st_arg2, new_st);
 		}
 		stnode_free(st_arg2);
@@ -734,7 +772,10 @@ check_relation_LHS_FIELD(dfwork_t *dfw, const char *relation_string,
 		if (strcmp(relation_string, "in") != 0) {
 			g_assert_not_reached();
 		}
-		/* Attempt to interpret one element of the set at a time */
+		/* Attempt to interpret one element of the set at a time. Each
+		 * element is represented by two items in the list, the element
+		 * value and NULL. Both will be replaced by a lower and upper
+		 * value if the element is a range. */
 		nodelist = (GSList*)stnode_data(st_arg2);
 		while (nodelist) {
 			stnode_t *node = (stnode_t*)nodelist->data;
@@ -744,8 +785,26 @@ check_relation_LHS_FIELD(dfwork_t *dfw, const char *relation_string,
 				THROW(TypeError);
 				break;
 			}
-			check_relation_LHS_FIELD(dfw, "==", can_func,
-					allow_partial_value, st_arg2, st_arg1, node);
+
+			nodelist = g_slist_next(nodelist);
+			g_assert(nodelist);
+			stnode_t *node_right = (stnode_t *)nodelist->data;
+			if (node_right) {
+				/* range type, check if comparison is possible. */
+				if (!ftype_can_ge(ftype1)) {
+					dfilter_fail(dfw, "%s (type=%s) cannot participate in '%s' comparison.",
+							hfinfo1->abbrev, ftype_pretty_name(ftype1),
+							">=");
+					THROW(TypeError);
+				}
+				check_relation_LHS_FIELD(dfw, ">=", ftype_can_ge,
+						allow_partial_value, st_arg2, st_arg1, node);
+				check_relation_LHS_FIELD(dfw, "<=", ftype_can_le,
+						allow_partial_value, st_arg2, st_arg1, node_right);
+			} else {
+				check_relation_LHS_FIELD(dfw, "==", can_func,
+						allow_partial_value, st_arg2, st_arg1, node);
+			}
 			nodelist = g_slist_next(nodelist);
 		}
 	}
@@ -797,7 +856,8 @@ check_relation_LHS_STRING(dfwork_t *dfw, const char* relation_string,
 		sttype_test_set2_args(st_node, new_st, st_arg2);
 		stnode_free(st_arg1);
 	}
-	else if (type2 == STTYPE_STRING || type2 == STTYPE_UNPARSED) {
+	else if (type2 == STTYPE_STRING || type2 == STTYPE_UNPARSED ||
+	         type2 == STTYPE_CHARCONST) {
 		/* Well now that's silly... */
 		dfilter_fail(dfw, "Neither \"%s\" nor \"%s\" are field or protocol names.",
 				(char *)stnode_data(st_arg1),
@@ -890,7 +950,8 @@ check_relation_LHS_UNPARSED(dfwork_t *dfw, const char* relation_string,
 		sttype_test_set2_args(st_node, new_st, st_arg2);
 		stnode_free(st_arg1);
 	}
-	else if (type2 == STTYPE_STRING || type2 == STTYPE_UNPARSED) {
+	else if (type2 == STTYPE_STRING || type2 == STTYPE_UNPARSED ||
+	         type2 == STTYPE_CHARCONST) {
 		/* Well now that's silly... */
 		dfilter_fail(dfw, "Neither \"%s\" nor \"%s\" are field or protocol names.",
 				(char *)stnode_data(st_arg1),
@@ -1067,6 +1128,25 @@ check_relation_LHS_RANGE(dfwork_t *dfw, const char *relation_string,
 		sttype_test_set2_args(st_node, st_arg1, new_st);
 		stnode_free(st_arg2);
 	}
+	else if (type2 == STTYPE_CHARCONST) {
+		DebugLog(("    5 check_relation_LHS_RANGE(type2 = STTYPE_CHARCONST)\n"));
+		s = (char*)stnode_data(st_arg2);
+		if (strcmp(relation_string, "matches") == 0) {
+			/* Convert to a FT_PCRE */
+			fvalue = dfilter_fvalue_from_unparsed(dfw, FT_PCRE, s, FALSE);
+		} else {
+			/* The RHS should be FT_BYTES, but a character is just a
+			 * one-byte byte string. */
+			fvalue = dfilter_fvalue_from_charconst_string(dfw, FT_BYTES, s, allow_partial_value);
+		}
+		if (!fvalue) {
+			DebugLog(("    5 check_relation_LHS_RANGE(type2 = STTYPE_UNPARSED): Could not convert from string!\n"));
+			THROW(TypeError);
+		}
+		new_st = stnode_new(STTYPE_FVALUE, fvalue);
+		sttype_test_set2_args(st_node, st_arg1, new_st);
+		stnode_free(st_arg2);
+	}
 	else if (type2 == STTYPE_RANGE) {
 		DebugLog(("    5 check_relation_LHS_RANGE(type2 = STTYPE_RANGE)\n"));
 		check_drange_sanity(dfw, st_arg2);
@@ -1110,7 +1190,7 @@ check_param_entity(dfwork_t *dfw, stnode_t *st_node)
 
 	e_type = stnode_type_id(st_node);
 	/* If there's an unparsed string, change it to an FT_STRING */
-	if (e_type == STTYPE_UNPARSED) {
+	if (e_type == STTYPE_UNPARSED || e_type == STTYPE_CHARCONST) {
 		s = (char*)stnode_data(st_node);
 		fvalue = dfilter_fvalue_from_unparsed(dfw, FT_STRING, s, FALSE);
 		if (!fvalue) {
@@ -1193,7 +1273,7 @@ check_relation_LHS_FUNCTION(dfwork_t *dfw, const char *relation_string,
 		sttype_test_set2_args(st_node, st_arg1, new_st);
 		stnode_free(st_arg2);
 	}
-	else if (type2 == STTYPE_UNPARSED) {
+	else if (type2 == STTYPE_UNPARSED || type2 == STTYPE_CHARCONST) {
 		s = (char*)stnode_data(st_arg2);
 		if (strcmp(relation_string, "matches") == 0) {
 			/* Convert to a FT_PCRE */
@@ -1297,6 +1377,7 @@ header_field_info   *hfinfo;
 					allow_partial_value, st_node, st_arg1, st_arg2);
 			break;
 		case STTYPE_UNPARSED:
+		case STTYPE_CHARCONST:
 			check_relation_LHS_UNPARSED(dfw, relation_string, can_func,
 					allow_partial_value, st_node, st_arg1, st_arg2);
 			break;

@@ -6,19 +6,7 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # Common variables and functions for fuzz and randpkt tests.
 
@@ -50,15 +38,15 @@ MAX_PASSES=0
 
 # These may be set to your liking
 # Stop the child process if it's running longer than x seconds
-MAX_CPU_TIME=300
+MAX_CPU_TIME=600
 # Stop the child process if it's using more than y * 1024 bytes
-MAX_VMEM=500000
+MAX_VMEM=1000000
 # Stop the child process if its stack is larger than than z * 1024 bytes
-# Windows XP:   2033
-# Windows 7:    2034
-# OS X 10.6:    8192
-# Linux 2.6.24: 8192
-# Solaris 10:   8192
+# Windows XP:    2033
+# Windows 7:     2034
+# Mac OS X 10.6: 8192
+# Linux 2.6.24:  8192
+# Solaris 10:    8192
 MAX_STACK=2033
 # Insert z times an error into the capture file (0.02 seems to be a good value to find errors)
 ERR_PROB=0.02
@@ -122,6 +110,16 @@ export MallocBadFreeAbort=1
 
 # Address Sanitizer options
 export ASAN_OPTIONS=detect_leaks=0
+
+# See if we were configured with gcc or clang's AddressSanitizer.
+CONFIGURED_WITH_ASAN=0
+# If tshark is built with ASAN this will generate an error. We could
+# also pass help=1 and look for help text.
+ASAN_OPTIONS=Invalid_Option_Flag $TSHARK -h > /dev/null 2>&1
+if [ $? -ne 0 ] ; then
+    CONFIGURED_WITH_ASAN=1
+fi
+export CONFIGURED_WITH_ASAN
 
 # Create an error report
 function ws_exit_error() {

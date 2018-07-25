@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "time_shift_dialog.h"
@@ -25,8 +13,9 @@
 #include "wireshark_application.h"
 
 #include <ui/time_shift.h>
-#include "tango_colors.h"
+#include <ui/qt/utils/tango_colors.h>
 
+#include <QStyleOption>
 
 TimeShiftDialog::TimeShiftDialog(QWidget *parent, capture_file *cf) :
     QDialog(parent),
@@ -37,6 +26,7 @@ TimeShiftDialog::TimeShiftDialog(QWidget *parent, capture_file *cf) :
     ts_ui_->setupUi(this);
     setWindowTitle(wsApp->windowTitleString(tr("Time Shift")));
     apply_button_ = ts_ui_->buttonBox->button(QDialogButtonBox::Apply);
+    apply_button_->setDefault(true);
     connect(apply_button_, SIGNAL(clicked()), this, SLOT(applyTimeShift()));
 
     QStyleOption style_opt;

@@ -20,19 +20,7 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -41,7 +29,9 @@
 #include <epan/stat_tap_ui.h>
 #include <epan/tap.h>
 #include <epan/prefs.h>
+#include <epan/address_types.h>
 #include <wiretap/wtap.h>
+#include <epan/addr_resolv.h>
 
 #include "packet-q708.h"
 #include "packet-sccp.h"
@@ -101,6 +91,8 @@ static gint ett_mtp3_label_dpc = -1;
 static gint ett_mtp3_label_opc = -1;
 
 static dissector_table_t mtp3_sio_dissector_table;
+
+static int mtp3_address_type = -1;
 
 typedef enum {
   ITU_PC_STRUCTURE_NONE    = 1,
@@ -233,7 +225,7 @@ const value_string mtp3_network_indicator_vals[] = {
  * helper routine to format a point code in structured form
  */
 
-void
+static void
 mtp3_pc_to_str_buf(const guint32 pc, gchar *buf, int buf_len)
 {
   switch (mtp3_standard)
@@ -308,7 +300,7 @@ mtp3_pc_structured(void)
  * helper routine to format address to string
  */
 
-void
+static void
 mtp3_addr_to_str_buf(const mtp3_addr_pc_t  *addr_pc_p,
                      gchar *buf, int buf_len)
 {
@@ -404,6 +396,49 @@ mtp3_pc_hash(const mtp3_addr_pc_t *addr_pc_p) {
 
   return pc;
 }
+
+static int mtp3_addr_to_str(const address* addr, gchar *buf, int buf_len)
+{
+    mtp3_addr_to_str_buf((const mtp3_addr_pc_t *)addr->data, buf, buf_len);
+    return (int)(strlen(buf)+1);
+}
+
+static int mtp3_str_addr_len(const address* addr _U_)
+{
+    return 50;
+}
+
+int mtp3_addr_len(void)
+{
+    return sizeof(mtp3_addr_pc_t);
+}
+
+static const gchar* mtp3_addr_name_res_str(const address* addr)
+{
+    const mtp3_addr_pc_t *mtp3_addr = (const mtp3_addr_pc_t *)addr->data;
+    const gchar *tmp;
+
+    tmp = get_hostname_ss7pc(mtp3_addr->ni, mtp3_addr->pc);
+
+    if (tmp[0] == '\0') {
+        gchar* str;
+        str = (gchar *)wmem_alloc(NULL, MAXNAMELEN);
+        mtp3_addr_to_str_buf(mtp3_addr, str, MAXNAMELEN);
+        fill_unresolved_ss7pc(str, mtp3_addr->ni, mtp3_addr->pc);
+        wmem_free(NULL, str);
+        return get_hostname_ss7pc(mtp3_addr->ni, mtp3_addr->pc);
+    }
+    return tmp;
+
+}
+
+static int mtp3_addr_name_res_len(void)
+{
+    return MAXNAMELEN;
+}
+
+
+
 
 /*  Common function for dissecting 3-byte (ANSI or China) PCs. */
 void
@@ -608,11 +643,11 @@ dissect_mtp3_routing_label(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mtp3_t
 
   mtp3_addr_opc->type = (Standard_Type)mtp3_standard;
   mtp3_addr_opc->pc = opc;
-  set_address(&pinfo->src, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr_opc);
+  set_address(&pinfo->src, mtp3_address_type, mtp3_addr_len(), (guint8 *) mtp3_addr_opc);
 
   mtp3_addr_dpc->type = (Standard_Type)mtp3_standard;
   mtp3_addr_dpc->pc = dpc;
-  set_address(&pinfo->dst, AT_SS7PC, sizeof(mtp3_addr_pc_t), (guint8 *) mtp3_addr_dpc);
+  set_address(&pinfo->dst, mtp3_address_type, mtp3_addr_len(), (guint8 *) mtp3_addr_dpc);
 }
 
 static void
@@ -789,19 +824,19 @@ static stat_tap_table_item mtp3_stat_fields[] = {
   {TABLE_ITEM_FLOAT, TAP_ALIGN_RIGHT, "Avg Bytes", "%f"},
 };
 
-static void mtp3_stat_init(stat_tap_table_ui* new_stat, new_stat_tap_gui_init_cb gui_callback, void* gui_data)
+static void mtp3_stat_init(stat_tap_table_ui* new_stat)
 {
   int num_fields = sizeof(mtp3_stat_fields)/sizeof(stat_tap_table_item);
   stat_tap_table* table;
 
-  table = new_stat_tap_init_table("MTP3 Statistics", num_fields, 0, NULL, gui_callback, gui_data);
-  new_stat_tap_add_table(new_stat, table);
+  table = stat_tap_init_table("MTP3 Statistics", num_fields, 0, NULL);
+  stat_tap_add_table(new_stat, table);
 }
 
 static gboolean
 mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_, const void *m3tr_ptr)
 {
-  new_stat_data_t* stat_data = (new_stat_data_t*)tapdata;
+  stat_data_t* stat_data = (stat_data_t*)tapdata;
   const mtp3_tap_rec_t  *m3tr = (const mtp3_tap_rec_t *)m3tr_ptr;
   gboolean found = FALSE;
   guint element;
@@ -827,9 +862,9 @@ mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
   for (element = 0; element < table->num_elements; element++)
   {
     stat_tap_table_item_type *opc_data, *dpc_data, *si_data;
-    opc_data = new_stat_tap_get_field_data(table, element, OPC_COLUMN);
-    dpc_data = new_stat_tap_get_field_data(table, element, DPC_COLUMN);
-    si_data = new_stat_tap_get_field_data(table, element, SI_COLUMN);
+    opc_data = stat_tap_get_field_data(table, element, OPC_COLUMN);
+    dpc_data = stat_tap_get_field_data(table, element, DPC_COLUMN);
+    si_data = stat_tap_get_field_data(table, element, SI_COLUMN);
 
     if (memcmp(&m3tr->addr_opc, opc_data->user_data.ptr_value, sizeof(mtp3_addr_pc_t)) == 0)
     {
@@ -862,19 +897,19 @@ mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
     items[NUM_BYTES_COLUMN].type = TABLE_ITEM_UINT;
     items[AVG_BYTES_COLUMN].type = TABLE_ITEM_FLOAT;
 
-    new_stat_tap_init_table_row(table, element, num_fields, items);
+    stat_tap_init_table_row(table, element, num_fields, items);
 
-    item_data = new_stat_tap_get_field_data(table, element, OPC_COLUMN);
+    item_data = stat_tap_get_field_data(table, element, OPC_COLUMN);
     mtp3_addr_to_str_buf(&m3tr->addr_opc, str, 256);
     item_data->value.string_value = g_strdup(str);
     item_data->user_data.ptr_value = g_memdup(&m3tr->addr_opc, sizeof(mtp3_tap_rec_t));
-    new_stat_tap_set_field_data(table, element, OPC_COLUMN, item_data);
+    stat_tap_set_field_data(table, element, OPC_COLUMN, item_data);
 
-    item_data = new_stat_tap_get_field_data(table, element, DPC_COLUMN);
+    item_data = stat_tap_get_field_data(table, element, DPC_COLUMN);
     mtp3_addr_to_str_buf(&m3tr->addr_dpc, str, 256);
     item_data->value.string_value = g_strdup(str);
     item_data->user_data.ptr_value = g_memdup(&m3tr->addr_dpc, sizeof(mtp3_tap_rec_t));
-    new_stat_tap_set_field_data(table, element, DPC_COLUMN, item_data);
+    stat_tap_set_field_data(table, element, DPC_COLUMN, item_data);
 
     sis = try_val_to_str(m3tr->mtp3_si_code, mtp3_service_indicator_code_short_vals);
     if (sis) {
@@ -883,28 +918,28 @@ mtp3_stat_packet(void *tapdata, packet_info *pinfo _U_, epan_dissect_t *edt _U_,
       col_str = g_strdup_printf("Unknown service indicator %d", m3tr->mtp3_si_code);
     }
 
-    item_data = new_stat_tap_get_field_data(table, element, SI_COLUMN);
+    item_data = stat_tap_get_field_data(table, element, SI_COLUMN);
     item_data->value.string_value = col_str;
     item_data->user_data.uint_value = m3tr->mtp3_si_code;
-    new_stat_tap_set_field_data(table, element, SI_COLUMN, item_data);
+    stat_tap_set_field_data(table, element, SI_COLUMN, item_data);
   }
 
-  item_data = new_stat_tap_get_field_data(table, element, NUM_MSUS_COLUMN);
+  item_data = stat_tap_get_field_data(table, element, NUM_MSUS_COLUMN);
   item_data->value.uint_value++;
   msu_count = item_data->value.uint_value;
-  new_stat_tap_set_field_data(table, element, NUM_MSUS_COLUMN, item_data);
+  stat_tap_set_field_data(table, element, NUM_MSUS_COLUMN, item_data);
 
-  item_data = new_stat_tap_get_field_data(table, element, NUM_BYTES_COLUMN);
+  item_data = stat_tap_get_field_data(table, element, NUM_BYTES_COLUMN);
   item_data->value.uint_value += m3tr->size;
   byte_count = item_data->value.uint_value;
-  new_stat_tap_set_field_data(table, element, NUM_BYTES_COLUMN, item_data);
+  stat_tap_set_field_data(table, element, NUM_BYTES_COLUMN, item_data);
 
   if (msu_count > 0) {
     avg_bytes = (double) byte_count / msu_count;
   }
-  item_data = new_stat_tap_get_field_data(table, element, AVG_BYTES_COLUMN);
+  item_data = stat_tap_get_field_data(table, element, AVG_BYTES_COLUMN);
   item_data->value.float_value = avg_bytes;
-  new_stat_tap_set_field_data(table, element, AVG_BYTES_COLUMN, item_data);
+  stat_tap_set_field_data(table, element, AVG_BYTES_COLUMN, item_data);
 
   return TRUE;
 }
@@ -917,13 +952,13 @@ mtp3_stat_reset(stat_tap_table* table)
 
   for (element = 0; element < table->num_elements; element++)
   {
-    item_data = new_stat_tap_get_field_data(table, element, NUM_MSUS_COLUMN);
+    item_data = stat_tap_get_field_data(table, element, NUM_MSUS_COLUMN);
     item_data->value.uint_value = 0;
-    new_stat_tap_set_field_data(table, element, NUM_MSUS_COLUMN, item_data);
+    stat_tap_set_field_data(table, element, NUM_MSUS_COLUMN, item_data);
 
-    item_data = new_stat_tap_get_field_data(table, element, NUM_BYTES_COLUMN);
+    item_data = stat_tap_get_field_data(table, element, NUM_BYTES_COLUMN);
     item_data->value.uint_value = 0;
-    new_stat_tap_set_field_data(table, element, NUM_BYTES_COLUMN, item_data);
+    stat_tap_set_field_data(table, element, NUM_BYTES_COLUMN, item_data);
   }
 }
 
@@ -1041,7 +1076,8 @@ proto_register_mtp3(void)
     NULL,
     sizeof(mtp3_stat_fields)/sizeof(stat_tap_table_item), mtp3_stat_fields,
     sizeof(mtp3_stat_params)/sizeof(tap_param), mtp3_stat_params,
-    NULL
+    NULL,
+    0
   };
 
  /* Register the protocol name and description */
@@ -1055,7 +1091,11 @@ proto_register_mtp3(void)
 
   mtp3_sio_dissector_table = register_dissector_table("mtp3.service_indicator",
                   "MTP3 Service indicator",
-                  proto_mtp3, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                  proto_mtp3, FT_UINT8, BASE_HEX);
+
+  mtp3_address_type = address_type_dissector_register("AT_SS7PC", "SS7 Point Code", mtp3_addr_to_str, mtp3_str_addr_len, NULL, NULL,
+                                                            mtp3_addr_len, mtp3_addr_name_res_str, mtp3_addr_name_res_len);
+
 
   mtp3_tap = register_tap("mtp3");
 

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1109,7 +1097,7 @@ dissect_hiqnet_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 
         if (captured_length > plen)
             captured_length = plen;
-        next_tvb = tvb_new_subset(tvb, offset, captured_length, plen);
+        next_tvb = tvb_new_subset_length_caplen(tvb, offset, captured_length, plen);
 
         dissect_hiqnet_pdu(next_tvb, pinfo, tree, data);
 
@@ -1818,8 +1806,8 @@ proto_reg_handoff_hiqnet(void)
 
     hiqnet_udp_handle = create_dissector_handle(dissect_hiqnet_udp, proto_hiqnet);
     hiqnet_tcp_handle = create_dissector_handle(dissect_hiqnet_tcp, proto_hiqnet);
-    dissector_add_uint("udp.port", HIQNET_PORT, hiqnet_udp_handle);
-    dissector_add_uint("tcp.port", HIQNET_PORT, hiqnet_tcp_handle);
+    dissector_add_uint_with_preference("udp.port", HIQNET_PORT, hiqnet_udp_handle);
+    dissector_add_uint_with_preference("tcp.port", HIQNET_PORT, hiqnet_tcp_handle);
 }
 
 /*

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __CONVERSATION_TABLE_H__
@@ -26,6 +14,8 @@
 
 #include "conv_id.h"
 #include "tap.h"
+#include "conversation.h"
+#include "wmem/wmem.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -110,7 +100,7 @@ typedef struct _conversation_item_t {
     ct_dissector_info_t *dissector_info; /**< conversation information provided by dissector */
     address             src_address;    /**< source address */
     address             dst_address;    /**< destination address */
-    port_type           ptype;          /**< port_type (e.g. PT_TCP) */
+    endpoint_type       etype;          /**< endpoint_type (e.g. ENDPOINT_TCP) */
     guint32             src_port;       /**< source port */
     guint32             dst_port;       /**< destination port */
     conv_id_t           conv_id;        /**< conversation id */
@@ -123,15 +113,13 @@ typedef struct _conversation_item_t {
     nstime_t            start_time;     /**< relative start time for the conversation */
     nstime_t            stop_time;      /**< relative stop time for the conversation */
     nstime_t            start_abs_time; /**< absolute start time for the conversation */
-
-    gboolean            modified;       /**< new to redraw the row (only used in GTK+) */
 } conv_item_t;
 
 /** Hostlist information */
 typedef struct _hostlist_talker_t {
     hostlist_dissector_info_t *dissector_info; /**< conversation information provided by dissector */
     address myaddress;      /**< address */
-    port_type  ptype;       /**< port_type (e.g. PT_TCP) */
+    endpoint_type etype;    /**< endpoint_type (e.g. ENDPOINT_TCP) */
     guint32 port;           /**< port */
 
     guint64 rx_frames;      /**< number of received packets */
@@ -152,7 +140,7 @@ typedef struct _hostlist_talker_t {
  * @param conv_packet_func the registered conversation tap name
  * @param hostlist_func the registered hostlist tap name
  */
-extern void register_conversation_table(const int proto_id, gboolean hide_ports, tap_packet_cb conv_packet_func, tap_packet_cb hostlist_func);
+WS_DLL_PUBLIC void register_conversation_table(const int proto_id, gboolean hide_ports, tap_packet_cb conv_packet_func, tap_packet_cb hostlist_func);
 
 /** Should port columns be hidden?
  *
@@ -205,25 +193,16 @@ WS_DLL_PUBLIC void conversation_table_set_gui_info(conv_gui_init_cb init_cb);
  */
 WS_DLL_PUBLIC void hostlist_table_set_gui_info(host_gui_init_cb init_cb);
 
-/** Interator to walk converation tables and execute func
- * a GUI menu (only used in GTK)
+/** Iterator to walk converation tables and execute func
  *
  * @param func action to be performed on all converation tables
  * @param user_data any data needed to help perform function
  */
-WS_DLL_PUBLIC void conversation_table_iterate_tables(GFunc func, gpointer user_data);
+WS_DLL_PUBLIC void conversation_table_iterate_tables(wmem_foreach_func func, void* user_data);
 
 /** Total number of converation tables
  */
 WS_DLL_PUBLIC guint conversation_table_get_num(void);
-
-/** Get conversation table by its number
- * Tables are ordered alphabetically by title.
- *
- * @param table_num Item to fetch.
- * @return table pointer or NULL.
- */
-WS_DLL_PUBLIC register_ct_t* get_conversation_table_by_num(guint table_num);
 
 /** Remove all entries from the conversation table.
  *
@@ -264,11 +243,11 @@ WS_DLL_PUBLIC char *get_conversation_address(wmem_allocator_t *allocator, addres
  *
  * @param allocator The wmem allocator to use when allocating the string
  * @param port The port number.
- * @param ptype The port type.
+ * @param etype The endpoint type.
  * @param resolve_names Enable name resolution.
  * @return A string representing the port.
  */
-WS_DLL_PUBLIC char *get_conversation_port(wmem_allocator_t *allocator, guint32 port, port_type ptype, gboolean resolve_names);
+WS_DLL_PUBLIC char *get_conversation_port(wmem_allocator_t *allocator, guint32 port, endpoint_type etype, gboolean resolve_names);
 
 /** Get a display filter for the given conversation and direction.
  *
@@ -298,11 +277,11 @@ WS_DLL_PUBLIC char *get_hostlist_filter(hostlist_talker_t *host);
  * @param ts timestamp
  * @param abs_ts absolute timestamp
  * @param ct_info callback handlers from the dissector
- * @param ptype the port type (e.g. PT_TCP)
+ * @param etype the port type (e.g. PT_TCP)
  */
-extern void add_conversation_table_data(conv_hash_t *ch, const address *src, const address *dst,
-            guint32 src_port, guint32 dst_port, int num_frames, int num_bytes, nstime_t *ts, nstime_t *abs_ts,
-            ct_dissector_info_t *ct_info, port_type ptype);
+WS_DLL_PUBLIC void add_conversation_table_data(conv_hash_t *ch, const address *src, const address *dst,
+    guint32 src_port, guint32 dst_port, int num_frames, int num_bytes, nstime_t *ts, nstime_t *abs_ts,
+    ct_dissector_info_t *ct_info, endpoint_type etype);
 
 /** Add some data to the conversation table, passing a value to be used in
  *  addition to the address and port quadruple to uniquely identify the
@@ -318,13 +297,13 @@ extern void add_conversation_table_data(conv_hash_t *ch, const address *src, con
  * @param ts timestamp
  * @param abs_ts absolute timestamp
  * @param ct_info callback handlers from the dissector
- * @param ptype the port type (e.g. PT_TCP)
+ * @param etype the port type (e.g. PT_TCP)
  * @param conv_id a value to help differentiate the conversation in case the address and port quadruple is not sufficiently unique
  */
-extern void
+WS_DLL_PUBLIC void
 add_conversation_table_data_with_conv_id(conv_hash_t *ch, const address *src, const address *dst, guint32 src_port,
     guint32 dst_port, conv_id_t conv_id, int num_frames, int num_bytes,
-    nstime_t *ts, nstime_t *abs_ts, ct_dissector_info_t *ct_info, port_type ptype);
+    nstime_t *ts, nstime_t *abs_ts, ct_dissector_info_t *ct_info, endpoint_type etype);
 
 /** Add some data to the table.
  *
@@ -335,10 +314,10 @@ add_conversation_table_data_with_conv_id(conv_hash_t *ch, const address *src, co
  * @param num_frames number of packets
  * @param num_bytes number of bytes
  * @param host_info conversation information provided by dissector
- * @param port_type_val the port type (e.g. PT_TCP)
+ * @param etype the port type (e.g. PT_TCP)
  */
-void add_hostlist_table_data(conv_hash_t *ch, const address *addr,
-                             guint32 port, gboolean sender, int num_frames, int num_bytes, hostlist_dissector_info_t *host_info, port_type port_type_val);
+WS_DLL_PUBLIC void add_hostlist_table_data(conv_hash_t *ch, const address *addr,
+    guint32 port, gboolean sender, int num_frames, int num_bytes, hostlist_dissector_info_t *host_info, endpoint_type etype);
 
 #ifdef __cplusplus
 }

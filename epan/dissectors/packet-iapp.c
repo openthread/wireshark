@@ -6,26 +6,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/expert.h>
-#include <epan/oui.h>
 
 void proto_register_iapp(void);
 void proto_reg_handoff_iapp(void);
@@ -440,7 +427,7 @@ proto_register_iapp(void)
             { "Reg domain", "iapp.pdu.regdomain", FT_UINT8, BASE_DEC, VALS(iapp_dom_vals), 0x00, NULL, HFILL }
         },
         { &hf_iapp_pdu_oui_ident,
-            { "OUI", "iapp.pdu.oui_ident", FT_UINT24, BASE_DEC, VALS(oui_vals), 0x00, NULL, HFILL }
+            { "OUI", "iapp.pdu.oui_ident", FT_UINT24, BASE_OUI, NULL, 0x00, NULL, HFILL }
         },
     };
 
@@ -480,7 +467,7 @@ proto_reg_handoff_iapp(void)
     dissector_handle_t iapp_handle;
 
     iapp_handle = create_dissector_handle(dissect_iapp, proto_iapp);
-    dissector_add_uint("udp.port", UDP_PORT_IAPP, iapp_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_IAPP, iapp_handle);
 }
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

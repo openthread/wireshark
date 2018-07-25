@@ -7,25 +7,15 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PRINT_STREAM_H__
 #define __PRINT_STREAM_H__
 
 #include "ws_symbol_export.h"
+
+#include <wsutil/color.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,11 +36,17 @@ typedef struct print_stream_ops {
 	gboolean (*new_page)(struct print_stream *self);
 	gboolean (*print_finale)(struct print_stream *self);
 	gboolean (*destroy)(struct print_stream *self);
+	gboolean (*print_line_color)(struct print_stream *self, int indent, const char *line, const color_t *fg, const color_t *bg);
 } print_stream_ops_t;
 
 typedef struct print_stream {
 	const print_stream_ops_t *ops;
+	gboolean isatty;
+	const char *to_codeset;
 	void *data;
+#ifdef _WIN32
+	unsigned short csb_attrs; // WORD
+#endif
 } print_stream_t;
 
 WS_DLL_PUBLIC print_stream_t *print_stream_text_new(gboolean to_file, const char *dest);
@@ -65,6 +61,15 @@ WS_DLL_PUBLIC gboolean print_bookmark(print_stream_t *self, const gchar *name,
 WS_DLL_PUBLIC gboolean new_page(print_stream_t *self);
 WS_DLL_PUBLIC gboolean print_finale(print_stream_t *self);
 WS_DLL_PUBLIC gboolean destroy_print_stream(print_stream_t *self);
+
+/*
+ * equivalent to print_line(), but if the stream supports text coloring then
+ * the output text will also be colored with the given foreground and
+ * background
+ *
+ * returns TRUE if the print was successful, FALSE otherwise
+ */
+WS_DLL_PUBLIC gboolean print_line_color(print_stream_t *self, int indent, const char *line, const color_t *fg, const color_t *bg);
 
 #ifdef __cplusplus
 }

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This module provides icmp echo request/reply SRT statistics to tshark.
@@ -283,8 +271,7 @@ icmpstat_init(const char *opt_arg, void *userdata _U_)
     memset(icmpstat, 0, sizeof(icmpstat_t));
     icmpstat->min_msecs = 1.0 * G_MAXUINT;
 
-    if (filter)
-        icmpstat->filter = g_strdup(filter);
+    icmpstat->filter = g_strdup(filter);
 
 /* It is possible to create a filter and attach it to the callbacks.  Then the
  * callbacks would only be invoked if the filter matched.
@@ -297,11 +284,11 @@ icmpstat_init(const char *opt_arg, void *userdata _U_)
  */
 
     error_string = register_tap_listener("icmp", icmpstat, icmpstat->filter,
-        TL_REQUIRES_NOTHING, icmpstat_reset, icmpstat_packet, icmpstat_draw);
+        TL_REQUIRES_NOTHING, icmpstat_reset, icmpstat_packet, icmpstat_draw,
+        NULL);
     if (error_string) {
         /* error, we failed to attach to the tap. clean up */
-        if (icmpstat->filter)
-            g_free(icmpstat->filter);
+        g_free(icmpstat->filter);
         g_free(icmpstat);
 
         fprintf(stderr, "tshark: Couldn't register icmp,srt tap: %s\n",

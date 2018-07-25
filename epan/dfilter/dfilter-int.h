@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef DFILTER_INT_H
@@ -35,6 +23,7 @@ struct epan_dfilter {
 	guint		max_registers;
 	GList		**registers;
 	gboolean	*attempted_load;
+	gboolean	*owns_memory;
 	int		*interesting_fields;
 	int		num_interesting_fields;
 	GPtrArray	*deprecated;
@@ -56,10 +45,13 @@ typedef struct {
 } dfwork_t;
 
 /*
- * XXX - if we're using a version of Flex that supports reentrant lexical
- * analyzers, we should put this into the lexical analyzer's state.
+ * State kept by the scanner.
  */
-extern dfwork_t *global_dfw;
+typedef struct {
+	dfwork_t *dfw;
+	GString* quoted_string;
+	gboolean in_set;	/* true if parsing set elements for the membership operator */
+} df_scanner_state_t;
 
 /* Constructor/Destructor prototypes for Lemon Parser */
 void *DfilterAlloc(void* (*)(gsize));

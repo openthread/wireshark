@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __WMEM_TREE_H__
@@ -72,10 +60,20 @@ wmem_tree_t *
 wmem_tree_new_autoreset(wmem_allocator_t *master, wmem_allocator_t *slave)
 G_GNUC_MALLOC;
 
+/** Cleanup memory used by tree.  Intended for NULL scope allocated trees */
+WS_DLL_PUBLIC
+void
+wmem_tree_destroy(wmem_tree_t *tree, gboolean free_keys, gboolean free_values);
+
 /** Returns true if the tree is empty (has no nodes). */
 WS_DLL_PUBLIC
 gboolean
 wmem_tree_is_empty(wmem_tree_t *tree);
+
+/** Returns number of nodes in tree */
+WS_DLL_PUBLIC
+guint
+wmem_tree_count(wmem_tree_t* tree);
 
 /** Insert a node indexed by a guint32 key value.
  *
@@ -106,6 +104,14 @@ wmem_tree_lookup32(wmem_tree_t *tree, guint32 key);
 WS_DLL_PUBLIC
 void *
 wmem_tree_lookup32_le(wmem_tree_t *tree, guint32 key);
+
+/** Remove a node in the tree indexed by a guint32 integer value. This is not
+ * really a remove, but the value is set to NULL so that wmem_tree_lookup32
+ * not will find it.
+ */
+WS_DLL_PUBLIC
+void *
+wmem_tree_remove32(wmem_tree_t *tree, guint32 key);
 
 /** case insensitive strings as keys */
 #define WMEM_TREE_STRING_NOCASE                 0x00000001
@@ -211,7 +217,9 @@ typedef gboolean (*wmem_foreach_func)(const void *key, void *value, void *userda
 typedef void (*wmem_printer_func)(const void *data);
 
 
-/** Traverse the tree and call callback(value, userdata) for each value found.
+/** Inorder traversal (left/parent/right) of the tree and call
+ * callback(value, userdata) for each value found.
+ *
  * Returns TRUE if the traversal was ended prematurely by the callback.
  */
 WS_DLL_PUBLIC

@@ -4,49 +4,36 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "rtp_player_dialog.h"
-#include "ui_rtp_player_dialog.h"
+#include <ui_rtp_player_dialog.h>
 
 #ifdef QT_MULTIMEDIA_LIB
 
 #include <epan/dissectors/packet-rtp.h>
 
+#include <wsutil/report_message.h>
 #include <wsutil/utf8_entities.h>
 
-#include "color_utils.h"
-#include "qcustomplot.h"
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/color_utils.h>
+#include <ui/qt/widgets/qcustomplot.h>
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "rtp_audio_stream.h"
-#include "tango_colors.h"
+#include <ui/qt/utils/tango_colors.h>
 
 #include <QAudio>
+#include <QAudioDeviceInfo>
 #include <QFrame>
 #include <QMenu>
 #include <QVBoxLayout>
-
-Q_DECLARE_METATYPE(RtpAudioStream *)
-Q_DECLARE_METATYPE(QCPGraph *)
 
 #endif // QT_MULTIMEDIA_LIB
 
 #include <QPushButton>
 
-#include "stock_icon.h"
+#include <ui/qt/utils/stock_icon.h>
 #include "wireshark_application.h"
 
 // To do:
@@ -61,7 +48,7 @@ Q_DECLARE_METATYPE(QCPGraph *)
 //   + dst port + ssrc. This means that we can have multiple rtp_stream_info
 //   structs per RtpAudioStream. Should we make them 1:1 instead?
 
-// Current RTP player bugs:
+// Current and former RTP player bugs. Many have attachments that can be usef for testing.
 // Bug 3368 - The timestamp line in a RTP or RTCP packet display's "Not Representable"
 // Bug 3952 - VoIP Call RTP Player: audio played is corrupted when RFC2833 packets are present
 // Bug 4960 - RTP Player: Audio and visual feedback get rapidly out of sync
@@ -72,6 +59,7 @@ Q_DECLARE_METATYPE(QCPGraph *)
 // Bug 10613 - RTP audio player crashes
 // Bug 11125 - RTP Player does not show progress in selected stream in Window 7
 // Bug 11409 - Wireshark crashes when using RTP player
+// Bug 12166 - RTP audio player crashes
 
 // XXX It looks like we duplicate some functionality here and in the RTP
 // analysis code, which has its own routines for writing audio data to a
@@ -130,10 +118,10 @@ RtpPlayerDialog::RtpPlayerDialog(QWidget &parent, CaptureFile &cf) :
     ctx_menu_->addSeparator();
     ctx_menu_->addAction(ui->actionDragZoom);
     ctx_menu_->addAction(ui->actionToggleTimeOrigin);
-    ctx_menu_->addAction(ui->actionCrosshairs);
+//    ctx_menu_->addAction(ui->actionCrosshairs);
 
     connect(ui->audioPlot, SIGNAL(mouseMove(QMouseEvent*)),
-            this, SLOT(mouseMoved(QMouseEvent*)));
+            this, SLOT(updateHintLabel()));
     connect(ui->audioPlot, SIGNAL(mousePress(QMouseEvent*)),
             this, SLOT(graphClicked(QMouseEvent*)));
 
@@ -148,6 +136,28 @@ RtpPlayerDialog::RtpPlayerDialog(QWidget &parent, CaptureFile &cf) :
 
     ui->playButton->setIcon(StockIcon("media-playback-start"));
     ui->stopButton->setIcon(StockIcon("media-playback-stop"));
+
+    // Ordered, unique device names starting with the system default
+    QMap<QString, bool> out_device_map; // true == default device
+    out_device_map.insert(QAudioDeviceInfo::defaultOutputDevice().deviceName(), true);
+    foreach (QAudioDeviceInfo out_device, QAudioDeviceInfo::availableDevices(QAudio::AudioOutput)) {
+        if (!out_device_map.contains(out_device.deviceName())) {
+            out_device_map.insert(out_device.deviceName(), false);
+        }
+    }
+
+    foreach (QString out_name, out_device_map.keys()) {
+        ui->outputDeviceComboBox->addItem(out_name);
+        if (out_device_map.value(out_name)) {
+            ui->outputDeviceComboBox->setCurrentIndex(ui->outputDeviceComboBox->count() - 1);
+        }
+    }
+    if (ui->outputDeviceComboBox->count() < 1) {
+        ui->outputDeviceComboBox->setEnabled(false);
+        ui->playButton->setEnabled(false);
+        ui->stopButton->setEnabled(false);
+        ui->outputDeviceComboBox->addItem(tr("No devices available"));
+    }
 
     ui->audioPlot->setMouseTracking(true);
     ui->audioPlot->setEnabled(true);
@@ -196,7 +206,14 @@ void RtpPlayerDialog::reject()
 
 void RtpPlayerDialog::retapPackets()
 {
-    register_tap_listener("rtp", this, NULL, 0, NULL, tapPacket, NULL);
+    GString *error_string;
+
+    error_string = register_tap_listener("rtp", this, NULL, 0, NULL, tapPacket, NULL, NULL);
+    if (error_string) {
+        report_failure("RTP Player - tap registration failed: %s", error_string->str);
+        g_string_free(error_string, TRUE);
+        return;
+    }
     cap_file_.retapPackets();
     remove_tap_listener(this);
 
@@ -336,9 +353,9 @@ void RtpPlayerDialog::rescanPackets(bool rescale_axes)
     updateWidgets();
 }
 
-void RtpPlayerDialog::addRtpStream(struct _rtp_stream_info *rtp_stream)
+void RtpPlayerDialog::addRtpStream(rtpstream_info_t *rtpstream)
 {
-    if (!rtp_stream) return;
+    if (!rtpstream) return;
 
     // Find the RTP streams associated with this conversation.
     // gtk/rtp_player.c:mark_rtp_stream_to_play does this differently.
@@ -348,24 +365,24 @@ void RtpPlayerDialog::addRtpStream(struct _rtp_stream_info *rtp_stream)
     for (int row = 0; row < tli_count; row++) {
         QTreeWidgetItem *ti = ui->streamTreeWidget->topLevelItem(row);
         RtpAudioStream *row_stream = ti->data(stream_data_col_, Qt::UserRole).value<RtpAudioStream*>();
-        if (row_stream->isMatch(rtp_stream)) {
+        if (row_stream->isMatch(rtpstream)) {
             audio_stream = row_stream;
             break;
         }
     }
 
     if (!audio_stream) {
-        audio_stream = new RtpAudioStream(this, rtp_stream);
+        audio_stream = new RtpAudioStream(this, rtpstream);
         audio_stream->setColor(ColorUtils::graphColor(tli_count));
 
         QTreeWidgetItem *ti = new QTreeWidgetItem(ui->streamTreeWidget);
-        ti->setText(src_addr_col_, address_to_qstring(&rtp_stream->src_addr));
-        ti->setText(src_port_col_, QString::number(rtp_stream->src_port));
-        ti->setText(dst_addr_col_, address_to_qstring(&rtp_stream->dest_addr));
-        ti->setText(dst_port_col_, QString::number(rtp_stream->dest_port));
-        ti->setText(ssrc_col_, int_to_qstring(rtp_stream->ssrc, 8, 16));
-        ti->setText(first_pkt_col_, QString::number(rtp_stream->setup_frame_number));
-        ti->setText(num_pkts_col_, QString::number(rtp_stream->packet_count));
+        ti->setText(src_addr_col_, address_to_qstring(&rtpstream->id.src_addr));
+        ti->setText(src_port_col_, QString::number(rtpstream->id.src_port));
+        ti->setText(dst_addr_col_, address_to_qstring(&rtpstream->id.dst_addr));
+        ti->setText(dst_port_col_, QString::number(rtpstream->id.dst_port));
+        ti->setText(ssrc_col_, int_to_qstring(rtpstream->id.ssrc, 8, 16));
+        ti->setText(first_pkt_col_, QString::number(rtpstream->setup_frame_number));
+        ti->setText(num_pkts_col_, QString::number(rtpstream->packet_count));
 
         ti->setData(stream_data_col_, Qt::UserRole, QVariant::fromValue(audio_stream));
 
@@ -378,20 +395,21 @@ void RtpPlayerDialog::addRtpStream(struct _rtp_stream_info *rtp_stream)
 
         connect(audio_stream, SIGNAL(startedPlaying()), this, SLOT(updateWidgets()));
         connect(audio_stream, SIGNAL(finishedPlaying()), this, SLOT(updateWidgets()));
+        connect(audio_stream, SIGNAL(playbackError(QString)), this, SLOT(setPlaybackError(QString)));
         connect(audio_stream, SIGNAL(processedSecs(double)), this, SLOT(setPlayPosition(double)));
     }
-    audio_stream->addRtpStream(rtp_stream);
-    double start_rel_time = nstime_to_sec(&rtp_stream->start_rel_time);
+    // TODO: does not do anything
+    // audio_stream->addRtpStream(rtpstream);
+    double start_rel_time = nstime_to_sec(&rtpstream->start_rel_time);
     if (tli_count < 2) {
         start_rel_time_ = start_rel_time;
     } else {
         start_rel_time_ = qMin(start_rel_time_, start_rel_time);
     }
-    RTP_STREAM_DEBUG("adding stream %d to layout, %u packets, %u in list, start %u",
+    RTP_STREAM_DEBUG("adding stream %d to layout, %u packets, start %u",
                      ui->streamTreeWidget->topLevelItemCount(),
-                     rtp_stream->packet_count,
-                     g_list_length(rtp_stream->rtp_packet_list),
-                     rtp_stream->start_fd->num);
+                     rtpstream->packet_count,
+                     rtpstream->start_fd ? rtpstream->start_fd->num : 0);
 }
 
 void RtpPlayerDialog::showEvent(QShowEvent *)
@@ -472,6 +490,7 @@ void RtpPlayerDialog::updateWidgets()
     }
 
     ui->playButton->setEnabled(enable_play);
+    ui->outputDeviceComboBox->setEnabled(enable_play);
     ui->stopButton->setEnabled(enable_stop);
     cur_play_pos_->setVisible(enable_stop);
 
@@ -479,6 +498,7 @@ void RtpPlayerDialog::updateWidgets()
     ui->timingComboBox->setEnabled(enable_timing);
     ui->todCheckBox->setEnabled(enable_timing);
 
+    updateHintLabel();
     ui->audioPlot->replot();
 }
 
@@ -491,7 +511,7 @@ void RtpPlayerDialog::graphClicked(QMouseEvent *event)
     ui->audioPlot->setFocus();
 }
 
-void RtpPlayerDialog::mouseMoved(QMouseEvent *)
+void RtpPlayerDialog::updateHintLabel()
 {
     int packet_num = getHoveredPacket();
     QString hint = "<small><i>";
@@ -500,6 +520,8 @@ void RtpPlayerDialog::mouseMoved(QMouseEvent *)
         hint += tr("%1. Press \"G\" to go to packet %2")
                 .arg(getHoveredTime())
                 .arg(packet_num);
+    } else if (!playback_error_.isEmpty()) {
+        hint += playback_error_;
     }
 
     hint += "</i></small>";
@@ -602,6 +624,7 @@ void RtpPlayerDialog::on_playButton_clicked()
     cur_play_pos_->point1->setCoords(left, 0.0);
     cur_play_pos_->point2->setCoords(left, 1.0);
     cur_play_pos_->setVisible(true);
+    playback_error_.clear();
     ui->audioPlot->replot();
 }
 
@@ -708,6 +731,18 @@ int RtpPlayerDialog::getHoveredPacket()
     return audio_stream->nearestPacket(ts, !ui->todCheckBox->isChecked());
 }
 
+// Used by RtpAudioStreams to initialize QAudioOutput. We could alternatively
+// pass the corresponding QAudioDeviceInfo directly.
+QString RtpPlayerDialog::currentOutputDeviceName()
+{
+    return ui->outputDeviceComboBox->currentText();
+}
+
+void RtpPlayerDialog::on_outputDeviceComboBox_currentIndexChanged(const QString &)
+{
+    rescanPackets();
+}
+
 void RtpPlayerDialog::on_jitterSpinBox_valueChanged(double)
 {
     rescanPackets();
@@ -736,14 +771,14 @@ void RtpPlayerDialog::on_buttonBox_helpRequested()
 #if 0
 // This also serves as a title in RtpAudioFrame.
 static const QString stream_key_tmpl_ = "%1:%2 " UTF8_RIGHTWARDS_ARROW " %3:%4 0x%5";
-const QString RtpPlayerDialog::streamKey(const struct _rtp_stream_info *rtp_stream)
+const QString RtpPlayerDialog::streamKey(const rtpstream_info_t *rtpstream)
 {
     const QString stream_key = QString(stream_key_tmpl_)
-            .arg(address_to_display_qstring(&rtp_stream->src_addr))
-            .arg(rtp_stream->src_port)
-            .arg(address_to_display_qstring(&rtp_stream->dest_addr))
-            .arg(rtp_stream->dest_port)
-            .arg(rtp_stream->ssrc, 0, 16);
+            .arg(address_to_display_qstring(&rtpstream->src_addr))
+            .arg(rtpstream->src_port)
+            .arg(address_to_display_qstring(&rtpstream->dst_addr))
+            .arg(rtpstream->dst_port)
+            .arg(rtpstream->ssrc, 0, 16);
     return stream_key;
 }
 

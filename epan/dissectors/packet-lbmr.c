@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,7 +21,6 @@
 #include <epan/expert.h>
 #include <epan/uat.h>
 #include <epan/to_str.h>
-#include <wsutil/inet_aton.h>
 #include <wsutil/pint.h>
 #include "packet-lbm.h"
 #include "packet-lbtru.h"
@@ -1967,7 +1954,7 @@ static gboolean lbmr_tag_update_cb(void * record, char * * error_string)
 
     if (tag->name == NULL)
     {
-        *error_string = g_strdup_printf("Tag name can't be empty");
+        *error_string = g_strdup("Tag name can't be empty");
         return FALSE;
     }
     else
@@ -1975,7 +1962,7 @@ static gboolean lbmr_tag_update_cb(void * record, char * * error_string)
         g_strstrip(tag->name);
         if (tag->name[0] == 0)
         {
-            *error_string = g_strdup_printf("Tag name can't be empty");
+            *error_string = g_strdup("Tag name can't be empty");
             return FALSE;
         }
     }
@@ -3282,14 +3269,19 @@ static int dissect_lbmr_tnwg_interest_rec(tvbuff_t * tvb, int offset, packet_inf
     };
 
     rec_len = tvb_get_ntohs(tvb, offset + O_LBMR_TNWG_INTEREST_REC_T_LEN);
-    string_len = rec_len - L_LBMR_TNWG_INTEREST_REC_T;
 
     rec_item = proto_tree_add_item(tree, hf_lbmr_tnwg_interest_rec, tvb, offset, rec_len, ENC_NA);
     rec_tree = proto_item_add_subtree(rec_item, ett_lbmr_tnwg_interest_rec);
     proto_tree_add_item(rec_tree, hf_lbmr_tnwg_interest_rec_len, tvb, offset + O_LBMR_TNWG_INTEREST_REC_T_LEN, L_LBMR_TNWG_INTEREST_REC_T_LEN, ENC_BIG_ENDIAN);
+    if (rec_len < L_LBMR_TNWG_INTEREST_REC_T)
+    {
+        /* XXX - report an error */
+        return ((int)rec_len);
+    }
     proto_tree_add_bitmask(rec_tree, tvb, offset + O_LBMR_TNWG_INTEREST_REC_T_FLAGS, hf_lbmr_tnwg_interest_rec_flags, ett_lbmr_tnwg_interest_rec_flags, flags, ENC_BIG_ENDIAN);
     proto_tree_add_item(rec_tree, hf_lbmr_tnwg_interest_rec_pattype, tvb, offset + O_LBMR_TNWG_INTEREST_REC_T_PATTYPE, L_LBMR_TNWG_INTEREST_REC_T_PATTYPE, ENC_BIG_ENDIAN);
     proto_tree_add_item(rec_tree, hf_lbmr_tnwg_interest_rec_domain_id, tvb, offset + O_LBMR_TNWG_INTEREST_REC_T_DOMAIN_ID, L_LBMR_TNWG_INTEREST_REC_T_DOMAIN_ID, ENC_BIG_ENDIAN);
+    string_len = rec_len - L_LBMR_TNWG_INTEREST_REC_T;
     proto_tree_add_item(rec_tree, hf_lbmr_tnwg_interest_rec_symbol, tvb, offset + L_LBMR_TNWG_INTEREST_REC_T, string_len, ENC_ASCII|ENC_NA);
     return ((int)rec_len);
 }
@@ -4618,9 +4610,8 @@ int lbmr_dissect_umq_qmgmt(tvbuff_t * tvb, int offset, packet_info * pinfo, prot
 /*----------------------------------------------------------------------------*/
 static int dissect_lbmr_ctxinfo(tvbuff_t * tvb, int offset, packet_info * pinfo _U_, proto_tree * tree)
 {
+    guint16 flags16 = 0;
     guint8 reclen = 0;
-    int name_offset = -1;
-    int name_len = 0;
     static const int * flags[] =
     {
         &hf_lbmr_ctxinfo_flags_query,
@@ -4633,6 +4624,7 @@ static int dissect_lbmr_ctxinfo(tvbuff_t * tvb, int offset, packet_info * pinfo 
         NULL
     };
 
+    flags16 = tvb_get_ntohs(tvb, offset + O_LBMR_CTXINFO_T_FLAGS);
     reclen = tvb_get_guint8(tvb, offset + O_LBMR_CTXINFO_T_LEN);
     proto_tree_add_item(tree, hf_lbmr_ctxinfo_len, tvb, offset + O_LBMR_CTXINFO_T_LEN, L_LBMR_CTXINFO_T_LEN, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_lbmr_ctxinfo_hop_count, tvb, offset + O_LBMR_CTXINFO_T_HOP_COUNT, L_LBMR_CTXINFO_T_HOP_COUNT, ENC_BIG_ENDIAN);
@@ -4640,9 +4632,9 @@ static int dissect_lbmr_ctxinfo(tvbuff_t * tvb, int offset, packet_info * pinfo 
     proto_tree_add_item(tree, hf_lbmr_ctxinfo_port, tvb, offset + O_LBMR_CTXINFO_T_PORT, L_LBMR_CTXINFO_T_FLAGS, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_lbmr_ctxinfo_ip, tvb, offset + O_LBMR_CTXINFO_T_IP, L_LBMR_CTXINFO_T_IP, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_lbmr_ctxinfo_instance, tvb, offset + O_LBMR_CTXINFO_T_INSTANCE, L_LBMR_CTXINFO_T_INSTANCE, ENC_NA);
-    if (name_offset != -1)
+    if ((flags16 & LBMR_CTXINFO_NAME_FLAG) != 0)
     {
-        proto_tree_add_item(tree, hf_lbmr_ctxinfo_name, tvb, name_offset, name_len, ENC_ASCII|ENC_NA);
+        proto_tree_add_item(tree, hf_lbmr_ctxinfo_name, tvb, offset + L_LBMR_CTXINFO_T, reclen - L_LBMR_CTXINFO_T, ENC_ASCII|ENC_NA);
     }
     return ((int)reclen);
 }
@@ -5175,7 +5167,7 @@ static int dissect_lbmr(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, 
             gint packet_len;
 
             packet_len = tvb_reported_length_remaining(tvb, 0);
-            opt_total_len = (gint)tvb_get_ntohs(tvb, -L_LBMR_LBMR_OPT_LEN_T + O_LBMR_LBMR_OPT_LEN_T_TOTAL_LEN);
+            opt_total_len = tvb_get_ntohis(tvb, -L_LBMR_LBMR_OPT_LEN_T + O_LBMR_LBMR_OPT_LEN_T_TOTAL_LEN);
             if (packet_len > opt_total_len)
             {
                 gint tvb_len = packet_len - opt_total_len;
@@ -6498,7 +6490,7 @@ void proto_register_lbmr(void)
         { &ei_lbmr_analysis_zero_len_option, { "lbmr.analysis.zero_len_option", PI_MALFORMED, PI_ERROR, "Zero-length LBMR option", EXPFILL } },
     };
     module_t * lbmr_module;
-    struct in_addr addr;
+    guint32 addr;
     uat_t * tag_uat;
     expert_module_t * expert_lbmr;
 
@@ -6517,8 +6509,8 @@ void proto_register_lbmr(void)
         "Set the UDP port for incoming multicast topic resolution (context resolver_multicast_incoming_port)",
         10,
         &global_lbmr_mc_incoming_udp_port);
-    inet_aton(LBMR_DEFAULT_MC_INCOMING_ADDRESS, &addr);
-    lbmr_mc_incoming_address_host = g_ntohl(addr.s_addr);
+    ws_inet_pton4(LBMR_DEFAULT_MC_INCOMING_ADDRESS, &addr);
+    lbmr_mc_incoming_address_host = g_ntohl(addr);
     prefs_register_string_preference(lbmr_module,
         "mc_incoming_address",
         "Incoming multicast address (default " LBMR_DEFAULT_MC_INCOMING_ADDRESS ")",
@@ -6530,8 +6522,8 @@ void proto_register_lbmr(void)
         "Set the UDP port for outgoing multicast topic resolution (context resolver_multicast_outgoing_port)",
         10,
         &global_lbmr_mc_outgoing_udp_port);
-    inet_aton(LBMR_DEFAULT_MC_OUTGOING_ADDRESS, &addr);
-    lbmr_mc_outgoing_address_host = g_ntohl(addr.s_addr);
+    ws_inet_pton4(LBMR_DEFAULT_MC_OUTGOING_ADDRESS, &addr);
+    lbmr_mc_outgoing_address_host = g_ntohl(addr);
     prefs_register_string_preference(lbmr_module,
         "mc_outgoing_address",
         "Outgoing multicast address (default " LBMR_DEFAULT_MC_OUTGOING_ADDRESS ")",
@@ -6555,8 +6547,8 @@ void proto_register_lbmr(void)
         "Set the destination port for unicast topic resolution (context resolver_unicast_destination_port)",
         10,
         &global_lbmr_uc_dest_port);
-    inet_aton(LBMR_DEFAULT_UC_ADDRESS, &addr);
-    lbmr_uc_address_host = g_ntohl(addr.s_addr);
+    ws_inet_pton4(LBMR_DEFAULT_UC_ADDRESS, &addr);
+    lbmr_uc_address_host = g_ntohl(addr);
     prefs_register_string_preference(lbmr_module,
         "uc_address",
         "Unicast resolver address (default " LBMR_DEFAULT_UC_ADDRESS ")",
@@ -6578,6 +6570,7 @@ void proto_register_lbmr(void)
         lbmr_tag_copy_cb,
         lbmr_tag_update_cb,
         lbmr_tag_free_cb,
+        NULL,
         NULL,
         lbmr_tag_array);
     prefs_register_uat_preference(lbmr_module,
@@ -6680,22 +6673,22 @@ void proto_register_lbmr(void)
 void proto_reg_handoff_lbmr(void)
 {
     static gboolean already_registered = FALSE;
-    struct in_addr addr;
+    guint32 addr;
 
     if (!already_registered)
     {
         lbmr_dissector_handle = create_dissector_handle(dissect_lbmr, proto_lbmr);
-        dissector_add_for_decode_as("udp.port", lbmr_dissector_handle);
+        dissector_add_for_decode_as_with_preference("udp.port", lbmr_dissector_handle);
         heur_dissector_add("udp", test_lbmr_packet, "LBM Topic Resolution over UDP", "lbmr_udp", proto_lbmr, HEURISTIC_ENABLE);
     }
 
     lbmr_mc_incoming_udp_port = global_lbmr_mc_incoming_udp_port;
     lbmr_mc_outgoing_udp_port = global_lbmr_mc_outgoing_udp_port;
-    inet_aton(global_lbmr_mc_incoming_address, &addr);
-    lbmr_mc_incoming_address_host = g_ntohl(addr.s_addr);
+    ws_inet_pton4(global_lbmr_mc_incoming_address, &addr);
+    lbmr_mc_incoming_address_host = g_ntohl(addr);
 
-    inet_aton(global_lbmr_mc_outgoing_address, &addr);
-    lbmr_mc_outgoing_address_host = g_ntohl(addr.s_addr);
+    ws_inet_pton4(global_lbmr_mc_outgoing_address, &addr);
+    lbmr_mc_outgoing_address_host = g_ntohl(addr);
 
     /* Make sure the low port is <= the high port. If not, don't change them. */
     if (global_lbmr_uc_port_low <= global_lbmr_uc_port_high)
@@ -6704,8 +6697,8 @@ void proto_reg_handoff_lbmr(void)
         lbmr_uc_port_low = global_lbmr_uc_port_low;
     }
     lbmr_uc_dest_port = global_lbmr_uc_dest_port;
-    inet_aton(global_lbmr_uc_address, &addr);
-    lbmr_uc_address_host = g_ntohl(addr.s_addr);
+    ws_inet_pton4(global_lbmr_uc_address, &addr);
+    lbmr_uc_address_host = g_ntohl(addr);
     lbmr_use_tag = global_lbmr_use_tag;
 
     already_registered = TRUE;

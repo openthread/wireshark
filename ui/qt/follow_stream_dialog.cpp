@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "follow_stream_dialog.h"
@@ -28,7 +16,6 @@
 #include "epan/follow.h"
 #include "epan/dissectors/packet-tcp.h"
 #include "epan/dissectors/packet-udp.h"
-#include "epan/dissectors/packet-ssl-utils.h"
 #include "epan/prefs.h"
 #include "epan/addr_resolv.h"
 #include "epan/charsets.h"
@@ -41,39 +28,54 @@
 
 #include "wsutil/file_util.h"
 #include "wsutil/str_util.h"
-#include "wsutil/ws_version_info.h"
+#include "version_info.h"
 
 #include "ws_symbol_export.h"
 
-#include "color_utils.h"
+#include <ui/qt/utils/color_utils.h>
+#include <ui/qt/utils/qt_ui_utils.h>
 
 #include "progress_frame.h"
-#include "qt_ui_utils.h"
 
+#include "ui/qt/widgets/wireshark_file_dialog.h"
+
+#include <QElapsedTimer>
 #include <QKeyEvent>
 #include <QMessageBox>
 #include <QPrintDialog>
 #include <QPrinter>
+#include <QScrollBar>
 #include <QTextEdit>
 #include <QTextStream>
 
 // To do:
+// - Show text while tapping.
 // - Instead of calling QMessageBox, display the error message in the text
 //   box and disable the appropriate controls.
-// - Draw text by hand similar to ByteViewText. This would let us add
-//   extra information, e.g. a timestamp column and get rid of the data
-//   limit.
 // - Add a progress bar and connect captureCaptureUpdateContinue to it
+// - User's Guide documents the "Raw" type as "same as ASCII, but saving binary
+//   data". However it currently displays hex-encoded data.
+
+// Matches SplashOverlay.
+static int info_update_freq_ = 100;
 
 FollowStreamDialog::FollowStreamDialog(QWidget &parent, CaptureFile &cf, follow_type_t type) :
     WiresharkDialog(parent, cf),
     ui(new Ui::FollowStreamDialog),
+    b_find_(NULL),
     follow_type_(type),
     follower_(NULL),
     show_type_(SHOW_ASCII),
     truncated_(false),
-    save_as_(false),
-    use_regex_find_(false)
+    client_buffer_count_(0),
+    server_buffer_count_(0),
+    client_packet_count_(0),
+    server_packet_count_(0),
+    last_packet_(0),
+    last_from_server_(0),
+    turns_(0),
+    use_regex_find_(false),
+    terminating_(false)
 {
     ui->setupUi(this);
     loadGeometry(parent.width() * 2 / 3, parent.height());
@@ -110,6 +112,7 @@ FollowStreamDialog::FollowStreamDialog(QWidget &parent, CaptureFile &cf, follow_
     cbcs->addItem(tr("EBCDIC"), SHOW_EBCDIC);
     cbcs->addItem(tr("Hex Dump"), SHOW_HEXDUMP);
     cbcs->addItem(tr("UTF-8"), SHOW_UTF8);
+    cbcs->addItem(tr("UTF-16"), SHOW_UTF16);
     cbcs->addItem(tr("YAML"), SHOW_YAML);
     cbcs->addItem(tr("Raw"), SHOW_RAW);
     cbcs->blockSignals(false);
@@ -123,6 +126,9 @@ FollowStreamDialog::FollowStreamDialog(QWidget &parent, CaptureFile &cf, follow_
     b_save_ = ui->buttonBox->addButton(tr("Save as" UTF8_HORIZONTAL_ELLIPSIS), QDialogButtonBox::ActionRole);
     connect(b_save_, SIGNAL(clicked()), this, SLOT(saveAs()));
 
+    b_back_ = ui->buttonBox->addButton(tr("Back"), QDialogButtonBox::ActionRole);
+    connect(b_back_, SIGNAL(clicked()), this, SLOT(backButton()));
+
     ProgressFrame::addToButtonBox(ui->buttonBox, &parent);
 
     connect(ui->buttonBox, SIGNAL(helpRequested()), this, SLOT(helpButton()));
@@ -130,7 +136,8 @@ FollowStreamDialog::FollowStreamDialog(QWidget &parent, CaptureFile &cf, follow_
             this, SLOT(fillHintLabel(int)));
     connect(ui->teStreamContent, SIGNAL(mouseClickedOnTextCursorPosition(int)),
             this, SLOT(goToPacketForTextPos(int)));
-    connect(&cap_file_, SIGNAL(captureFileClosing()), this, SLOT(captureFileClosing()));
+    connect(&cap_file_, SIGNAL(captureEvent(CaptureEvent)),
+            this, SLOT(captureEvent(CaptureEvent)));
 
     fillHintLabel(-1);
 }
@@ -217,6 +224,8 @@ void FollowStreamDialog::updateWidgets(bool follow_in_progress)
     ui->leFind->setEnabled(enable);
     ui->bFind->setEnabled(enable);
     b_filter_out_->setEnabled(enable);
+    b_print_->setEnabled(enable);
+    b_save_->setEnabled(enable);
 
     WiresharkDialog::updateWidgets();
 }
@@ -225,15 +234,17 @@ void FollowStreamDialog::useRegexFind(bool use_regex)
 {
     use_regex_find_ = use_regex;
     if (use_regex_find_)
-        ui->lFind->setText("Regex Find:");
+        ui->lFind->setText(tr("Regex Find:"));
     else
-        ui->lFind->setText("Find:");
+        ui->lFind->setText(tr("Find:"));
 }
 
 void FollowStreamDialog::findText(bool go_back)
 {
     if (ui->leFind->text().isEmpty()) return;
 
+    /* Version check due to find on teStreamContent. Expects regex since 5.3
+     * http://doc.qt.io/qt-5/qplaintextedit.html#find-1 */
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 3, 0))
     bool found;
     if (use_regex_find_) {
@@ -256,25 +267,27 @@ void FollowStreamDialog::findText(bool go_back)
 
 void FollowStreamDialog::saveAs()
 {
-    QString file_name = QFileDialog::getSaveFileName(this, wsApp->windowTitleString(tr("Save Stream Content As" UTF8_HORIZONTAL_ELLIPSIS)));
-    if (!file_name.isEmpty()) {
-        file_.setFileName(file_name);
-        file_.open(QIODevice::WriteOnly);
-        QTextStream out(&file_);
-
-        save_as_ = true;
-
-        readStream();
-
-        if ((show_type_ != SHOW_RAW) && (show_type_ != SHOW_UTF8))
-        {
-            out << ui->teStreamContent->toPlainText();
-        }
-
-        save_as_ = false;
-
-        file_.close();
+    QString file_name = WiresharkFileDialog::getSaveFileName(this, wsApp->windowTitleString(tr("Save Stream Content As" UTF8_HORIZONTAL_ELLIPSIS)));
+    if (file_name.isEmpty()) {
+        return;
     }
+
+    QFile file(file_name);
+    if (!file.open(QIODevice::WriteOnly)) {
+        open_failure_alert_box(file_name.toUtf8().constData(), errno, TRUE);
+        return;
+    }
+
+    // Unconditionally save data as UTF-8 (even if data is decoded as UTF-16).
+    QByteArray bytes = ui->teStreamContent->toPlainText().toUtf8();
+    if (show_type_ == SHOW_RAW) {
+        // The "Raw" format is currently displayed as hex data and needs to be
+        // converted to binary data.
+        bytes = QByteArray::fromHex(bytes);
+    }
+
+    QDataStream out(&file);
+    out.writeRawData(bytes.constData(), bytes.size());
 }
 
 void FollowStreamDialog::helpButton()
@@ -282,11 +295,37 @@ void FollowStreamDialog::helpButton()
     wsApp->helpTopicAction(HELP_FOLLOW_STREAM_DIALOG);
 }
 
-void FollowStreamDialog::filterOut()
+void FollowStreamDialog::backButton()
 {
-    emit updateFilter(filter_out_filter_, TRUE);
+    if (terminating_)
+        return;
+
+    output_filter_ = previous_filter_;
 
     close();
+}
+
+void FollowStreamDialog::filterOut()
+{
+    if (terminating_)
+        return;
+
+    output_filter_ = filter_out_filter_;
+
+    close();
+}
+
+void FollowStreamDialog::close()
+{
+    terminating_ = true;
+
+    // Update filter - Use:
+    //     previous_filter if 'Close' (passed in follow() method)
+    //     filter_out_filter_ if 'Filter Out This Stream' (built by appending !current_stream to previous_filter)
+    //     leave filter alone if window closed. (current stream)
+    emit updateFilter(output_filter_, TRUE);
+
+    WiresharkDialog::close();
 }
 
 void FollowStreamDialog::on_cbDirections_currentIndexChanged(int idx)
@@ -331,13 +370,16 @@ void FollowStreamDialog::on_streamNumberSpinBox_valueChanged(int stream_num)
     if (file_closed_) return;
 
     if (stream_num >= 0) {
-        follow(QString(), true, stream_num);
+        follow(previous_filter_, true, stream_num);
     }
 }
 
-// Not sure why we have to do this manually.
 void FollowStreamDialog::on_buttonBox_rejected()
 {
+    // Ignore the close button if FollowStreamDialog::close() is running.
+    if (terminating_)
+        return;
+
     WiresharkDialog::reject();
 }
 
@@ -351,6 +393,7 @@ void FollowStreamDialog::removeStreamControls()
 void FollowStreamDialog::resetStream()
 {
     GList *cur;
+    follow_record_t *follow_record;
 
     filter_out_filter_.clear();
     text_pos_to_packet_.clear();
@@ -358,9 +401,34 @@ void FollowStreamDialog::resetStream()
         ws_unlink(data_out_filename_.toUtf8().constData());
     }
     for (cur = follow_info_.payload; cur; cur = g_list_next(cur)) {
-        g_free(cur->data);
+        follow_record = (follow_record_t *)cur->data;
+        if(follow_record->data) {
+            g_byte_array_free(follow_record->data, TRUE);
+        }
+        g_free(follow_record);
     }
     g_list_free(follow_info_.payload);
+
+    //Only TCP stream uses fragments
+    if (follow_type_ == FOLLOW_TCP) {
+        for (cur = follow_info_.fragments[0]; cur; cur = g_list_next(cur)) {
+            follow_record = (follow_record_t *)cur->data;
+            if(follow_record->data) {
+                g_byte_array_free(follow_record->data, TRUE);
+            }
+            g_free(follow_record);
+        }
+        follow_info_.fragments[0] = NULL;
+        for (cur = follow_info_.fragments[1]; cur; cur = g_list_next(cur)) {
+            follow_record = (follow_record_t *)cur->data;
+            if(follow_record->data) {
+                g_byte_array_free(follow_record->data, TRUE);
+            }
+            g_free(follow_record);
+        }
+        follow_info_.fragments[1] = NULL;
+    }
+
     follow_info_.payload = NULL;
     follow_info_.client_port = 0;
 }
@@ -368,7 +436,10 @@ void FollowStreamDialog::resetStream()
 frs_return_t
 FollowStreamDialog::readStream()
 {
+
     ui->teStreamContent->clear();
+    text_pos_to_packet_.clear();
+
     truncated_ = false;
     frs_return_t ret;
 
@@ -384,11 +455,8 @@ FollowStreamDialog::readStream()
     case FOLLOW_TCP :
     case FOLLOW_UDP :
     case FOLLOW_HTTP :
-        ret = readFollowStream();
-        break;
-
     case FOLLOW_SSL :
-        ret = readSslStream();
+        ret = readFollowStream();
         break;
 
     default :
@@ -396,62 +464,10 @@ FollowStreamDialog::readStream()
         ret = (frs_return_t)0;
         break;
     }
+
     ui->teStreamContent->moveCursor(QTextCursor::Start);
+
     return ret;
-}
-
-/*
- * XXX - the routine pointed to by "print_line_fcn_p" doesn't get handed lines,
- * it gets handed bufferfuls.  That's fine for "follow_write_raw()"
- * and "follow_add_to_gtk_text()", but, as "follow_print_text()" calls
- * the "print_line()" routine from "print.c", and as that routine might
- * genuinely expect to be handed a line (if, for example, it's using
- * some OS or desktop environment's printing API, and that API expects
- * to be handed lines), "follow_print_text()" should probably accumulate
- * lines in a buffer and hand them "print_line()".  (If there's a
- * complete line in a buffer - i.e., there's nothing of the line in
- * the previous buffer or the next buffer - it can just hand that to
- * "print_line()" after filtering out non-printables, as an
- * optimization.)
- *
- * This might or might not be the reason why C arrays display
- * correctly but get extra blank lines very other line when printed.
- */
-frs_return_t
-FollowStreamDialog::readSslStream()
-{
-    guint32      global_client_pos = 0, global_server_pos = 0;
-    guint32 *    global_pos;
-    GList *      cur;
-    frs_return_t frs_return;
-
-    for (cur = follow_info_.payload; cur; cur = g_list_next(cur)) {
-        SslDecryptedRecord * rec = (SslDecryptedRecord*) cur->data;
-        gboolean             include_rec = FALSE;
-
-        if (rec->is_from_server) {
-            global_pos = &global_server_pos;
-            include_rec = (follow_info_.show_stream == BOTH_HOSTS) ||
-                    (follow_info_.show_stream == FROM_SERVER);
-        } else {
-            global_pos = &global_client_pos;
-            include_rec = (follow_info_.show_stream == BOTH_HOSTS) ||
-                    (follow_info_.show_stream == FROM_CLIENT);
-        }
-
-        if (include_rec) {
-            size_t nchars = rec->data.data_len;
-            gchar *buffer = (gchar *)g_memdup(rec->data.data, (guint) nchars);
-
-            frs_return = showBuffer(buffer, nchars,
-                                     rec->is_from_server, rec->packet_num, global_pos);
-            g_free(buffer);
-            if (frs_return == FRS_PRINT_ERROR)
-                return frs_return;
-        }
-    }
-
-    return FRS_OK;
 }
 
 void
@@ -460,32 +476,9 @@ FollowStreamDialog::followStream()
     readStream();
 }
 
-
-
-const int FollowStreamDialog::max_document_length_ = 2 * 1000 * 1000; // Just a guess
+const int FollowStreamDialog::max_document_length_ = 500 * 1000 * 1000; // Just a guess
 void FollowStreamDialog::addText(QString text, gboolean is_from_server, guint32 packet_num)
 {
-    if (save_as_ == true)
-    {
-        //FILE *fh = (FILE *)arg;
-        size_t nwritten;
-        int FileDescriptor = file_.handle();
-        FILE* fh = fdopen(dup(FileDescriptor), "wb");
-        if (show_type_ == SHOW_RAW) {
-            QByteArray binstream = QByteArray::fromHex(text.toUtf8());
-            nwritten = fwrite(binstream.constData(), binstream.length(), 1, fh);
-        } else {
-            nwritten = fwrite(text.toUtf8().constData(), text.length(), 1, fh);
-        }
-        fclose(fh);
-        if ((int)nwritten != text.length()) {
-#if 0
-            report_an_error_maybe();
-#endif
-        }
-        return;
-    }
-
     if (truncated_) {
         return;
     }
@@ -496,34 +489,32 @@ void FollowStreamDialog::addText(QString text, gboolean is_from_server, guint32 
         truncated_ = true;
     }
 
-    QColor tagserver_fg = ColorUtils::fromColorT(prefs.st_server_fg);
-    QColor tagserver_bg = ColorUtils::fromColorT(prefs.st_server_bg);
-
-    QColor tagclient_fg = ColorUtils::fromColorT(prefs.st_client_fg);
-    QColor tagclient_bg = ColorUtils::fromColorT(prefs.st_client_bg);
-
+    setUpdatesEnabled(false);
+    int cur_pos = ui->teStreamContent->verticalScrollBar()->value();
     ui->teStreamContent->moveCursor(QTextCursor::End);
-    ui->teStreamContent->setCurrentFont(wsApp->monospaceFont());
-    if (is_from_server)
-    {
-        ui->teStreamContent->setTextColor(tagserver_fg);
-        ui->teStreamContent->setTextBackgroundColor(tagserver_bg);
+    QTextCharFormat tcf = ui->teStreamContent->currentCharFormat();
+    if (is_from_server) {
+        tcf.setForeground(ColorUtils::fromColorT(prefs.st_server_fg));
+        tcf.setBackground(ColorUtils::fromColorT(prefs.st_server_bg));
+    } else {
+        tcf.setForeground(ColorUtils::fromColorT(prefs.st_client_fg));
+        tcf.setBackground(ColorUtils::fromColorT(prefs.st_client_bg));
     }
-    else
-    {
-        ui->teStreamContent->setTextColor(tagclient_fg);
-        ui->teStreamContent->setTextBackgroundColor(tagclient_bg);
-    }
+    ui->teStreamContent->setCurrentCharFormat(tcf);
+
     ui->teStreamContent->insertPlainText(text);
-    ui->teStreamContent->moveCursor(QTextCursor::End);
     text_pos_to_packet_[ui->teStreamContent->textCursor().anchor()] = packet_num;
 
     if (truncated_) {
-        ui->teStreamContent->setTextBackgroundColor(ui->teStreamContent->palette().window().color());
-        ui->teStreamContent->setTextColor(ui->teStreamContent->palette().windowText().color());
-        ui->teStreamContent->insertPlainText(tr("\n[Stream output truncated]"));
+        tcf = ui->teStreamContent->currentCharFormat();
+        tcf.setBackground(palette().window().color());
+        tcf.setForeground(palette().windowText().color());
+        ui->teStreamContent->insertPlainText("\n" + tr("[Stream output truncated]"));
         ui->teStreamContent->moveCursor(QTextCursor::End);
+    } else {
+        ui->teStreamContent->verticalScrollBar()->setValue(cur_pos);
     }
+    setUpdatesEnabled(true);
 }
 
 // The following keyboard shortcuts should work (although
@@ -610,19 +601,27 @@ FollowStreamDialog::showBuffer(char *buffer, size_t nchars, gboolean is_from_ser
          * ASCII_TO_EBCDIC(buffer, nchars);
          */
         sanitize_buffer(buffer, nchars);
-        sanitize_buffer(buffer, nchars);
         QByteArray ba = QByteArray(buffer, (int)nchars);
         addText(ba, is_from_server, packet_num);
         break;
     }
 
-    case SHOW_UTF8: // UTF-8
+    case SHOW_UTF8:
     {
         // The QString docs say that invalid characters will be replaced with
         // replacement characters or removed. It would be nice if we could
         // explicitly choose one or the other.
         QString utf8 = QString::fromUtf8(buffer, (int)nchars);
         addText(utf8, is_from_server, packet_num);
+        break;
+    }
+
+    case SHOW_UTF16:
+    {
+        // QString::fromUtf16 calls QUtf16::convertToUnicode, casting buffer
+        // back to a const char * and doubling nchars.
+        QString utf16 = QString::fromUtf16((const unsigned short *)buffer, (int)nchars / 2);
+        addText(utf16, is_from_server, packet_num);
         break;
     }
 
@@ -803,9 +802,9 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index, 
         return false;
     }
 
-    if (follow_type_ == FOLLOW_SSL)
+    if (follow_type_ == FOLLOW_SSL || follow_type_ == FOLLOW_HTTP)
     {
-        /* we got ssl so we can follow */
+        /* we got ssl/http so we can follow */
         removeStreamControls();
     }
 
@@ -825,6 +824,7 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index, 
         return false;
     }
 
+    previous_filter_ = previous_filter;
     /* append the negation */
     if(!previous_filter.isEmpty()) {
         filter_out_filter_ = QString("%1 and !(%2)")
@@ -910,32 +910,42 @@ bool FollowStreamDialog::follow(QString previous_filter, bool use_stream_index, 
     wmem_free(NULL, port0);
     wmem_free(NULL, port1);
 
-    both_directions_string = QString("Entire conversation (%1)")
+    both_directions_string = tr("Entire conversation (%1)")
             .arg(gchar_free_to_qstring(format_size(
                                             follow_info_.bytes_written[0] + follow_info_.bytes_written[1],
                     format_size_unit_bytes|format_size_prefix_si)));
     setWindowSubtitle(tr("Follow %1 Stream (%2)").arg(proto_get_protocol_short_name(find_protocol_by_id(get_follow_proto_id(follower_))))
                                                  .arg(follow_filter));
 
+    ui->cbDirections->blockSignals(true);
     ui->cbDirections->clear();
     ui->cbDirections->addItem(both_directions_string);
     ui->cbDirections->addItem(client_to_server_string);
     ui->cbDirections->addItem(server_to_client_string);
+    ui->cbDirections->blockSignals(false);
 
     followStream();
     fillHintLabel(-1);
 
     updateWidgets(false);
     endRetapPackets();
+
+    if (prefs.restore_filter_after_following_stream) {
+        emit updateFilter(previous_filter_, TRUE);
+    }
+
     return true;
 }
 
-void FollowStreamDialog::captureFileClosing()
+void FollowStreamDialog::captureEvent(CaptureEvent e)
 {
-    QString tooltip = tr("File closed.");
-    ui->streamNumberSpinBox->setToolTip(tooltip);
-    ui->streamNumberLabel->setToolTip(tooltip);
-    WiresharkDialog::captureFileClosing();
+    if ((e.captureContext() == CaptureEvent::File) &&
+            (e.eventType() == CaptureEvent::Closing)) {
+            QString tooltip = tr("File closed.");
+            ui->streamNumberSpinBox->setToolTip(tooltip);
+            ui->streamNumberLabel->setToolTip(tooltip);
+            WiresharkDialog::captureFileClosing();
+    }
 }
 
 /*
@@ -964,9 +974,13 @@ FollowStreamDialog::readFollowStream()
     GList* cur;
     frs_return_t frs_return;
     follow_record_t *follow_record;
-    char *buffer;
+    QElapsedTimer elapsed_timer;
 
-    for (cur = follow_info_.payload; cur; cur = g_list_next(cur)) {
+    elapsed_timer.start();
+
+    for (cur = g_list_last(follow_info_.payload); cur; cur = g_list_previous(cur)) {
+        if (dialogClosed()) break;
+
         follow_record = (follow_record_t *)cur->data;
         skip = FALSE;
         if (!follow_record->is_server) {
@@ -981,19 +995,25 @@ FollowStreamDialog::readFollowStream()
             }
         }
 
+        QByteArray buffer;
         if (!skip) {
-            buffer = (char *)g_memdup(follow_record->data->data,
-                                      follow_record->data->len);
-
+            // We want a deep copy.
+            buffer.clear();
+            buffer.append((const char *) follow_record->data->data,
+                                     follow_record->data->len);
             frs_return = showBuffer(
-                        buffer,
+                        buffer.data(),
                         follow_record->data->len,
                         follow_record->is_server,
                         follow_record->packet_num,
                         global_pos);
-            g_free(buffer);
             if(frs_return == FRS_PRINT_ERROR)
                 return frs_return;
+            if (elapsed_timer.elapsed() > info_update_freq_) {
+                fillHintLabel(ui->teStreamContent->textCursor().position());
+                wsApp->processEvents();
+                elapsed_timer.start();
+            }
         }
     }
 

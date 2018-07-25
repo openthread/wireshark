@@ -4,24 +4,7 @@
  * Copyright 2007		Andy Green <andy@warmcat.com>
  * Copyright 2009		Johannes Berg <johannes@sipsolutions.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of ISC
- * license:
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * SPDX-License-Identifier: (ISC OR GPL-2.0-only)
  */
 
 #include "config.h"
@@ -62,7 +45,10 @@ static const struct radiotap_align_size rtap_namespace_sizes[] = {
 	/* [IEEE80211_RADIOTAP_XCHANNEL] = 18 */		{ 0, 0 }, /* Unofficial, used by FreeBSD */
 	/* [IEEE80211_RADIOTAP_MCS] = 19 */			{ 1, 3 },
 	/* [IEEE80211_RADIOTAP_AMPDU_STATUS] = 20 */		{ 4, 8 },
-	/* [IEEE80211_RADIOTAP_VHT] = 21 */			{ 2, 12 }
+	/* [IEEE80211_RADIOTAP_VHT] = 21 */			{ 2, 12 },
+	/* [IEEE80211_RADIOTAP_TIMESTAMP] = 22 */		{ 8, 12 },
+	/* [IEEE80211_RADIOTAP_HE] = 23 */                      { 2, 12 },
+	/* [IEEE80211_RADIOTAP_HE_MU] = 24 */			{ 2, 8 },
 
 	/*
 	 * add more here as they are defined in

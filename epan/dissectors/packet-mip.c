@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,6 +18,7 @@
 #include <epan/expert.h>
 #include <epan/to_str.h>
 #include <epan/sminmpec.h>
+#include <epan/addr_resolv.h>
 
 void proto_register_mip(void);
 void proto_reg_handoff_mip(void);
@@ -124,6 +113,11 @@ static int hf_mip_nvse_3gpp2_type17_subtype2 = -1;
 static int hf_mip_nvse_3gpp2_type17_length = -1;
 static int hf_mip_nvse_3gpp2_type17_prim_dns = -1;
 static int hf_mip_nvse_3gpp2_type17_sec_dns = -1;
+static int hf_mip_mne_sub_type = -1;
+static int hf_mip_mne_code = -1;
+static int hf_mip_mne_prefix_length = -1;
+static int hf_mip_mne_prefix = -1;
+static int hf_mip_mne_reserved = -1;
 
 /* Initialize the subtree pointers */
 static gint ett_mip = -1;
@@ -133,6 +127,8 @@ static gint ett_mip_exts = -1;
 static gint ett_mip_pmipv4_ext = -1;
 
 static expert_field ei_mip_data_not_dissected = EI_INIT;
+
+static dissector_handle_t mip_handle;
 
 /* Port used for Mobile IP */
 #define UDP_PORT_MIP    434
@@ -257,6 +253,7 @@ typedef enum {
   UDP_TUN_REQ_EXT = 144,  /* RFC 3519 */
   MSG_STR_EXT = 145,
   PMIPv4_SKIP_EXT = 147,  /* draft-leung-mip4-proxy-mode */
+  MNE_EXT = 148,          /* RFC 5177 */
   SKIP_EXP_EXT = 255,      /* RFC 4064 */
   GRE_KEY_EXT = 0x0401
 } MIP_EXTS;
@@ -289,7 +286,7 @@ static const value_string mip_ext_types[]= {
   {UDP_TUN_REQ_EXT,     "UDP Tunnel Request Extension"},
   {MSG_STR_EXT,         "Message String Extension"},
   {PMIPv4_SKIP_EXT,     "Proxy Mobile IPv4 Skippable Extension"},
-  {148,                 "Mobile Network Extension"},                                /*[RFC5177]*/
+  {MNE_EXT,             "Mobile Network Extension"},                                /*[RFC5177]*/
   {149,                 "Trusted Networks Configured (TNC) Extension"},             /*[RFC5265]*/
   {150,                 "Reserved"},
   {151,                 "Service Selection Extension"},                             /*[RFC5446]*/
@@ -447,6 +444,21 @@ static const value_string mip_nvse_3gpp2_type17_vals[]= {
   {0, NULL}
 };
 
+static const value_string mip_mne_stypes[]= {
+  {0, "Mobile Network Request"},
+  {1, "Explicit Mode Acknowledgement"},
+  {2, "Implicit Mode Acknowledgement"},
+  {0, NULL}
+};
+
+static const value_string mip_mne_codes[]= {
+  {0, "Success"},
+  {1, "Invalid prefix (MOBNET_INVALID_PREFIX_LEN)"},
+  {2, "Mobile Router is not authorized for prefix (MOBNET_UNAUTHORIZED)"},
+  {3, "Forwarding setup failed (MOBNET_FWDING_SETUP_FAILED)"},
+  {0, NULL}
+};
+
 static dissector_handle_t ip_handle;
 
 /* Code to dissect 3GPP2 extensions */
@@ -512,6 +524,7 @@ dissect_mip_extensions( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info
   guint16       cvse_3gpp2_type;
   int           cvse_local_offset= 0;
   int           nvse_local_offset= 0;
+  int           mne_local_offset= 0;
 
   /* Add our tree, if we have extensions */
   exts_tree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_mip_exts, NULL, "Extensions");
@@ -764,6 +777,35 @@ dissect_mip_extensions( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info
       }
       break;
 
+    case MNE_EXT:          /* RFC 5177 */
+      {
+        guint8 sub_type;
+
+        sub_type = tvb_get_guint8(tvb, offset);
+        proto_tree_add_item(ext_tree, hf_mip_mne_sub_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+        mne_local_offset = offset+1;
+        switch (sub_type) {
+        case 0:
+          proto_tree_add_item(ext_tree, hf_mip_mne_prefix_length, tvb, mne_local_offset, 1, ENC_BIG_ENDIAN);
+          mne_local_offset++;
+          break;
+        case 1:
+        case 2:
+          proto_tree_add_item(ext_tree, hf_mip_mne_code, tvb, mne_local_offset, 1, ENC_BIG_ENDIAN);
+          mne_local_offset++;
+          proto_tree_add_item(ext_tree, hf_mip_mne_prefix_length, tvb, mne_local_offset, 1, ENC_BIG_ENDIAN);
+          mne_local_offset++;
+          proto_tree_add_item(ext_tree, hf_mip_mne_reserved, tvb, mne_local_offset, 1, ENC_BIG_ENDIAN);
+          mne_local_offset++;
+          break;
+        default:
+          proto_tree_add_expert_format(ext_tree, pinfo, &ei_mip_data_not_dissected, tvb, offset, -1, "Unable to decode (Unknown Sub-Type)");
+          return;
+        }
+        proto_tree_add_item(ext_tree, hf_mip_mne_prefix, tvb, mne_local_offset, 4, ENC_BIG_ENDIAN);
+      }
+      break;
+
     case MF_CHALLENGE_EXT:  /* RFC 3012 */
       /* The default dissector is good here.  The challenge is all hex anyway. */
     default:
@@ -845,7 +887,9 @@ dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
       proto_tree_add_item(mip_tree, hf_mip_ident, tvb, offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
       offset += 8;
 
-    } /* if tree */
+    } else {
+      offset += 24;
+    }
     break;
   case MIP_REGISTRATION_REPLY:
     col_add_fstr(pinfo->cinfo, COL_INFO,
@@ -882,7 +926,9 @@ dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
       /* Identifier - assumed to be an NTP time here */
       proto_tree_add_item(mip_tree, hf_mip_ident, tvb, offset, 8, ENC_TIME_NTP|ENC_BIG_ENDIAN);
       offset += 8;
-    } /* if tree */
+    } else {
+      offset += 20;
+    }
     break;
   case MIP_NATT_TUNNEL_DATA:
     col_add_fstr(pinfo->cinfo, COL_INFO, "Tunnel Data: Next Header=%u",
@@ -904,8 +950,7 @@ dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
       /* reserved */
       proto_tree_add_item(mip_tree, hf_mip_nattt_reserved, tvb, offset, 2, ENC_BIG_ENDIAN);
       offset += 2;
-    } /* if tree */
-    else {
+    } else {
       offset += 4;
     }
     /* encapsulated payload */
@@ -958,7 +1003,9 @@ dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
       /* revocation identifier */
       proto_tree_add_item(mip_tree, hf_mip_revid, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
-    } /* if tree */
+    } else {
+      offset += 20;
+    }
     break;
   case MIP_REGISTRATION_REVOCATION_ACK:
       col_add_fstr(pinfo->cinfo, COL_INFO, "Reg Revocation Ack: HoA=%s",
@@ -993,7 +1040,9 @@ dissect_mip( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
       /* revocation identifier */
       proto_tree_add_item(mip_tree, hf_mip_revid, tvb, offset, 4, ENC_BIG_ENDIAN);
       offset += 4;
-    } /* if tree */
+    } else {
+      offset += 12;
+    }
     break;
   } /* End switch */
 
@@ -1353,7 +1402,7 @@ void proto_register_mip(void)
     },
     { &hf_mip_cvse_vendor_org_id,
       { "CVSE Vendor/org ID",                "mip.ext.cvse.vendor_id",
-        FT_UINT32, BASE_DEC|BASE_EXT_STRING, &sminmpec_values_ext, 0,
+        FT_UINT32, BASE_ENTERPRISES, STRINGS_ENTERPRISES, 0,
         NULL, HFILL }
     },
     { &hf_mip_cvse_verizon_cvse_type ,
@@ -1388,7 +1437,7 @@ void proto_register_mip(void)
     },
     { &hf_mip_nvse_vendor_org_id,
       { "Vendor ID",                "mip.ext.nvse.vendor_id",
-        FT_UINT32, BASE_DEC|BASE_EXT_STRING, &sminmpec_values_ext, 0,
+        FT_UINT32, BASE_ENTERPRISES, STRINGS_ENTERPRISES, 0,
         NULL, HFILL }
     },
     { &hf_mip_nvse_vendor_nvse_type ,
@@ -1441,6 +1490,31 @@ void proto_register_mip(void)
         FT_IPv4, BASE_NONE, NULL, 0,
         NULL, HFILL }
     },
+    { &hf_mip_mne_sub_type,
+      { "Sub-Type", "mip.ext.mne.subtype",
+        FT_UINT8, BASE_DEC, VALS(mip_mne_stypes), 0,
+        NULL, HFILL }
+    },
+    { &hf_mip_mne_code,
+      { "Code", "mip.ext.mne.code",
+        FT_UINT8, BASE_DEC, VALS(mip_mne_codes), 0,
+        NULL, HFILL }
+    },
+    { &hf_mip_mne_prefix_length,
+      { "Prefix Length", "mip.ext.mne.prefix_length",
+        FT_UINT8, BASE_DEC, NULL, 0,
+        NULL, HFILL }
+    },
+    { &hf_mip_mne_reserved,
+      { "Reserved", "mip.ext.mne.reserved",
+        FT_UINT8, BASE_HEX, NULL, 0,
+        NULL, HFILL }
+    },
+    { &hf_mip_mne_prefix,
+      { "Prefix", "mip.ext.mne.prefix",
+        FT_IPv4, BASE_NETMASK, NULL, 0,
+        NULL, HFILL }
+    }
   };
 
   /* Setup protocol subtree array */
@@ -1462,7 +1536,7 @@ void proto_register_mip(void)
   proto_mip = proto_register_protocol("Mobile IP", "Mobile IP", "mip");
 
   /* Register the dissector by name */
-  register_dissector("mip", dissect_mip, proto_mip);
+  mip_handle = register_dissector("mip", dissect_mip, proto_mip);
 
   /* Required function calls to register the header fields and subtrees used */
   proto_register_field_array(proto_mip, hf, array_length(hf));
@@ -1471,17 +1545,14 @@ void proto_register_mip(void)
   expert_register_field_array(expert_mip, ei, array_length(ei));
 
   mip_nvse_ext_dissector_table = register_dissector_table("mip.nvse_ext",
-    "MIP Normal Vendor/Organization Specific Extension", proto_mip, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+    "MIP Normal Vendor/Organization Specific Extension", proto_mip, FT_UINT32, BASE_DEC);
 }
 
 void
 proto_reg_handoff_mip(void)
 {
-  dissector_handle_t mip_handle;
-
-  mip_handle = find_dissector("mip");
   ip_handle = find_dissector_add_dependency("ip", proto_mip);
-  dissector_add_uint("udp.port", UDP_PORT_MIP, mip_handle);
+  dissector_add_uint_with_preference("udp.port", UDP_PORT_MIP, mip_handle);
 
   /* Register as dissector for 3GPP2 NVSE */
   dissector_add_uint("mip.nvse_ext", VENDOR_THE3GPP2,

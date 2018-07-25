@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -56,6 +44,8 @@ static int ett_goose = -1;
 #include "packet-goose-ett.c"
 
 #include "packet-goose-fn.c"
+
+static dissector_handle_t goose_handle = NULL;
 
 /*
 * Dissect GOOSE PDUs inside a PPDU.
@@ -141,7 +131,7 @@ void proto_register_goose(void) {
 
 	/* Register protocol */
 	proto_goose = proto_register_protocol(PNAME, PSNAME, PFNAME);
-	register_dissector("goose", dissect_goose, proto_goose);
+	goose_handle = register_dissector("goose", dissect_goose, proto_goose);
 
 	/* Register fields and subtrees */
 	proto_register_field_array(proto_goose, hf, array_length(hf));
@@ -152,9 +142,6 @@ void proto_register_goose(void) {
 
 /*--- proto_reg_handoff_goose --- */
 void proto_reg_handoff_goose(void) {
-
-	dissector_handle_t goose_handle;
-	goose_handle = find_dissector("goose");
 
 	dissector_add_uint("ethertype", ETHERTYPE_IEC61850_GOOSE, goose_handle);
 }

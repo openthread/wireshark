@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wslua_pinfo_common.h"
@@ -61,7 +49,7 @@ Pinfo* push_Pinfo(lua_State* L, packet_info* ws_pinfo) {
 #define PUSH_PRIVATE_TABLE(L,c) {g_ptr_array_add(outstanding_PrivateTable,c);pushPrivateTable(L,c);}
 
 
-WSLUA_CLASS_DEFINE(PrivateTable,FAIL_ON_NULL_OR_EXPIRED("PrivateTable"),NOP);
+WSLUA_CLASS_DEFINE(PrivateTable,FAIL_ON_NULL_OR_EXPIRED("PrivateTable"));
 /* PrivateTable represents the pinfo->private_table. */
 
 WSLUA_METAMETHOD PrivateTable__tostring(lua_State* L) {
@@ -165,7 +153,7 @@ int PrivateTable_register(lua_State* L) {
 }
 
 
-WSLUA_CLASS_DEFINE(Pinfo,FAIL_ON_NULL_OR_EXPIRED("Pinfo"),NOP);
+WSLUA_CLASS_DEFINE(Pinfo,FAIL_ON_NULL_OR_EXPIRED("Pinfo"));
 /* Packet information. */
 
 static int Pinfo__tostring(lua_State *L) { lua_pushstring(L,"a Pinfo"); return 1; }
@@ -237,10 +225,6 @@ WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,delta_ts,lua_delta_nstime_to_sec(obj, 
 
 /* WSLUA_ATTRIBUTE Pinfo_delta_dis_ts RO Number of seconds passed since the last displayed packet. */
 WSLUA_ATTRIBUTE_BLOCK_NUMBER_GETTER(Pinfo,delta_dis_ts,lua_delta_nstime_to_sec(obj, obj->ws_pinfo->fd, obj->ws_pinfo->fd->prev_dis_num));
-
-/* WSLUA_ATTRIBUTE Pinfo_circuit_id RW For circuit based protocols. */
-PINFO_NUMBER_GETTER(circuit_id);
-PINFO_NUMBER_SETTER(circuit_id,guint32);
 
 /* WSLUA_ATTRIBUTE Pinfo_curr_proto RO Which Protocol are we dissecting. */
 WSLUA_ATTRIBUTE_NAMED_STRING_GETTER(Pinfo,curr_proto,ws_pinfo->current_proto);
@@ -456,7 +440,6 @@ WSLUA_ATTRIBUTES Pinfo_attributes[] = {
     WSLUA_ATTRIBUTE_ROREG(Pinfo,port_type),
     WSLUA_ATTRIBUTE_RWREG(Pinfo,src_port),
     WSLUA_ATTRIBUTE_RWREG(Pinfo,dst_port),
-    WSLUA_ATTRIBUTE_RWREG(Pinfo,circuit_id),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,match),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,curr_proto),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,columns),
@@ -467,7 +450,6 @@ WSLUA_ATTRIBUTES Pinfo_attributes[] = {
     WSLUA_ATTRIBUTE_ROREG(Pinfo,private),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,fragmented),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,in_error_pkt),
-    WSLUA_ATTRIBUTE_ROREG(Pinfo,fragmented),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,match_uint),
     WSLUA_ATTRIBUTE_ROREG(Pinfo,match_string),
     WSLUA_ATTRIBUTE_WOREG(Pinfo,conversation),

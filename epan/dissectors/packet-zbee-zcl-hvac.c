@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*  Include Files */
@@ -106,7 +94,7 @@ void proto_register_zbee_zcl_pump_config_control(void);
 void proto_reg_handoff_zbee_zcl_pump_config_control(void);
 
 /* Command Dissector Helpers */
-static void dissect_zcl_pump_config_control_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+static void dissect_zcl_pump_config_control_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 /* Private functions prototype */
 
@@ -230,9 +218,10 @@ dissect_zbee_zcl_pump_config_control(tvbuff_t *tvb _U_, packet_info *pinfo _U_, 
  *@param offset pointer to buffer offset
  *@param attr_id attribute identifier
  *@param data_type attribute data type
+ *@param client_attr ZCL client
 */
 void
-dissect_zcl_pump_config_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type)
+dissect_zcl_pump_config_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr)
 {
     static const int * pump_status[] = {
         &hf_zbee_zcl_pump_config_control_status_device_fault,
@@ -317,7 +306,7 @@ dissect_zcl_pump_config_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint
         case ZBEE_ZCL_ATTR_ID_PUMP_CONFIG_CONTROL_POWER:
         case ZBEE_ZCL_ATTR_ID_PUMP_CONFIG_CONTROL_LIFETIME_ENERGY_CONS:
         default:
-            dissect_zcl_attr_data(tvb, tree, offset, data_type);
+            dissect_zcl_attr_data(tvb, tree, offset, data_type, client_attr);
             break;
     }
 
@@ -482,15 +471,12 @@ proto_register_zbee_zcl_pump_config_control(void)
 void
 proto_reg_handoff_zbee_zcl_pump_config_control(void)
 {
-    dissector_handle_t pump_config_ctrl_handle;
-
-    /* Register our dissector with the ZigBee application dissectors. */
-    pump_config_ctrl_handle = find_dissector(ZBEE_PROTOABBREV_ZCL_PUMP_CONFIG_CTRL);
-    dissector_add_uint("zbee.zcl.cluster", ZBEE_ZCL_CID_PUMP_CONFIG_CONTROL, pump_config_ctrl_handle);
-
-    zbee_zcl_init_cluster(  proto_zbee_zcl_pump_config_control,
+    zbee_zcl_init_cluster(  ZBEE_PROTOABBREV_ZCL_PUMP_CONFIG_CTRL,
+                            proto_zbee_zcl_pump_config_control,
                             ett_zbee_zcl_pump_config_control,
                             ZBEE_ZCL_CID_PUMP_CONFIG_CONTROL,
+                            ZBEE_MFG_CODE_NONE,
+                            hf_zbee_zcl_pump_config_control_attr_id,
                             hf_zbee_zcl_pump_config_control_attr_id,
                             -1, -1,
                             (zbee_zcl_fn_attr_data)dissect_zcl_pump_config_control_attr_data
@@ -524,7 +510,7 @@ void proto_register_zbee_zcl_fan_control(void);
 void proto_reg_handoff_zbee_zcl_fan_control(void);
 
 /* Command Dissector Helpers */
-static void dissect_zcl_fan_control_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+static void dissect_zcl_fan_control_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 /* Private functions prototype */
 
@@ -597,9 +583,10 @@ dissect_zbee_zcl_fan_control(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tr
  *@param offset pointer to buffer offset
  *@param attr_id attribute identifier
  *@param data_type attribute data type
+ *@param client_attr ZCL client
 */
 void
-dissect_zcl_fan_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type)
+dissect_zcl_fan_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr)
 {
     /* Dissect attribute data type and data */
     switch (attr_id) {
@@ -615,7 +602,7 @@ dissect_zcl_fan_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset
             break;
 
         default:
-            dissect_zcl_attr_data(tvb, tree, offset, data_type);
+            dissect_zcl_attr_data(tvb, tree, offset, data_type, client_attr);
             break;
     }
 
@@ -666,15 +653,12 @@ proto_register_zbee_zcl_fan_control(void)
 void
 proto_reg_handoff_zbee_zcl_fan_control(void)
 {
-    dissector_handle_t fan_control_handle;
-
-    /* Register our dissector with the ZigBee application dissectors. */
-    fan_control_handle = find_dissector(ZBEE_PROTOABBREV_ZCL_FAN_CONTROL);
-    dissector_add_uint("zbee.zcl.cluster", ZBEE_ZCL_CID_FAN_CONTROL, fan_control_handle);
-
-    zbee_zcl_init_cluster(  proto_zbee_zcl_fan_control,
+    zbee_zcl_init_cluster(  ZBEE_PROTOABBREV_ZCL_FAN_CONTROL,
+                            proto_zbee_zcl_fan_control,
                             ett_zbee_zcl_fan_control,
                             ZBEE_ZCL_CID_FAN_CONTROL,
+                            ZBEE_MFG_CODE_NONE,
+                            hf_zbee_zcl_fan_control_attr_id,
                             hf_zbee_zcl_fan_control_attr_id,
                             -1, -1,
                             (zbee_zcl_fn_attr_data)dissect_zcl_fan_control_attr_data
@@ -714,7 +698,7 @@ void proto_register_zbee_zcl_dehumidification_control(void);
 void proto_reg_handoff_zbee_zcl_dehumidification_control(void);
 
 /* Command Dissector Helpers */
-static void dissect_zcl_dehumidification_control_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+static void dissect_zcl_dehumidification_control_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 /* Private functions prototype */
 
@@ -793,9 +777,10 @@ dissect_zbee_zcl_dehumidification_control(tvbuff_t *tvb _U_, packet_info *pinfo 
  *@param offset pointer to buffer offset
  *@param attr_id attribute identifier
  *@param data_type attribute data type
+ *@param client_attr ZCL client
 */
 void
-dissect_zcl_dehumidification_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type)
+dissect_zcl_dehumidification_control_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr)
 {
     /* Dissect attribute data type and data */
     switch (attr_id) {
@@ -821,7 +806,7 @@ dissect_zcl_dehumidification_control_attr_data(proto_tree *tree, tvbuff_t *tvb, 
         case ZBEE_ZCL_ATTR_ID_DEHUMIDIFICATION_CONTROL_DEHUM_HYSTERESIS:
         case ZBEE_ZCL_ATTR_ID_DEHUMIDIFICATION_CONTROL_DEHUM_MAX_COOL:
         default:
-            dissect_zcl_attr_data(tvb, tree, offset, data_type);
+            dissect_zcl_attr_data(tvb, tree, offset, data_type, client_attr);
             break;
     }
 
@@ -876,15 +861,12 @@ proto_register_zbee_zcl_dehumidification_control(void)
 void
 proto_reg_handoff_zbee_zcl_dehumidification_control(void)
 {
-    dissector_handle_t dehumidification_control_handle;
-
-    /* Register our dissector with the ZigBee application dissectors. */
-    dehumidification_control_handle = find_dissector(ZBEE_PROTOABBREV_ZCL_DEHUMIDIFICATION_CONTROL);
-    dissector_add_uint("zbee.zcl.cluster", ZBEE_ZCL_CID_DEHUMIDIFICATION_CONTROL, dehumidification_control_handle);
-
-    zbee_zcl_init_cluster(  proto_zbee_zcl_dehumidification_control,
+    zbee_zcl_init_cluster(  ZBEE_PROTOABBREV_ZCL_DEHUMIDIFICATION_CONTROL,
+                            proto_zbee_zcl_dehumidification_control,
                             ett_zbee_zcl_dehumidification_control,
                             ZBEE_ZCL_CID_DEHUMIDIFICATION_CONTROL,
+                            ZBEE_MFG_CODE_NONE,
+                            hf_zbee_zcl_dehumidification_control_attr_id,
                             hf_zbee_zcl_dehumidification_control_attr_id,
                             -1, -1,
                             (zbee_zcl_fn_attr_data)dissect_zcl_dehumidification_control_attr_data
@@ -918,7 +900,7 @@ void proto_register_zbee_zcl_thermostat_ui_config(void);
 void proto_reg_handoff_zbee_zcl_thermostat_ui_config(void);
 
 /* Command Dissector Helpers */
-static void dissect_zcl_thermostat_ui_config_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+static void dissect_zcl_thermostat_ui_config_attr_data      (proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 /* Private functions prototype */
 
@@ -987,9 +969,10 @@ dissect_zbee_zcl_thermostat_ui_config(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
  *@param offset pointer to buffer offset
  *@param attr_id attribute identifier
  *@param data_type attribute data type
+ *@param client_attr ZCL client
 */
 void
-dissect_zcl_thermostat_ui_config_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type)
+dissect_zcl_thermostat_ui_config_attr_data(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr)
 {
     /* Dissect attribute data type and data */
     switch (attr_id) {
@@ -1005,7 +988,7 @@ dissect_zcl_thermostat_ui_config_attr_data(proto_tree *tree, tvbuff_t *tvb, guin
             break;
 
         default:
-            dissect_zcl_attr_data(tvb, tree, offset, data_type);
+            dissect_zcl_attr_data(tvb, tree, offset, data_type, client_attr);
             break;
     }
 
@@ -1055,15 +1038,12 @@ proto_register_zbee_zcl_thermostat_ui_config(void)
 void
 proto_reg_handoff_zbee_zcl_thermostat_ui_config(void)
 {
-    dissector_handle_t thermostat_ui_config_handle;
-
-    /* Register our dissector with the ZigBee application dissectors. */
-    thermostat_ui_config_handle = find_dissector(ZBEE_PROTOABBREV_ZCL_THERMOSTAT_UI_CONFIG);
-    dissector_add_uint("zbee.zcl.cluster", ZBEE_ZCL_CID_THERMOSTAT_UI_CONFIG, thermostat_ui_config_handle);
-
-    zbee_zcl_init_cluster(  proto_zbee_zcl_thermostat_ui_config,
+    zbee_zcl_init_cluster(  ZBEE_PROTOABBREV_ZCL_THERMOSTAT_UI_CONFIG,
+                            proto_zbee_zcl_thermostat_ui_config,
                             ett_zbee_zcl_thermostat_ui_config,
                             ZBEE_ZCL_CID_THERMOSTAT_UI_CONFIG,
+                            ZBEE_MFG_CODE_NONE,
+                            hf_zbee_zcl_thermostat_ui_config_attr_id,
                             hf_zbee_zcl_thermostat_ui_config_attr_id,
                             -1, -1,
                             (zbee_zcl_fn_attr_data)dissect_zcl_thermostat_ui_config_attr_data

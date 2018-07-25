@@ -8,40 +8,29 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "gsm_map_summary_dialog.h"
-#include "ui_gsm_map_summary_dialog.h"
+#include <ui_gsm_map_summary_dialog.h>
 
 #include "config.h"
 
 #include <glib.h>
 
-#include "globals.h"
-#include "summary.h"
+#include "ui/summary.h"
 
 #include <epan/packet.h>
 #include <epan/tap.h>
 #include <epan/asn1.h>
 #include <epan/dissectors/packet-gsm_map.h>
 
+#include "wsutil/utf8_entities.h"
+
 #include "ui/capture_globals.h"
 #include "ui/simple_dialog.h"
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "wireshark_application.h"
 
 #include <QTextStream>
@@ -126,7 +115,7 @@ QString GsmMapSummaryDialog::summaryToHtml()
         << table_data_tmpl.arg(format_str)
         << table_row_end;
 
-    if (summary.has_snap) {
+    if (summary.snap != 0) {
         out << table_row_begin
             << table_vheader_tmpl.arg(tr("Snapshot length"))
             << table_data_tmpl.arg(summary.snap)
@@ -184,8 +173,7 @@ QString GsmMapSummaryDialog::summaryToHtml()
 
     out << table_end;
 
-    // TRANSLATOR Abbreviation for "not applicable"
-    QString n_a = tr("N/A");
+    QString n_a = UTF8_EM_DASH;
     QString invoke_rate_str, result_rate_str, total_rate_str;
     QString invoke_avg_size_str, result_avg_size_str, total_avg_size_str;
 
@@ -379,6 +367,7 @@ register_tap_listener_qt_gsm_map_summary(void)
     register_tap_listener("gsm_map", &gsm_map_stat, NULL, 0,
         gsm_map_summary_reset,
         gsm_map_summary_packet,
+        NULL,
         NULL);
 
     if (err_p != NULL)

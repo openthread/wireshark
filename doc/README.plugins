@@ -1,4 +1,15 @@
-1. Plugins
+0. Plugins
+
+There are a multitude of plugin options available in Wireshark that allow to
+extend its functionality without changing the source code itself.  Using the
+available APIs gives you the means to do this.
+
+Currently plugin APIs are available for dissectors (epan), capture file types
+(wiretap) and media decoders (codecs).  This README focuses primarily on
+dissector plugins; most of the descriptions are applicable to the other plugin
+types as well.
+
+1. Dissector plugins
 
 Writing a "plugin" dissector is not very different from writing a standard
 one.  In fact all of the functions described in README.dissector can be
@@ -14,59 +25,31 @@ of "foo" below should be replaced by the name of your plugin.
 
 2. The directory for the plugin, and its files
 
-The plugin should be placed in a new plugins/foo directory which should
+The plugin should be placed in a new plugins/epan/foo directory which should
 contain at least the following files:
 
-AUTHORS
-COPYING
-ChangeLog
 CMakeLists.txt
-Makefile.am
-Makefile.common
-moduleinfo.h
-plugin.rc.in
+README
+
+The README can be brief but it should provide essential information relevant
+to developers and users. Optionally AUTHORS and ChangeLog files can be added.
+Optionally you can add your own plugin.rc.in.
 
 And of course the source and header files for your dissector.
 
-Examples of these files can be found in plugins/gryphon.
+Examples of these files can be found in plugins/epan/gryphon.
 
-2.1 AUTHORS, COPYING, and ChangeLog
+2.1 CMakeLists.txt
 
-The AUTHORS, COPYING, and ChangeLog are the standard sort of GPL project
-files.
-
-2.2 CMakeLists.txt
-
-For your plugins/foo/CMakeLists.txt file, see the corresponding file in
-plugins/gryphon.  Replace all occurrences of "gryphon" in those files
+For your plugins/epan/foo/CMakeLists.txt file, see the corresponding file in
+plugins/epan/gryphon.  Replace all occurrences of "gryphon" in those files
 with "foo" and add your source files to the DISSECTOR_SRC variable.
 
-2.3 Makefile.am
+2.2 plugin.rc.in
 
-For your plugins/foo/Makefile.am file, see the corresponding file in
-plugins/gryphon.  Replace all occurrences of "gryphon" in those files
-with "foo".
-
-2.4 Makefile.common
-
-Your plugins/foo/Makefile.common should only list the main source file(s),
-which exports register_*() and handoff_*(), for your dissector in the
-DISSECTOR_SRC variable.  All other supporting source files should be
-listed in the DISSECTOR_SUPPORT_SRC variable.
-The header files for your dissector, if any, must be listed in the
-DISSECTOR_INCLUDES variable.  The DISSECTOR_INCLUDES variable should not
-include moduleinfo.h.
-
-2.5 moduleinfo.h
-
-Your plugins/foo/moduleinfo.h file is used to set the version information
-for the plugin.
-
-2.6 plugin.rc.in
-
-Your plugins/foo/plugin.rc.in is the Windows resource template file used
+Your plugins/epan/foo/plugin.rc.in is the Windows resource template file used
 to add the plugin specific information as resources to the DLL.
-No modifications are needed here.
+If not provided the plugins/plugin.rc.in file will be used.
 
 3. Changes to existing Wireshark files
 
@@ -86,18 +69,18 @@ If you want to add the plugin to your own Windows installer add a text
 file named custom_plugins.txt to the packaging/nsis directory, with a
 "File" statement for NSIS:
 
-File "..\..\plugins\foo\foo.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\foo.dll"
 
 For CMake builds, either pass the custom plugin dir on the CMake generation
 step command line:
 
-CMake ... -DCUSTOM_PLUGIN_SRC_DIR="plugins/foo"
+CMake ... -DCUSTOM_PLUGIN_SRC_DIR="plugins/epan/foo"
 
 or copy the top-level file CMakeListsCustom.txt.example to CMakeListsCustom.txt
 (also in the top-level source dir) and edit so that CUSTOM_PLUGIN_SRC_DIR is
 set() to the relative path of your plugin, e.g.
 
-set(CUSTOM_PLUGIN_SRC_DIR plugins/foo)
+set(CUSTOM_PLUGIN_SRC_DIR plugins/epan/foo)
 
 and re-run the CMake generation step.
 
@@ -109,10 +92,7 @@ In order to be able to permanently add a plugin take the following steps.
 You will need to change the following files:
 	configure.ac
 	CMakeLists.txt
-	epan/Makefile.am
-	Makefile.am
 	packaging/nsis/wireshark.nsi
-	plugins/Makefile.am
 
 You might also want to search your Wireshark development directory for
 occurrences of an existing plugin name, in case this document is out of
@@ -122,63 +102,7 @@ date with the current directory structure.  For example,
 
 could be used from a shell prompt.
 
-3.2.1  Changes to plugins/Makefile.am
-
-The plugins directory contains a Makefile.am.  You need to add to SUBDIRS
-(in alphabetical order) the name of your plugin:
-
-SUBDIRS = $(_CUSTOM_SUBDIRS_) \
-	...
-	ethercat \
-	foo \
-	gryphon \
-	irda \
-
-
-3.2.2 Changes to the top level Makefile.am
-
-Add your plugin (in alphabetical order) to plugin_ldadd:
-
-if HAVE_PLUGINS
-
-plugin_ldadd = $(_CUSTOM_plugin_ldadd_) \
-	...
-	-dlopen plugins/ethercat/ethercat.la \
-	-dlopen plugins/foo/foo.la \
-	-dlopen plugins/gryphon/gryphon.la \
-	-dlopen plugins/irda/irda.la \
-	...
-
-3.2.3  Changes to the top level configure.ac
-
-You need to add your plugins Makefile (in alphbetical order) to the
-AC_OUTPUT rule in the configure.ac
-
-AC_OUTPUT(
-  ...
-  plugins/ethercat/Makefile
-  plugins/foo/Makefile
-  plugins/gryphon/Makefile
-  plugins/irda/Makefile
-  ...
-  ,)
-
-3.2.4  Changes to epan/Makefile.am
-
-Add the relative path of all your plugin source files (in alphbetical
-order) to plugin_src:
-
-plugin_src = \
-        ...
-	../plugins/ethercat/packet-ioraw.c \
-	../plugins/ethercat/packet-nv.c \
-	../plugins/foo/packet-foo.c \
-	../plugins/gryphon/packet-gryphon.c \
-	../plugins/irda/packet-ircomm.c \
-	../plugins/irda/packet-irda.c \
-        ...
-
-3.2.5  Changes to CMakeLists.txt
+3.2.1  Changes to CMakeLists.txt
 
 Add your plugin (in alphabetical order) to the PLUGIN_SRC_DIRS:
 
@@ -186,28 +110,28 @@ if(ENABLE_PLUGINS)
         ...
         set(PLUGIN_SRC_DIRS
                 ...
-                plugins/ethercat
-                plugins/foo
-                plugins/gryphon
-                plugins/irda
+                plugins/epan/ethercat
+                plugins/epan/foo
+                plugins/epan/gryphon
+                plugins/epan/irda
                 ...
 
-3.2.6  Changes to the installers
+3.2.2  Changes to the installers
 
 If you want to include your plugin in an installer you have to add lines
 in the NSIS installer wireshark.nsi file.
 
-3.2.6.1  Changes to packaging/nsis/wireshark.nsi
+3.2.2.1  Changes to packaging/nsis/wireshark.nsi
 
 Add the relative path of your plugin DLL (in alphbetical order) to the
 list of "File" statements in the "Dissector Plugins" section:
 
-File "${STAGING_DIR}\plugins\${VERSION}\ethercat.dll"
-File "${STAGING_DIR}\plugins\${VERSION}\foo.dll"
-File "${STAGING_DIR}\plugins\${VERSION}\gryphon.dll"
-File "${STAGING_DIR}\plugins\${VERSION}\irda.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\ethercat.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\foo.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\gryphon.dll"
+File "${STAGING_DIR}\plugins\${VERSION_MAJOR}.${VERSION_MINOR}\epan\irda.dll"
 
-3.2.6.2  Other installers
+3.2.2.2  Other installers
 
 The PortableApps installer copies plugins from the build directory
 and should not require configuration.
@@ -243,7 +167,39 @@ make install
 
 5. Update "old style" plugins
 
-5.1 How to update an "old style" plugin (using plugin_register and
+5.1 How to update an "old style" plugin (since Wireshark 2.5)
+
+Plugins need exactly three visible symbols: plugin_version, plugin_release and
+plugin_register. Each plugin is either a libwscodecs plugin, libwiretap plugin or
+libwireshark plugin and the library will call "plugin_register" after
+loading the plugin. "plugin_register" in turn calls all the hooks necessary
+to enable the plugin. So if you had two function like so:
+
+    WS_DLL_PUBLIC void plugin_register(void);
+    WS_DLL_PUBLIC void plugin_reg_handoff(void);
+
+    void plugin_register(void) {...};
+    void plugin_reg_handoff(void) {...};
+
+You'll have to rewrite it as:
+
+    WS_DLL_PUBLIC void plugin_register(void);
+
+    static void proto_register_foo(void) {...};
+    static void proto_reg_handoff_foo(void) {...};
+
+    void plugin_register(void)
+    {
+	static proto_plugin plugin_foo;
+
+	plugin_foo.register_protoinfo = proto_register_foo;
+	plugin_foo.register_handoff = proto_reg_handoff_foo;
+	proto_register_plugin(&plugin_foo);
+    }
+
+See doc/plugins.example for an example.
+
+5.2 How to update an "old style" plugin (using plugin_register and
     plugin_reg_handoff functions).
 
 The plugin registration has changed with the extension of the build
@@ -276,7 +232,7 @@ stips the parts outlined below:
 
 This will leave a clean dissector source file without plugin specifics.
 
-5.2 How to update an "old style" plugin (using plugin_init function)
+5.3 How to update an "old style" plugin (using plugin_init function)
 
 The plugin registering has changed between 0.10.9 and 0.10.10; everyone
 is encouraged to update their plugins as outlined below:
@@ -288,14 +244,11 @@ is encouraged to update their plugins as outlined below:
 
     o Remove the init function.
 
-    o Add a new Makefile.common file with the lists of source files and
-      headers.
-
-    o Change the Makefile.am and Makefile.nmake files to match those of
-      the DOCSIS plugin.
-
-
 6 How to plugin related interface options
+
+To demonstrate the functionality of the plugin interface options, a
+demonstration plugin exists (pluginifdemo). To build it using cmake, the
+build option ENABLE_PLUGINIFDEMO has to be enabled.
 
 6.1 Implement a plugin GUI menu
 
@@ -334,17 +287,13 @@ The menu entries themselves are generated with the following code structure:
     ext_menubar_add_entry(os_menu, "Test Entry B",
             NULL, menu_cb, <user_data>);
 
-This will not work with the GTK version on OS X; the GTK interface is
-currently not supported on this plattform.  The Qt interface on OS X
-provides the menu.
-
 For a more detailed information, please refer to plugin_if.h
 
 6.2 Implement interactions with the main interface
 
-Due to memory constraints on most plattforms, plugin functionality cannot be
-called directly from a DLL context. Instead special functions will be used, which
-will implement certain options for plugins to utilize.
+Due to memory constraints on most platforms, plugin functionality cannot be
+called directly from a DLL context. Instead special functions will be used,
+which will implement certain options for plugins to utilize.
 
 The following methods exist so far:
 
@@ -359,6 +308,110 @@ The following methods exist so far:
 	/* Jumps to the given frame number */
 	WS_DLL_PUBLIC void plugin_if_goto_frame(guint32 framenr);
 
+6.3 Implement a plugin specific toolbar
+
+A toolbar may be registered which allows implementing an interactive user
+interaction with the main application. The toolbar is generated using the following
+code:
+
+    ext_toolbar_t * tb = ext_toolbar_register_toolbar("Plugin Interface Demo Toolbar");
+
+This registers a toolbar, which will be shown underneath "View->Additional Toolbars" in
+the main menu, as well as the popup action window when right-clicking on any other tool-
+or menubar.
+
+It behaves identically to the existing toolbars and can be hidden as well as defined to
+appear specific to selected profiles. The name with which it is being shown is the given
+name in this function call.
+
+6.3.1 Register elements for the toolbar
+
+To add items to the toolbar, 4 different types of elements do exist.
+
+  * BOOLEAN - a checkbox to select / unselect
+  * BUTTON - a button to click
+  * STRING - a text field with validation options
+  * SELECTOR - a dropdown selection field
+
+To add an element to the toolbar, the following function is being used:
+
+    ext_toolbar_add_entry( ext_toolbar_t * parent, ext_toolbar_item_t type, const gchar *label,
+        const gchar *defvalue, const gchar *tooltip, gboolean capture_only, GList * value_list,
+        gboolean is_required, const gchar * regex, ext_toolbar_action_cb callback, gpointer user_data)
+
+    parent_bar - the parent toolbar for this entry, to be registered by ext_toolbar_register_toolbar
+    name - the entry name (the internal used one) for the item, used to send updates to the element
+    label - the entry label (the displayed name) for the item, visible to the user
+    defvalue - the default value for the toolbar element
+        - EXT_TOOLBAR_BOOLEAN - 1 is for a checked element, 0 is unchecked
+        - EXT_TOOLBAR_STRING - Text already entered upon initial display
+    tooltip - a tooltip to be displayed on mouse-over
+    capture_only - entry is only active, if a capture is active
+    callback - the action which will be invoked after the item is activated
+    value_list - a non-null list of values created by ext_toolbar_add_val(), if the item type
+        is EXT_TOOLBAR_SELECTOR
+    valid_regex - a validation regular expression for EXT_TOOLBAR_STRING
+    is_required - a zero entry for EXT_TOOLBAR_STRING is not allowed
+    user_data - a user defined pointer, which will be added to the toolbar callback
+
+In case of the toolbar type EXT_TOOLBAR_SELECTOR a value list has to be provided. This list
+is generated using ext_toolbar_add_val():
+
+    GList * entries = 0;
+    entries = ext_toolbar_add_val(entries, "1", "ABCD", FALSE );
+    entries = ext_toolbar_add_val(entries, "2", "EFG", FALSE );
+    entries = ext_toolbar_add_val(entries, "3", "HIJ", TRUE );
+    entries = ext_toolbar_add_val(entries, "4", "KLM", FALSE );
+
+6.3.2 Callback for activation of an item
+
+If an item has been activated, the provided callback is being triggered.
+
+    void toolbar_cb(gpointer toolbar_item, gpointer item_data, gpointer user_data)
+
+For EXT_TOOLBAR_BUTTON the callback is triggered upon a click on the button, for
+EXT_TOOLBAR_BOOLEAN and EXT_TOOLBAR_SELECTOR the callback is triggered with every change
+of the selection.
+
+For EXT_TOOLBAR_STRING either the return key has to be hit or the apply button pressed.
+
+The parameters of the callback are defined as follows:
+
+    toolbar_item - an element of the type ext_toolbar_t * representing the item that has been
+                   activated
+    item_data - the data of the item during activation. The content depends on the item type:
+         - EXT_TOOLBAR_BUTTON - the entry is null
+         - EXT_TOOLBAR_BOOLEAN - the entry is 0 if the checkbox is unchecked and 1 if it is checked
+         - EXT_TOOLBAR_STRING - a string representing the context of the textbox. Only valid strings
+                   are being passed, it can be safely assumed, that an applied regular expression has
+                   been checked.
+         - EXT_TOOLBAR_SELECTOR - the value of the selected entry
+    user_data - the data provided during element registration
+
+6.3.3 Sending updates to the toolbar items
+
+A plugin may send updates to the toolbar entry, using one of the following methods. The parameter
+silent defines, if the registered toolbar callback is triggered by the update or not.
+
+    void ext_toolbar_update_value(ext_toolbar_t * entry, gpointer data, gboolean silent)
+
+    - EXT_TOOLBAR_BUTTON, EXT_TOOLBAR_STRING - the displayed text (on the button or in the textbox)
+        are being changed, in that case data is expected to be a string
+    - EXT_TOOLBAR_BOOLEAN - the checkbox value is being changed, to either 0 or 1, in both cases
+        data is expected to be an integer sent by GINT_TO_POINTER(n)
+    - EXT_TOOLBAR_SELECTOR - the display text to be changed. If no element exists with this text,
+        nothing will happen
+
+    void ext_toolbar_update_data(ext_toolbar_t * entry, gpointer data, gboolean silent)
+
+    - EXT_TOOLBAR_SELECTOR - change the value list to the one provided with data. Attention! this
+        does not change the list stored within the item just the one in the displayed combobox
+
+    void ext_toolbar_update_data_by_index(ext_toolbar_t * entry, gpointer data, gpointer value,
+        gboolean silent)
+
+    - EXT_TOOLBAR_SELECTOR - change the display text for the entry with the provided value. Both
+        data and value must be gchar * pointer.
 
 
 ----------------

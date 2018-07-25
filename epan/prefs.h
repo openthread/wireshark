@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PREFS_H__
@@ -29,10 +17,10 @@ extern "C" {
 
 #include <glib.h>
 
-#include "color_filters.h"
-
 #include <epan/params.h>
 #include <epan/range.h>
+
+#include <wsutil/color.h>
 
 #include "ws_symbol_export.h"
 
@@ -44,7 +32,6 @@ extern "C" {
 
 #define MAX_VAL_LEN  1024
 
-#define RTP_PLAYER_DEFAULT_VISIBLE 4
 #define TAP_UPDATE_DEFAULT_INTERVAL 3000
 #define ST_DEF_BURSTRES 5
 #define ST_DEF_BURSTLEN 100
@@ -76,6 +63,15 @@ char string_to_name_resolve(const char *string, struct _e_addr_resolve *name_res
 #define TB_STYLE_ICONS          0
 #define TB_STYLE_TEXT           1
 #define TB_STYLE_BOTH           2
+
+/*
+ * Color styles.
+ */
+#define COLOR_STYLE_DEFAULT     0
+#define COLOR_STYLE_FLAT        1
+#define COLOR_STYLE_GRADIENT    2
+
+#define COLOR_STYLE_ALPHA       0.25
 
 /*
  * Types of layout of summary/details/hex panes.
@@ -151,16 +147,20 @@ typedef struct _e_prefs {
   gint         num_cols;
   color_t      st_client_fg, st_client_bg, st_server_fg, st_server_bg;
   color_t      gui_text_valid, gui_text_invalid, gui_text_deprecated;
-  gboolean     gui_altern_colors;
   gboolean     gui_expert_composite_eyecandy;
   gboolean     filter_toolbar_show_in_statusbar;
+  gboolean     restore_filter_after_following_stream;
   gint         gui_ptree_line_style;
   gint         gui_ptree_expander_style;
-  gboolean     gui_hex_dump_highlight_style;
   gint         gui_toolbar_main_style;
-  gint         gui_toolbar_filter_style; /* GTK only? */
-  gchar       *gui_gtk2_font_name;
+  gint         gui_toolbar_filter_style;
   gchar       *gui_qt_font_name;
+  color_t      gui_active_fg;
+  color_t      gui_active_bg;
+  gint         gui_active_style;
+  color_t      gui_inactive_fg;
+  color_t      gui_inactive_bg;
+  gint         gui_inactive_style;
   color_t      gui_marked_fg;
   color_t      gui_marked_bg;
   color_t      gui_ignored_fg;
@@ -170,7 +170,6 @@ typedef struct _e_prefs {
   gboolean     gui_geometry_save_position;
   gboolean     gui_geometry_save_size;
   gboolean     gui_geometry_save_maximized;
-  gboolean     gui_macosx_style;
   console_open_e gui_console_open;
   guint        gui_recent_df_entries_max;
   guint        gui_recent_files_count_max;
@@ -185,43 +184,45 @@ typedef struct _e_prefs {
   gchar       *gui_prepend_window_title;
   gchar       *gui_start_title;
   version_info_e gui_version_placement;
-  gboolean     gui_auto_scroll_on_expand;
-  guint        gui_auto_scroll_percentage;
   layout_type_e gui_layout_type;
   layout_pane_content_e gui_layout_content_1;
   layout_pane_content_e gui_layout_content_2;
   layout_pane_content_e gui_layout_content_3;
+  gchar       *gui_interfaces_hide_types;
+  gboolean     gui_interfaces_show_hidden;
+  gboolean     gui_interfaces_remote_display;
   gint         console_log_level;
   gchar       *capture_device;
   gchar       *capture_devices_linktypes;
   gchar       *capture_devices_descr;
   gchar       *capture_devices_hide;
   gchar       *capture_devices_monitor_mode;
-#ifdef CAN_SET_CAPTURE_BUFFER_SIZE
   gchar       *capture_devices_buffersize;
-#endif
   gchar       *capture_devices_snaplen;
   gchar       *capture_devices_pmode;
   gchar       *capture_devices_filter; /* XXX - Mostly unused. Deprecate? */
   gboolean     capture_prom_mode;
   gboolean     capture_pcap_ng;
   gboolean     capture_real_time;
-  gboolean     capture_auto_scroll;
+  gboolean     capture_auto_scroll; /* XXX - Move to recent */
+  gboolean     capture_no_extcap;
   gboolean     capture_show_info;
   GList       *capture_columns;
-  guint        rtp_player_max_visible;
   guint        tap_update_interval;
   gboolean     display_hidden_proto_items;
   gboolean     display_byte_fields_with_spaces;
   gboolean     enable_incomplete_dissectors_check;
-  gpointer     filter_expressions;/* Actually points to &head */
+  gboolean     incomplete_dissectors_check_debug;
+  gboolean     strict_conversation_tracking_heuristics;
   gboolean     gui_update_enabled;
   software_update_channel_e gui_update_channel;
   gint         gui_update_interval;
   gchar       *saved_at_version;
   gboolean     unknown_prefs; /* unknown or obsolete pref(s) */
-  gboolean     unknown_colorfilters; /* unknown or obsolete color filter(s) */
+  gboolean     unknown_colorfilters; /* Warn when saving unknown or obsolete color filters. */
   gboolean     gui_qt_packet_list_separator;
+  gboolean     gui_qt_show_selected_packet;
+  gboolean     gui_qt_show_file_load_time;
   gboolean     gui_packet_editor; /* Enable Packet Editor */
   elide_mode_e gui_packet_list_elide_mode;
   gboolean     gui_packet_list_show_related;
@@ -236,9 +237,7 @@ typedef struct _e_prefs {
   gint         st_sort_defcolflag;
   gboolean     st_sort_defdescending;
   gboolean     st_sort_showfullname;
-#ifdef HAVE_EXTCAP
   gboolean     extcap_save_on_start;
-#endif
 } e_prefs;
 
 WS_DLL_PUBLIC e_prefs prefs;
@@ -263,32 +262,8 @@ WS_DLL_PUBLIC void prefs_reset(void);
 /** Frees memory used by proto routines. Called at program shutdown */
 void prefs_cleanup(void);
 
-/*
- * Register a module that will have preferences.
- * Specify the module under which to register it or NULL to register it
- * at the top level, the name used for the module in the preferences file,
- * the title used in the tab for it in a preferences dialog box, a
- * routine to call back when we apply the preferences, and if it should
- * use the GUI controls provided by the preferences or it has its own.
- *
- * This should not be used for dissector preferences;
- * "prefs_register_protocol()" should be used for that, so that the
- * preferences go under the "Protocols" subtree, and so that the
- * name is the protocol name specified at the "proto_register_protocol()"
- * call so that the "Protocol Properties..." menu item works.
- */
-WS_DLL_PUBLIC module_t *prefs_register_module(module_t *parent, const char *name,
-    const char *title, const char *description, void (*apply_cb)(void),
-    const gboolean use_gui);
-
-/*
- * Register a subtree that will have modules under it.
- * Specify the module under which to register it or NULL to register it
- * at the top level and the title used in the tab for it in a preferences
- * dialog box.
- */
-WS_DLL_PUBLIC module_t *prefs_register_subtree(module_t *parent, const char *title,
-    const char *description, void (*apply_cb)(void));
+/** Provide a hint about the darkness of the current UI theme so that we can adjust colors when needed */
+WS_DLL_PUBLIC void prefs_set_gui_theme_is_dark(gboolean is_dark);
 
 /*
  * Register that a protocol has preferences.
@@ -311,6 +286,19 @@ void prefs_deregister_protocol(int id);
  * "description" is a longer human-readable description of the tap.
  */
 WS_DLL_PUBLIC module_t *prefs_register_stat(const char *name, const char *title,
+    const char *description, void (*apply_cb)(void));
+
+/*
+ * Register that a codec has preferences.
+ *
+ * "name" is a name for the codec to use on the command line with "-o"
+ * and in preference files.
+ *
+ * "title" is a short human-readable name for the codec.
+ *
+ * "description" is a longer human-readable description of the codec.
+ */
+WS_DLL_PUBLIC module_t *prefs_register_codec(const char *name, const char *title,
     const char *description, void (*apply_cb)(void));
 
 /*
@@ -418,8 +406,16 @@ WS_DLL_PUBLIC void prefs_register_uint_preference(module_t *module, const char *
     const char *title, const char *description, guint base, guint *var);
 
 /*
+ * prefs_register_ callers must conform to the following:
+ *
+ * Names must be in lowercase letters only (underscore allowed).
+ * Titles and descriptions must be valid UTF-8 or NULL.
+ * Titles must be short (less than 80 characters)
+ * Titles must not contain newlines.
+ */
+
+/*
  * Register a preference with an Boolean value.
- * Note that the name must be in lowercase letters only (underscore allowed).
  */
 WS_DLL_PUBLIC void prefs_register_bool_preference(module_t *module, const char *name,
     const char *title, const char *description, gboolean *var);
@@ -444,7 +440,7 @@ WS_DLL_PUBLIC void prefs_register_string_preference(module_t *module, const char
  * file.
  */
 WS_DLL_PUBLIC void prefs_register_filename_preference(module_t *module, const char *name,
-    const char *title, const char *description, const char **var);
+    const char *title, const char *description, const char **var, gboolean for_writing);
 
 /*
  * Register a preference with a directory name (string) value.
@@ -501,6 +497,20 @@ void prefs_register_color_preference(module_t *module, const char *name,
 void prefs_register_custom_preference(module_t *module, const char *name,
     const char *title, const char *description, struct pref_custom_cbs* custom_cbs,
     void** custom_data);
+
+/*
+ * Register a (internal) "Decode As" preference with a ranged value.
+ */
+void prefs_register_decode_as_range_preference(module_t *module, const char *name,
+    const char *title, const char *description, range_t **var,
+    guint32 max_value);
+
+/*
+ * Register a (internal) "Decode As" preference with an unsigned integral value
+ * for a dissector table.
+ */
+void prefs_register_decode_as_preference(module_t *module, const char *name,
+    const char *title, const char *description, guint *var);
 
 /*
  * Register a preference that used to be supported but no longer is.
@@ -561,18 +571,12 @@ char *prefs_pref_to_str(pref_t *pref, pref_source_t source);
 
 /* Read the preferences file, fill in "prefs", and return a pointer to it.
 
-   If we got an error (other than "it doesn't exist") trying to read
-   the global preferences file, stuff the errno into "*gpf_errno_return"
-   on an open error and into "*gpf_read_errno_return" on a read error,
-   stuff a pointer to the path of the file into "*gpf_path_return", and
-   return NULL.
+   If we got an error (other than "it doesn't exist") we report it through
+   the UI.
 
-   If we got an error (other than "it doesn't exist") trying to read
-   the user's preferences file, stuff the errno into "*pf_errno_return"
-   on an open error and into "*pf_read_errno_return" on a read error,
-   stuff a pointer to the path of the file into "*pf_path_return", and
-   return NULL. */
-WS_DLL_PUBLIC e_prefs *read_prefs(int *, int *, char **, int *, int *, char **);
+   This is called by epan_load_settings(); programs should call that
+   rather than individually calling the routines it calls. */
+extern e_prefs *read_prefs(void);
 
 /* Write out "prefs" to the user's preferences file, and return 0.
 
@@ -580,14 +584,8 @@ WS_DLL_PUBLIC e_prefs *read_prefs(int *, int *, char **, int *, int *, char **);
    into "*pf_path_return", and return the errno. */
 WS_DLL_PUBLIC int write_prefs(char **);
 
-/*
- * Given a string of the form "<pref name>:<pref value>", as might appear
- * as an argument to a "-o" option, parse it and set the preference in
- * question.  Return an indication of whether it succeeded or failed
- * in some fashion.
- *
- * XXX - should supply, for syntax errors, a detailed explanation of
- * the syntax error.
+/**
+ * Result of setting a preference.
  */
 typedef enum {
     PREFS_SET_OK,               /* succeeded */
@@ -596,7 +594,16 @@ typedef enum {
     PREFS_SET_OBSOLETE          /* preference used to exist but no longer does */
 } prefs_set_pref_e;
 
-WS_DLL_PUBLIC prefs_set_pref_e prefs_set_pref(char *prefarg);
+/*
+ * Given a string of the form "<pref name>:<pref value>", as might appear
+ * as an argument to a "-o" option, parse it and set the preference in
+ * question.  Return an indication of whether it succeeded or failed
+ * in some fashion.
+ *
+ * For syntax errors (return value PREFS_SET_SYNTAX_ERR), details (when
+ * available) are written into "errmsg" which must be freed with g_free.
+ */
+WS_DLL_PUBLIC prefs_set_pref_e prefs_set_pref(char *prefarg, char **errmsg);
 
 /*
  * Get or set a preference's obsolete status. These can be used to make a
@@ -606,6 +613,17 @@ WS_DLL_PUBLIC prefs_set_pref_e prefs_set_pref(char *prefarg);
 gboolean prefs_get_preference_obsolete(pref_t *pref);
 prefs_set_pref_e prefs_set_preference_obsolete(pref_t *pref);
 
+/*
+ * Get current  preference uint value. This allows the preference structure
+ * to remain hidden from those that doesn't really need it
+ */
+WS_DLL_PUBLIC guint prefs_get_uint_value(const char *module_name, const char* pref_name);
+
+/*
+ * Get the current range preference value (maintained by pref, so it doesn't need to be freed). This allows the
+ * preference structure to remain hidden from those that doesn't really need it.
+ */
+WS_DLL_PUBLIC range_t* prefs_get_range_value(const char *module_name, const char* pref_name);
 
 /*
  * Returns TRUE if the given device is hidden
@@ -618,6 +636,11 @@ WS_DLL_PUBLIC gboolean prefs_is_capture_device_hidden(const char *name);
 WS_DLL_PUBLIC gboolean prefs_capture_device_monitor_mode(const char *name);
 
 WS_DLL_PUBLIC gboolean prefs_capture_options_dialog_column_is_visible(const gchar *column);
+
+/*
+ * Returns TRUE if the layout pane content is enabled
+ */
+WS_DLL_PUBLIC gboolean prefs_has_layout_pane_content (layout_pane_content_e layout_pane_content);
 
 #ifdef __cplusplus
 }

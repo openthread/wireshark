@@ -1,11 +1,10 @@
--- 3GPP TS 36.413 V13.1.0 (2015-12)
+-- 3GPP TS 36.413 V15.2.0 (2018-06)
 -- 9.3.6	Constant Definitions
 -- **************************************************************
 --
 -- Constant definitions
 --
 -- **************************************************************
-
 
 S1AP-Constants { 
 itu-t (0) identified-organization (4) etsi (0) mobileDomain (0) 
@@ -88,6 +87,15 @@ id-E-RABModificationIndication				ProcedureCode ::= 50
 id-PWSFailureIndication						ProcedureCode ::= 51
 id-RerouteNASRequest						ProcedureCode ::= 52
 id-UEContextModificationIndication			ProcedureCode ::= 53
+id-ConnectionEstablishmentIndication		ProcedureCode ::= 54
+id-UEContextSuspend							ProcedureCode ::= 55
+id-UEContextResume							ProcedureCode ::= 56
+id-NASDeliveryIndication					ProcedureCode ::= 57
+id-RetrieveUEInformation					ProcedureCode ::= 58
+id-UEInformationTransfer					ProcedureCode ::= 59
+id-eNBCPRelocationIndication				ProcedureCode ::= 60
+id-MMECPRelocationIndication				ProcedureCode ::= 61
+id-SecondaryRATDataUsageReport				ProcedureCode ::= 62
 
 -- **************************************************************
 --
@@ -120,6 +128,7 @@ maxnoofCells							INTEGER ::= 16
 maxnoofCellsineNB						INTEGER ::= 256
 maxnoofTAIforWarning					INTEGER ::= 65535 
 maxnoofCellID							INTEGER ::= 65535 
+maxnoofDCNs								INTEGER ::= 32 
 maxnoofEmergencyAreaID					INTEGER ::= 65535 
 maxnoofCellinTAI						INTEGER ::= 65535 
 maxnoofCellinEAI						INTEGER ::= 65535 
@@ -137,6 +146,14 @@ maxnoofRestartTAIs						INTEGER ::= 2048
 maxnoofRestartEmergencyAreaIDs			INTEGER ::= 256
 maxEARFCN								INTEGER ::= 262143
 maxnoofMBSFNAreaMDT						INTEGER ::= 8
+maxnoofRecommendedCells					INTEGER ::= 16
+maxnoofRecommendedENBs					INTEGER ::= 16
+maxnooftimeperiods						INTEGER ::= 2 
+maxnoofCellIDforQMC						INTEGER ::= 32
+maxnoofTAforQMC							INTEGER ::= 8
+maxnoofPLMNforQMC						INTEGER ::= 16
+
+
 
 -- **************************************************************
 --
@@ -154,6 +171,7 @@ id-Unknown-5										ProtocolIE-ID ::= 5
 id-Unknown-6										ProtocolIE-ID ::= 6
 id-Unknown-7										ProtocolIE-ID ::= 7
 id-eNB-UE-S1AP-ID									ProtocolIE-ID ::= 8
+--WS extension
 id-Unknown-9										ProtocolIE-ID ::= 9
 id-Unknown-10										ProtocolIE-ID ::= 10
 id-Unknown-11										ProtocolIE-ID ::= 11
@@ -229,6 +247,7 @@ id-UERadioCapability								ProtocolIE-ID ::= 74
 id-GUMMEI-ID										ProtocolIE-ID ::= 75
 --WS extension
 id-Unknown-76										ProtocolIE-ID ::= 76
+id-Unknown-77										ProtocolIE-ID ::= 77
 id-E-RABInformationListItem							ProtocolIE-ID ::= 78
 id-Direct-Forwarding-Path-Availability				ProtocolIE-ID ::= 79
 id-UEIdentityIndexValue								ProtocolIE-ID ::= 80
@@ -237,6 +256,8 @@ id-Unknown-81										ProtocolIE-ID ::= 81
 id-Unknown-82										ProtocolIE-ID ::= 82
 id-cdma2000HOStatus									ProtocolIE-ID ::= 83
 id-cdma2000HORequiredIndication						ProtocolIE-ID ::= 84
+--WS extension
+id-Unknown-85										ProtocolIE-ID ::= 85
 id-E-UTRAN-Trace-ID									ProtocolIE-ID ::= 86
 id-RelativeMMECapacity								ProtocolIE-ID ::= 87
 id-SourceMME-UE-S1AP-ID								ProtocolIE-ID ::= 88
@@ -300,7 +321,7 @@ id-CellAccessMode									ProtocolIE-ID ::= 145
 id-CSGMembershipStatus 								ProtocolIE-ID ::= 146
 id-LPPa-PDU											ProtocolIE-ID ::= 147
 id-Routing-ID										ProtocolIE-ID ::= 148
-id-Time-Synchronisation-Info						ProtocolIE-ID ::= 149
+id-Time-Synchronisation-Info							ProtocolIE-ID ::= 149
 id-PS-ServiceNotAvailable							ProtocolIE-ID ::= 150
 id-PagingPriority									ProtocolIE-ID ::= 151
 id-x2TNLConfigurationInfo							ProtocolIE-ID ::= 152
@@ -362,6 +383,11 @@ id-Muting-Availability-Indication					ProtocolIE-ID ::= 207
 id-Muting-Pattern-Information						ProtocolIE-ID ::= 208
 id-Synchronisation-Information						ProtocolIE-ID ::= 209
 id-E-RABToBeReleasedListBearerModConf				ProtocolIE-ID ::= 210
+id-AssistanceDataForPaging							ProtocolIE-ID ::= 211
+id-CellIdentifierAndCELevelForCECapableUEs			ProtocolIE-ID ::= 212
+id-InformationOnRecommendedCellsAndENBsForPaging	ProtocolIE-ID ::= 213
+id-RecommendedCellItem								ProtocolIE-ID ::= 214
+id-RecommendedENBItem								ProtocolIE-ID ::= 215
 id-ProSeUEtoNetworkRelaying							ProtocolIE-ID ::= 216
 id-ULCOUNTValuePDCP-SNlength18						ProtocolIE-ID ::= 217
 id-DLCOUNTValuePDCP-SNlength18						ProtocolIE-ID ::= 218
@@ -373,5 +399,63 @@ id-MME-Group-ID										ProtocolIE-ID ::= 223
 id-Additional-GUTI									ProtocolIE-ID ::= 224
 id-S1-Message										ProtocolIE-ID ::= 225
 id-CSGMembershipInfo								ProtocolIE-ID ::= 226
+id-Paging-eDRXInformation							ProtocolIE-ID ::= 227
+id-UE-RetentionInformation							ProtocolIE-ID ::= 228
+--WS extension
+id-Unknown-229										ProtocolIE-ID ::= 229
+id-UE-Usage-Type									ProtocolIE-ID ::= 230
+id-extended-UEIdentityIndexValue					ProtocolIE-ID ::= 231
+id-RAT-Type											ProtocolIE-ID ::= 232
+id-BearerType										ProtocolIE-ID ::= 233
+id-NB-IoT-DefaultPagingDRX							ProtocolIE-ID ::= 234
+id-E-RABFailedToResumeListResumeReq					ProtocolIE-ID ::= 235
+id-E-RABFailedToResumeItemResumeReq					ProtocolIE-ID ::= 236
+id-E-RABFailedToResumeListResumeRes					ProtocolIE-ID ::= 237
+id-E-RABFailedToResumeItemResumeRes					ProtocolIE-ID ::= 238
+id-NB-IoT-Paging-eDRXInformation					ProtocolIE-ID ::= 239
+id-V2XServicesAuthorized							ProtocolIE-ID ::= 240
+id-UEUserPlaneCIoTSupportIndicator 					ProtocolIE-ID ::= 241
+id-CE-mode-B-SupportIndicator 						ProtocolIE-ID ::= 242
+id-SRVCCOperationNotPossible						ProtocolIE-ID ::= 243
+id-NB-IoT-UEIdentityIndexValue 						ProtocolIE-ID ::= 244
+id-RRC-Resume-Cause									ProtocolIE-ID ::= 245
+id-DCN-ID											ProtocolIE-ID ::= 246
+id-ServedDCNs					 					ProtocolIE-ID ::= 247
+id-UESidelinkAggregateMaximumBitrate 				ProtocolIE-ID ::= 248
+id-DLNASPDUDeliveryAckRequest						ProtocolIE-ID ::= 249
+id-Coverage-Level 									ProtocolIE-ID ::= 250
+id-EnhancedCoverageRestricted						ProtocolIE-ID ::= 251
+id-UE-Level-QoS-Parameters							ProtocolIE-ID ::= 252
+id-DL-CP-SecurityInformation						ProtocolIE-ID ::= 253
+id-UL-CP-SecurityInformation						ProtocolIE-ID ::= 254
+id-extended-e-RAB-MaximumBitrateDL					ProtocolIE-ID ::= 255
+id-extended-e-RAB-MaximumBitrateUL					ProtocolIE-ID ::= 256
+id-extended-e-RAB-GuaranteedBitrateDL				ProtocolIE-ID ::= 257
+id-extended-e-RAB-GuaranteedBitrateUL				ProtocolIE-ID ::= 258
+id-extended-uEaggregateMaximumBitRateDL				ProtocolIE-ID ::= 259
+id-extended-uEaggregateMaximumBitRateUL				ProtocolIE-ID ::= 260
+id-NRrestriction									ProtocolIE-ID ::= 261
+id-UEAppLayerMeasConfig								ProtocolIE-ID ::= 262
+id-UE-Application-Layer-Measurement-Capability		ProtocolIE-ID ::= 263
+id-SecondaryRATDataUsageReportList					ProtocolIE-ID ::= 264
+id-SecondaryRATDataUsageReportItem					ProtocolIE-ID ::= 265
+id-HandoverFlag										ProtocolIE-ID ::= 266
+id-E-RABUsageReportItem								ProtocolIE-ID ::= 267
+id-SecondaryRATDataUsageRequest						ProtocolIE-ID ::= 268
+id-NRUESecurityCapabilities							ProtocolIE-ID ::= 269
+id-UnlicensedSpectrumRestriction					ProtocolIE-ID ::= 270
+id-CE-ModeBRestricted								ProtocolIE-ID ::= 271
+id-LTE-M-Indication									ProtocolIE-ID ::= 272
+id-DownlinkPacketLossRate							ProtocolIE-ID ::= 273
+id-UplinkPacketLossRate								ProtocolIE-ID ::= 274
+id-UECapabilityInfoRequest							ProtocolIE-ID ::= 275
+id-serviceType										ProtocolIE-ID ::= 276
+id-AerialUEsubscriptionInformation					ProtocolIE-ID ::= 277
+--WS extension
+id-Unknown-278										ProtocolIE-ID ::= 278
+id-Unknown-279										ProtocolIE-ID ::= 279
+id-EndIndication										ProtocolIE-ID ::=  280 
+id-EDT-Session										ProtocolIE-ID ::= 281
+id-CNTypeRestrictions								ProtocolIE-ID ::= 282
 
 END

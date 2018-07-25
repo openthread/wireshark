@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __CONVERSATION_H__
@@ -55,46 +43,83 @@ extern "C" {
 #define NO_ADDR_B 0x01
 #define NO_PORT_B 0x02
 
+/* Flags to handle endpoints */
+#define USE_LAST_ENDPOINT 0x08      /* Use last endpoint created, regardless of type */
+
 #include "packet.h"		/* for conversation dissector type */
+
+/* Types of port numbers Wireshark knows about. */
+typedef enum {
+	ENDPOINT_NONE,			/* no endpoint */
+	ENDPOINT_SCTP,			/* SCTP */
+	ENDPOINT_TCP,			/* TCP */
+	ENDPOINT_UDP,			/* UDP */
+	ENDPOINT_DCCP,			/* DCCP */
+	ENDPOINT_IPX,			/* IPX sockets */
+	ENDPOINT_NCP,			/* NCP connection */
+	ENDPOINT_EXCHG,			/* Fibre Channel exchange */
+	ENDPOINT_DDP,			/* DDP AppleTalk connection */
+	ENDPOINT_SBCCS,			/* FICON */
+	ENDPOINT_IDP,			/* XNS IDP sockets */
+	ENDPOINT_TIPC,			/* TIPC PORT */
+	ENDPOINT_USB,			/* USB endpoint 0xffff means the host */
+	ENDPOINT_I2C,
+	ENDPOINT_IBQP,			/* Infiniband QP number */
+	ENDPOINT_BLUETOOTH,
+	ENDPOINT_TDMOP,
+	ENDPOINT_DVBCI,
+	ENDPOINT_ISO14443,
+	ENDPOINT_ISDN,			/* ISDN channel number */
+	ENDPOINT_H223,			/* H.223 logical channel number */
+	ENDPOINT_X25,			/* X.25 logical channel number */
+	ENDPOINT_IAX2,			/* IAX2 call id */
+	ENDPOINT_DLCI,			/* Frame Relay DLCI */
+	ENDPOINT_ISUP,			/* ISDN User Part CIC */
+	ENDPOINT_BICC,			/* BICC Circuit identifier */
+	ENDPOINT_GSMTAP,
+	ENDPOINT_IUUP
+} endpoint_type;
 
 /**
  * Data structure representing a conversation.
  */
-typedef struct conversation_key {
-	struct conversation_key *next;
-	address	addr1;
-	address	addr2;
-	port_type ptype;
-	guint32	port1;
-	guint32	port2;
-} conversation_key;
+struct conversation_key;
+typedef struct conversation_key* conversation_key_t;
 
 typedef struct conversation {
 	struct conversation *next;	/** pointer to next conversation on hash chain */
 	struct conversation *last;	/** pointer to the last conversation on hash chain */
 	struct conversation *latest_found;
 								/** pointer to the last conversation on hash chain */
-	guint32	index;				/** unique ID for conversation */
+	guint32	conv_index;				/** unique ID for conversation */
 	guint32 setup_frame;		/** frame number that setup this conversation */
 	/* Assume that setup_frame is also the lowest frame number for now. */
 	guint32 last_frame;		/** highest frame number in this conversation */
-	GSList *data_list;			/** list of data associated with conversation */
+	wmem_tree_t *data_list;			/** list of data associated with conversation */
 	wmem_tree_t *dissector_tree;
 								/** tree containing protocol dissector client associated with conversation */
 	guint	options;			/** wildcard flags */
-	conversation_key *key_ptr;	/** pointer to the key for this conversation */
+	conversation_key_t key_ptr;	/** pointer to the key for this conversation */
 } conversation_t;
 
+
+struct endpoint;
+typedef struct endpoint* endpoint_t;
+
+WS_DLL_PUBLIC address* conversation_key_addr1(const conversation_key_t key);
+WS_DLL_PUBLIC address* conversation_key_addr2(const conversation_key_t key);
+WS_DLL_PUBLIC guint32 conversation_key_port1(const conversation_key_t key);
+WS_DLL_PUBLIC guint32 conversation_key_port2(const conversation_key_t key);
+
 /**
- * Destroy all existing conversations
+ * Create a new hash tables for conversations.
  */
-extern void conversation_cleanup(void);
+extern void conversation_init(void);
 
 /**
  * Initialize some variables every time a file is loaded or re-loaded.
- * Create a new hash table for the conversations in the new file.
  */
-extern void conversation_init(void);
+extern void conversation_epan_reset(void);
 
 /*
  * Given two address/port pairs for a packet, create a new conversation
@@ -105,7 +130,9 @@ extern void conversation_init(void);
  * when searching for this conversation.
  */
 WS_DLL_PUBLIC conversation_t *conversation_new(const guint32 setup_frame, const address *addr1, const address *addr2,
-    const port_type ptype, const guint32 port1, const guint32 port2, const guint options);
+    const endpoint_type etype, const guint32 port1, const guint32 port2, const guint options);
+
+WS_DLL_PUBLIC conversation_t *conversation_new_by_id(const guint32 setup_frame, const endpoint_type etype, const guint32 id, const guint options);
 
 /**
  * Given two address/port pairs for a packet, search for a conversation
@@ -144,7 +171,14 @@ WS_DLL_PUBLIC conversation_t *conversation_new(const guint32 setup_frame, const 
  *	otherwise, we found no matching conversation, and return NULL.
  */
 WS_DLL_PUBLIC conversation_t *find_conversation(const guint32 frame_num, const address *addr_a, const address *addr_b,
-    const port_type ptype, const guint32 port_a, const guint32 port_b, const guint options);
+    const endpoint_type etype, const guint32 port_a, const guint32 port_b, const guint options);
+
+WS_DLL_PUBLIC conversation_t *find_conversation_by_id(const guint32 frame, const endpoint_type etype, const guint32 id, const guint options);
+
+/**  A helper function that calls find_conversation() using data from pinfo
+ *  The frame number and addresses are taken from pinfo.
+ */
+WS_DLL_PUBLIC conversation_t *find_conversation_pinfo(packet_info *pinfo, const guint options);
 
 /**  A helper function that calls find_conversation() and, if a conversation is
  *  not found, calls conversation_new().
@@ -168,6 +202,15 @@ WS_DLL_PUBLIC void conversation_set_dissector_from_frame_number(conversation_t *
 WS_DLL_PUBLIC dissector_handle_t conversation_get_dissector(conversation_t *conversation,
     const guint32 frame_num);
 
+WS_DLL_PUBLIC void conversation_create_endpoint(struct _packet_info *pinfo, address* addr1, address* addr2,
+    endpoint_type etype, guint32 port1, guint32	port2, const guint options);
+
+WS_DLL_PUBLIC void conversation_create_endpoint_by_id(struct _packet_info *pinfo,
+    endpoint_type etype, guint32 id, const guint options);
+
+WS_DLL_PUBLIC guint32 conversation_get_endpoint_by_id(struct _packet_info *pinfo,
+    endpoint_type etype, const guint options);
+
 /**
  * Given two address/port pairs for a packet, search for a matching
  * conversation and, if found and it has a conversation dissector,
@@ -179,9 +222,13 @@ WS_DLL_PUBLIC dissector_handle_t conversation_get_dissector(conversation_t *conv
  * this function returns FALSE.
  */
 extern gboolean
-try_conversation_dissector(const address *addr_a, const address *addr_b, const port_type ptype,
+try_conversation_dissector(const address *addr_a, const address *addr_b, const endpoint_type etype,
     const guint32 port_a, const guint32 port_b, tvbuff_t *tvb, packet_info *pinfo,
-    proto_tree *tree, void* data);
+    proto_tree *tree, void* data, const guint options);
+
+extern gboolean
+try_conversation_dissector_by_id(const endpoint_type etype, const guint32 id, tvbuff_t *tvb,
+    packet_info *pinfo, proto_tree *tree, void* data);
 
 /* These routines are used to set undefined values for a conversation */
 
@@ -189,17 +236,30 @@ extern void conversation_set_port2(conversation_t *conv, const guint32 port);
 extern void conversation_set_addr2(conversation_t *conv, const address *addr);
 
 WS_DLL_PUBLIC
-GHashTable *get_conversation_hashtable_exact(void);
+wmem_map_t *get_conversation_hashtable_exact(void);
 
 WS_DLL_PUBLIC
-GHashTable *get_conversation_hashtable_no_addr2(void);
+wmem_map_t *get_conversation_hashtable_no_addr2(void);
 
 WS_DLL_PUBLIC
-GHashTable * get_conversation_hashtable_no_port2(void);
+wmem_map_t * get_conversation_hashtable_no_port2(void);
 
 WS_DLL_PUBLIC
-GHashTable *get_conversation_hashtable_no_addr2_or_port2(void);
+wmem_map_t *get_conversation_hashtable_no_addr2_or_port2(void);
 
+/* Temporary function to handle port_type to endpoint_type conversion
+   For now it's a 1-1 mapping, but the intention is to remove
+   many of the port_type instances in favor of endpoint_type
+*/
+WS_DLL_PUBLIC
+endpoint_type conversation_pt_to_endpoint_type(port_type pt);
+
+WS_DLL_PUBLIC guint
+conversation_hash_exact(gconstpointer v);
+
+/* Provide a wmem_alloced (NULL scope) hash string using HTML tags */
+WS_DLL_PUBLIC gchar*
+conversation_get_html_hash(const conversation_key_t key);
 
 #ifdef __cplusplus
 }

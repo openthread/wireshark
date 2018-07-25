@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /* This protocol implements PANA as of the IETF RFC 5191.
  * (Note: This dissector was updated to reflect
@@ -374,17 +362,15 @@ dissect_avps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *avp_tree)
                                         avp_group_tree = proto_tree_add_subtree(single_avp_tree,
                                                                                 tvb, offset, avp_data_length,
                                                                                 ett_pana_avp, NULL, "Grouped AVP");
-                                        group_tvb = tvb_new_subset(tvb, offset,
+                                        group_tvb = tvb_new_subset_length_caplen(tvb, offset,
                                                                    MIN(avp_data_length, tvb_reported_length(tvb)-offset),
                                                                    avp_data_length);
                                         dissect_avps(group_tvb, pinfo, avp_group_tree);
                                         break;
                                 }
                                 case PANA_UTF8STRING: {
-                                        guint8 *data = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, avp_data_length, ENC_UTF_8);
-                                        proto_tree_add_string_format(single_avp_tree, hf_pana_avp_data_string, tvb,
-                                                                     offset, avp_data_length, data,
-                                                                     "UTF8String: %s", data);
+                                        proto_tree_add_item(single_avp_tree, hf_pana_avp_data_string, tvb,
+                                                                     offset, avp_data_length, ENC_UTF_8|ENC_NA);
                                         break;
                                 }
                                 case PANA_OCTET_STRING: {
@@ -849,7 +835,7 @@ proto_register_pana(void)
                     NULL, HFILL }
                 },
                 { &hf_pana_avp_data_string,
-                  { "Value", "pana.avp.data.string",
+                  { "UTF8String", "pana.avp.data.string",
                     FT_STRING, BASE_NONE, NULL, 0x0,
                     NULL, HFILL }
                 },
@@ -890,7 +876,7 @@ proto_reg_handoff_pana(void)
         heur_dissector_add("udp", dissect_pana, "PANA over UDP", "pana_udp", proto_pana, HEURISTIC_ENABLE);
 
         pana_handle = create_dissector_handle(dissect_pana, proto_pana);
-        dissector_add_for_decode_as("udp.port", pana_handle);
+        dissector_add_for_decode_as_with_preference("udp.port", pana_handle);
 
         eap_handle = find_dissector_add_dependency("eap", proto_pana);
 

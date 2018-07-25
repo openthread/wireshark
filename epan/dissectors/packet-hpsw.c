@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -59,6 +47,8 @@ static gint ett_hpsw = -1;
 static gint ett_hpsw_tlv = -1;
 
 static expert_field ei_hpsw_tlvlength_bad = EI_INIT;
+
+static dissector_handle_t hpsw_handle;
 
 #define HPFOO_DEVICE_NAME     0x1
 #define HPFOO_DEVICE_VERSION  0x2
@@ -359,16 +349,12 @@ proto_register_hpsw(void)
     expert_hpsw = expert_register_protocol(proto_hpsw);
     expert_register_field_array(expert_hpsw, ei, array_length(ei));
 
-    register_dissector("hpsw", dissect_hpsw, proto_hpsw);
+    hpsw_handle = register_dissector("hpsw", dissect_hpsw, proto_hpsw);
 }
 
 void
 proto_reg_handoff_hpsw(void)
 {
-    dissector_handle_t hpsw_handle;
-
-    hpsw_handle = find_dissector("hpsw");
-
     dissector_add_uint("hpext.dxsap", HPEXT_HPSW, hpsw_handle);
 }
 

@@ -10,6 +10,7 @@ S<[ B<-d> E<lt>encap:linktypeE<gt>|E<lt>proto:protonameE<gt> ]>
 S<[ B<-F> E<lt>field to displayE<gt> ]>
 S<[ B<-h> ]>
 S<[ B<-l> ]>
+S<[ B<-m> E<lt>bytesE<gt> ]>
 S<[ B<-n> ]>
 S<[ B<-N> E<lt>name resolving flagsE<gt> ]>
 S<[ B<-o> E<lt>preference settingE<gt> ] ...>
@@ -146,6 +147,11 @@ see the dissected data for a packet as soon as B<TShark> sees the
 packet and generates that output, rather than seeing it only when the
 standard output buffer containing that data fills up.
 
+=item -m  E<lt>memory limit bytesE<gt>
+
+Limit rawshark's memory usage to the specified number of bytes. POSIX
+(non-Windows) only.
+
 =item -n
 
 Disable network object name resolution (such as hostname, TCP and UDP port
@@ -170,8 +176,6 @@ resolution
 
 B<t> to enable transport-layer port number resolution
 
-B<C> to enable concurrent (asynchronous) DNS lookups
-
 B<d> to enable resolution from captured DNS packets
 
 =item -o  E<lt>preferenceE<gt>:E<lt>valueE<gt>
@@ -194,6 +198,10 @@ no effect.
 Read packet data from I<input source>. It can be either the name of a FIFO
 (named pipe) or ``-'' to read data from the standard input, and must have
 the record format specified above.
+
+If you are sending data to rawshark from a parent process on Windows you
+should not close rawshark's standard input handle prematurely, otherwise
+the C runtime might trigger an exception.
 
 =item -R  E<lt>read (display) filterE<gt>
 
@@ -304,7 +312,9 @@ systems, and in the main installation directory (for example,
 F<C:\Program Files\Wireshark\preferences>) on Windows systems.
 
 The personal preferences file is looked for in
-F<$HOME/.wireshark/preferences> on
+F<$XDG_CONFIG_HOME/wireshark/preferences>
+(or, if F<$XDG_CONFIG_HOME/wireshark> does not exist while F<$HOME/.wireshark>
+is present, F<$HOME/.wireshark/preferences>) on
 UNIX-compatible systems and F<%APPDATA%\Wireshark\preferences> (or, if
 %APPDATA% isn't defined, F<%USERPROFILE%\Application
 Data\Wireshark\preferences>) on Windows systems.
@@ -341,7 +351,7 @@ will not be consulted for capture filter name resolution.
 
 =item Name Resolution (subnets)
 
-If the an IPv4 address cannot be translated via name resolution (no exact
+If an IPv4 address cannot be translated via name resolution (no exact
 match is found) then a partial match is attempted via the F<subnets> file.
 
 Each line of this file consists of an IPv4 address, a subnet mask length

@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <config.h>
@@ -28,17 +16,29 @@
 #endif
 
 #include "main_window.h"
+
+/*
+ * The generated Ui_MainWindow::setupUi() can grow larger than our configured limit,
+ * so turn off -Wframe-larger-than= for ui_main_window.h.
+ */
+DIAG_OFF(frame-larger-than=)
 #include <ui_main_window.h>
+DIAG_ON(frame-larger-than=)
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+#include "ui/dissect_opts.h"
+
 #ifdef HAVE_LIBPCAP
 #include "ui/capture.h"
 #endif
 
+#include "ui/commandline.h"
+
 #include "epan/color_filters.h"
+#include "epan/export_object.h"
 
 #include "wsutil/file_util.h"
 #include "wsutil/filesystem.h"
@@ -50,7 +50,9 @@
 #include "epan/epan_dissect.h"
 #include "epan/filter_expressions.h"
 #include "epan/prefs.h"
+#include "epan/plugin_if.h"
 #include "epan/uat.h"
+#include "epan/uat-int.h"
 #include "epan/value_string.h"
 
 #ifdef HAVE_LUA
@@ -69,9 +71,13 @@
 #include "ui/recent.h"
 #include "ui/recent_utils.h"
 #include "ui/ssl_key_export.h"
-#include "ui/ui_util.h"
+#include "ui/ws_ui_util.h"
 #include "ui/all_files_wildcard.h"
 #include "ui/qt/simple_dialog.h"
+
+#include <ui/qt/utils/variant_pointer.h>
+#include <ui/qt/widgets/drag_drop_toolbar.h>
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 
 #ifdef HAVE_SOFTWARE_UPDATE
 #include "ui/software_update.h"
@@ -83,31 +89,36 @@
 #include "bluetooth_hci_summary_dialog.h"
 #include "capture_file_dialog.h"
 #include "capture_file_properties_dialog.h"
-#include "color_utils.h"
+#ifdef HAVE_LIBPCAP
+#include "capture_interfaces_dialog.h"
+#endif
+#include <ui/qt/utils/color_utils.h>
 #include "coloring_rules_dialog.h"
 #include "conversation_dialog.h"
 #include "conversation_colorize_action.h"
 #include "conversation_hash_tables_dialog.h"
 #include "enabled_protocols_dialog.h"
 #include "decode_as_dialog.h"
-#include "display_filter_edit.h"
+#include <ui/qt/widgets/display_filter_edit.h>
 #include "display_filter_expression_dialog.h"
 #include "dissector_tables_dialog.h"
 #include "endpoint_dialog.h"
 #include "expert_info_dialog.h"
+#include "export_object_action.h"
 #include "export_object_dialog.h"
 #include "export_pdu_dialog.h"
-#ifdef HAVE_EXTCAP
 #include "extcap_options_dialog.h"
-#endif
+#include "file_set_dialog.h"
 #include "filter_action.h"
 #include "filter_dialog.h"
+#include "firewall_rules_dialog.h"
 #include "funnel_statistics.h"
 #include "gsm_map_summary_dialog.h"
 #include "iax2_analysis_dialog.h"
+#include "interface_toolbar.h"
 #include "io_graph_dialog.h"
+#include <ui/qt/widgets/additional_toolbar.h>
 #include "lbm_stream_dialog.h"
-#include "lbm_uimflow_dialog.h"
 #include "lbm_lbtrm_transport_dialog.h"
 #include "lbm_lbtru_transport_dialog.h"
 #include "lte_mac_statistics_dialog.h"
@@ -122,7 +133,7 @@
 #include "print_dialog.h"
 #include "profile_dialog.h"
 #include "protocol_hierarchy_dialog.h"
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "resolved_addresses_dialog.h"
 #include "rpc_service_response_time_dialog.h"
 #include "rtp_stream_dialog.h"
@@ -133,7 +144,7 @@
 #include "sequence_dialog.h"
 #include "show_packet_bytes_dialog.h"
 #include "stats_tree_dialog.h"
-#include "stock_icon.h"
+#include <ui/qt/utils/stock_icon.h>
 #include "supported_protocols_dialog.h"
 #include "tap_parameter_dialog.h"
 #include "tcp_stream_dialog.h"
@@ -142,6 +153,7 @@
 #include "voip_calls_dialog.h"
 #include "wireshark_application.h"
 #include "wlan_statistics_dialog.h"
+#include "wireless_timeline.h"
 
 #include <QClipboard>
 #include <QFileInfo>
@@ -150,21 +162,27 @@
 #include <QToolBar>
 #include <QDesktopServices>
 #include <QUrl>
-#include <QDebug>
+
+// XXX You must uncomment QT_WINEXTRAS_LIB lines in CMakeList.txt and
+// cmakeconfig.h.in.
+// #if defined(QT_WINEXTRAS_LIB)
+// #include <QWinJumpList>
+// #include <QWinJumpListCategory>
+// #include <QWinJumpListItem>
+// #endif
 
 //
 // Public slots
 //
 
-static const char *dfe_property_ = "display filter expression"; //TODO : Fix Translate
-
-bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned int type)
+bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned int type, gboolean is_tempfile)
 {
     QString file_name = "";
     dfilter_t *rfcode = NULL;
     gchar *err_msg;
     int err;
     gboolean name_param;
+    gboolean ret = true;
 
     // was a file name given as function parameter?
     name_param = !cf_path.isEmpty();
@@ -177,16 +195,22 @@ bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned 
             if (open_dlg.open(file_name, type)) {
                 cf_path = file_name;
             } else {
-                return false;
+                ret = false;
+                goto finish;
             }
         }
 
+        // TODO detect call from "cf_read" -> "update_progress_dlg"
+        // ("capture_file_.capFile()->read_lock"), possibly queue opening the
+        // file and return early to avoid the warning in testCaptureFileClose.
+
         QString before_what(tr(" before opening another file"));
         if (!testCaptureFileClose(before_what)) {
-            return false;
+            ret = false;
+            goto finish;
         }
 
-        if (dfilter_compile(read_filter.toUtf8().constData(), &rfcode, &err_msg)) {
+        if (dfilter_compile(qUtf8Printable(read_filter), &rfcode, &err_msg)) {
             cf_set_rfcode(CaptureFile::globalCapFile(), rfcode);
         } else {
             /* Not valid.  Tell the user, and go back and run the file
@@ -207,16 +231,18 @@ bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned 
             }
         }
 
+        /* Make the file name available via MainWindow */
+        setMwFileName(cf_path);
+
         /* Try to open the capture file. This closes the current file if it succeeds. */
         CaptureFile::globalCapFile()->window = this;
-        if (cf_open(CaptureFile::globalCapFile(), cf_path.toUtf8().constData(), type, FALSE, &err) != CF_OK) {
+        if (cf_open(CaptureFile::globalCapFile(), qUtf8Printable(cf_path), type, is_tempfile, &err) != CF_OK) {
             /* We couldn't open it; don't dismiss the open dialog box,
                just leave it around so that the user can, after they
                dismiss the alert box popped up for the open error,
                try again. */
             CaptureFile::globalCapFile()->window = NULL;
-            if (rfcode != NULL)
-                dfilter_free(rfcode);
+            dfilter_free(rfcode);
             cf_path.clear();
             continue;
         }
@@ -236,7 +262,8 @@ bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned 
                string and return (without changing the last containing
                directory). */
             capture_file_.setCapFile(NULL);
-            return false;
+            ret = false;
+            goto finish;
         }
         break;
     }
@@ -245,7 +272,12 @@ bool MainWindow::openCaptureFile(QString cf_path, QString read_filter, unsigned 
 
     main_ui_->statusBar->showExpert();
 
-    return true;
+finish:
+#ifdef HAVE_LIBPCAP
+    if (global_commandline_info.quit_after_cap)
+        exit(0);
+#endif
+    return ret;
 }
 
 void MainWindow::filterPackets(QString new_filter, bool force)
@@ -275,154 +307,6 @@ void MainWindow::filterPackets(QString new_filter, bool force)
     }
 }
 
-// A new layout should be applied when it differs from the old layout AND
-// at the following times:
-// - At startup
-// - When the preferences change
-// - When the profile changes
-void MainWindow::layoutPanes()
-{
-    QVector<unsigned> new_layout = QVector<unsigned>() << prefs.gui_layout_type
-                                                       << prefs.gui_layout_content_1
-                                                       << prefs.gui_layout_content_2
-                                                       << prefs.gui_layout_content_3
-                                                       << recent.packet_list_show
-                                                       << recent.tree_view_show
-                                                       << recent.byte_view_show;
-
-    if (cur_layout_ == new_layout) return;
-
-    QSplitter *parents[3];
-    int current_row = capture_file_.currentRow();
-
-    // Reparent all widgets and add them back in the proper order below.
-    // This hides each widget as well.
-    packet_list_->freeze(); // Clears tree and byte view tabs.
-    packet_list_->setParent(main_ui_->mainStack);
-    proto_tree_->setParent(main_ui_->mainStack);
-    byte_view_tab_->setParent(main_ui_->mainStack);
-    empty_pane_.setParent(main_ui_->mainStack);
-    extra_split_.setParent(main_ui_->mainStack);
-
-    // XXX We should try to preserve geometries if we can, e.g. by
-    // checking to see if the layout type is the same.
-    switch(prefs.gui_layout_type) {
-    case(layout_type_2):
-    case(layout_type_1):
-        extra_split_.setOrientation(Qt::Horizontal);
-        /* Fall Through */
-    case(layout_type_5):
-        master_split_.setOrientation(Qt::Vertical);
-        break;
-
-    case(layout_type_4):
-    case(layout_type_3):
-        extra_split_.setOrientation(Qt::Vertical);
-        /* Fall Through */
-    case(layout_type_6):
-        master_split_.setOrientation(Qt::Horizontal);
-        break;
-
-    default:
-        g_assert_not_reached();
-    }
-
-    switch(prefs.gui_layout_type) {
-    case(layout_type_5):
-    case(layout_type_6):
-        parents[0] = &master_split_;
-        parents[1] = &master_split_;
-        parents[2] = &master_split_;
-        break;
-    case(layout_type_2):
-    case(layout_type_4):
-        parents[0] = &master_split_;
-        parents[1] = &extra_split_;
-        parents[2] = &extra_split_;
-        break;
-    case(layout_type_1):
-    case(layout_type_3):
-        parents[0] = &extra_split_;
-        parents[1] = &extra_split_;
-        parents[2] = &master_split_;
-        break;
-    default:
-        g_assert_not_reached();
-    }
-
-    if (parents[0] == &extra_split_) {
-        master_split_.addWidget(&extra_split_);
-    }
-
-    parents[0]->addWidget(getLayoutWidget(prefs.gui_layout_content_1));
-
-    if (parents[2] == &extra_split_) {
-        master_split_.addWidget(&extra_split_);
-    }
-
-    parents[1]->addWidget(getLayoutWidget(prefs.gui_layout_content_2));
-    parents[2]->addWidget(getLayoutWidget(prefs.gui_layout_content_3));
-
-    const QList<QWidget *> ms_children = master_split_.findChildren<QWidget *>();
-
-    extra_split_.setVisible(ms_children.contains(&extra_split_));
-    packet_list_->setVisible(ms_children.contains(packet_list_) && recent.packet_list_show);
-    proto_tree_->setVisible(ms_children.contains(proto_tree_) && recent.tree_view_show);
-    byte_view_tab_->setVisible(ms_children.contains(byte_view_tab_) && recent.byte_view_show);
-
-    packet_list_->thaw();
-    cf_select_packet(capture_file_.capFile(), current_row);  // XXX Doesn't work for row 0?
-    cur_layout_ = new_layout;
-}
-
-// The recent layout geometry should be applied after the layout has been
-// applied AND at the following times:
-// - At startup
-// - When the profile changes
-void MainWindow::applyRecentPaneGeometry()
-{
-    // XXX This shrinks slightly each time the application is run. For some
-    // reason the master_split_ geometry is two pixels shorter when
-    // saveWindowGeometry is invoked.
-
-    // This is also an awful lot of trouble to go through to reuse the GTK+
-    // pane settings. We might want to add gui.geometry_main_master_sizes
-    // and gui.geometry_main_extra_sizes and save QSplitter::saveState in
-    // each.
-
-    // Force a geometry recalculation
-    QWidget *cur_w = main_ui_->mainStack->currentWidget();
-    main_ui_->mainStack->setCurrentWidget(&master_split_);
-    QRect geom = master_split_.geometry();
-    QList<int> master_sizes = master_split_.sizes();
-    QList<int> extra_sizes = extra_split_.sizes();
-    main_ui_->mainStack->setCurrentWidget(cur_w);
-
-    int master_last_size = master_split_.orientation() == Qt::Vertical ? geom.height() : geom.width();
-    int extra_last_size = extra_split_.orientation() == Qt::Vertical ? geom.height() : geom.width();
-
-    if (recent.gui_geometry_main_upper_pane > 0) {
-        master_sizes[0] = recent.gui_geometry_main_upper_pane + 1; // Add back mystery pixel
-        master_last_size -= recent.gui_geometry_main_upper_pane + master_split_.handleWidth();
-    }
-
-    if (recent.gui_geometry_main_lower_pane > 0) {
-        if (master_sizes.length() > 2) {
-            master_sizes[1] = recent.gui_geometry_main_lower_pane + 1; // Add back mystery pixel
-            master_last_size -= recent.gui_geometry_main_lower_pane + master_split_.handleWidth();
-        } else if (extra_sizes.length() > 0) {
-            extra_sizes[0] = recent.gui_geometry_main_lower_pane; // No mystery pixel
-            extra_last_size -= recent.gui_geometry_main_lower_pane + extra_split_.handleWidth();
-            extra_sizes.last() = extra_last_size;
-        }
-    }
-
-    master_sizes.last() = master_last_size;
-
-    master_split_.setSizes(master_sizes);
-    extra_split_.setSizes(extra_sizes);
-}
-
 void MainWindow::layoutToolbars()
 {
     Qt::ToolButtonStyle tbstyle = Qt::ToolButtonIconOnly;
@@ -441,10 +325,36 @@ void MainWindow::layoutToolbars()
     main_ui_->displayFilterToolBar->setVisible(recent.filter_toolbar_show);
     main_ui_->wirelessToolBar->setVisible(recent.wireless_toolbar_show);
     main_ui_->statusBar->setVisible(recent.statusbar_show);
+
+    foreach (QAction *action, main_ui_->menuInterfaceToolbars->actions()) {
+        QToolBar *toolbar = action->data().value<QToolBar *>();
+        if (g_list_find_custom(recent.interface_toolbars, action->text().toUtf8(), (GCompareFunc) strcmp)) {
+            toolbar->setVisible(true);
+        } else {
+            toolbar->setVisible(false);
+        }
+    }
+
+    QList<QToolBar *> toolbars = findChildren<QToolBar *>();
+    foreach (QToolBar *bar, toolbars) {
+        AdditionalToolBar *iftoolbar = dynamic_cast<AdditionalToolBar *>(bar);
+        if (iftoolbar) {
+            bool visible = false;
+            if (g_list_find_custom(recent.gui_additional_toolbars, qUtf8Printable(iftoolbar->menuName()), (GCompareFunc) strcmp))
+                visible = true;
+
+            iftoolbar->setVisible(visible);
+
+        }
+    }
 }
 
 void MainWindow::updatePreferenceActions()
 {
+    main_ui_->actionViewPacketList->setEnabled(prefs_has_layout_pane_content(layout_pane_content_plist));
+    main_ui_->actionViewPacketDetails->setEnabled(prefs_has_layout_pane_content(layout_pane_content_pdetails));
+    main_ui_->actionViewPacketBytes->setEnabled(prefs_has_layout_pane_content(layout_pane_content_pbytes));
+
     main_ui_->actionViewNameResolutionPhysical->setChecked(gbl_resolv_flags.mac_name);
     main_ui_->actionViewNameResolutionNetwork->setChecked(gbl_resolv_flags.network_name);
     main_ui_->actionViewNameResolutionTransport->setChecked(gbl_resolv_flags.transport_name);
@@ -459,9 +369,26 @@ void MainWindow::updateRecentActions()
     main_ui_->actionViewFilterToolbar->setChecked(recent.filter_toolbar_show);
     main_ui_->actionViewWirelessToolbar->setChecked(recent.wireless_toolbar_show);
     main_ui_->actionViewStatusBar->setChecked(recent.statusbar_show);
-    main_ui_->actionViewPacketList->setChecked(recent.packet_list_show);
-    main_ui_->actionViewPacketDetails->setChecked(recent.tree_view_show);
-    main_ui_->actionViewPacketBytes->setChecked(recent.byte_view_show);
+    main_ui_->actionViewPacketList->setChecked(recent.packet_list_show && prefs_has_layout_pane_content(layout_pane_content_plist));
+    main_ui_->actionViewPacketDetails->setChecked(recent.tree_view_show && prefs_has_layout_pane_content(layout_pane_content_pdetails));
+    main_ui_->actionViewPacketBytes->setChecked(recent.byte_view_show && prefs_has_layout_pane_content(layout_pane_content_pbytes));
+
+    foreach (QAction *action, main_ui_->menuInterfaceToolbars->actions()) {
+        if (g_list_find_custom(recent.interface_toolbars, action->text().toUtf8(), (GCompareFunc) strcmp)) {
+            action->setChecked(true);
+        } else {
+            action->setChecked(false);
+        }
+    }
+
+    foreach (QAction * action, main_ui_->menuAdditionalToolbars->actions()) {
+        ext_toolbar_t * toolbar = VariantPointer<ext_toolbar_t>::asPtr(action->data());
+        bool checked = false;
+        if (toolbar && g_list_find_custom(recent.gui_additional_toolbars, toolbar->name, (GCompareFunc) strcmp))
+            checked = true;
+
+        action->setChecked(checked);
+    }
 
     foreach (QAction* tda, td_actions.keys()) {
         if (recent.gui_time_format == td_actions[tda]) {
@@ -471,6 +398,7 @@ void MainWindow::updateRecentActions()
     foreach (QAction* tpa, tp_actions.keys()) {
         if (recent.gui_time_precision == tp_actions[tpa]) {
             tpa->setChecked(true);
+            break;
         }
     }
     main_ui_->actionViewTimeDisplaySecondsWithHoursAndMinutes->setChecked(recent.gui_seconds_format == TS_SECONDS_HOUR_MIN_SEC);
@@ -478,7 +406,8 @@ void MainWindow::updateRecentActions()
     main_ui_->actionViewColorizePacketList->setChecked(recent.packet_list_colorize);
 }
 
-void MainWindow::filterAction(QString &action_filter, FilterAction::Action action, FilterAction::ActionType type)
+// Don't connect to this directly. Connect to or emit fiterAction(...) instead.
+void MainWindow::queuedFilterAction(QString action_filter, FilterAction::Action action, FilterAction::ActionType type)
 {
     QString cur_filter, new_filter;
 
@@ -530,6 +459,15 @@ void MainWindow::filterAction(QString &action_filter, FilterAction::Action actio
         df_combo_box_->lineEdit()->setText(new_filter);
         df_combo_box_->applyDisplayFilter();
         break;
+    case FilterAction::ActionColorize:
+        colorizeWithFilter(new_filter.toUtf8());
+        break;
+    case FilterAction::ActionCopy:
+        wsApp->clipboard()->setText(new_filter);
+        break;
+    case FilterAction::ActionFind:
+        main_ui_->searchFrame->findFrameWithFilter(new_filter);
+        break;
     case FilterAction::ActionPrepare:
         df_combo_box_->lineEdit()->setText(new_filter);
         df_combo_box_->lineEdit()->setFocus();
@@ -540,19 +478,16 @@ void MainWindow::filterAction(QString &action_filter, FilterAction::Action actio
         QDesktopServices::openUrl(QUrl(url));
         break;
     }
-    case FilterAction::ActionCopy:
-        wsApp->clipboard()->setText(new_filter);
-        break;
     default:
-        qDebug() << "FIX FilterAction::Action" << action << "not implemented";
+        g_assert_not_reached();
         break;
     }
 }
 
 // Capture callbacks
 
-void MainWindow::captureCapturePrepared(capture_session *) {
 #ifdef HAVE_LIBPCAP
+void MainWindow::captureCapturePrepared(capture_session *) {
     setTitlebarForCaptureInProgress();
 
     setWindowIcon(wsApp->captureIcon());
@@ -564,24 +499,21 @@ void MainWindow::captureCapturePrepared(capture_session *) {
 
 //    /* Don't set up main window for a capture file. */
 //    main_set_for_capture_file(FALSE);
-    main_ui_->mainStack->setCurrentWidget(&master_split_);
-#endif // HAVE_LIBPCAP
+    showCapture();
 }
 
-void MainWindow::captureCaptureUpdateStarted(capture_session *) {
-#ifdef HAVE_LIBPCAP
+void MainWindow::captureCaptureUpdateStarted(capture_session *session) {
 
     /* We've done this in "prepared" above, but it will be cleared while
        switching to the next multiple file. */
     setTitlebarForCaptureInProgress();
 
-    setForCaptureInProgress(true);
+    setForCaptureInProgress(true, session->capture_opts->ifaces);
 
     setForCapturedPackets(true);
-#endif // HAVE_LIBPCAP
 }
+
 void MainWindow::captureCaptureUpdateFinished(capture_session *) {
-#ifdef HAVE_LIBPCAP
 
     /* The capture isn't stopping any more - it's stopped. */
     capture_stopping_ = false;
@@ -592,22 +524,18 @@ void MainWindow::captureCaptureUpdateFinished(capture_session *) {
     /* Enable menu items that make sense if you're not currently running
      a capture. */
     setForCaptureInProgress(false);
+    setMenusForCaptureFile();
 
     setWindowIcon(wsApp->normalIcon());
 
-    if (global_capture_opts.quit_after_cap) {
+    if (global_commandline_info.quit_after_cap) {
         // Command line asked us to quit after capturing.
         // Don't pop up a dialog to ask for unsaved files etc.
         exit(0);
     }
-#endif // HAVE_LIBPCAP
 }
-void MainWindow::captureCaptureFixedStarted(capture_session *) {
-#ifdef HAVE_LIBPCAP
-#endif // HAVE_LIBPCAP
-}
+
 void MainWindow::captureCaptureFixedFinished(capture_session *) {
-#ifdef HAVE_LIBPCAP
 
     /* The capture isn't stopping any more - it's stopped. */
     capture_stopping_ = false;
@@ -615,48 +543,187 @@ void MainWindow::captureCaptureFixedFinished(capture_session *) {
     /* Enable menu items that make sense if you're not currently running
      a capture. */
     setForCaptureInProgress(false);
+    /* There isn't a real capture_file structure yet, so just force disabling
+       menu options.  They will "refresh" when the capture file is reloaded to
+       display packets */
+    setMenusForCaptureFile(true);
 
     setWindowIcon(wsApp->normalIcon());
 
-    if (global_capture_opts.quit_after_cap) {
+    if (global_commandline_info.quit_after_cap) {
         // Command line asked us to quit after capturing.
         // Don't pop up a dialog to ask for unsaved files etc.
         exit(0);
     }
-#endif // HAVE_LIBPCAP
 }
-void MainWindow::captureCaptureStopping(capture_session *) {
-#ifdef HAVE_LIBPCAP
 
-    capture_stopping_ = true;
-    setMenusForCaptureStopping();
-#endif // HAVE_LIBPCAP
-}
 void MainWindow::captureCaptureFailed(capture_session *) {
-#ifdef HAVE_LIBPCAP
     /* Capture isn't stopping any more. */
     capture_stopping_ = false;
 
     setForCaptureInProgress(false);
-    main_ui_->mainStack->setCurrentWidget(main_welcome_);
+    showWelcome();
+
+    // Reset expert information indicator
+    main_ui_->statusBar->captureFileClosing();
+    main_ui_->statusBar->popFileStatus();
 
     setWindowIcon(wsApp->normalIcon());
 
-    if (global_capture_opts.quit_after_cap) {
+    if (global_commandline_info.quit_after_cap) {
         // Command line asked us to quit after capturing.
         // Don't pop up a dialog to ask for unsaved files etc.
         exit(0);
     }
-#endif // HAVE_LIBPCAP
 }
-
+#endif // HAVE_LIBPCAP
 
 // Callbacks from cfile.c and file.c via CaptureFile::captureFileCallback
+
+void MainWindow::captureEventHandler(CaptureEvent ev)
+{
+    switch (ev.captureContext()) {
+
+    case CaptureEvent::File:
+        switch (ev.eventType()) {
+        case CaptureEvent::Opened:
+            captureFileOpened();
+            break;
+        case CaptureEvent::Closing:
+            captureFileClosing();
+            break;
+        case CaptureEvent::Closed:
+            captureFileClosed();
+            break;
+        case CaptureEvent::Started:
+            captureFileReadStarted(tr("Loading"));
+            break;
+        case CaptureEvent::Finished:
+            captureFileReadFinished();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Reload:
+        switch (ev.eventType()) {
+        case CaptureEvent::Started:
+            captureFileReadStarted(tr("Reloading"));
+            break;
+        case CaptureEvent::Finished:
+            captureFileReadFinished();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Rescan:
+        switch (ev.eventType()) {
+        case CaptureEvent::Started:
+            setMenusForCaptureFile(true);
+            captureFileReadStarted(tr("Rescanning"));
+            break;
+        case CaptureEvent::Finished:
+            captureFileReadFinished();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Retap:
+        switch (ev.eventType()) {
+        case CaptureEvent::Started:
+            freeze();
+            break;
+        case CaptureEvent::Finished:
+            thaw();
+            break;
+        case CaptureEvent::Flushed:
+            draw_tap_listeners(FALSE);
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Merge:
+        switch (ev.eventType()) {
+        case CaptureEvent::Started:
+            main_ui_->statusBar->popFileStatus();
+            main_ui_->statusBar->pushFileStatus(tr("Merging files"), QString());
+            break;
+        case CaptureEvent::Finished:
+            main_ui_->statusBar->popFileStatus();
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Save:
+        switch (ev.eventType()) {
+        case CaptureEvent::Started:
+        {
+            QFileInfo file_info(ev.filePath());
+            main_ui_->statusBar->popFileStatus();
+            main_ui_->statusBar->pushFileStatus(tr("Saving %1" UTF8_HORIZONTAL_ELLIPSIS).arg(file_info.fileName()));
+            break;
+        }
+        default:
+            break;
+        }
+        break;
+
+#ifdef HAVE_LIBPCAP
+    case CaptureEvent::Capture:
+        switch (ev.eventType()) {
+        case CaptureEvent::Prepared:
+            captureCapturePrepared(ev.capSession());
+            break;
+        case CaptureEvent::Stopping:
+            capture_stopping_ = true;
+            setMenusForCaptureStopping();
+            break;
+        case CaptureEvent::Failed:
+            captureCaptureFailed(ev.capSession());
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Update:
+        switch (ev.eventType()) {
+        case CaptureEvent::Started:
+            captureCaptureUpdateStarted(ev.capSession());
+            break;
+        case CaptureEvent::Finished:
+            captureCaptureUpdateFinished(ev.capSession());
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case CaptureEvent::Fixed:
+        switch (ev.eventType()) {
+        case CaptureEvent::Finished:
+            captureCaptureFixedFinished(ev.capSession());
+            break;
+        default:
+            break;
+        }
+        break;
+#endif
+    }
+}
 
 void MainWindow::captureFileOpened() {
     if (capture_file_.window() != this) return;
 
-    file_set_dialog_.fileOpened(capture_file_.capFile());
+    file_set_dialog_->fileOpened(capture_file_.capFile());
     setMenusForFileSet(true);
     emit setCaptureFile(capture_file_.capFile());
 }
@@ -671,8 +738,9 @@ void MainWindow::captureFileReadStarted(const QString &action) {
     QString msg = QString(tr("%1: %2")).arg(action).arg(capture_file_.fileName());
     QString msgtip = QString();
     main_ui_->statusBar->pushFileStatus(msg, msgtip);
-    main_ui_->mainStack->setCurrentWidget(&master_split_);
+    showCapture();
     main_ui_->actionAnalyzeReloadLuaPlugins->setEnabled(false);
+    main_ui_->wirelessTimelineWidget->captureFileReadStarted(capture_file_.capFile());
 
     WiresharkApplication::processEvents();
 }
@@ -693,6 +761,9 @@ void MainWindow::captureFileReadFinished() {
     /* Update the appropriate parts of the main window. */
     updateForUnsavedChanges();
 
+    /* enable wireless timeline if capture allows it */
+    main_ui_->wirelessTimelineWidget->captureFileReadFinished();
+
     /* Enable menu items that make sense if you have some captured packets. */
     setForCapturedPackets(true);
 
@@ -704,22 +775,6 @@ void MainWindow::captureFileReadFinished() {
     emit setDissectedCaptureFile(capture_file_.capFile());
 }
 
-void MainWindow::captureFileRetapStarted()
-{
-    // XXX Push a status message?
-    freeze();
-}
-
-void MainWindow::captureFileRetapFinished()
-{
-    thaw();
-}
-
-void MainWindow::captureFileFlushTapsData()
-{
-    draw_tap_listeners(FALSE);
-}
-
 void MainWindow::captureFileClosing() {
     setMenusForCaptureFile(true);
     setForCapturedPackets(false);
@@ -728,6 +783,7 @@ void MainWindow::captureFileClosing() {
     // Reset expert information indicator
     main_ui_->statusBar->captureFileClosing();
     main_ui_->searchFrame->animatedHide();
+    main_ui_->goToFrame->animatedHide();
 //    gtk_widget_show(expert_info_none);
     emit setCaptureFile(NULL);
     emit setDissectedCaptureFile(NULL);
@@ -736,13 +792,12 @@ void MainWindow::captureFileClosing() {
 void MainWindow::captureFileClosed() {
     packets_bar_update();
 
-    file_set_dialog_.fileClosed();
+    file_set_dialog_->fileClosed();
     setMenusForFileSet(false);
     setWindowModified(false);
 
     // Reset expert information indicator
     main_ui_->statusBar->captureFileClosing();
-
     main_ui_->statusBar->popFileStatus();
 
     setWSWindowTitle();
@@ -750,38 +805,10 @@ void MainWindow::captureFileClosed() {
     setMenusForSelectedPacket();
     setMenusForSelectedTreeRow();
 
+#ifdef HAVE_LIBPCAP
     if (!global_capture_opts.multi_files_on)
-        main_ui_->mainStack->setCurrentWidget(main_welcome_);
-}
-
-void MainWindow::captureFileSaveStarted(const QString &file_path)
-{
-    QFileInfo file_info(file_path);
-    main_ui_->statusBar->popFileStatus();
-    main_ui_->statusBar->pushFileStatus(tr("Saving %1" UTF8_HORIZONTAL_ELLIPSIS).arg(file_info.baseName()));
-}
-
-void MainWindow::filterExpressionsChanged()
-{
-    // Recreate filter buttons
-    foreach (QAction *act, main_ui_->displayFilterToolBar->actions()) {
-        // Permanent actions shouldn't have data
-        if (act->property(dfe_property_).isValid()) {
-            main_ui_->displayFilterToolBar->removeAction(act);
-            delete act;
-        }
-    }
-
-    // XXX Add a context menu for removing and changing buttons.
-    for (struct filter_expression *fe = *pfilter_expression_head; fe != NULL; fe = fe->next) {
-        if (!fe->enabled) continue;
-        QAction *dfb_action = new QAction(fe->label, main_ui_->displayFilterToolBar);
-        dfb_action->setToolTip(fe->expression);
-        dfb_action->setData(fe->expression);
-        dfb_action->setProperty(dfe_property_, true);
-        main_ui_->displayFilterToolBar->addAction(dfb_action);
-        connect(dfb_action, SIGNAL(triggered()), this, SLOT(displayFilterButtonClicked()));
-    }
+        showWelcome();
+#endif
 }
 
 //
@@ -792,7 +819,7 @@ void MainWindow::filterExpressionsChanged()
 
 void MainWindow::startCapture() {
 #ifdef HAVE_LIBPCAP
-    interface_options interface_opts;
+    interface_options *interface_opts;
     guint i;
 
     /* did the user ever select a capture interface before? */
@@ -813,7 +840,7 @@ void MainWindow::startCapture() {
         return;
     }
 
-    main_ui_->mainStack->setCurrentWidget(&master_split_);
+    showCapture();
 
     /* XXX - we might need to init other pref data as well... */
 
@@ -829,12 +856,10 @@ void MainWindow::startCapture() {
     collect_ifaces(&global_capture_opts);
 
     CaptureFile::globalCapFile()->window = this;
+    info_data_.ui.ui = this;
     if (capture_start(&global_capture_opts, &cap_session_, &info_data_, main_window_update)) {
         capture_options *capture_opts = cap_session_.capture_opts;
         GString *interface_names;
-
-        /* enable autoscroll timer as needed. */
-        packet_list_->setVerticalAutoScroll(main_ui_->actionGoAutoScroll->isChecked());
 
         /* Add "interface name<live capture in progress>" on main status bar */
         interface_names = get_iface_list_string(capture_opts, 0);
@@ -853,16 +878,16 @@ void MainWindow::startCapture() {
          valid; add this capture filter to the recent capture filter list. */
         QByteArray filter_ba;
         for (i = 0; i < global_capture_opts.ifaces->len; i++) {
-            interface_opts = g_array_index(global_capture_opts.ifaces, interface_options, i);
-            if (interface_opts.cfilter) {
-                recent_add_cfilter(interface_opts.name, interface_opts.cfilter);
+            interface_opts = &g_array_index(global_capture_opts.ifaces, interface_options, i);
+            if (interface_opts->cfilter) {
+                recent_add_cfilter(interface_opts->name, interface_opts->cfilter);
                 if (filter_ba.isEmpty()) {
-                    filter_ba = interface_opts.cfilter;
+                    filter_ba = interface_opts->cfilter;
                 } else {
                     /* Not the first selected interface; is its capture filter
                        the same as the one the other interfaces we've looked
                        at have? */
-                    if (strcmp(interface_opts.cfilter, filter_ba.constData()) != 0) {
+                    if (strcmp(interface_opts->cfilter, filter_ba.constData()) != 0) {
                       /* No, so not all selected interfaces have the same capture
                          filter. */
                         filter_ba.clear();
@@ -930,7 +955,7 @@ void MainWindow::pipeTimeout() {
 
 void MainWindow::pipeActivated(int source) {
 #ifdef _WIN32
-    Q_UNUSED(source);
+    Q_UNUSED(source)
 #else
     g_assert(source == pipe_source_);
 
@@ -943,7 +968,11 @@ void MainWindow::pipeActivated(int source) {
 #endif // _WIN32
 }
 
-void MainWindow::pipeNotifierDestroyed() {
+void MainWindow::pipeNotifierDestroyed()
+{
+    /* Pop the "<live capture in progress>" message off the status bar. */
+    main_ui_->statusBar->setFileName(capture_file_);
+
 #ifdef _WIN32
     pipe_timer_ = NULL;
 #else
@@ -961,15 +990,10 @@ void MainWindow::stopCapture() {
     capture_stop(&cap_session_);
 #endif // HAVE_LIBPCAP
 
-    /* Pop the "<live capture in progress>" message off the status bar. */
-    main_ui_->statusBar->setFileName(capture_file_);
-
-    /* disable autoscroll timer if any. */
-    packet_list_->setVerticalAutoScroll(false);
 }
 
 // Keep focus rects from showing through the welcome screen. Primarily for
-// OS X.
+// macOS.
 void MainWindow::mainStackChanged(int)
 {
     for (int i = 0; i < main_ui_->mainStack->count(); i++) {
@@ -983,7 +1007,7 @@ void MainWindow::mainStackChanged(int)
  * Add the capture filename (with an absolute path) to the "Recent Files" menu.
  */
 // XXX - We should probably create a RecentFile class.
-void MainWindow::updateRecentFiles() {
+void MainWindow::updateRecentCaptures() {
     QAction *ra;
     QMenu *recentMenu = main_ui_->menuOpenRecentCaptureFile;
     QString action_cf_name;
@@ -991,8 +1015,25 @@ void MainWindow::updateRecentFiles() {
     if (!recentMenu) {
         return;
     }
-
     recentMenu->clear();
+
+#if 0
+#if defined(QT_WINEXTRAS_LIB)
+     QWinJumpList recent_jl(this);
+     QWinJumpListCategory *recent_jlc = recent_jl.recent();
+     if (recent_jlc) {
+         recent_jlc->clear();
+         recent_jlc->setVisible(true);
+     }
+#endif
+#endif
+#if defined(Q_OS_MAC)
+    if (!dock_menu_) {
+        dock_menu_ = new QMenu();
+        dock_menu_->setAsDockMenu();
+    }
+    dock_menu_->clear();
+#endif
 
     /* Iterate through the actions in menuOpenRecentCaptureFile,
      * removing special items, a maybe duplicate entry and every item above count_max */
@@ -1011,6 +1052,31 @@ void MainWindow::updateRecentFiles() {
         }
         ra->setText(action_cf_name);
         connect(ra, SIGNAL(triggered()), this, SLOT(recentActionTriggered()));
+
+/* This is slow, at least on my VM here. The added links also open Wireshark
+ * in a new window. It might make more sense to add a recent item when we
+ * open a capture file. */
+#if 0
+#if defined(QT_WINEXTRAS_LIB)
+     if (recent_jlc) {
+         QFileInfo fi(ri->filename);
+         QWinJumpListItem *jli = recent_jlc->addLink(
+             fi.fileName(),
+             QApplication::applicationFilePath(),
+             QStringList() << "-r" << ri->filename
+         );
+         // XXX set icon
+         jli->setWorkingDirectory(QDir::toNativeSeparators(QApplication::applicationDirPath()));
+     }
+#endif
+#endif
+#if defined(Q_OS_MAC)
+        QAction *rda = new QAction(dock_menu_);
+        QFileInfo fi(ri->filename);
+        rda->setText(fi.fileName());
+        dock_menu_->insertAction(NULL, rda);
+        connect(rda, SIGNAL(triggered()), ra, SLOT(trigger()));
+#endif
     }
 
     if (recentMenu->actions().count() > 0) {
@@ -1023,7 +1089,7 @@ void MainWindow::updateRecentFiles() {
         ra = new QAction(recentMenu);
         ra->setText(tr("Clear Menu"));
         recentMenu->insertAction(NULL, ra);
-        connect(ra, SIGNAL(triggered()), wsApp, SLOT(clearRecentItems()));
+        connect(ra, SIGNAL(triggered()), wsApp, SLOT(clearRecentCaptures()));
     } else {
         if (main_ui_->actionDummyNoFilesFound) {
             recentMenu->addAction(main_ui_->actionDummyNoFilesFound);
@@ -1053,6 +1119,10 @@ void MainWindow::setMenusForSelectedPacket()
     bool have_frames = false;
     /* A frame is selected */
     bool frame_selected = false;
+    /* A visible packet comes after this one in the selection history */
+    bool next_selection_history = false;
+    /* A visible packet comes before this one in the selection history */
+    bool previous_selection_history = false;
     /* We have marked frames.  (XXX - why check frame_selected?) */
     bool have_marked = false;
     /* We have a marked frame other than the current frame (i.e.,
@@ -1081,15 +1151,17 @@ void MainWindow::setMenusForSelectedPacket()
 
     if (capture_file_.capFile()) {
         frame_selected = capture_file_.capFile()->current_frame != NULL;
+        next_selection_history = packet_list_->haveNextHistory();
+        previous_selection_history = packet_list_->havePreviousHistory();
         have_frames = capture_file_.capFile()->count > 0;
-        have_marked = frame_selected && capture_file_.capFile()->marked_count > 0;
+        have_marked = capture_file_.capFile()->marked_count > 0;
         another_is_marked = have_marked &&
-                !(capture_file_.capFile()->marked_count == 1 && capture_file_.capFile()->current_frame->flags.marked);
+                !(capture_file_.capFile()->marked_count == 1 && frame_selected && capture_file_.capFile()->current_frame->flags.marked);
         have_filtered = capture_file_.capFile()->displayed_count > 0 && capture_file_.capFile()->displayed_count != capture_file_.capFile()->count;
         have_ignored = capture_file_.capFile()->ignored_count > 0;
         have_time_ref = capture_file_.capFile()->ref_time_count > 0;
-        another_is_time_ref = frame_selected && have_time_ref &&
-                !(capture_file_.capFile()->ref_time_count == 1 && capture_file_.capFile()->current_frame->flags.ref_time);
+        another_is_time_ref = have_time_ref &&
+                !(capture_file_.capFile()->ref_time_count == 1 && frame_selected && capture_file_.capFile()->current_frame->flags.ref_time);
 
         if (capture_file_.capFile()->edt)
         {
@@ -1109,11 +1181,8 @@ void MainWindow::setMenusForSelectedPacket()
     main_ui_->actionEditNextMark->setEnabled(another_is_marked);
     main_ui_->actionEditPreviousMark->setEnabled(another_is_marked);
 
-#ifdef WANT_PACKET_EDITOR
-//    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/EditMenu/EditPacket",
-//                         frame_selected);
-#endif // WANT_PACKET_EDITOR
     main_ui_->actionEditPacketComment->setEnabled(frame_selected && wtap_dump_can_write(capture_file_.capFile()->linktypes, WTAP_COMMENT_PER_PACKET));
+    main_ui_->actionDeleteAllPacketComments->setEnabled((capture_file_.capFile() != NULL) && wtap_dump_can_write(capture_file_.capFile()->linktypes, WTAP_COMMENT_PER_PACKET));
 
     main_ui_->actionEditIgnorePacket->setEnabled(frame_selected);
     main_ui_->actionEditIgnoreAllDisplayed->setEnabled(have_filtered);
@@ -1127,6 +1196,8 @@ void MainWindow::setMenusForSelectedPacket()
     main_ui_->actionEditTimeShift->setEnabled(have_frames);
 
     main_ui_->actionGoGoToLinkedPacket->setEnabled(false);
+    main_ui_->actionGoNextHistoryPacket->setEnabled(next_selection_history);
+    main_ui_->actionGoPreviousHistoryPacket->setEnabled(previous_selection_history);
 
     main_ui_->actionAnalyzeAAFSelected->setEnabled(have_filter_expr);
     main_ui_->actionAnalyzeAAFNotSelected->setEnabled(have_filter_expr);
@@ -1161,10 +1232,16 @@ void MainWindow::setMenusForSelectedPacket()
 
 //    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/ViewMenu/NameResolution/ResolveName",
 //                         frame_selected && (gbl_resolv_flags.mac_name || gbl_resolv_flags.network_name ||
-//                                            gbl_resolv_flags.transport_name || gbl_resolv_flags.concurrent_dns));
-//    set_menu_sensitivity(ui_manager_main_menubar, "/Menubar/ToolsMenu/FirewallACLRules",
-//                         frame_selected);
-    main_ui_->menuTcpStreamGraphs->setEnabled(is_tcp);
+//                                            gbl_resolv_flags.transport_name));
+
+    main_ui_->actionToolsFirewallAclRules->setEnabled(frame_selected);
+
+    main_ui_->actionStatisticsTcpStreamRoundTripTime->setEnabled(is_tcp);
+    main_ui_->actionStatisticsTcpStreamStevens->setEnabled(is_tcp);
+    main_ui_->actionStatisticsTcpStreamTcptrace->setEnabled(is_tcp);
+    main_ui_->actionStatisticsTcpStreamThroughput->setEnabled(is_tcp);
+    main_ui_->actionStatisticsTcpStreamWindowScaling->setEnabled(is_tcp);
+
     main_ui_->actionSCTPAnalyseThisAssociation->setEnabled(is_sctp);
     main_ui_->actionSCTPShowAllAssociations->setEnabled(is_sctp);
     main_ui_->actionSCTPFilterThisAssociation->setEnabled(is_sctp);
@@ -1172,21 +1249,30 @@ void MainWindow::setMenusForSelectedPacket()
     main_ui_->actionTelephonyLteRlcGraph->setEnabled(is_lte_rlc);
 }
 
-void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
+void MainWindow::setMenusForSelectedTreeRow(FieldInformation *finfo) {
 
     bool can_match_selected = false;
     bool is_framenum = false;
     bool have_field_info = false;
     bool have_subtree = false;
     bool can_open_url = false;
+    bool have_packet_bytes = false;
     QByteArray field_filter;
     int field_id = -1;
+
+    field_info * fi = 0;
+    if ( finfo )
+        fi = finfo->fieldInfo();
 
     if (capture_file_.capFile()) {
         capture_file_.capFile()->finfo_selected = fi;
 
         if (fi && fi->tree_type != -1) {
             have_subtree = true;
+        }
+
+        if (fi && fi->ds_tvb) {
+            have_packet_bytes = true;
         }
     }
 
@@ -1237,7 +1323,11 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
     main_ui_->actionEditCopyValue->setEnabled(can_match_selected);
     main_ui_->actionEditCopyAsFilter->setEnabled(can_match_selected);
 
+    main_ui_->actionAnalyzeShowPacketBytes->setEnabled(have_packet_bytes);
+    main_ui_->actionFileExportPacketBytes->setEnabled(have_packet_bytes);
+
     main_ui_->actionViewExpandSubtrees->setEnabled(have_subtree);
+    main_ui_->actionViewCollapseSubtrees->setEnabled(have_subtree);
 
     main_ui_->actionGoGoToLinkedPacket->setEnabled(is_framenum);
 
@@ -1258,7 +1348,7 @@ void MainWindow::setMenusForSelectedTreeRow(field_info *fi) {
 
 //    set_menu_sensitivity(ui_manager_tree_view_menu, "/TreeViewPopup/ResolveName",
 //                         frame_selected && (gbl_resolv_flags.mac_name || gbl_resolv_flags.network_name ||
-//                                            gbl_resolv_flags.transport_name || gbl_resolv_flags.concurrent_dns));
+//                                            gbl_resolv_flags.transport_name));
 
     main_ui_->actionAnalyzeAAFSelected->setEnabled(can_match_selected);
     main_ui_->actionAnalyzeAAFNotSelected->setEnabled(can_match_selected);
@@ -1297,10 +1387,30 @@ void MainWindow::captureFilterSyntaxChanged(bool valid)
 void MainWindow::startInterfaceCapture(bool valid, const QString capture_filter)
 {
     capture_filter_valid_ = valid;
-    main_welcome_->setCaptureFilter(capture_filter);
-    // The interface tree will update the selected interfaces via its timer
-    // so no need to do anything here.
-    startCapture();
+    welcome_page_->setCaptureFilter(capture_filter);
+    QString before_what(tr(" before starting a new capture"));
+    if (testCaptureFileClose(before_what)) {
+        // The interface tree will update the selected interfaces via its timer
+        // so no need to do anything here.
+        startCapture();
+    }
+}
+
+void MainWindow::applyGlobalCommandLineOptions()
+{
+    if (global_dissect_options.time_format != TS_NOT_SET) {
+        foreach (QAction* tda, td_actions.keys()) {
+            if (global_dissect_options.time_format == td_actions[tda]) {
+                tda->setChecked(true);
+                recent.gui_time_format = global_dissect_options.time_format;
+                timestamp_set_type(global_dissect_options.time_format);
+                break;
+            }
+        }
+    }
+    if (global_commandline_info.full_screen) {
+        this->showFullScreen();
+    }
 }
 
 void MainWindow::redissectPackets()
@@ -1357,8 +1467,7 @@ void MainWindow::reloadLuaPlugins()
     proto_tree_->closeContextMenu();
     main_ui_->preferenceEditorFrame->animatedHide();
 
-    char *gdp_path, *dp_path;
-    wsApp->readConfigurationFiles(&gdp_path, &dp_path, true);
+    wsApp->readConfigurationFiles(true);
 
     prefs_apply_all();
     fieldsChanged();
@@ -1392,8 +1501,8 @@ void MainWindow::showColumnEditor(int column)
 {
     previous_focus_ = wsApp->focusWidget();
     connect(previous_focus_, SIGNAL(destroyed()), this, SLOT(resetPreviousFocus()));
-    showAccordionFrame(main_ui_->columnEditorFrame);
     main_ui_->columnEditorFrame->editColumn(column);
+    showAccordionFrame(main_ui_->columnEditorFrame);
 }
 
 void MainWindow::showPreferenceEditor()
@@ -1475,6 +1584,9 @@ void MainWindow::setFeaturesEnabled(bool enabled)
     if(enabled)
     {
         main_ui_->statusBar->clearMessage();
+#ifdef HAVE_LIBPCAP
+        main_ui_->actionGoAutoScroll->setChecked(auto_scroll_live);
+#endif
     }
     else
     {
@@ -1497,21 +1609,27 @@ void MainWindow::on_actionDisplayFilterExpression_triggered()
 void MainWindow::on_actionNewDisplayFilterExpression_triggered()
 {
     main_ui_->filterExpressionFrame->addExpression(df_combo_box_->lineEdit()->text());
-    showAccordionFrame(main_ui_->filterExpressionFrame);
 }
 
-// On Qt4 + OS X with unifiedTitleAndToolBarOnMac set it's possible to make
-// the main window obnoxiously wide.
-
-void MainWindow::displayFilterButtonClicked()
+void MainWindow::onFilterSelected(QString filterText, bool prepare)
 {
-    QAction *dfb_action = qobject_cast<QAction*>(sender());
+    if (filterText.length() <= 0)
+        return;
 
-    if (dfb_action) {
-        df_combo_box_->lineEdit()->setText(dfb_action->data().toString());
+    df_combo_box_->setDisplayFilter(filterText);
+    // Holding down the Shift key will only prepare filter.
+    if (!prepare)
         df_combo_box_->applyDisplayFilter();
-        df_combo_box_->lineEdit()->setFocus();
-    }
+}
+
+void MainWindow::onFilterPreferences()
+{
+    emit showPreferencesDialog(PrefsModel::FILTER_BUTTONS_PREFERENCE_TREE_NAME);
+}
+
+void MainWindow::onFilterEdit(int uatIndex)
+{
+    main_ui_->filterExpressionFrame->editExpression(uatIndex);
 }
 
 void MainWindow::openStatCommandDialog(const QString &menu_path, const char *arg, void *userdata)
@@ -1525,8 +1643,8 @@ void MainWindow::openTapParameterDialog(const QString cfg_str, const QString arg
     TapParameterDialog *tp_dialog = TapParameterDialog::showTapParameterStatistics(*this, capture_file_, cfg_str, arg, userdata);
     if (!tp_dialog) return;
 
-    connect(tp_dialog, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(tp_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     connect(tp_dialog, SIGNAL(updateFilter(QString)),
             df_combo_box_->lineEdit(), SLOT(setText(QString)));
     tp_dialog->show();
@@ -1540,6 +1658,17 @@ void MainWindow::openTapParameterDialog()
     const QString cfg_str = tpa->data().toString();
     openTapParameterDialog(cfg_str, NULL, NULL);
 }
+
+#ifdef HAVE_SOFTWARE_UPDATE
+void MainWindow::softwareUpdateRequested() {
+    // We could call testCaptureFileClose here, but that would give us yet
+    // another dialog. Just try again later.
+    if (capture_file_.capFile() && capture_file_.capFile()->state != FILE_CLOSED) {
+        wsApp->rejectSoftwareUpdate();
+    }
+}
+#endif
+
 
 // File Menu
 
@@ -1561,12 +1690,12 @@ void MainWindow::on_actionFileImportFromHexDump_triggered()
 void MainWindow::on_actionFileClose_triggered() {
     QString before_what(tr(" before closing the file"));
     if (testCaptureFileClose(before_what))
-        main_ui_->mainStack->setCurrentWidget(main_welcome_);
+        showWelcome();
 }
 
 void MainWindow::on_actionFileSave_triggered()
 {
-    saveCaptureFile(capture_file_.capFile(), FALSE);
+    saveCaptureFile(capture_file_.capFile(), false);
 }
 
 void MainWindow::on_actionFileSaveAs_triggered()
@@ -1576,7 +1705,7 @@ void MainWindow::on_actionFileSaveAs_triggered()
 
 void MainWindow::on_actionFileSetListFiles_triggered()
 {
-    file_set_dialog_.show();
+    file_set_dialog_->show();
 }
 
 void MainWindow::on_actionFileSetNextFile_triggered()
@@ -1629,13 +1758,18 @@ void MainWindow::on_actionFileExportAsPDML_triggered()
     exportDissections(export_type_pdml);
 }
 
+void MainWindow::on_actionFileExportAsJSON_triggered()
+{
+    exportDissections(export_type_json);
+}
+
 void MainWindow::on_actionFileExportPacketBytes_triggered()
 {
     QString file_name;
 
     if (!capture_file_.capFile() || !capture_file_.capFile()->finfo_selected) return;
 
-    file_name = QFileDialog::getSaveFileName(this,
+    file_name = WiresharkFileDialog::getSaveFileName(this,
                                              wsApp->windowTitleString(tr("Export Selected Packet Bytes")),
                                              wsApp->lastOpenDir().canonicalPath(),
                                              tr("Raw data (*.bin *.dat *.raw);;All Files (" ALL_FILES_WILDCARD ")")
@@ -1647,27 +1781,27 @@ void MainWindow::on_actionFileExportPacketBytes_triggered()
 
         data_p = tvb_get_ptr(capture_file_.capFile()->finfo_selected->ds_tvb, 0, -1) +
                 capture_file_.capFile()->finfo_selected->start;
-        fd = ws_open(file_name.toUtf8().constData(), O_WRONLY|O_CREAT|O_TRUNC|O_BINARY, 0666);
+        fd = ws_open(qUtf8Printable(file_name), O_WRONLY|O_CREAT|O_TRUNC|O_BINARY, 0666);
         if (fd == -1) {
-            open_failure_alert_box(file_name.toUtf8().constData(), errno, TRUE);
+            open_failure_alert_box(qUtf8Printable(file_name), errno, TRUE);
             return;
         }
         if (ws_write(fd, data_p, capture_file_.capFile()->finfo_selected->length) < 0) {
-            write_failure_alert_box(file_name.toUtf8().constData(), errno);
+            write_failure_alert_box(qUtf8Printable(file_name), errno);
             ws_close(fd);
             return;
         }
         if (ws_close(fd) < 0) {
-            write_failure_alert_box(file_name.toUtf8().constData(), errno);
+            write_failure_alert_box(qUtf8Printable(file_name), errno);
             return;
         }
 
         /* Save the directory name for future file dialogs. */
-        wsApp->setLastOpenDir(&file_name);
+        wsApp->setLastOpenDir(file_name);
     }
 }
 
-void MainWindow::on_actionContextShowPacketBytes_triggered()
+void MainWindow::on_actionAnalyzeShowPacketBytes_triggered()
 {
     ShowPacketBytesDialog *spbd = new ShowPacketBytesDialog(*this, capture_file_);
     spbd->show();
@@ -1710,7 +1844,7 @@ void MainWindow::on_actionFileExportSSLSessionKeys_triggered()
     }
 
     save_title.append(wsApp->windowTitleString(tr("Export SSL Session Keys (%Ln key(s))", "", keylist_len)));
-    file_name = QFileDialog::getSaveFileName(this,
+    file_name = WiresharkFileDialog::getSaveFileName(this,
                                              save_title,
                                              wsApp->lastOpenDir().canonicalPath(),
                                              tr("SSL Session Keys (*.keys *.txt);;All Files (" ALL_FILES_WILDCARD ")")
@@ -1720,9 +1854,9 @@ void MainWindow::on_actionFileExportSSLSessionKeys_triggered()
         int fd;
 
         keylist = ssl_export_sessions();
-        fd = ws_open(file_name.toUtf8().constData(), O_WRONLY|O_CREAT|O_TRUNC|O_BINARY, 0666);
+        fd = ws_open(qUtf8Printable(file_name), O_WRONLY|O_CREAT|O_TRUNC|O_BINARY, 0666);
         if (fd == -1) {
-            open_failure_alert_box(file_name.toUtf8().constData(), errno, TRUE);
+            open_failure_alert_box(qUtf8Printable(file_name), errno, TRUE);
             g_free(keylist);
             return;
         }
@@ -1731,26 +1865,21 @@ void MainWindow::on_actionFileExportSSLSessionKeys_triggered()
          * _write().  Presumably this string will be <= 4GiB long....
          */
         if (ws_write(fd, keylist, (unsigned int)strlen(keylist)) < 0) {
-            write_failure_alert_box(file_name.toUtf8().constData(), errno);
+            write_failure_alert_box(qUtf8Printable(file_name), errno);
             ws_close(fd);
             g_free(keylist);
             return;
         }
         if (ws_close(fd) < 0) {
-            write_failure_alert_box(file_name.toUtf8().constData(), errno);
+            write_failure_alert_box(qUtf8Printable(file_name), errno);
             g_free(keylist);
             return;
         }
 
         /* Save the directory name for future file dialogs. */
-        wsApp->setLastOpenDir(&file_name);
+        wsApp->setLastOpenDir(file_name);
         g_free(keylist);
     }
-}
-
-void MainWindow::on_actionFileExportObjectsDICOM_triggered()
-{
-    new ExportObjectDialog(*this, capture_file_, ExportObjectDialog::Dicom);
 }
 
 void MainWindow::on_actionStatisticsHpfeeds_triggered()
@@ -1758,41 +1887,16 @@ void MainWindow::on_actionStatisticsHpfeeds_triggered()
     openStatisticsTreeDialog("hpfeeds");
 }
 
-void MainWindow::on_actionFileExportObjectsHTTP_triggered()
-{
-    new ExportObjectDialog(*this, capture_file_, ExportObjectDialog::Http);
-}
-
-void MainWindow::on_actionFileExportObjectsSMB_triggered()
-{
-    new ExportObjectDialog(*this, capture_file_, ExportObjectDialog::Smb);
-}
-
-void MainWindow::on_actionFileExportObjectsTFTP_triggered()
-{
-    new ExportObjectDialog(*this, capture_file_, ExportObjectDialog::Tftp);
-}
-
 void MainWindow::on_actionFilePrint_triggered()
 {
-    PrintDialog pdlg(this, capture_file_.capFile());
+    capture_file *cf = capture_file_.capFile();
+    g_return_if_fail(cf);
 
+    PrintDialog pdlg(this, cf);
     pdlg.exec();
 }
 
 // Edit Menu
-
-void MainWindow::recursiveCopyProtoTreeItems(QTreeWidgetItem *item, QString &clip, int ident_level) {
-    if (!item->isExpanded()) return;
-
-    for (int i_item = 0; i_item < item->childCount(); i_item += 1) {
-        clip.append(QString("    ").repeated(ident_level));
-        clip.append(item->child(i_item)->text(0));
-        clip.append("\n");
-
-        recursiveCopyProtoTreeItems(item->child(i_item), clip, ident_level + 1);
-    }
-}
 
 // XXX This should probably be somewhere else.
 void MainWindow::actionEditCopyTriggered(MainWindow::CopySelected selection_type)
@@ -1824,20 +1928,11 @@ void MainWindow::actionEditCopyTriggered(MainWindow::CopySelected selection_type
         }
         break;
     case CopyAllVisibleItems:
-        for (int i_item = 0; i_item < proto_tree_->topLevelItemCount(); i_item += 1) {
-            clip.append(proto_tree_->topLevelItem(i_item)->text(0));
-            clip.append("\n");
-
-            recursiveCopyProtoTreeItems(proto_tree_->topLevelItem(i_item), clip, 1);
-        }
-
+        clip = proto_tree_->toString();
         break;
     case CopyAllVisibleSelectedTreeItems:
-        if (proto_tree_->selectedItems().count() > 0) {
-            clip.append(proto_tree_->currentItem()->text(0));
-            clip.append("\n");
-
-            recursiveCopyProtoTreeItems(proto_tree_->currentItem(), clip, 1);
+        if (proto_tree_->selectionModel()->hasSelection()) {
+            clip = proto_tree_->toString(proto_tree_->selectionModel()->selectedIndexes().first());
         }
         break;
     }
@@ -1888,15 +1983,15 @@ void MainWindow::on_actionEditCopyAsFilter_triggered()
 
 void MainWindow::on_actionEditFindPacket_triggered()
 {
-    if (packet_list_->model()->rowCount() < 1) {
+    if (packet_list_->packetListModel()->rowCount() < 1) {
         return;
     }
     previous_focus_ = wsApp->focusWidget();
     connect(previous_focus_, SIGNAL(destroyed()), this, SLOT(resetPreviousFocus()));
-    showAccordionFrame(main_ui_->searchFrame, true);
-    if (main_ui_->searchFrame->isVisible()) {
-        main_ui_->searchFrame->setFocus();
+    if (! main_ui_->searchFrame->isVisible()) {
+        showAccordionFrame(main_ui_->searchFrame, true);
     }
+    main_ui_->searchFrame->setFocus();
 }
 
 void MainWindow::on_actionEditFindNext_triggered()
@@ -1914,6 +2009,7 @@ void MainWindow::on_actionEditMarkPacket_triggered()
     freeze();
     packet_list_->markFrame();
     thaw();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditMarkAllDisplayed_triggered()
@@ -1921,6 +2017,7 @@ void MainWindow::on_actionEditMarkAllDisplayed_triggered()
     freeze();
     packet_list_->markAllDisplayedFrames(true);
     thaw();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditUnmarkAllDisplayed_triggered()
@@ -1928,6 +2025,7 @@ void MainWindow::on_actionEditUnmarkAllDisplayed_triggered()
     freeze();
     packet_list_->markAllDisplayedFrames(false);
     thaw();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditNextMark_triggered()
@@ -1947,6 +2045,7 @@ void MainWindow::on_actionEditIgnorePacket_triggered()
     freeze();
     packet_list_->ignoreFrame();
     thaw();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditIgnoreAllDisplayed_triggered()
@@ -1954,6 +2053,7 @@ void MainWindow::on_actionEditIgnoreAllDisplayed_triggered()
     freeze();
     packet_list_->ignoreAllDisplayedFrames(true);
     thaw();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditUnignoreAllDisplayed_triggered()
@@ -1961,16 +2061,19 @@ void MainWindow::on_actionEditUnignoreAllDisplayed_triggered()
     freeze();
     packet_list_->ignoreAllDisplayedFrames(false);
     thaw();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditSetTimeReference_triggered()
 {
     packet_list_->setTimeReference();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditUnsetAllTimeReferences_triggered()
 {
     packet_list_->unsetAllTimeReferences();
+    setMenusForSelectedPacket();
 }
 
 void MainWindow::on_actionEditNextTimeReference_triggered()
@@ -1996,9 +2099,27 @@ void MainWindow::on_actionEditTimeShift_triggered()
 
 void MainWindow::on_actionEditPacketComment_triggered()
 {
-    PacketCommentDialog pc_dialog(this, packet_list_->packetComment());
+    PacketCommentDialog pc_dialog(capture_file_.capFile()->current_frame->num, this, packet_list_->packetComment());
     if (pc_dialog.exec() == QDialog::Accepted) {
         packet_list_->setPacketComment(pc_dialog.text());
+        updateForUnsavedChanges();
+    }
+}
+
+void MainWindow::on_actionDeleteAllPacketComments_triggered()
+{
+    QMessageBox msg_dialog;
+
+    msg_dialog.setIcon(QMessageBox::Question);
+    msg_dialog.setText(tr("Are you sure you want to remove all packet comments?"));
+
+    msg_dialog.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+    msg_dialog.setDefaultButton(QMessageBox::Ok);
+
+    if (msg_dialog.exec() == QMessageBox::Ok)
+    {
+        /* XXX Do we need a wait/hourglass for large files? */
+        packet_list_->deleteAllPacketComments();
         updateForUnsavedChanges();
     }
 }
@@ -2010,33 +2131,23 @@ void MainWindow::on_actionEditConfigurationProfiles_triggered()
     cp_dialog.exec();
 }
 
-void MainWindow::showPreferencesDialog(PreferencesDialog::PreferencesPane start_pane)
+void MainWindow::showPreferencesDialog(QString pane_name)
 {
     PreferencesDialog pref_dialog(this);
 
-    pref_dialog.setPane(start_pane);
+    saveWindowGeometry();  // Save in case the layout panes are rearranged
+
+    pref_dialog.setPane(pane_name);
     pref_dialog.exec();
 
     // Emitting PacketDissectionChanged directly from a QDialog can cause
-    // problems on OS X.
-    wsApp->flushAppSignals();
-}
-
-void MainWindow::showPreferencesDialog(QString module_name)
-{
-    PreferencesDialog pref_dialog(this);
-
-    pref_dialog.setPane(module_name);
-    pref_dialog.exec();
-
-    // Emitting PacketDissectionChanged directly from a QDialog can cause
-    // problems on OS X.
+    // problems on macOS.
     wsApp->flushAppSignals();
 }
 
 void MainWindow::on_actionEditPreferences_triggered()
 {
-    showPreferencesDialog();
+    showPreferencesDialog(PrefsModel::APPEARANCE_PREFERENCE_TREE_NAME);
 }
 
 // View Menu
@@ -2072,14 +2183,44 @@ void MainWindow::showHideMainWidgets(QAction *action)
     } else if (widget == byte_view_tab_) {
         recent.byte_view_show = show;
         main_ui_->actionViewPacketBytes->setChecked(show);
+    } else {
+        foreach (QAction *action, main_ui_->menuInterfaceToolbars->actions()) {
+            QToolBar *toolbar = action->data().value<QToolBar *>();
+            if (widget == toolbar) {
+                GList *entry = g_list_find_custom(recent.interface_toolbars, action->text().toUtf8(), (GCompareFunc) strcmp);
+                if (show && !entry) {
+                    recent.interface_toolbars = g_list_append(recent.interface_toolbars, g_strdup(action->text().toUtf8()));
+                } else if (!show && entry) {
+                    recent.interface_toolbars = g_list_remove(recent.interface_toolbars, entry->data);
+                }
+                action->setChecked(show);
+            }
+        }
+
+        ext_toolbar_t * toolbar = VariantPointer<ext_toolbar_t>::asPtr(action->data());
+        if (toolbar) {
+            GList *entry = g_list_find_custom(recent.gui_additional_toolbars, toolbar->name, (GCompareFunc) strcmp);
+            if (show && !entry) {
+                recent.gui_additional_toolbars = g_list_append(recent.gui_additional_toolbars, g_strdup(toolbar->name));
+            } else if (!show && entry) {
+                recent.gui_additional_toolbars = g_list_remove(recent.gui_additional_toolbars, entry->data);
+            }
+            action->setChecked(show);
+
+            QList<QToolBar *> toolbars = findChildren<QToolBar *>();
+            foreach (QToolBar *bar, toolbars) {
+                AdditionalToolBar *iftoolbar = dynamic_cast<AdditionalToolBar *>(bar);
+                if (iftoolbar && iftoolbar->menuName().compare(toolbar->name) == 0) {
+                    iftoolbar->setVisible(show);
+                }
+            }
+        }
     }
 
     if (widget) {
         widget->setVisible(show);
     }
 }
-
-Q_DECLARE_METATYPE(ts_type)
 
 void MainWindow::setTimestampFormat(QAction *action)
 {
@@ -2100,8 +2241,6 @@ void MainWindow::setTimestampFormat(QAction *action)
         }
     }
 }
-
-Q_DECLARE_METATYPE(ts_precision)
 
 void MainWindow::setTimestampPrecision(QAction *action)
 {
@@ -2164,6 +2303,7 @@ void MainWindow::setNameResolution()
     if (packet_list_) {
         packet_list_->resetColumns();
     }
+    wsApp->emitAppSignal(WiresharkApplication::NameResolutionChanged);
 }
 
 void MainWindow::on_actionViewNameResolutionPhysical_triggered()
@@ -2183,14 +2323,7 @@ void MainWindow::on_actionViewNameResolutionTransport_triggered()
 
 void MainWindow::zoomText()
 {
-    // Scale by 10%, rounding to nearest half point, minimum 1 point.
-    // XXX Small sizes repeat. It might just be easier to create a map of multipliers.
-    mono_font_ = QFont(wsApp->monospaceFont());
-    qreal zoom_size = wsApp->monospaceFont().pointSize() * 2 * qPow(1.1, recent.gui_zoom_level);
-    zoom_size = qRound(zoom_size) / 2.0;
-    zoom_size = qMax(zoom_size, 1.0);
-    mono_font_.setPointSizeF(zoom_size);
-    emit monospaceFontChanged(mono_font_);
+    wsApp->zoomTextFont(recent.gui_zoom_level);
 }
 
 void MainWindow::on_actionViewZoomIn_triggered()
@@ -2213,7 +2346,7 @@ void MainWindow::on_actionViewNormalSize_triggered()
 
 void MainWindow::on_actionViewColorizePacketList_triggered(bool checked) {
     recent.packet_list_colorize = checked;
-    packet_list_enable_color(checked);
+    packet_list_recolor_packets();
     packet_list_->packetListModel()->resetColorized();
 }
 
@@ -2222,6 +2355,8 @@ void MainWindow::on_actionViewColoringRules_triggered()
     ColoringRulesDialog coloring_rules_dialog(this);
     connect(&coloring_rules_dialog, SIGNAL(accepted()),
             packet_list_, SLOT(recolorPackets()));
+    connect(&coloring_rules_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     coloring_rules_dialog.exec();
 }
 
@@ -2234,31 +2369,7 @@ void MainWindow::colorizeConversation(bool create_rule)
     if (capture_file_.capFile() && capture_file_.capFile()->current_frame) {
         packet_info *pi = capture_file_.packetInfo();
         guint8 cc_num = colorize_action->data().toUInt();
-        gchar *filter = NULL;
-
-        const conversation_filter_t *color_filter = find_conversation_filter("tcp");
-        if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-            filter = color_filter->build_filter_string(pi);
-        if (filter == NULL) {
-            color_filter = find_conversation_filter("udp");
-            if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-                filter = color_filter->build_filter_string(pi);
-        }
-        if (filter == NULL) {
-            color_filter = find_conversation_filter("ip");
-            if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-                filter = color_filter->build_filter_string(pi);
-        }
-        if (filter == NULL) {
-            color_filter = find_conversation_filter("ipv6");
-            if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-                filter = color_filter->build_filter_string(pi);
-        }
-        if (filter == NULL) {
-            color_filter = find_conversation_filter("eth");
-            if ((color_filter != NULL) && (color_filter->is_filter_valid(pi)))
-                filter = color_filter->build_filter_string(pi);
-        }
+        gchar *filter = conversation_filter_from_packet(pi);
         if (filter == NULL) {
             main_ui_->statusBar->pushTemporaryStatus(tr("Unable to build conversation filter."));
             return;
@@ -2268,6 +2379,8 @@ void MainWindow::colorizeConversation(bool create_rule)
             ColoringRulesDialog coloring_rules_dialog(this, filter);
             connect(&coloring_rules_dialog, SIGNAL(accepted()),
                     packet_list_, SLOT(recolorPackets()));
+            connect(&coloring_rules_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+                    this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
             coloring_rules_dialog.exec();
         } else {
             gchar *err_msg = NULL;
@@ -2281,7 +2394,7 @@ void MainWindow::colorizeConversation(bool create_rule)
     setMenusForSelectedPacket();
 }
 
-void MainWindow::colorizeWithFilter()
+void MainWindow::colorizeActionTriggered()
 {
     QByteArray filter;
     int color_number = -1;
@@ -2298,6 +2411,11 @@ void MainWindow::colorizeWithFilter()
         }
     }
 
+    colorizeWithFilter(filter, color_number);
+}
+
+void MainWindow::colorizeWithFilter(QByteArray filter, int color_number)
+{
     if (filter.isEmpty()) return;
 
     if (color_number > 0) {
@@ -2313,6 +2431,8 @@ void MainWindow::colorizeWithFilter()
         ColoringRulesDialog coloring_rules_dialog(window(), filter);
         connect(&coloring_rules_dialog, SIGNAL(accepted()),
                 packet_list_, SLOT(recolorPackets()));
+        connect(&coloring_rules_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+                this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
         coloring_rules_dialog.exec();
     }
     main_ui_->actionViewColorizeResetColorization->setEnabled(tmp_color_filters_used());
@@ -2334,6 +2454,14 @@ void MainWindow::on_actionViewColorizeNewColoringRule_triggered()
     colorizeConversation(true);
 }
 
+void MainWindow::on_actionViewResetLayout_triggered()
+{
+    recent.gui_geometry_main_upper_pane = 0;
+    recent.gui_geometry_main_lower_pane = 0;
+
+    applyRecentPaneGeometry();
+}
+
 void MainWindow::on_actionViewResizeColumns_triggered()
 {
     for (int col = 0; col < packet_list_->packetListModel()->columnCount(); col++) {
@@ -2352,7 +2480,7 @@ void MainWindow::openPacketDialog(bool from_reference)
         if (framenum == 0)
             return;
 
-        fdata = frame_data_sequence_find(capture_file_.capFile()->frames, framenum);
+        fdata = frame_data_sequence_find(capture_file_.capFile()->provider.frames, framenum);
     } else {
         fdata = capture_file_.capFile()->current_frame;
     }
@@ -2361,11 +2489,9 @@ void MainWindow::openPacketDialog(bool from_reference)
     if (fdata) {
         PacketDialog *packet_dialog = new PacketDialog(*this, capture_file_, fdata);
 
-        connect(this, SIGNAL(monospaceFontChanged(QFont)),
-                packet_dialog, SIGNAL(monospaceFontChanged(QFont)));
         connect(this, SIGNAL(closePacketDialogs()),
                 packet_dialog, SLOT(close()));
-        zoomText(); // Emits monospaceFontChanged
+        zoomText(); // Emits wsApp->zoomMonospaceFont(QFont)
 
         packet_dialog->show();
     }
@@ -2459,10 +2585,9 @@ void MainWindow::matchFieldFilter(FilterAction::Action action, FilterAction::Act
         return;
     }
 
-    filterAction(field_filter, action, filter_type);
+    emit filterAction(field_filter, action, filter_type);
 }
 
-static FilterDialog *display_filter_dlg_ = NULL;
 void MainWindow::on_actionAnalyzeDisplayFilters_triggered()
 {
     if (!display_filter_dlg_) {
@@ -2482,7 +2607,7 @@ void MainWindow::on_actionAnalyzeDisplayFilterMacros_triggered()
 
     uat_dlg.exec();
     // Emitting PacketDissectionChanged directly from a QDialog can cause
-    // problems on OS X.
+    // problems on macOS.
     wsApp->flushAppSignals();
 }
 
@@ -2517,6 +2642,19 @@ void MainWindow::applyConversationFilter()
         df_combo_box_->lineEdit()->setText(conv_filter);
         df_combo_box_->applyDisplayFilter();
     }
+}
+
+void MainWindow::applyExportObject()
+{
+    ExportObjectAction *export_action = qobject_cast<ExportObjectAction*>(sender());
+    if (!export_action)
+        return;
+
+    ExportObjectDialog* export_dialog = new ExportObjectDialog(*this, capture_file_, export_action->exportObject());
+
+    connect(export_dialog->getExportObjectView(), SIGNAL(goToPacket(int)),
+            packet_list_, SLOT(goToPacket(int)));
+
 }
 
 // XXX We could probably create the analyze and prepare actions
@@ -2588,7 +2726,7 @@ void MainWindow::on_actionAnalyzeEnabledProtocols_triggered()
     enable_proto_dialog.exec();
 
     // Emitting PacketDissectionChanged directly from a QDialog can cause
-    // problems on OS X.
+    // problems on macOS.
     wsApp->flushAppSignals();
 }
 
@@ -2601,12 +2739,10 @@ void MainWindow::on_actionAnalyzeDecodeAs_triggered()
     }
 
     DecodeAsDialog da_dialog(this, capture_file_.capFile(), create_new);
-    connect(this, SIGNAL(setCaptureFile(capture_file*)),
-            &da_dialog, SLOT(setCaptureFile(capture_file*)));
     da_dialog.exec();
 
     // Emitting PacketDissectionChanged directly from a QDialog can cause
-    // problems on OS X.
+    // problems on macOS.
     wsApp->flushAppSignals();
 }
 
@@ -2615,13 +2751,19 @@ void MainWindow::on_actionAnalyzeReloadLuaPlugins_triggered()
     reloadLuaPlugins();
 }
 
-void MainWindow::openFollowStreamDialog(follow_type_t type) {
+void MainWindow::openFollowStreamDialog(follow_type_t type, int stream_num) {
     FollowStreamDialog *fsd = new FollowStreamDialog(*this, capture_file_, type);
     connect(fsd, SIGNAL(updateFilter(QString, bool)), this, SLOT(filterPackets(QString, bool)));
     connect(fsd, SIGNAL(goToPacket(int)), packet_list_, SLOT(goToPacket(int)));
 
     fsd->show();
-    fsd->follow(getFilter());
+    if (stream_num >= 0) {
+        // If a specific conversation was requested, then ignore any previous
+        // display filters and display all related packets.
+        fsd->follow("", true, stream_num);
+    } else {
+        fsd->follow(getFilter());
+    }
 }
 
 void MainWindow::on_actionAnalyzeFollowTCPStream_triggered()
@@ -2704,8 +2846,8 @@ void MainWindow::on_actionSCTPFilterThisAssociation_triggered()
 void MainWindow::statCommandWlanStatistics(const char *arg, void *)
 {
     WlanStatisticsDialog *wlan_stats_dlg = new WlanStatisticsDialog(*this, capture_file_, arg);
-    connect(wlan_stats_dlg, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(wlan_stats_dlg, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     wlan_stats_dlg->show();
 }
 
@@ -2722,10 +2864,10 @@ void MainWindow::statCommandExpertInfo(const char *, void *)
 
     expert_dialog->setDisplayFilter(df_edit->text());
 
-    connect(expert_dialog, SIGNAL(goToPacket(int, int)),
+    connect(expert_dialog->getExpertInfoView(), SIGNAL(goToPacket(int, int)),
             packet_list_, SLOT(goToPacket(int, int)));
-    connect(expert_dialog, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(expert_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
 
     expert_dialog->show();
 }
@@ -2743,8 +2885,6 @@ void MainWindow::on_actionAnalyzeExpertInfo_triggered()
 void MainWindow::on_actionStatisticsFlowGraph_triggered()
 {
     SequenceDialog *sequence_dialog = new SequenceDialog(*this, capture_file_);
-    connect(sequence_dialog, SIGNAL(goToPacket(int)),
-            packet_list_, SLOT(goToPacket(int)));
     sequence_dialog->show();
 }
 
@@ -2789,8 +2929,8 @@ void MainWindow::on_actionStatisticsTcpStreamWindowScaling_triggered()
 void MainWindow::statCommandMulticastStatistics(const char *arg, void *)
 {
     MulticastStatisticsDialog *mcast_stats_dlg = new MulticastStatisticsDialog(*this, capture_file_, arg);
-    connect(mcast_stats_dlg, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(mcast_stats_dlg, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     mcast_stats_dlg->show();
 }
 
@@ -2872,16 +3012,6 @@ void MainWindow::on_actionStatistics29WestUIM_Streams_triggered()
     stream_dialog->show();
 }
 
-void MainWindow::on_actionStatistics29WestUIM_Stream_Flow_Graph_triggered()
-{
-    LBMUIMFlowDialog * uimflow_dialog = new LBMUIMFlowDialog(this, capture_file_.capFile());
-    connect(uimflow_dialog, SIGNAL(goToPacket(int)),
-            packet_list_, SLOT(goToPacket(int)));
-    connect(this, SIGNAL(setCaptureFile(capture_file*)),
-            uimflow_dialog, SLOT(setCaptureFile(capture_file*)));
-    uimflow_dialog->show();
-}
-
 void MainWindow::on_actionStatistics29WestLBTRM_triggered()
 {
     LBMLBTRMTransportDialog * lbtrm_dialog = new LBMLBTRMTransportDialog(this, capture_file_.capFile());
@@ -2935,10 +3065,10 @@ void MainWindow::on_actionStatisticsCollectd_triggered()
 void MainWindow::statCommandConversations(const char *arg, void *userdata)
 {
     ConversationDialog *conv_dialog = new ConversationDialog(*this, capture_file_, GPOINTER_TO_INT(userdata), arg);
-    connect(conv_dialog, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
-    connect(conv_dialog, SIGNAL(openFollowStreamDialog(follow_type_t)),
-            this, SLOT(openFollowStreamDialog(follow_type_t)));
+    connect(conv_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
+    connect(conv_dialog, SIGNAL(openFollowStreamDialog(follow_type_t,int)),
+            this, SLOT(openFollowStreamDialog(follow_type_t,int)));
     connect(conv_dialog, SIGNAL(openTcpStreamGraph(int)),
             this, SLOT(openTcpStreamDialog(int)));
     conv_dialog->show();
@@ -2953,8 +3083,8 @@ void MainWindow::on_actionStatisticsConversations_triggered()
 void MainWindow::statCommandEndpoints(const char *arg, void *userdata)
 {
     EndpointDialog *endp_dialog = new EndpointDialog(*this, capture_file_, GPOINTER_TO_INT(userdata), arg);
-    connect(endp_dialog, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(endp_dialog, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     connect(endp_dialog, SIGNAL(openFollowStreamDialog(follow_type_t)),
             this, SLOT(openFollowStreamDialog(follow_type_t)));
     connect(endp_dialog, SIGNAL(openTcpStreamGraph(int)),
@@ -2985,6 +3115,11 @@ void MainWindow::on_actionStatisticsHTTPRequests_triggered()
 void MainWindow::on_actionStatisticsHTTPLoadDistribution_triggered()
 {
     openStatisticsTreeDialog("http_srv");
+}
+
+void MainWindow::on_actionStatisticsHTTPRequestSequences_triggered()
+{
+    openStatisticsTreeDialog("http_seq");
 }
 
 void MainWindow::on_actionStatisticsPacketLengths_triggered()
@@ -3070,8 +3205,8 @@ void MainWindow::on_actionTelephonyISUPMessages_triggered()
 void MainWindow::statCommandLteMacStatistics(const char *arg, void *)
 {
     LteMacStatisticsDialog *lte_mac_stats_dlg = new LteMacStatisticsDialog(*this, capture_file_, arg);
-    connect(lte_mac_stats_dlg, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(lte_mac_stats_dlg, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     lte_mac_stats_dlg->show();
 }
 
@@ -3083,8 +3218,8 @@ void MainWindow::on_actionTelephonyLteMacStatistics_triggered()
 void MainWindow::statCommandLteRlcStatistics(const char *arg, void *)
 {
     LteRlcStatisticsDialog *lte_rlc_stats_dlg = new LteRlcStatisticsDialog(*this, capture_file_, arg);
-    connect(lte_rlc_stats_dlg, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(lte_rlc_stats_dlg, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     // N.B. It is necessary for the RLC Statistics window to launch the RLC graph in this way, to ensure
     // that the goToPacket() signal/slot connection gets set up...
     connect(lte_rlc_stats_dlg, SIGNAL(launchRLCGraph(bool, guint16, guint8, guint16, guint16, guint8)),
@@ -3122,6 +3257,11 @@ void MainWindow::on_actionTelephonyMtp3Summary_triggered()
 {
     Mtp3SummaryDialog *mtp3s_dialog = new Mtp3SummaryDialog(*this, capture_file_);
     mtp3s_dialog->show();
+}
+
+void MainWindow::on_actionTelephonyOsmuxPacketCounter_triggered()
+{
+    openStatisticsTreeDialog("osmux");
 }
 
 void MainWindow::on_actionTelephonyRTPStreams_triggered()
@@ -3164,7 +3304,7 @@ void MainWindow::on_actionTelephonySipFlows_triggered()
     openVoipCallsDialog(true);
 }
 
-// Bluetooth Menu
+// Wireless Menu
 
 void MainWindow::on_actionBluetoothATT_Server_Attributes_triggered()
 {
@@ -3178,7 +3318,7 @@ void MainWindow::on_actionBluetoothATT_Server_Attributes_triggered()
 
 void MainWindow::on_actionBluetoothDevices_triggered()
 {
-    BluetoothDevicesDialog *bluetooth_devices_dialog = new BluetoothDevicesDialog(*this, capture_file_);
+    BluetoothDevicesDialog *bluetooth_devices_dialog = new BluetoothDevicesDialog(*this, capture_file_, packet_list_);
     connect(bluetooth_devices_dialog, SIGNAL(goToPacket(int)),
             packet_list_, SLOT(goToPacket(int)));
     connect(bluetooth_devices_dialog, SIGNAL(updateFilter(QString, bool)),
@@ -3195,6 +3335,15 @@ void MainWindow::on_actionBluetoothHCI_Summary_triggered()
             this, SLOT(filterPackets(QString, bool)));
     bluetooth_hci_summary_dialog->show();
 }
+
+// Tools Menu
+
+void MainWindow::on_actionToolsFirewallAclRules_triggered()
+{
+    FirewallRulesDialog *firewall_rules_dialog = new FirewallRulesDialog(*this, capture_file_);
+    firewall_rules_dialog->show();
+}
+
 
 // Help Menu
 void MainWindow::on_actionHelpContents_triggered() {
@@ -3298,7 +3447,7 @@ void MainWindow::on_actionHelpAbout_triggered()
 }
 
 void MainWindow::on_actionGoGoToPacket_triggered() {
-    if (packet_list_->model()->rowCount() < 1) {
+    if (packet_list_->packetListModel()->rowCount() < 1) {
         return;
     }
     previous_focus_ = wsApp->focusWidget();
@@ -3329,24 +3478,11 @@ void MainWindow::goToConversationFrame(bool go_next) {
     dfilter_t *dfcode       = NULL;
     gboolean   found_packet = FALSE;
     packet_info *pi = &(capture_file_.capFile()->edt->pi);
-    conversation_filter_t* conv_filter;
 
     /* Try to build a conversation
      * filter in the order TCP, UDP, IP, Ethernet and apply the
      * coloring */
-    conv_filter = find_conversation_filter("tcp");
-    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
-        filter = conv_filter->build_filter_string(pi);
-    conv_filter = find_conversation_filter("udp");
-    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
-        filter = conv_filter->build_filter_string(pi);
-    conv_filter = find_conversation_filter("ip");
-    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
-        filter = conv_filter->build_filter_string(pi);
-    conv_filter = find_conversation_filter("ipv6");
-    if ((conv_filter != NULL) && (conv_filter->is_filter_valid(pi)))
-        filter = conv_filter->build_filter_string(pi);
-
+    filter = conversation_filter_from_packet(pi);
     if (filter == NULL) {
         main_ui_->statusBar->pushTemporaryStatus(tr("Unable to build conversation filter."));
         g_free(filter);
@@ -3474,7 +3610,6 @@ void MainWindow::on_actionCaptureRestart_triggered()
     startCapture();
 }
 
-static FilterDialog *capture_filter_dlg_ = NULL;
 void MainWindow::on_actionCaptureCaptureFilters_triggered()
 {
     if (!capture_filter_dlg_) {
@@ -3502,32 +3637,52 @@ void MainWindow::on_actionStatisticsResolvedAddresses_triggered()
 void MainWindow::on_actionStatisticsProtocolHierarchy_triggered()
 {
     ProtocolHierarchyDialog *phd = new ProtocolHierarchyDialog(*this, capture_file_);
-    connect(phd, SIGNAL(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)),
-            this, SLOT(filterAction(QString&,FilterAction::Action,FilterAction::ActionType)));
+    connect(phd, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)),
+            this, SIGNAL(filterAction(QString,FilterAction::Action,FilterAction::ActionType)));
     phd->show();
 }
 
-#ifdef HAVE_LIBPCAP
 void MainWindow::on_actionCaptureOptions_triggered()
 {
-    connect(&capture_interfaces_dialog_, SIGNAL(setFilterValid(bool, const QString)),
-            this, SLOT(startInterfaceCapture(bool, const QString)));
-    capture_interfaces_dialog_.SetTab(0);
-    capture_interfaces_dialog_.updateInterfaces();
+#ifdef HAVE_LIBPCAP
+    if (!capture_interfaces_dialog_) {
+        capture_interfaces_dialog_ = new CaptureInterfacesDialog(this);
 
-    if (capture_interfaces_dialog_.isMinimized() == true)
-    {
-        capture_interfaces_dialog_.showNormal();
+        connect(capture_interfaces_dialog_, SIGNAL(startCapture()), this, SLOT(startCapture()));
+        connect(capture_interfaces_dialog_, SIGNAL(stopCapture()), this, SLOT(stopCapture()));
+
+        connect(capture_interfaces_dialog_, SIGNAL(getPoints(int,PointList*)),
+                this->welcome_page_->getInterfaceFrame(), SLOT(getPoints(int,PointList*)));
+        connect(capture_interfaces_dialog_, SIGNAL(interfacesChanged()),
+                this->welcome_page_, SLOT(interfaceSelected()));
+        connect(capture_interfaces_dialog_, SIGNAL(interfacesChanged()),
+                this->welcome_page_->getInterfaceFrame(), SLOT(updateSelectedInterfaces()));
+        connect(capture_interfaces_dialog_, SIGNAL(interfaceListChanged()),
+                this->welcome_page_->getInterfaceFrame(), SLOT(interfaceListChanged()));
+        connect(capture_interfaces_dialog_, SIGNAL(captureFilterTextEdited(QString)),
+                this->welcome_page_, SLOT(setCaptureFilterText(QString)));
+        // Propagate selection changes from main UI to dialog.
+        connect(this->welcome_page_, SIGNAL(interfacesChanged()),
+                capture_interfaces_dialog_, SLOT(interfaceSelected()));
+
+        connect(capture_interfaces_dialog_, SIGNAL(setFilterValid(bool, const QString)),
+                this, SLOT(startInterfaceCapture(bool, const QString)));
     }
-    else
-    {
-        capture_interfaces_dialog_.show();
+    capture_interfaces_dialog_->setTab(0);
+    capture_interfaces_dialog_->updateInterfaces();
+
+    if (capture_interfaces_dialog_->isMinimized()) {
+        capture_interfaces_dialog_->showNormal();
+    } else {
+        capture_interfaces_dialog_->show();
     }
 
-    capture_interfaces_dialog_.raise();
-    capture_interfaces_dialog_.activateWindow();
+    capture_interfaces_dialog_->raise();
+    capture_interfaces_dialog_->activateWindow();
+#endif
 }
 
+#ifdef HAVE_LIBPCAP
 void MainWindow::on_actionCaptureRefreshInterfaces_triggered()
 {
     main_ui_->actionCaptureRefreshInterfaces->setEnabled(false);
@@ -3565,77 +3720,27 @@ void MainWindow::gotoFrame(int packet_num)
     }
 }
 
-#ifdef HAVE_EXTCAP
 void MainWindow::extcap_options_finished(int result)
 {
     if (result == QDialog::Accepted) {
-        startCapture();
+        QString before_what(tr(" before starting a new capture"));
+        if (testCaptureFileClose(before_what)) {
+            startCapture();
+        }
     }
-    this->main_welcome_->getInterfaceTree()->interfaceListChanged();
+    this->welcome_page_->getInterfaceFrame()->interfaceListChanged();
 }
 
 void MainWindow::showExtcapOptionsDialog(QString &device_name)
 {
     ExtcapOptionsDialog * extcap_options_dialog = ExtcapOptionsDialog::createForDevice(device_name, this);
+    extcap_options_dialog->setModal(true);
     /* The dialog returns null, if the given device name is not a valid extcap device */
     if (extcap_options_dialog) {
         connect(extcap_options_dialog, SIGNAL(finished(int)),
                 this, SLOT(extcap_options_finished(int)));
         extcap_options_dialog->show();
     }
-}
-#endif
-
-// Q_DECLARE_METATYPE(field_info *) called in proto_tree.h
-
-void MainWindow::on_actionContextCopyBytesHexTextDump_triggered()
-{
-    QAction *ca = qobject_cast<QAction*>(sender());
-    if (!ca) return;
-
-    field_info *fi = ca->data().value<field_info *>();
-
-    byte_view_tab_->copyData(ByteViewTab::copyDataHexTextDump, fi);
-}
-
-void MainWindow::on_actionContextCopyBytesHexDump_triggered()
-{
-    QAction *ca = qobject_cast<QAction*>(sender());
-    if (!ca) return;
-
-    field_info *fi = ca->data().value<field_info *>();
-
-    byte_view_tab_->copyData(ByteViewTab::copyDataHexDump, fi);
-}
-
-void MainWindow::on_actionContextCopyBytesPrintableText_triggered()
-{
-    QAction *ca = qobject_cast<QAction*>(sender());
-    if (!ca) return;
-
-    field_info *fi = ca->data().value<field_info *>();
-
-    byte_view_tab_->copyData(ByteViewTab::copyDataPrintableText, fi);
-}
-
-void MainWindow::on_actionContextCopyBytesHexStream_triggered()
-{
-    QAction *ca = qobject_cast<QAction*>(sender());
-    if (!ca) return;
-
-    field_info *fi = ca->data().value<field_info *>();
-
-    byte_view_tab_->copyData(ByteViewTab::copyDataHexStream, fi);
-}
-
-void MainWindow::on_actionContextCopyBytesBinary_triggered()
-{
-    QAction *ca = qobject_cast<QAction*>(sender());
-    if (!ca) return;
-
-    field_info *fi = ca->data().value<field_info *>();
-
-    byte_view_tab_->copyData(ByteViewTab::copyDataBinary, fi);
 }
 
 void MainWindow::on_actionContextWikiProtocolPage_triggered()
@@ -3677,6 +3782,44 @@ void MainWindow::on_actionContextFilterFieldReference_triggered()
             .arg(proto_abbrev[0])
             .arg(proto_abbrev);
     QDesktopServices::openUrl(dfref_url);
+}
+
+void MainWindow::on_actionViewFullScreen_triggered(bool checked)
+{
+    if (checked) {
+        // Save the state for future restore
+        was_maximized_ = this->isMaximized();
+        this->showFullScreen();
+    } else {
+        // Restore the previous state
+        if (was_maximized_)
+            this->showMaximized();
+        else
+            this->showNormal();
+    }
+}
+
+void MainWindow::activatePluginIFToolbar(bool)
+{
+    QAction *sendingAction = dynamic_cast<QAction *>(sender());
+    if (!sendingAction || !sendingAction->data().isValid())
+        return;
+
+    ext_toolbar_t *toolbar = VariantPointer<ext_toolbar_t>::asPtr(sendingAction->data());
+
+    QList<QToolBar *> toolbars = findChildren<QToolBar *>();
+    foreach (QToolBar *bar, toolbars) {
+        AdditionalToolBar *iftoolbar = dynamic_cast<AdditionalToolBar *>(bar);
+        if (iftoolbar && iftoolbar->menuName().compare(toolbar->name) == 0) {
+            if (iftoolbar->isVisible()) {
+                iftoolbar->setVisible(false);
+                sendingAction->setChecked(true);
+            } else {
+                iftoolbar->setVisible(true);
+                sendingAction->setChecked(true);
+            }
+        }
+    }
 }
 
 #ifdef _MSC_VER

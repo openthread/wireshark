@@ -1,34 +1,23 @@
 /* packet-mplstp-oam.c
-*
-* Routines for MPLS-TP Lock Instruct Protocol    : RFC 6435
-*              MPLS-TP Fault-Management Protocol : RFC 6427
-*
-* Authors:
-* Krishnamurthy Mayya <krishnamurthymayya@gmail.com>
-* Nikitha Malgi <nikitha01@gmail.com>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998 Gerald Combs
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ *
+ * Routines for MPLS-TP Lock Instruct Protocol    : RFC 6435
+ *              MPLS-TP Fault-Management Protocol : RFC 6427
+ *
+ * Authors:
+ * Krishnamurthy Mayya <krishnamurthymayya@gmail.com>
+ * Nikitha Malgi <nikitha01@gmail.com>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
 #include "config.h"
 #include <epan/packet.h>
 #include "packet-bfd.h"
+#include "packet-mpls.h"
 
 void proto_register_mplstp_lock(void);
 void proto_register_mplstp_fm(void);
@@ -344,7 +333,7 @@ proto_reg_handoff_mplstp_fm(void)
   dissector_handle_t mplstp_fm_handle;
 
   mplstp_fm_handle = create_dissector_handle( dissect_mplstp_fm, proto_mplstp_fm );
-  dissector_add_uint("pwach.channel_type", 0x0058, mplstp_fm_handle); /* KM: MPLSTP FM, RFC 6427 */
+  dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_MPLSTP_FM, mplstp_fm_handle);
 }
 
 /*

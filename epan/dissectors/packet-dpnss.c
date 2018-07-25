@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * References:
  * ND1301:2001/03  http://www.nicc.org.uk/nicc-public/Public/interconnectstandards/dpnss/nd1301_2004_11.pdf
@@ -33,6 +21,8 @@
 
 #include <epan/packet.h>
 #include <epan/expert.h>
+
+#include <wsutil/strtoi.h>
 
 void proto_register_dpnss(void);
 
@@ -1080,7 +1070,7 @@ dissect_dpnss_sup_info_str(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
     gint        start_offset, hash_offset, tvb_end_offset, sup_inf_str_end_offset, str_no;
     gint        par_start_offset, par_end_offset, number_of_found_par;
     gint        sup_inf_str_len, par_type_num;
-    guint       sup_str_num;
+    guint       sup_str_num = 0;
     guint8      octet;
     gboolean    last_string = FALSE;
     gboolean    has_par;
@@ -1112,7 +1102,7 @@ dissect_dpnss_sup_info_str(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
                 sup_inf_str_end_offset = hash_offset;
             }
             sup_inf_str_len = sup_inf_str_end_offset - offset;
-            sup_str_num = atoi(tvb_format_text(tvb, offset, sup_inf_str_len));
+            ws_strtou32(tvb_format_text(tvb, offset, sup_inf_str_len), NULL, &sup_str_num);
             if ((sup_str_num != 0) && (sup_str_num < array_length(dpnns_sup_serv_set))) {
                 proto_tree_add_string(sup_str_tree, hf_dpnss_sup_str, tvb, offset, sup_inf_str_len,
                                     dpnns_sup_serv_set[sup_str_num].compact_name);

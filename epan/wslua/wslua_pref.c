@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,7 +22,7 @@
 /* WSLUA_CONTINUE_MODULE Proto */
 
 
-WSLUA_CLASS_DEFINE(Pref,NOP,NOP); /* A preference of a Protocol. */
+WSLUA_CLASS_DEFINE(Pref,NOP); /* A preference of a Protocol. */
 
 static range_t* get_range(lua_State *L, int idx_r, int idx_m);
 
@@ -90,9 +78,7 @@ static enum_val_t* get_enum(lua_State *L, int idx)
 
     g_array_append_val(es,last);
 
-    ret = (enum_val_t*)(void*)es->data;
-
-    g_array_free(es,FALSE);
+    ret = (enum_val_t*)(void*)g_array_free(es, FALSE);
 
     return ret;
 }
@@ -235,7 +221,7 @@ static range_t* get_range(lua_State *L, int idx_r, int idx_m)
     static range_t *ret = NULL;
     const gchar *pattern = luaL_checkstring(L, idx_r);
 
-    switch (range_convert_str(&ret, pattern, wslua_togint32(L, idx_m))) {
+    switch (range_convert_str(wmem_epan_scope(), &ret, pattern, wslua_togint32(L, idx_m))) {
         case CVT_NO_ERROR:
           break;
         case CVT_SYNTAX_ERROR:
@@ -327,7 +313,7 @@ WSLUA_REGISTER Pref_register(lua_State* L) {
     return 0;
 }
 
-WSLUA_CLASS_DEFINE(Prefs,NOP,NOP); /* The table of preferences of a protocol. */
+WSLUA_CLASS_DEFINE(Prefs,NOP); /* The table of preferences of a protocol. */
 
 WSLUA_METAMETHOD Prefs__newindex(lua_State* L) {
     /* Creates a new preference. */
@@ -442,7 +428,7 @@ WSLUA_METAMETHOD Prefs__newindex(lua_State* L) {
                                                      pref->desc);
                     break;
                 default:
-                    WSLUA_ERROR(Prefs__newindex,"Unknow Pref type");
+                    WSLUA_ERROR(Prefs__newindex,"Unknown Pref type");
                     break;
             }
 
@@ -487,7 +473,7 @@ WSLUA_METAMETHOD Prefs__index(lua_State* L) {
                     wmem_free(NULL, push_str);
                     }
                     break;
-                default: WSLUA_ERROR(Prefs__index,"Unknow Pref type"); return 0;
+                default: WSLUA_ERROR(Prefs__index,"Unknown Pref type"); return 0;
             }
             WSLUA_RETURN(1); /* The current value of the preference. */
         }

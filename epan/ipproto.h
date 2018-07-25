@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __IPPROTO_H__
@@ -30,7 +18,6 @@
  * IP protocol numbers.
  * http://www.iana.org/assignments/protocol-numbers/protocol-numbers.xml
  */
-#define IP_PROTO_IP             0       /* dummy for IP */
 #define IP_PROTO_HOPOPTS        0       /* IP6 hop-by-hop options - RFC1883 */
 #define IP_PROTO_ICMP           1       /* control message protocol - RFC792 */
 #define IP_PROTO_IGMP           2       /* group mgmt protocol - RFC1112 */

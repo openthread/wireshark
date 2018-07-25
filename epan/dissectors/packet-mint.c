@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -54,6 +42,7 @@ void proto_reg_handoff_mint(void);
 #define PORT_MINT_CONTROL_TUNNEL	24576
 /* 0x6001 */
 #define PORT_MINT_DATA_TUNNEL		24577
+#define PORT_MINT_RANGE				"24576-24577"
 
 static dissector_handle_t eth_handle;
 
@@ -284,7 +273,7 @@ dissect_eth_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mint_tree,
 	tvbuff_t *eth_tvb;
 
 #ifdef MINT_DEVELOPMENT
-	col_set_writable(pinfo->cinfo, FALSE);
+	col_set_writable(pinfo->cinfo, -1, FALSE);
 #endif
 
 	eth_tvb = tvb_new_subset_length(tvb, offset, length);
@@ -297,7 +286,7 @@ dissect_eth_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *mint_tree,
 	offset += length;
 
 #ifdef MINT_DEVELOPMENT
-	col_set_writable(pinfo->cinfo, TRUE);
+	col_set_writable(pinfo->cinfo, -1, TRUE);
 #endif
 	return offset;
 }
@@ -722,7 +711,7 @@ proto_register_mint(void)
 
 	proto_mint = proto_register_protocol(PROTO_LONG_NAME, PROTO_SHORT_NAME, "mint");
 	/* Created to remove Decode As confusion */
-	proto_mint_data = proto_register_protocol("Media independent Network Transport Data", "MiNT (Data)", "mint_data");
+	proto_mint_data = proto_register_protocol_in_name_only("Media independent Network Transport Data", "MiNT (Data)", "mint_data", proto_mint, FT_PROTOCOL);
 
 	hfi_mint = proto_registrar_get_nth(proto_mint);
 	proto_register_fields(proto_mint, hfi, array_length(hfi));
@@ -736,8 +725,7 @@ proto_register_mint(void)
 void
 proto_reg_handoff_mint(void)
 {
-	dissector_add_uint("udp.port", PORT_MINT_CONTROL_TUNNEL, mint_control_handle);
-	dissector_add_uint("udp.port", PORT_MINT_DATA_TUNNEL, mint_data_handle);
+	dissector_add_uint_range_with_preference("udp.port", PORT_MINT_RANGE, mint_control_handle);
 	dissector_add_uint("ethertype", ETHERTYPE_MINT, mint_eth_handle);
 
 	eth_handle = find_dissector_add_dependency("eth_withoutfcs", hfi_mint->id);

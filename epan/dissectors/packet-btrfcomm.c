@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -312,7 +300,7 @@ get_le_multi_byte_value(tvbuff_t *tvb, int offset, proto_tree *tree, guint32 *va
         byte = tvb_get_guint8(tvb, offset);
         offset += 1;
         val |= ((byte >> 1) & 0xff) << (bc++ * 7);
-    } while ((byte & 0x1) == 0);
+    } while (((byte & 0x1) == 0) && (bc <= 4));
 
     *val_ptr = val;
 
@@ -746,7 +734,7 @@ dissect_btrfcomm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 
     col_append_fstr(pinfo->cinfo, COL_INFO, "%s Channel=%u ",
                     val_to_str_const(frame_type, vs_frame_type_short, "Unknown"), dlci >> 1);
-    if (dlci && (frame_type == FRAME_TYPE_SABM)) {
+    if (dlci && (frame_type == FRAME_TYPE_SABM) && service_info) {
         if (service_info->uuid.size==16)
             col_append_fstr(pinfo->cinfo, COL_INFO, "(UUID128: %s) ", print_uuid(&service_info->uuid));
         else
@@ -853,7 +841,8 @@ dissect_btrfcomm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
         rfcomm_data->remote_bd_addr_oui = l2cap_data->remote_bd_addr_oui;
         rfcomm_data->remote_bd_addr_id  = l2cap_data->remote_bd_addr_id;
 
-        if (service_info->uuid.size != 0 && p_get_proto_data(pinfo->pool, pinfo, proto_bluetooth, PROTO_DATA_BLUETOOTH_SERVICE_UUID) == NULL) {
+        if (service_info && service_info->uuid.size != 0 &&
+                p_get_proto_data(pinfo->pool, pinfo, proto_bluetooth, PROTO_DATA_BLUETOOTH_SERVICE_UUID) == NULL) {
             guint8 *value_data;
 
             value_data = wmem_strdup(wmem_file_scope(), print_numeric_uuid(&service_info->uuid));
@@ -863,9 +852,9 @@ dissect_btrfcomm(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 
         if (!dissector_try_uint_new(rfcomm_dlci_dissector_table, (guint32) dlci,
                 next_tvb, pinfo, tree, TRUE, rfcomm_data)) {
-            if (service_info->uuid.size == 0 ||
+            if (service_info && (service_info->uuid.size == 0 ||
                 !dissector_try_string(bluetooth_uuid_table, print_numeric_uuid(&service_info->uuid),
-                    next_tvb, pinfo, tree, rfcomm_data)) {
+                    next_tvb, pinfo, tree, rfcomm_data))) {
                 decode_by_dissector = find_proto_by_channel(dlci >> 1);
                 if (rfcomm_channels_enabled && decode_by_dissector) {
                     call_dissector_with_data(decode_by_dissector, next_tvb, pinfo, tree, rfcomm_data);
@@ -1139,9 +1128,9 @@ proto_register_btrfcomm(void)
 
     service_directions = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    rfcomm_dlci_dissector_table = register_dissector_table("btrfcomm.dlci", "BT RFCOMM Directed Channel", proto_btrfcomm, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    rfcomm_dlci_dissector_table = register_dissector_table("btrfcomm.dlci", "BT RFCOMM Directed Channel", proto_btrfcomm, FT_UINT16, BASE_DEC);
 
-    module = prefs_register_protocol(proto_btrfcomm, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btrfcomm, NULL);
     prefs_register_static_text_preference(module, "rfcomm.version",
             "Bluetooth Protocol RFCOMM version: 1.1", "Version of protocol supported by this dissector.");
 
@@ -1157,6 +1146,7 @@ proto_register_btrfcomm(void)
             &rfcomm_channels,
             &num_rfcomm_channels,
             UAT_AFFECTS_DISSECTION,
+            NULL,
             NULL,
             NULL,
             NULL,

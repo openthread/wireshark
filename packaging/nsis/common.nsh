@@ -15,23 +15,19 @@
 !define BITS 64
 !endif
 
-!define DISPLAY_NAME "${PROGRAM_NAME} ${VERSION} (${BITS}-bit)"
+!define DISPLAY_NAME "${PROGRAM_NAME} ${VERSION} ${BITS}-bit"
 Name "${DISPLAY_NAME}"
 
-!define PROGRAM_NAME_QT "${PROGRAM_NAME}"
-!define PROGRAM_NAME_GTK "${PROGRAM_NAME} Legacy"
-!define PROGRAM_FULL_NAME_QT "The ${PROGRAM_NAME} Network Protocol Analyzer"
-!define PROGRAM_FULL_NAME_GTK "The ${PROGRAM_NAME} Network Protocol Analyzer (classic UI)"
-!define PROGRAM_NAME_PATH_QT "${PROGRAM_NAME}.exe"
-!define PROGRAM_NAME_PATH_GTK "${PROGRAM_NAME}-gtk.exe"
+!define PROGRAM_FULL_NAME "The ${PROGRAM_NAME} Network Protocol Analyzer"
+!define PROGRAM_NAME_PATH "${PROGRAM_NAME}.exe"
 
 !define UNINSTALLER_NAME "uninstall.exe"
 
 VIAddVersionKey "ProductName" "${PROGRAM_NAME}"
 VIAddVersionKey "Comments" "It's a great product with a great story to tell. I'm pumped!"
 VIAddVersionKey "CompanyName" "${PROGRAM_NAME} development team"
-; NSIS handles the copyright symbol correctly using CP-1252 but not UTF-8.
-VIAddVersionKey "LegalCopyright" "© Gerald Combs and many others"
+; NSIS handles U+00a9 but not a UTF-8 encoded copyright symbol.
+VIAddVersionKey "LegalCopyright" "${U+00a9} Gerald Combs and many others"
 VIAddVersionKey "LegalTrademarks" "Wireshark and the 'fin' logo are registered trademarks of the Wireshark Foundation"
 VIAddVersionKey "FileDescription" "${PROGRAM_NAME} installer for ${BITS}-bit Windows"
 VIAddVersionKey "Language" "English"
@@ -105,10 +101,14 @@ Exec '"$SYSDIR\ie4uinit.exe" -ClearIconCache'
     Push ".snoop"
     Push ".rf5"
     Push ".pkt"
+    Push ".pklg"
     Push ".pcapng"
     Push ".pcap"
     Push ".out"
     Push ".ntar"
+    Push ".mplog"
+    Push ".lcap"
+    Push ".ipfix"
     Push ".fdc"
     Push ".erf"
     Push ".enc"

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -64,6 +52,12 @@ byte_to_hex(char *out, guint32 dword)
 	*out++ = low_nibble_of_octet_to_hex(dword >> 4);
 	*out++ = low_nibble_of_octet_to_hex(dword);
 	return out;
+}
+
+char *
+guint8_to_hex(char *out, guint8 val)
+{
+	return byte_to_hex(out, val);
 }
 
 char *
@@ -360,174 +354,6 @@ guint64_to_str_buf(guint64 u, gchar *buf, int buf_len)
 	uint64_to_str_back(bp, u);
 }
 
-#define	PLURALIZE(n)	(((n) > 1) ? "s" : "")
-#define	COMMA(do_it)	((do_it) ? ", " : "")
-
-/*
- * Maximum length of a string showing days/hours/minutes/seconds.
- * (Does not include the terminating '\0'.)
- * Includes space for a '-' sign for any negative components.
- * -12345 days, 12 hours, 12 minutes, 12.123 seconds
- */
-#define TIME_SECS_LEN	(10+1+4+2+2+5+2+2+7+2+2+7+4)
-
-/*
- * Convert a value in seconds and fractions of a second to a string,
- * giving time in days, hours, minutes, and seconds, and put the result
- * into a buffer.
- * "is_nsecs" says that "frac" is microseconds if true and milliseconds
- * if false.
- * If time is negative, add a '-' to all non-null components.
- */
-static void
-time_secs_to_str_buf(gint32 time_val, const guint32 frac, const gboolean is_nsecs,
-		wmem_strbuf_t *buf)
-{
-	int hours, mins, secs;
-	const gchar *msign = "";
-	gboolean do_comma = FALSE;
-
-	if(time_val == G_MININT32) {	/* That Which Shall Not Be Negated */
-		wmem_strbuf_append_printf(buf, "Unable to cope with time value %d", time_val);
-		return;
-	}
-
-	if(time_val < 0){
-		time_val = -time_val;
-		msign = "-";
-	}
-
-	secs = time_val % 60;
-	time_val /= 60;
-	mins = time_val % 60;
-	time_val /= 60;
-	hours = time_val % 24;
-	time_val /= 24;
-
-	if (time_val != 0) {
-		wmem_strbuf_append_printf(buf, "%s%u day%s", msign, time_val, PLURALIZE(time_val));
-		do_comma = TRUE;
-		msign="";
-	}
-	if (hours != 0) {
-		wmem_strbuf_append_printf(buf, "%s%s%u hour%s", COMMA(do_comma), msign, hours, PLURALIZE(hours));
-		do_comma = TRUE;
-		msign="";
-	}
-	if (mins != 0) {
-		wmem_strbuf_append_printf(buf, "%s%s%u minute%s", COMMA(do_comma), msign, mins, PLURALIZE(mins));
-		do_comma = TRUE;
-		msign="";
-	}
-	if (secs != 0 || frac != 0) {
-		if (frac != 0) {
-			if (is_nsecs)
-				wmem_strbuf_append_printf(buf, "%s%s%u.%09u seconds", COMMA(do_comma), msign, secs, frac);
-			else
-				wmem_strbuf_append_printf(buf, "%s%s%u.%03u seconds", COMMA(do_comma), msign, secs, frac);
-		} else
-			wmem_strbuf_append_printf(buf, "%s%s%u second%s", COMMA(do_comma), msign, secs, PLURALIZE(secs));
-	}
-}
-
-gchar *
-time_secs_to_str(wmem_allocator_t *scope, const gint32 time_val)
-{
-	wmem_strbuf_t *buf;
-
-	if (time_val == 0) {
-		return wmem_strdup(scope, "0 seconds");
-	}
-
-	buf = wmem_strbuf_sized_new(scope, TIME_SECS_LEN+1, TIME_SECS_LEN+1);
-
-	time_secs_to_str_buf(time_val, 0, FALSE, buf);
-
-	return wmem_strbuf_finalize(buf);
-}
-
-static void
-time_secs_to_str_buf_unsigned(guint32 time_val, const guint32 frac, const gboolean is_nsecs,
-		wmem_strbuf_t *buf)
-{
-	int hours, mins, secs;
-	gboolean do_comma = FALSE;
-
-	secs = time_val % 60;
-	time_val /= 60;
-	mins = time_val % 60;
-	time_val /= 60;
-	hours = time_val % 24;
-	time_val /= 24;
-
-	if (time_val != 0) {
-		wmem_strbuf_append_printf(buf, "%u day%s", time_val, PLURALIZE(time_val));
-		do_comma = TRUE;
-	}
-	if (hours != 0) {
-		wmem_strbuf_append_printf(buf, "%s%u hour%s", COMMA(do_comma), hours, PLURALIZE(hours));
-		do_comma = TRUE;
-	}
-	if (mins != 0) {
-		wmem_strbuf_append_printf(buf, "%s%u minute%s", COMMA(do_comma), mins, PLURALIZE(mins));
-		do_comma = TRUE;
-	}
-	if (secs != 0 || frac != 0) {
-		if (frac != 0) {
-			if (is_nsecs)
-				wmem_strbuf_append_printf(buf, "%s%u.%09u seconds", COMMA(do_comma), secs, frac);
-			else
-				wmem_strbuf_append_printf(buf, "%s%u.%03u seconds", COMMA(do_comma), secs, frac);
-		} else
-			wmem_strbuf_append_printf(buf, "%s%u second%s", COMMA(do_comma), secs, PLURALIZE(secs));
-	}
-}
-
-gchar *
-time_secs_to_str_unsigned(wmem_allocator_t *scope, const guint32 time_val)
-{
-	wmem_strbuf_t *buf;
-
-	if (time_val == 0) {
-		return wmem_strdup(scope, "0 seconds");
-	}
-
-	buf = wmem_strbuf_sized_new(scope, TIME_SECS_LEN+1, TIME_SECS_LEN+1);
-
-	time_secs_to_str_buf_unsigned(time_val, 0, FALSE, buf);
-
-	return wmem_strbuf_finalize(buf);
-}
-
-
-gchar *
-time_msecs_to_str(wmem_allocator_t *scope, gint32 time_val)
-{
-	wmem_strbuf_t *buf;
-	int msecs;
-
-	if (time_val == 0) {
-		return wmem_strdup(scope, "0 seconds");
-	}
-
-	buf = wmem_strbuf_sized_new(scope, TIME_SECS_LEN+1+3+1, TIME_SECS_LEN+1+3+1);
-
-	if (time_val<0) {
-		/* oops we got passed a negative time */
-		time_val= -time_val;
-		msecs = time_val % 1000;
-		time_val /= 1000;
-		time_val= -time_val;
-	} else {
-		msecs = time_val % 1000;
-		time_val /= 1000;
-	}
-
-	time_secs_to_str_buf(time_val, msecs, FALSE, buf);
-
-	return wmem_strbuf_finalize(buf);
-}
-
 static const char mon_names[12][4] = {
 	"Jan",
 	"Feb",
@@ -546,16 +372,7 @@ static const char mon_names[12][4] = {
 static const gchar *
 get_zonename(struct tm *tmp)
 {
-#if defined(HAVE_TM_ZONE)
-	return tmp->tm_zone;
-#else
-	if ((tmp->tm_isdst != 0) && (tmp->tm_isdst != 1)) {
-		return "???";
-	}
-# if defined(HAVE_TZNAME)
-	return tzname[tmp->tm_isdst];
-
-# elif defined(_WIN32)
+#if defined(_WIN32)
 	/* Windows C Runtime:                                                 */
 	/*   _tzname is encoded using the "system default ansi code page"     */
 	/*     ("which is not necessarily the same as the C library locale"). */
@@ -573,26 +390,39 @@ get_zonename(struct tm *tmp)
 	/*    on a "Japanese version of Windows XP" when trying to copy       */
 	/*    the date/time string (containing a copy of _tz_name) to the     */
 	/*    clipboard).                                                     */
+	static char *ws_tzname[2] = {NULL, NULL};
 
-	{
-		static char *ws_tzname[2] = {NULL, NULL};
-
-		/* The g_malloc'd value returned from g_locale_to_utf8() is   */
-		/*  cached for all further use so there's no need to ever     */
-		/*  g_free() that value.                                      */
+	/* The g_malloc'd value returned from g_locale_to_utf8() is   */
+	/*  cached for all further use so there's no need to ever     */
+	/*  g_free() that value.                                      */
+	if (ws_tzname[tmp->tm_isdst] == NULL) {
+		ws_tzname[tmp->tm_isdst] = g_locale_to_utf8(_tzname[tmp->tm_isdst], -1, NULL, NULL, NULL);
 		if (ws_tzname[tmp->tm_isdst] == NULL) {
-			ws_tzname[tmp->tm_isdst] = g_locale_to_utf8(_tzname[tmp->tm_isdst], -1, NULL, NULL, NULL);
-			if (ws_tzname[tmp->tm_isdst] == NULL) {
-				ws_tzname[tmp->tm_isdst] = "???";
-			}
+			ws_tzname[tmp->tm_isdst] = "???";
 		}
-		return ws_tzname[tmp->tm_isdst];
 	}
-# else
+	return ws_tzname[tmp->tm_isdst];
+#else
+	/*
+	 * UN*X.
+	 *
+	 * If we have tm_zone in struct tm, use that.
+	 * Otherwise, if we have tzname[], use it, otherwise just
+	 * say "we don't know.
+	 */
+# if defined(HAVE_STRUCT_TM_TM_ZONE)
+	return tmp->tm_zone;
+# else /* HAVE_STRUCT_TM_TM_ZONE */
+	if ((tmp->tm_isdst != 0) && (tmp->tm_isdst != 1)) {
+		return "???";
+	}
+#  if defined(HAVE_TZNAME)
+	return tzname[tmp->tm_isdst];
+#  else
 	return tmp->tm_isdst ? "?DT" : "?ST";
-
-# endif
-#endif
+#  endif /* HAVE_TZNAME */
+# endif /* HAVE_STRUCT_TM_TM_ZONE */
+#endif /* _WIN32 */
 }
 
 gchar *
@@ -753,6 +583,59 @@ abs_time_secs_to_str(wmem_allocator_t *scope, const time_t abs_time, const absol
 }
 
 void
+display_epoch_time(gchar *buf, int buflen, const time_t sec, gint32 frac,
+		const to_str_time_res_t units)
+{
+	double elapsed_secs;
+
+	elapsed_secs = difftime(sec,(time_t)0);
+
+	/* This code copied from display_signed_time; keep it in case anyone
+	   is looking at captures from before 1970 (???).
+	   If the fractional part of the time stamp is negative,
+	   print its absolute value and, if the seconds part isn't
+	   (the seconds part should be zero in that case), stick
+	   a "-" in front of the entire time stamp. */
+	if (frac < 0) {
+		frac = -frac;
+		if (elapsed_secs >= 0) {
+			if (buflen < 1) {
+				return;
+			}
+			buf[0] = '-';
+			buf++;
+			buflen--;
+		}
+	}
+	switch (units) {
+
+		case TO_STR_TIME_RES_T_SECS:
+			g_snprintf(buf, buflen, "%0.0f", elapsed_secs);
+			break;
+
+		case TO_STR_TIME_RES_T_DSECS:
+			g_snprintf(buf, buflen, "%0.0f.%01d", elapsed_secs, frac);
+			break;
+
+		case TO_STR_TIME_RES_T_CSECS:
+			g_snprintf(buf, buflen, "%0.0f.%02d", elapsed_secs, frac);
+			break;
+
+		case TO_STR_TIME_RES_T_MSECS:
+			g_snprintf(buf, buflen, "%0.0f.%03d", elapsed_secs, frac);
+			break;
+
+		case TO_STR_TIME_RES_T_USECS:
+			g_snprintf(buf, buflen, "%0.0f.%06d", elapsed_secs, frac);
+			break;
+
+		case TO_STR_TIME_RES_T_NSECS:
+			g_snprintf(buf, buflen, "%0.0f.%09d", elapsed_secs, frac);
+			break;
+	}
+}
+
+void
 display_signed_time(gchar *buf, int buflen, const gint32 sec, gint32 frac,
 		const to_str_time_res_t units)
 {
@@ -829,58 +712,162 @@ display_signed_time(gchar *buf, int buflen, const gint32 sec, gint32 frac,
 	*buf = '\0';
 }
 
+#define	PLURALIZE(n)	(((n) > 1) ? "s" : "")
+#define	COMMA(do_it)	((do_it) ? ", " : "")
 
-void
-display_epoch_time(gchar *buf, int buflen, const time_t sec, gint32 frac,
-		const to_str_time_res_t units)
+/*
+ * Maximum length of a string showing days/hours/minutes/seconds.
+ * (Does not include the terminating '\0'.)
+ * Includes space for a '-' sign for any negative components.
+ * -12345 days, 12 hours, 12 minutes, 12.123 seconds
+ */
+#define TIME_SECS_LEN	(10+1+4+2+2+5+2+2+7+2+2+7+4)
+
+/*
+ * Convert an unsigned value in seconds and fractions of a second to a string,
+ * giving time in days, hours, minutes, and seconds, and put the result
+ * into a buffer.
+ * "is_nsecs" says that "frac" is nanoseconds if true and milliseconds
+ * if false.
+ */
+static void
+unsigned_time_secs_to_str_buf(guint32 time_val, const guint32 frac,
+    const gboolean is_nsecs, wmem_strbuf_t *buf)
 {
-	double elapsed_secs;
+	int hours, mins, secs;
+	gboolean do_comma = FALSE;
 
-	elapsed_secs = difftime(sec,(time_t)0);
+	secs = time_val % 60;
+	time_val /= 60;
+	mins = time_val % 60;
+	time_val /= 60;
+	hours = time_val % 24;
+	time_val /= 24;
 
-	/* This code copied from display_signed_time; keep it in case anyone
-	   is looking at captures from before 1970 (???).
-	   If the fractional part of the time stamp is negative,
-	   print its absolute value and, if the seconds part isn't
-	   (the seconds part should be zero in that case), stick
-	   a "-" in front of the entire time stamp. */
-	if (frac < 0) {
-		frac = -frac;
-		if (elapsed_secs >= 0) {
-			if (buflen < 1) {
-				return;
-			}
-			buf[0] = '-';
-			buf++;
-			buflen--;
+	if (time_val != 0) {
+		wmem_strbuf_append_printf(buf, "%u day%s", time_val, PLURALIZE(time_val));
+		do_comma = TRUE;
+	}
+	if (hours != 0) {
+		wmem_strbuf_append_printf(buf, "%s%u hour%s", COMMA(do_comma), hours, PLURALIZE(hours));
+		do_comma = TRUE;
+	}
+	if (mins != 0) {
+		wmem_strbuf_append_printf(buf, "%s%u minute%s", COMMA(do_comma), mins, PLURALIZE(mins));
+		do_comma = TRUE;
+	}
+	if (secs != 0 || frac != 0) {
+		if (frac != 0) {
+			if (is_nsecs)
+				wmem_strbuf_append_printf(buf, "%s%u.%09u seconds", COMMA(do_comma), secs, frac);
+			else
+				wmem_strbuf_append_printf(buf, "%s%u.%03u seconds", COMMA(do_comma), secs, frac);
+		} else
+			wmem_strbuf_append_printf(buf, "%s%u second%s", COMMA(do_comma), secs, PLURALIZE(secs));
+	}
+}
+
+gchar *
+unsigned_time_secs_to_str(wmem_allocator_t *scope, const guint32 time_val)
+{
+	wmem_strbuf_t *buf;
+
+	if (time_val == 0) {
+		return wmem_strdup(scope, "0 seconds");
+	}
+
+	buf = wmem_strbuf_sized_new(scope, TIME_SECS_LEN+1, TIME_SECS_LEN+1);
+
+	unsigned_time_secs_to_str_buf(time_val, 0, FALSE, buf);
+
+	return wmem_strbuf_finalize(buf);
+}
+
+/*
+ * Convert a signed value in seconds and fractions of a second to a string,
+ * giving time in days, hours, minutes, and seconds, and put the result
+ * into a buffer.
+ * "is_nsecs" says that "frac" is nanoseconds if true and milliseconds
+ * if false.
+ */
+static void
+signed_time_secs_to_str_buf(gint32 time_val, const guint32 frac,
+    const gboolean is_nsecs, wmem_strbuf_t *buf)
+{
+	if(time_val < 0){
+		wmem_strbuf_append_printf(buf, "-");
+		if(time_val == G_MININT32) {
+			/*
+			 * You can't fit time_val's absolute value into
+			 * a 32-bit signed integer.  Just directly
+			 * pass G_MAXUINT32, which is its absolute
+			 * value, directly to unsigned_time_secs_to_str_buf().
+			 *
+			 * (XXX - does ISO C guarantee that -(-2^n),
+			 * when calculated and cast to an n-bit unsigned
+			 * integer type, will have the value 2^n?)
+			 */
+			unsigned_time_secs_to_str_buf(G_MAXUINT32, frac,
+			    is_nsecs, buf);
+		} else {
+			/*
+			 * We now know -secs will fit into a guint32;
+			 * negate it and pass that to
+			 * unsigned_time_secs_to_str_buf().
+			 */
+			unsigned_time_secs_to_str_buf(-time_val, frac,
+			    is_nsecs, buf);
 		}
+	} else
+		unsigned_time_secs_to_str_buf(time_val, frac, is_nsecs, buf);
+}
+
+gchar *
+signed_time_secs_to_str(wmem_allocator_t *scope, const gint32 time_val)
+{
+	wmem_strbuf_t *buf;
+
+	if (time_val == 0) {
+		return wmem_strdup(scope, "0 seconds");
 	}
-	switch (units) {
 
-		case TO_STR_TIME_RES_T_SECS:
-			g_snprintf(buf, buflen, "%0.0f", elapsed_secs);
-			break;
+	buf = wmem_strbuf_sized_new(scope, TIME_SECS_LEN+1, TIME_SECS_LEN+1);
 
-		case TO_STR_TIME_RES_T_DSECS:
-			g_snprintf(buf, buflen, "%0.0f.%01d", elapsed_secs, frac);
-			break;
+	signed_time_secs_to_str_buf(time_val, 0, FALSE, buf);
 
-		case TO_STR_TIME_RES_T_CSECS:
-			g_snprintf(buf, buflen, "%0.0f.%02d", elapsed_secs, frac);
-			break;
+	return wmem_strbuf_finalize(buf);
+}
 
-		case TO_STR_TIME_RES_T_MSECS:
-			g_snprintf(buf, buflen, "%0.0f.%03d", elapsed_secs, frac);
-			break;
+/*
+ * Convert a signed value in milliseconds to a string, giving time in days,
+ * hours, minutes, and seconds, and put the result into a buffer.
+ */
+gchar *
+signed_time_msecs_to_str(wmem_allocator_t *scope, gint32 time_val)
+{
+	wmem_strbuf_t *buf;
+	int msecs;
 
-		case TO_STR_TIME_RES_T_USECS:
-			g_snprintf(buf, buflen, "%0.0f.%06d", elapsed_secs, frac);
-			break;
-
-		case TO_STR_TIME_RES_T_NSECS:
-			g_snprintf(buf, buflen, "%0.0f.%09d", elapsed_secs, frac);
-			break;
+	if (time_val == 0) {
+		return wmem_strdup(scope, "0 seconds");
 	}
+
+	buf = wmem_strbuf_sized_new(scope, TIME_SECS_LEN+1+3+1, TIME_SECS_LEN+1+3+1);
+
+	if (time_val<0) {
+		/* oops we got passed a negative time */
+		time_val= -time_val;
+		msecs = time_val % 1000;
+		time_val /= 1000;
+		time_val= -time_val;
+	} else {
+		msecs = time_val % 1000;
+		time_val /= 1000;
+	}
+
+	signed_time_secs_to_str_buf(time_val, msecs, FALSE, buf);
+
+	return wmem_strbuf_finalize(buf);
 }
 
 /*
@@ -917,7 +904,7 @@ rel_time_to_str(wmem_allocator_t *scope, const nstime_t *rel_time)
 		time_val = (gint) -rel_time->secs;
 	}
 
-	time_secs_to_str_buf(time_val, nsec, TRUE, buf);
+	signed_time_secs_to_str_buf(time_val, nsec, TRUE, buf);
 
 	return wmem_strbuf_finalize(buf);
 }
@@ -1010,7 +997,7 @@ ip_to_str_buf(const guint8 *ad, gchar *buf, const int buf_len)
 	register gchar const *p;
 	register gchar *b=buf;
 
-	if (buf_len < MAX_IP_STR_LEN) {
+	if (buf_len < WS_INET_ADDRSTRLEN) {
 		g_strlcpy(buf, BUF_TOO_SMALL_ERR, buf_len);  /* Let the unexpected value alert user */
 		return;
 	}
@@ -1042,6 +1029,39 @@ ip_to_str_buf(const guint8 *ad, gchar *buf, const int buf_len)
 		p++;
 	} while(*p);
 	*b=0;
+}
+
+int
+ip6_to_str_buf_with_pfx(const ws_in6_addr *addr, gchar *buf, int buf_size, const char *prefix)
+{
+	int bytes;    /* the number of bytes which would be produced if the buffer was large enough. */
+	gchar addr_buf[WS_INET6_ADDRSTRLEN];
+	int len;
+
+	if (prefix == NULL)
+		prefix = "";
+	bytes = g_snprintf(buf, buf_size, "%s%s", prefix, ws_inet_ntop6(addr, addr_buf, sizeof(addr_buf)));
+	len = bytes - 1;
+
+	if (len > buf_size - 1) { /* size minus nul terminator */
+		len = (int)g_strlcpy(buf, BUF_TOO_SMALL_ERR, buf_size);  /* Let the unexpected value alert user */
+	}
+	return len;
+}
+
+int
+ip6_to_str_buf(const ws_in6_addr *addr, gchar *buf, int buf_size)
+{
+	gchar addr_buf[WS_INET6_ADDRSTRLEN];
+	int len;
+
+	/* slightly more efficient than ip6_to_str_buf_with_pfx(addr, buf, buf_size, NULL) */
+	len = (int)g_strlcpy(buf, ws_inet_ntop6(addr, addr_buf, sizeof(addr_buf)), buf_size);     /* this returns len = strlen(addr_buf) */
+
+	if (len > buf_size - 1) { /* size minus nul terminator */
+		len = (int)g_strlcpy(buf, BUF_TOO_SMALL_ERR, buf_size);  /* Let the unexpected value alert user */
+	}
+	return len;
 }
 
 gchar *
@@ -1105,17 +1125,12 @@ port_type_to_str (port_type type)
 		case PT_UDP:		return "UDP";
 		case PT_DCCP:		return "DCCP";
 		case PT_IPX:		return "IPX";
-		case PT_NCP:		return "NCP";
-		case PT_EXCHG:		return "FC EXCHG";
 		case PT_DDP:		return "DDP";
-		case PT_SBCCS:		return "FICON SBCCS";
 		case PT_IDP:		return "IDP";
-		case PT_TIPC:		return "TIPC";
 		case PT_USB:		return "USB";
 		case PT_I2C:		return "I2C";
 		case PT_IBQP:		return "IBQP";
 		case PT_BLUETOOTH:	return "BLUETOOTH";
-		case PT_TDMOP:		return "TDMOP";
 		default:		return "[Unknown]";
 	}
 }

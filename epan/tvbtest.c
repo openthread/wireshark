@@ -1,22 +1,11 @@
-/* Standalone program to test functionality of tvbuffs.
+/* tvbtest.c
+ * Standalone program to test functionality of tvbuffs.
  *
  * tvbtest : tvbtest.o tvbuff.o except.o
  *
  * Copyright (c) 2000 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
 
@@ -256,7 +245,7 @@ test(tvbuff_t *tvb, const gchar* name,
 		for (i = 0; i < length - incr; i += incr) {
 			ptr = (guint8*)tvb_memdup(NULL, tvb, i, incr);
 			if (memcmp(ptr, &expected_data[i], incr) != 0) {
-				printf("11: Failed TVB=%s Offset=%d Length=%d "
+				printf("11: Failed TVB=%s Offset=%u Length=%u "
 						"Bad memdup\n",
 						name, i, incr);
 				failed = TRUE;
@@ -346,7 +335,7 @@ run_tests(void)
 		tvb_set_free_cb(tvb_large[i], g_free);
 	}
 
-	/* Test the TVBUFF_REAL_DATA objects. */
+	/* Test the "real" tvbuff objects. */
 	test(tvb_small[0], "Small 0", small[0], small_length[0], small_reported_length[0]);
 	test(tvb_small[1], "Small 1", small[1], small_length[1], small_reported_length[1]);
 	test(tvb_small[2], "Small 2", small[2], small_length[2], small_reported_length[2]);
@@ -357,35 +346,35 @@ run_tests(void)
 
 	subset_length[0]	  = 8;
 	subset_reported_length[0] = 9;
-	tvb_subset[0]		  = tvb_new_subset(tvb_small[0], 0, 8, 9);
+	tvb_subset[0]		  = tvb_new_subset_length_caplen(tvb_small[0], 0, 8, 9);
 	subset[0]		  = &small[0][0];
 
 	subset_length[1]	  = 10;
 	subset_reported_length[1] = 11;
-	tvb_subset[1]		  = tvb_new_subset(tvb_large[0], -10, 10, 11);
+	tvb_subset[1]		  = tvb_new_subset_length_caplen(tvb_large[0], -10, 10, 11);
 	subset[1]		  = &large[0][9];
 
 	subset_length[2]	  = 16;
 	subset_reported_length[2] = 17;
-	tvb_subset[2]		  = tvb_new_subset(tvb_small[1], -16, -1, 17);
+	tvb_subset[2]		  = tvb_new_subset_length_caplen(tvb_small[1], -16, -1, 17);
 	subset[2]		  = &small[1][0];
 
 	subset_length[3]	  = 3;
 	subset_reported_length[3] = 4;
-	tvb_subset[3]		  = tvb_new_subset(tvb_subset[0], 0, 3, 4);
+	tvb_subset[3]		  = tvb_new_subset_length_caplen(tvb_subset[0], 0, 3, 4);
 	subset[3]		  = &small[0][0];
 
 	subset_length[4]	  = 5;
 	subset_reported_length[4] = 6;
-	tvb_subset[4]		  = tvb_new_subset(tvb_subset[1], -5, 5, 6);
+	tvb_subset[4]		  = tvb_new_subset_length_caplen(tvb_subset[1], -5, 5, 6);
 	subset[4]		  = &large[0][14];
 
 	subset_length[5]	  = 8;
 	subset_reported_length[5] = 9;
-	tvb_subset[5]		  = tvb_new_subset(tvb_subset[2], 4, 8, 9);
+	tvb_subset[5]		  = tvb_new_subset_length_caplen(tvb_subset[2], 4, 8, 9);
 	subset[5]		  = &small[1][4];
 
-	/* Test the TVBUFF_SUBSET objects. */
+	/* Test the "subset" tvbuff objects. */
 	test(tvb_subset[0], "Subset 0", subset[0], subset_length[0], subset_reported_length[0]);
 	test(tvb_subset[1], "Subset 1", subset[1], subset_length[1], subset_reported_length[1]);
 	test(tvb_subset[2], "Subset 2", subset[2], subset_length[2], subset_reported_length[2]);
@@ -475,7 +464,7 @@ run_tests(void)
 	tvb_composite_append(tvb_comp[5], tvb_comp[3]);
 	tvb_composite_finalize(tvb_comp[5]);
 
-	/* Test the TVBUFF_COMPOSITE objects. */
+	/* Test the "composite" tvbuff objects. */
 	test(tvb_comp[0], "Composite 0", comp[0], comp_length[0], comp_reported_length[0]);
 	test(tvb_comp[1], "Composite 1", comp[1], comp_length[1], comp_reported_length[1]);
 	test(tvb_comp[2], "Composite 2", comp[2], comp_length[2], comp_reported_length[2]);

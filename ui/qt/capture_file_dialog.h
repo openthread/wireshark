@@ -4,31 +4,21 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef CAPTURE_FILE_DIALOG_H
 #define CAPTURE_FILE_DIALOG_H
 
 #ifndef Q_OS_WIN
-#include "display_filter_edit.h"
+#include <ui/qt/widgets/display_filter_edit.h>
 #include "packet_range_group_box.h"
 #include "ui/help_url.h"
 #endif // Q_OS_WIN
 
-#include "packet_list_record.h"
+#include <ui/packet_range.h>
+
+#include <ui/qt/models/packet_list_record.h>
 #include "cfile.h"
 
 #include "ui/file_dialog.h"
@@ -58,7 +48,7 @@ class CaptureFileDialog : public QFileDialog
     //
     // On Windows Vista and later we should probably use IFileOpenDialog. On earlier
     // versions of Windows (including XP) we should use GetOpenFileName, which is
-    // what we do in ui/win32/file_dlg_win32.c. On OS X we should use NSOpenPanel. On
+    // what we do in ui/win32/file_dlg_win32.c. macOS we should use NSOpenPanel. On
     // other platforms we should fall back to QFileDialog.
     //
     // Yes, that's four implementations of the same window.
@@ -90,7 +80,7 @@ private:
     void addDisplayFilterEdit();
     void addPreview(QVBoxLayout &v_box);
     QString fileExtensionType(int et, bool extension_globs = true);
-    QString fileType(int ft, bool extension_globs = true);
+    QString fileType(int ft, QStringList &suffixes);
     QStringList buildFileOpenTypeList(void);
 
     QVBoxLayout left_v_box_;
@@ -101,9 +91,7 @@ private:
 
     QLabel preview_format_;
     QLabel preview_size_;
-    QLabel preview_packets_;
-    QLabel preview_first_;
-    QLabel preview_elapsed_;
+    QLabel preview_first_elapsed_;
     QList<QLabel *> preview_labels_;
 
     QRadioButton merge_prepend_;
@@ -111,9 +99,9 @@ private:
     QRadioButton merge_append_;
 
     QComboBox format_type_;
-    QHash<QString, int>type_hash_;
+    QHash<QString, int> type_hash_;
+    QHash<QString, QStringList> type_suffixes_;
 
-    void addResolutionControls(QVBoxLayout &v_box);
     void addGzipControls(QVBoxLayout &v_box);
     void addRangeControls(QVBoxLayout &v_box, packet_range_t *range);
     QDialogButtonBox *addHelpButton(topic_action_e help_topic);
@@ -121,11 +109,6 @@ private:
     QStringList buildFileSaveAsTypeList(bool must_support_comments);
 
     int default_ft_;
-
-    QCheckBox mac_res_;
-    QCheckBox transport_res_;
-    QCheckBox network_res_;
-    QCheckBox external_res_;
 
     QCheckBox compress_;
 
@@ -143,7 +126,10 @@ signals:
 
 public slots:
 
-    int exec();
+#ifndef Q_OS_WIN
+    void accept() Q_DECL_OVERRIDE;
+#endif
+    int exec() Q_DECL_OVERRIDE;
     int open(QString &file_name, unsigned int &type);
     check_savability_t saveAs(QString &file_name, bool must_support_comments);
     check_savability_t exportSelectedPackets(QString &file_name, packet_range_t *range);
@@ -151,6 +137,7 @@ public slots:
 
 private slots:
 #if !defined(Q_OS_WIN)
+    void fixFilenameExtension();
     void preview(const QString & path);
     void on_buttonBox_helpRequested();
 #endif // Q_OS_WIN

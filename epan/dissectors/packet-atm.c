@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1524,7 +1512,7 @@ dissect_atm_cell(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
      * FF: parse the Header Error Check (HEC).
      */
     ti = proto_tree_add_item(atm_tree, hf_atm_header_error_check, tvb, 4, 1, ENC_BIG_ENDIAN);
-    err = get_header_err(tvb_get_ptr(tvb, 0, 5));
+    err = get_header_err((const guint8*)tvb_memdup(wmem_packet_scope(), tvb, 0, 5));
     if (err == NO_ERROR_DETECTED)
       proto_item_append_text(ti, " (correct)");
     else if (err == UNCORRECTIBLE_ERROR)
@@ -1979,8 +1967,8 @@ proto_register_atm(void)
 
   proto_atm_lane = proto_register_protocol("ATM LAN Emulation", "ATM LANE", "lane");
 
-  atm_type_aal2_table = register_dissector_table("atm.aal2.type", "ATM AAL_2 type subdissector", proto_atm, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-  atm_type_aal5_table = register_dissector_table("atm.aal5.type", "ATM AAL_5 type subdissector", proto_atm, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+  atm_type_aal2_table = register_dissector_table("atm.aal2.type", "ATM AAL_2 type", proto_atm, FT_UINT32, BASE_DEC);
+  atm_type_aal5_table = register_dissector_table("atm.aal5.type", "ATM AAL_5 type", proto_atm, FT_UINT32, BASE_DEC);
 
   register_capture_dissector_table("atm.aal5.type", "ATM AAL_5");
   register_capture_dissector_table("atm_lane", "ATM LAN Emulation");
@@ -2004,6 +1992,8 @@ proto_register_atm(void)
 void
 proto_reg_handoff_atm(void)
 {
+  capture_dissector_handle_t atm_cap_handle;
+
   /*
    * Get handles for the Ethernet, Token Ring, Frame Relay, LLC,
    * SSCOP, LANE, and ILMI dissectors.
@@ -2023,8 +2013,11 @@ proto_reg_handoff_atm(void)
 
   dissector_add_uint("wtap_encap", WTAP_ENCAP_ATM_PDUS_UNTRUNCATED,
                 atm_untruncated_handle);
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_ATM_PDUS, capture_atm, proto_atm);
-  register_capture_dissector("atm.aal5.type", TRAF_LANE, capture_lane, proto_atm_lane);
+
+  atm_cap_handle = create_capture_dissector_handle(capture_atm, proto_atm);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_ATM_PDUS, atm_cap_handle);
+  atm_cap_handle = create_capture_dissector_handle(capture_lane, proto_atm_lane);
+  capture_dissector_add_uint("atm.aal5.type", TRAF_LANE, atm_cap_handle);
 }
 
 /*

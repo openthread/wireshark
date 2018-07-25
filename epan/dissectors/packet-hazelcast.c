@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
 
@@ -95,7 +83,7 @@ static gint ett_hazelcast_flags = -1;
 
 /* prefs */
 static gboolean hazelcast_desegment = TRUE;
-static guint gPORT_PREF = 5701;
+#define HAZELCAST_PORT  5701 /* Not IANA registered */
 
 static const value_string operationTypes[] = {
     {0,   "NONE"},
@@ -571,12 +559,6 @@ void proto_register_hazelcast(void) {
                                    " To use this option, you must also enable \"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
                                    &hazelcast_desegment);
 
-    prefs_register_uint_preference(hazelcast_module, "tcp.port",
-                                   "Hazelcast TCP Port",
-                                   " Hazelcast TCP port if other than the default",
-                                   10,
-                                   &gPORT_PREF);
-
     hazelcast_tap = register_tap("hzlcst");
 
 }
@@ -584,19 +566,12 @@ void proto_register_hazelcast(void) {
 
 void
 proto_reg_handoff_hazelcast(void) {
-    static gboolean initialized = FALSE;
-    static dissector_handle_t hazelcast_handle;
-    static int currentPort;
 
-    if (!initialized) {
-        hazelcast_handle = create_dissector_handle(dissect_hazelcast, proto_hazelcast);
-        initialized = TRUE;
-    } else {
-        dissector_delete_uint("tcp.port", currentPort, hazelcast_handle);
-    }
+    dissector_handle_t hazelcast_handle;
 
-    currentPort = gPORT_PREF;
-    dissector_add_uint("tcp.port", currentPort, hazelcast_handle);
+    hazelcast_handle = create_dissector_handle(dissect_hazelcast, proto_hazelcast);
+
+    dissector_add_uint_with_preference("tcp.port", HAZELCAST_PORT, hazelcast_handle);
 }
 
 /*

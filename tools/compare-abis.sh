@@ -8,19 +8,7 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # Tested with abi-compliance-checker 1.96.1
 
@@ -44,17 +32,12 @@ function acc () {
 V1_PATH=$1
 V2_PATH=$2
 
-# both working copies have to be built first with autotools or with cmake
+# both working copies have to be built first with cmake
 # make -C $V1_PATH all dumpabi
 # make -C $V2_PATH all dumpabi
 
-if test -d $V1_PATH/lib; then
-	REL_LIB_PATH=../lib
-	REL_DUMP_PATH=.
-else
-	REL_LIB_PATH=.libs
-	REL_DUMP_PATH=.libs
-fi
+REL_LIB_PATH=../lib
+REL_DUMP_PATH=.
 
 acc libwiretap wiretap $V1_PATH $V2_PATH
 RET=$?

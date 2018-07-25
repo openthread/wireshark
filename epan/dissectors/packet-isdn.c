@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -25,7 +13,7 @@
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include <wiretap/wtap.h>
-#include <epan/circuit.h>
+#include <epan/conversation.h>
 
 void proto_register_isdn(void);
 void proto_reg_handoff_isdn(void);
@@ -96,7 +84,7 @@ dissect_isdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 	proto_item *ti;
 	static const guint8 v120_sabme[3] = { 0x08, 0x01, 0x7F };
 	static const guint8 ppp[2] = { 0xFF, 0x03 };
-	circuit_t *circuit;
+	conversation_t *conv;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "ISDN");
 
@@ -108,9 +96,7 @@ dissect_isdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 		col_set_str(pinfo->cinfo, COL_RES_DL_SRC, "Network");
 	}
 
-    /* XXX - Are these still needed? We've used other values where necessary */
-	pinfo->ctype = CT_ISDN;
-	pinfo->circuit_id = pinfo->pseudo_header->isdn.channel;
+	conversation_create_endpoint_by_id(pinfo, ENDPOINT_ISDN, pinfo->pseudo_header->isdn.channel, 0);
 
 	if (tree) {
 		ti = proto_tree_add_item(tree, proto_isdn, tvb, 0, 0, ENC_NA);
@@ -123,11 +109,9 @@ dissect_isdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 	/*
 	 * Set up a circuit for this channel, and assign it a dissector.
 	 */
-	circuit = find_circuit(CT_ISDN, pinfo->pseudo_header->isdn.channel, pinfo->num);
-	if (circuit == NULL)
-		circuit = circuit_new(CT_ISDN, pinfo->pseudo_header->isdn.channel, pinfo->num);
+	conv = find_or_create_conversation(pinfo);
 
-	if (circuit_get_dissector(circuit) == NULL) {
+	if (conversation_get_dissector(conv, 0) == NULL) {
 		/*
 		 * We don't yet know the type of traffic on the circuit.
 		 */
@@ -142,11 +126,11 @@ dissect_isdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 			switch (dchannel_protocol) {
 
 			case DCHANNEL_LAPD:
-				circuit_set_dissector(circuit, lapd_handle);
+				conversation_set_dissector(conv, lapd_handle);
 				break;
 
 			case DCHANNEL_DPNSS:
-				circuit_set_dissector(circuit,
+				conversation_set_dissector(conv,
 				    dpnss_link_handle);
 				break;
 			}
@@ -185,19 +169,19 @@ dissect_isdn(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 				/*
 				 * We assume this is V.120.
 				 */
-				circuit_set_dissector(circuit, v120_handle);
+				conversation_set_dissector(conv, v120_handle);
 			} else if (tvb_memeql(tvb, 0, ppp, 2) == 0) {
 				/*
 				 * We assume this is PPP.
 				 */
-				circuit_set_dissector(circuit, ppp_hdlc_handle);
+				conversation_set_dissector(conv, ppp_hdlc_handle);
 			}
 			break;
 		}
 	}
 
-	if (!try_circuit_dissector(CT_ISDN, pinfo->pseudo_header->isdn.channel,
-		pinfo->num, tvb, pinfo, tree, NULL))
+	if (!try_conversation_dissector_by_id(ENDPOINT_ISDN, pinfo->pseudo_header->isdn.channel,
+		tvb, pinfo, tree, NULL))
 		call_data_dissector(tvb, pinfo, tree);
 
 	return tvb_captured_length(tvb);

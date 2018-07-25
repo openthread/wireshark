@@ -8,19 +8,7 @@
  * Copyright 1998 Gerald Combs
  *
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -243,7 +231,7 @@ dissect_nsrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         proto_tree_add_item(nsrp_tree, hf_nsrp_no_used, tvb, offset, 2, ENC_BIG_ENDIAN);
         offset += 2;
 
-        proto_tree_add_item(nsrp_tree, hf_nsrp_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_checksum(nsrp_tree, tvb, offset, hf_nsrp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
         offset += 2;
 
         proto_tree_add_item(nsrp_tree, hf_nsrp_data, tvb, offset, -1, ENC_ASCII|ENC_NA);
@@ -293,7 +281,7 @@ dissect_nsrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         proto_tree_add_item(nsrp_tree, hf_nsrp_dummy, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
-        proto_tree_add_item(nsrp_tree, hf_nsrp_authchecksum, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_checksum(nsrp_tree, tvb, offset, hf_nsrp_authchecksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
         offset += 2;
 
         proto_tree_add_item(nsrp_tree, hf_nsrp_data, tvb, offset, -1, ENC_ASCII|ENC_NA);

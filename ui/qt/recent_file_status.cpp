@@ -4,30 +4,24 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "recent_file_status.h"
 
 RecentFileStatus::RecentFileStatus(const QString filename, QObject *parent) :
-        QThread(parent), filename_(filename)
+    QObject(parent),
+    // Force a deep copy.
+    filename_(QString::fromUtf16(filename.utf16()))
 {
-}
-
-QString RecentFileStatus::getFilename() const {
-    return (filename_);
+    // We're a QObject, which means that we emit a destroyed signal,
+    // which might happen at the wrong time when automatic deletion is
+    // enabled. This will trigger an assert in debug builds (bug 14279).
+    setAutoDelete(false);
+    // Qt::QueuedConnection creates a copy of our argument list. This
+    // squelches what appears to be a ThreadSanitizer false positive.
+    connect(this, SIGNAL(statusFound(QString, qint64, bool)),
+            parent, SLOT(itemStatusFinished(QString, qint64, bool)), Qt::QueuedConnection);
 }
 
 void RecentFileStatus::run() {
@@ -38,6 +32,7 @@ void RecentFileStatus::run() {
     } else {
         emit statusFound(filename_, 0, false);
     }
+    deleteLater();
 }
 
 /*

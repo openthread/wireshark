@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "splash_overlay.h"
@@ -27,11 +15,13 @@
 
 #include "ui/util.h"
 #include <wsutil/utf8_entities.h>
-#include "tango_colors.h"
+#include <ui/qt/utils/tango_colors.h>
 
 #ifdef HAVE_LUA
 #include "epan/wslua/init_wslua.h"
 #endif
+
+#include "extcap.h"
 
 // Uncomment to slow the update progress
 //#define THROTTLE_STARTUP 1
@@ -39,7 +29,7 @@
 /*
  * Update frequency for the splash screen, given in milliseconds.
  */
-static int info_update_freq_ = 100;
+const int info_update_freq_ = 65; // ~15 fps
 
 void splash_update(register_action_e action, const char *message, void *) {
     emit wsApp->registerUpdate(action, message);
@@ -53,20 +43,29 @@ SplashOverlay::SplashOverlay(QWidget *parent) :
 {
     so_ui_->setupUi(this);
 
-    // Number of register action transitions (e.g. RA_NONE -> RA_DISSECTORS,
-    // RA_DISSECTORS -> RA_PLUGIN_REGISTER) minus two.
-    int register_add = 4;
+    int register_max = RA_BASE_COUNT;
 #ifdef HAVE_LUA
-      register_add += wslua_count_plugins();   /* get count of lua plugins */
+    register_max++;
 #endif
-    so_ui_->progressBar->setMaximum((int)register_count() + register_add);
+    register_max++;
+
+    so_ui_->progressBar->setMaximum(register_max);
     elapsed_timer_.start();
 
-    setPalette(Qt::transparent);
+    QColor bg = QColor(tango_aluminium_6);
+    bg.setAlphaF(0.2);
+    QPalette pal;
+    pal.setColor(QPalette::Background, bg);
+    setPalette(pal);
+    setAutoFillBackground(true);
+
     setStyleSheet(QString(
+                      "QFrame#progressBand {"
+                      "  background: %1;"
+                      "}"
                       "QLabel {"
                       "  color: white;"
-                      "  background: rgba(0,0,0,0);"
+                      "  background: transparent;"
                       "}"
                       "QProgressBar {"
                       "  height: 1em;"
@@ -74,19 +73,14 @@ SplashOverlay::SplashOverlay(QWidget *parent) :
                       "  border: 0.1em solid white;"
                       "  border-radius: 0.2em;"
                       "  color: white;"
-                      "  background: rgba(0,0,0,0);"
+                      "  background: transparent;"
                       "}"
                       "QProgressBar::chunk {"
                       "  width: 0.1em;"
                       "  background: rgba(255, 255, 255, 50%);"
                       "}"
-                      ));
-
-#ifndef THROTTLE_STARTUP
-    // Check for a remote connection
-    if (display_is_remote())
-        info_update_freq_ = 1000;
-#endif
+                      )
+                  .arg(QColor(tango_aluminium_4).name()));
 
     connect(wsApp, SIGNAL(splashUpdate(register_action_e,const char*)),
             this, SLOT(splashUpdate(register_action_e,const char*)));
@@ -118,10 +112,13 @@ void SplashOverlay::splashUpdate(register_action_e action, const char *message)
     ThrottleThread::msleep(10);
 #endif
 
-    register_cur_++;
-    if (last_action_ == action && elapsed_timer_.elapsed() < info_update_freq_ && register_cur_ != so_ui_->progressBar->maximum()) {
-      /* Only update every splash_register_freq milliseconds */
-      return;
+    if (last_action_ == action && (elapsed_timer_.elapsed() < info_update_freq_)) {
+        // Nothing to update yet
+        return;
+    }
+
+    if (last_action_ != action) {
+        register_cur_++;
     }
     last_action_ = action;
 
@@ -131,6 +128,9 @@ void SplashOverlay::splashUpdate(register_action_e action, const char *message)
         break;
     case RA_LISTENERS:
         action_msg = tr("Initializing tap listeners");
+        break;
+    case RA_EXTCAP:
+        action_msg = tr("Initializing external capture plugins");
         break;
     case RA_REGISTER:
         action_msg = tr("Registering dissectors");
@@ -153,8 +153,8 @@ void SplashOverlay::splashUpdate(register_action_e action, const char *message)
     case RA_PREFERENCES:
         action_msg = tr("Loading module preferences");
         break;
-    case RA_CONFIGURATION:
-        action_msg = tr("Loading configuration files");
+    case RA_INTERFACES:
+        action_msg = tr("Finding local interfaces");
         break;
     default:
         action_msg = tr("(Unknown action)");
@@ -172,18 +172,8 @@ void SplashOverlay::splashUpdate(register_action_e action, const char *message)
 
     so_ui_->progressBar->setValue(register_cur_);
 
-    wsApp->processEvents();
+    wsApp->processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers, 1);
     elapsed_timer_.restart();
-}
-
-void SplashOverlay::paintEvent(QPaintEvent *)
-{
-    QPainter painter(this);
-
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setBrush(QColor(tango_aluminium_6));
-    painter.setOpacity(0.4);
-    painter.drawRect(rect());
 }
 
 /*

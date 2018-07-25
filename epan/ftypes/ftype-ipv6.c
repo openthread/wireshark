@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -25,6 +13,7 @@
 #include <ftypes-int.h>
 #include <epan/ipv6.h>
 #include <epan/addr_resolv.h>
+#include <epan/to_str.h>
 
 static void
 ipv6_fvalue_set(fvalue_t *fv, const guint8 *value)
@@ -93,16 +82,13 @@ ipv6_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_partial_value _U_
 static int
 ipv6_repr_len(fvalue_t *fv _U_, ftrepr_t rtype _U_, int field_display _U_)
 {
-	/*
-	 * 39 characters for "XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:XXXX".
-	 */
-	return 39;
+	return WS_INET6_ADDRSTRLEN;
 }
 
 static void
-ipv6_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+ipv6_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
-	ip6_to_str_buf(&(fv->value.ipv6.addr), buf);
+	ip6_to_str_buf(&(fv->value.ipv6.addr), buf, size);
 }
 
 static gpointer
@@ -123,7 +109,7 @@ cmp_compare(const fvalue_t *fv_a, const fvalue_t *fv_b)
 	int pos = 0;
 
 	prefix = MIN(a->prefix, b->prefix);	/* MIN() like IPv4 */
-	prefix = MIN(prefix, 128);			/* sanitize, max prefix is 128 */
+	prefix = MIN(prefix, 128);		/* sanitize, max prefix is 128 */
 
 	while (prefix >= 8) {
 		gint byte_a = (gint) (a->addr.bytes[pos]);
@@ -214,7 +200,6 @@ cmp_bitwise_and(const fvalue_t *fv_a, const fvalue_t *fv_b)
 static void
 slice(fvalue_t *fv, GByteArray *bytes, guint offset, guint length)
 {
-	/* XXX needed? ipv4 doesn't support slice() */
 	guint8* data;
 
 	data = fv->value.ipv6.addr.bytes + offset;
@@ -230,31 +215,15 @@ ftype_register_ipv6(void)
 		"FT_IPv6",			/* name */
 		"IPv6 address",			/* pretty_name */
 		FT_IPv6_LEN,			/* wire_size */
-		NULL,		/* new_value */
-		NULL,		/* free_value */
+		NULL,				/* new_value */
+		NULL,				/* free_value */
 		ipv6_from_unparsed,		/* val_from_unparsed */
 		NULL,				/* val_from_string */
 		ipv6_to_repr,			/* val_to_string_repr */
 		ipv6_repr_len,			/* len_string_repr */
 
-		NULL,				/* set_value_byte_array */
-		ipv6_fvalue_set,		/* set_value_bytes */
-		NULL,				/* set_value_guid */
-		NULL,				/* set_value_time */
-		NULL,				/* set_value_string */
-		NULL,				/* set_value_tvbuff */
-		NULL,				/* set_value_uinteger */
-		NULL,				/* set_value_sinteger */
-		NULL,				/* set_value_uinteger64 */
-		NULL,				/* set_value_sinteger64 */
-		NULL,				/* set_value_floating */
-
-		value_get,			/* get_value */
-		NULL,				/* get_value_uinteger */
-		NULL,				/* get_value_sinteger */
-		NULL,				/* get_value_uinteger64 */
-		NULL,				/* get_value_sinteger64 */
-		NULL,				/* get_value_floating */
+		{ .set_value_bytes = ipv6_fvalue_set },	/* union set_value */
+		{ .get_value_ptr = value_get },		/* union get_value */
 
 		cmp_eq,
 		cmp_ne,

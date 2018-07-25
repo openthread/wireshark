@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -135,12 +123,16 @@ static gint proto_ipmb = -1;
 static gint proto_kcs = -1;
 static gint proto_tmode = -1;
 
+/* WARNING: Setting this to true might result in the entire dissector being
+   disabled by default or removed completely. */
+static gboolean dissect_bus_commands = FALSE;
 static gboolean fru_langcode_is_english = TRUE;
 static guint response_after_req = 5000;
 static guint response_before_req = 0;
 static guint message_format = MSGFMT_GUESS;
 static guint selected_oem = IPMI_OEM_NONE;
 
+static gint hf_ipmi_command_data = -1;
 static gint hf_ipmi_session_handle = -1;
 static gint hf_ipmi_header_trg = -1;
 static gint hf_ipmi_header_trg_lun = -1;
@@ -453,6 +445,13 @@ dissect_ipmi_cmd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	guint8 prev_level, cc_val;
 	guint offset, siglen, is_resp;
 	const char * cc_str, * netfn_str;
+
+	if (!dissect_bus_commands) {
+		ti = proto_tree_add_item(tree, hf_parent_item, tvb, 0, -1, ENC_NA);
+		cmd_tree = proto_item_add_subtree(ti, ett_tree);
+		proto_tree_add_item(cmd_tree, hf_ipmi_command_data, tvb, 0, -1, ENC_NA);
+		return 0;
+	}
 
 	/* get packet data */
 	data = get_packet_data(pinfo);
@@ -792,7 +791,7 @@ void ipmi_set_data(packet_info *pinfo, guint idx, guint32 value)
 	ipmi_packet_data_t * data = get_packet_data(pinfo);
 
 	/* check bounds */
-	if (data->curr_level >= MAX_NEST_LEVEL || idx >= NSAVED_DATA ) {
+	if (data->curr_level >= MAX_NEST_LEVEL || idx >= NSAVED_DATA || !data->curr_frame ) {
 		return;
 	}
 
@@ -806,7 +805,7 @@ gboolean ipmi_get_data(packet_info *pinfo, guint idx, guint32 * value)
 	ipmi_packet_data_t * data = get_packet_data(pinfo);
 
 	/* check bounds */
-	if (data->curr_level >= MAX_NEST_LEVEL || idx >= NSAVED_DATA ) {
+	if (data->curr_level >= MAX_NEST_LEVEL || idx >= NSAVED_DATA || !data->curr_frame ) {
 		return FALSE;
 	}
 
@@ -1065,7 +1064,7 @@ ipmi_add_timestamp(proto_tree *tree, gint hf, tvbuff_t *tvb, guint offset)
 	} else if (ts <= 0x20000000) {
 		proto_tree_add_uint_format_value(tree, hf, tvb, offset, 4,
 				ts, "%s since SEL device's initialization",
-				time_secs_to_str_unsigned(wmem_packet_scope(), ts));
+				unsigned_time_secs_to_str(wmem_packet_scope(), ts));
 	} else {
 		proto_tree_add_uint_format_value(tree, hf, tvb, offset, 4,
 				ts, "%s", abs_time_secs_to_str(wmem_packet_scope(), ts, ABSOLUTE_TIME_UTC, TRUE));
@@ -1123,7 +1122,7 @@ ipmi_register_netfn_cmdtab(guint32 netfn, guint oem_selector,
 		return;
 	}
 
-	inh = (struct ipmi_netfn_handler *)g_malloc(sizeof(struct ipmi_netfn_handler));
+	inh = (struct ipmi_netfn_handler *)wmem_alloc(wmem_epan_scope(), sizeof(struct ipmi_netfn_handler));
 	inh->desc = desc;
 	inh->oem_selector = oem_selector;
 	inh->sig = sig;
@@ -1724,6 +1723,7 @@ void
 proto_register_ipmi(void)
 {
 	static hf_register_info	hf[] = {
+		{ &hf_ipmi_command_data, { "Bus command data", "ipmi.bus_command_data", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 		{ &hf_ipmi_session_handle, { "Session handle", "ipmi.session_handle", FT_UINT8, BASE_HEX, NULL, 0, NULL, HFILL }},
 		{ &hf_ipmi_header_trg, { "Target Address", "ipmi.header.target", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 		{ &hf_ipmi_header_trg_lun, { "Target LUN", "ipmi.header.trg_lun", FT_UINT8, BASE_HEX, NULL, 0x03, NULL, HFILL }},
@@ -1766,7 +1766,7 @@ proto_register_ipmi(void)
 		{ &ei_impi_parser_not_implemented, { "ipmi.parser_not_implemented", PI_UNDECODED, PI_WARN, "[PARSER NOT IMPLEMENTED]", EXPFILL }},
 	};
 
-	module_t *m;
+	module_t *module;
 	expert_module_t* expert_ipmi;
 	guint32 i;
 
@@ -1808,20 +1808,23 @@ proto_register_ipmi(void)
 	register_dissector("kcs", dissect_kcs, proto_kcs);
 	register_dissector("tmode", dissect_tmode, proto_tmode);
 
-	m = prefs_register_protocol(proto_ipmi, NULL);
-	prefs_register_bool_preference(m, "fru_langcode_is_english", "FRU Language Code is English",
+	module = prefs_register_protocol(proto_ipmi, NULL);
+	prefs_register_bool_preference(module, "dissect_bus_commands", "Dissect bus commands",
+			"Dissect IPMB commands",
+			&dissect_bus_commands);
+	prefs_register_bool_preference(module, "fru_langcode_is_english", "FRU Language Code is English",
 			"FRU Language Code is English; strings are ASCII+LATIN1 (vs. Unicode)",
 			&fru_langcode_is_english);
-	prefs_register_uint_preference(m, "response_after_req", "Maximum delay of response message",
+	prefs_register_uint_preference(module, "response_after_req", "Maximum delay of response message",
 			"Do not search for responses coming after this timeout (milliseconds)",
 			10, &response_after_req);
-	prefs_register_uint_preference(m, "response_before_req", "Response ahead of request",
+	prefs_register_uint_preference(module, "response_before_req", "Response ahead of request",
 			"Allow for responses before requests (milliseconds)",
 			10, &response_before_req);
-	prefs_register_enum_preference(m, "msgfmt", "Format of embedded messages",
+	prefs_register_enum_preference(module, "msgfmt", "Format of embedded messages",
 			"Format of messages embedded into Send/Get/Forward Message",
 			&message_format, msgfmt_vals, FALSE);
-	prefs_register_enum_preference(m, "selected_oem", "OEM commands parsed as",
+	prefs_register_enum_preference(module, "selected_oem", "OEM commands parsed as",
 			"Selects which OEM format is used for commands that IPMI does not define",
 			&selected_oem, oemsel_vals, FALSE);
 }

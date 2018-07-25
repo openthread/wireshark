@@ -9,19 +9,7 @@
  *
  * Partially copied from packet-ipmi.c.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -222,7 +210,7 @@ dissect_ipmi_session(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
 	}
 
 	/* If we can parse the embedded message, do so */
-	next_tvb = tvb_new_subset(tvb, msg_start, msg_len, -1);
+	next_tvb = tvb_new_subset_length_caplen(tvb, msg_start, msg_len, -1);
 	if (payloadtype_enc) {
 		/* This is RMCP+, and payload is encrypted. In this case,
 		   there is a 'confidentiality header/trailer', whose lengths

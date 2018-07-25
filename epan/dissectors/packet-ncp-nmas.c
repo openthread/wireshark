@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -167,11 +155,11 @@ static const value_string nmas_errors_enum[] = {
     { 0xFFFFF96A, "(-1686) DLL FAILED LOADING" },
     { 0xFFFFF969, "(-1687) EVALUATION VERSION WARNING" },
     { 0xFFFFF968, "(-1688) CONCURRENT LOGIN" },
-    { 0xFFFFF969, "(-1689) THREAD CREATE" },
-    { 0xFFFFF96A, "(-1690) SECURE CHANNEL REQUIRED" },
-    { 0xFFFFF96B, "(-1691) NO DEFAULT USER SEQUENCE" },
-    { 0xFFFFF96C, "(-1692) NO TREENAME" },
-    { 0xFFFFF96D, "(-1693) MECHANISM NOT FOUND" },
+    { 0xFFFFF967, "(-1689) THREAD CREATE" },
+    { 0xFFFFF966, "(-1690) SECURE CHANNEL REQUIRED" },
+    { 0xFFFFF965, "(-1691) NO DEFAULT USER SEQUENCE" },
+    { 0xFFFFF964, "(-1692) NO TREENAME" },
+    { 0xFFFFF963, "(-1693) MECHANISM NOT FOUND" },
     { 0,          NULL }
 };
 

@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -53,6 +41,8 @@ static int hf_pcap_packet_timestamp_usec = -1;
 static int hf_pcap_packet_included_length = -1;
 static int hf_pcap_packet_origin_length = -1;
 static int hf_pcap_packet_data = -1;
+
+static expert_field ei_pcap_inc_larger_than_orig = EI_INIT;
 
 static gint ett_pcap = -1;
 static gint ett_pcap_header = -1;
@@ -94,6 +84,7 @@ dissect_pcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     proto_item      *timestamp_item;
     proto_tree      *packet_data_tree;
     proto_item      *packet_data_item;
+    proto_item      *inc_len_item;
     volatile guint32 encoding;
     volatile guint   timestamp_scale_factor;
     const char      *magic;
@@ -173,11 +164,17 @@ dissect_pcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
         proto_tree_add_item(timestamp_tree, hf_pcap_packet_timestamp_usec, tvb, offset, 4, encoding);
         offset += 4;
 
-        proto_tree_add_item_ret_uint(packet_tree, hf_pcap_packet_included_length, tvb, offset, 4, encoding, &length);
+        inc_len_item = proto_tree_add_item_ret_uint(packet_tree, hf_pcap_packet_included_length, tvb, offset, 4, encoding, &length);
         offset += 4;
 
         proto_tree_add_item_ret_uint(packet_tree, hf_pcap_packet_origin_length, tvb, offset, 4, encoding, &origin_length);
         offset += 4;
+
+        if (length > origin_length) {
+            expert_add_info(pinfo, inc_len_item,
+                    &ei_pcap_inc_larger_than_orig);
+            break;
+        }
 
         packet_data_item = proto_tree_add_item(packet_tree, hf_pcap_packet_data, tvb, offset, length, ENC_NA);
         packet_data_tree = proto_item_add_subtree(packet_data_item, ett_pcap_packet_data);
@@ -187,7 +184,7 @@ dissect_pcap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 
         if (pref_dissect_next_layer) {
             TRY {
-                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset(tvb, offset, length, origin_length), pinfo, packet_data_tree, &link_type);
+                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset_length_caplen(tvb, offset, length, origin_length), pinfo, packet_data_tree, &link_type);
             }
             CATCH_BOUNDS_ERRORS {
                 show_exception(tvb, pinfo, packet_data_tree, EXCEPT_CODE, GET_MESSAGE);
@@ -213,6 +210,7 @@ void
 proto_register_file_pcap(void)
 {
     module_t         *module;
+    expert_module_t  *expert_pcap;
 
     static hf_register_info hf[] = {
         { &hf_pcap_header,
@@ -292,6 +290,13 @@ proto_register_file_pcap(void)
         },
     };
 
+    static ei_register_info ei[] = {
+        { &ei_pcap_inc_larger_than_orig,
+            { "pcap.inc_len_larger_than_orig_len", PI_MALFORMED, PI_ERROR,
+                "included length is larger than original length",
+                EXPFILL }}
+    };
+
     static gint *ett[] = {
         &ett_pcap,
         &ett_pcap_header,
@@ -303,6 +308,8 @@ proto_register_file_pcap(void)
     proto_pcap = proto_register_protocol("PCAP File Format", "File-PCAP", "file-pcap");
     proto_register_field_array(proto_pcap, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_pcap = expert_register_protocol(proto_pcap);
+    expert_register_field_array(expert_pcap, ei, array_length(ei));
 
     register_dissector("file-pcap", dissect_pcap, proto_pcap);
 

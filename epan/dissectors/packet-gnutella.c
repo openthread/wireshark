@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -385,7 +373,7 @@ static int dissect_gnutella_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
 			break;
 	}
 
-	col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+	col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
 		    payload_descriptor_text);
 
 	if (tree) {
@@ -732,9 +720,7 @@ void proto_register_gnutella(void) {
 		&ett_gnutella,
 	};
 
-	proto_gnutella = proto_register_protocol("Gnutella Protocol",
-	    					"GNUTELLA",
-						"gnutella");
+	proto_gnutella = proto_register_protocol("Gnutella Protocol", "GNUTELLA", "gnutella");
 
 	proto_register_field_array(proto_gnutella, hf, array_length(hf));
 
@@ -744,9 +730,8 @@ void proto_register_gnutella(void) {
 void proto_reg_handoff_gnutella(void) {
 	dissector_handle_t gnutella_handle;
 
-	gnutella_handle = create_dissector_handle(dissect_gnutella,
-			proto_gnutella);
-	dissector_add_uint("tcp.port", GNUTELLA_TCP_PORT, gnutella_handle);
+	gnutella_handle = create_dissector_handle(dissect_gnutella, proto_gnutella);
+	dissector_add_uint_with_preference("tcp.port", GNUTELLA_TCP_PORT, gnutella_handle);
 }
 
 /*

@@ -10,19 +10,7 @@
  *
  * Copied from packet-tftp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -138,7 +126,7 @@ dissect_sap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
     is_comp = vers_flags&MCAST_SAP_BIT_C;
 
     sap_version = (vers_flags&MCAST_SAP_VERSION_MASK)>>MCAST_SAP_VERSION_SHIFT;
-    addr_len = (is_ipv6) ? (int)sizeof(struct e_in6_addr) : 4;
+    addr_len = (is_ipv6) ? (int)sizeof(ws_in6_addr) : 4;
 
     col_add_fstr(pinfo->cinfo, COL_INFO, "%s (v%u)",
                             (is_del) ? "Deletion" : "Announcement", sap_version);
@@ -383,7 +371,7 @@ proto_reg_handoff_sap(void)
     dissector_handle_t sap_handle;
 
     sap_handle = create_dissector_handle(dissect_sap, proto_sap);
-    dissector_add_uint("udp.port", UDP_PORT_SAP, sap_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_SAP, sap_handle);
 
     /*
      * Get a handle for the SDP dissector.

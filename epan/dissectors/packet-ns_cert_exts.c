@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -66,7 +54,7 @@ static int hf_ns_cert_exts_CertType_smime_ca = -1;
 static int hf_ns_cert_exts_CertType_object_signing_ca = -1;
 
 /*--- End of included file: packet-ns_cert_exts-hf.c ---*/
-#line 40 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
+#line 28 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -75,7 +63,7 @@ static int hf_ns_cert_exts_CertType_object_signing_ca = -1;
 static gint ett_ns_cert_exts_CertType = -1;
 
 /*--- End of included file: packet-ns_cert_exts-ett.c ---*/
-#line 43 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
+#line 31 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
 
 
 /*--- Included file: packet-ns_cert_exts-fn.c ---*/
@@ -240,7 +228,7 @@ static int dissect_CertType_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto
 
 
 /*--- End of included file: packet-ns_cert_exts-fn.c ---*/
-#line 45 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
+#line 33 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
 
 
 /*--- proto_register_ns_cert_exts -------------------------------------------*/
@@ -317,7 +305,7 @@ void proto_register_ns_cert_exts(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-ns_cert_exts-hfarr.c ---*/
-#line 53 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
+#line 41 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
   };
 
   /* List of subtrees */
@@ -328,7 +316,7 @@ void proto_register_ns_cert_exts(void) {
     &ett_ns_cert_exts_CertType,
 
 /*--- End of included file: packet-ns_cert_exts-ettarr.c ---*/
-#line 58 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
+#line 46 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
   };
 
   /* Register protocol */
@@ -357,6 +345,6 @@ void proto_reg_handoff_ns_cert_exts(void) {
 
 
 /*--- End of included file: packet-ns_cert_exts-dis-tab.c ---*/
-#line 73 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
+#line 61 "./asn1/ns_cert_exts/packet-ns_cert_exts-template.c"
 }
 

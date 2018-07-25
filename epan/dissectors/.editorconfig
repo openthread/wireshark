@@ -57,77 +57,6 @@ indent_size = tab
 indent_style = tab
 indent_size = tab
 
-[packet-aim-admin.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-adverts.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-buddylist.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-chat.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-chatnav.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-directory.[ch]]
-indent_size = 2
-
-[packet-aim-email.[ch]]
-indent_size = 2
-
-[packet-aim-icq.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-invitation.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-location.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-messaging.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-oft.[ch]]
-indent_size = 2
-
-[packet-aim-popup.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-signon.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-ssi.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-sst.[ch]]
-indent_style = tab
-indent_size = tab
-
-[packet-aim-stats.[ch]]
-indent_size = 2
-
-[packet-aim-translate.[ch]]
-indent_size = 2
-
-[packet-aim-userlookup.[ch]]
-indent_style = tab
-indent_size = tab
-
 [packet-aim.[ch]]
 indent_style = tab
 indent_size = tab
@@ -387,6 +316,10 @@ indent_size = 2
 
 [packet-cpha.[ch]]
 indent_size = 2
+
+[packet-cql.[ch]]
+indent_style = tab
+indent_size = tab
 
 [packet-csn1.[ch]]
 indent_size = 2
@@ -780,6 +713,9 @@ indent_size = tab
 indent_style = tab
 indent_size = tab
 
+[packet-f1ap.[ch]]
+indent_size = 2
+
 [packet-fcgi.[ch]]
 indent_size = 3
 
@@ -799,6 +735,10 @@ indent_style = tab
 indent_size = tab
 
 [packet-foundry.[ch]]
+indent_style = tab
+indent_size = tab
+
+[packet-fpp.[ch]]
 indent_style = tab
 indent_size = tab
 
@@ -938,6 +878,10 @@ indent_style = tab
 indent_size = tab
 
 [packet-gsmtap.[ch]]
+indent_style = tab
+indent_size = tab
+
+[packet-gsmtap_log.[ch]]
 indent_style = tab
 indent_size = tab
 
@@ -1091,6 +1035,14 @@ indent_size = 2
 
 [packet-imf.[ch]]
 indent_size = 2
+
+[packet-indigocare-netrix.[ch]]
+indent_style = tab
+indent_size = tab
+
+[packet-indigocare-icall.[ch]]
+indent_style = tab
+indent_size = tab
 
 [packet-interlink.[ch]]
 indent_style = tab
@@ -1531,6 +1483,10 @@ indent_size = tab
 indent_style = tab
 indent_size = tab
 
+[packet-nfapi.c]
+indent_style = tab
+indent_size = tab
+
 [packet-nfs.[ch]]
 indent_style = tab
 indent_size = tab
@@ -1960,6 +1916,10 @@ indent_size = tab
 [packet-sndcp.[ch]]
 indent_size = 2
 
+[packet-solaredge.[ch]]
+indent_style = tab
+indent_size = tab
+
 [packet-socketcan.[ch]]
 indent_style = tab
 indent_size = tab
@@ -2068,6 +2028,10 @@ indent_size = 2
 indent_size = 2
 
 [packet-tns.[ch]]
+indent_style = tab
+indent_size = tab
+
+[packet-tpm20.c]
 indent_style = tab
 indent_size = tab
 

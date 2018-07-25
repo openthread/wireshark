@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -93,6 +81,7 @@ static int hf_gsm_a_rp_rp_message_reference = -1;
 static gint ett_rp_msg = -1;
 
 static expert_field ei_gsm_a_rp_extraneous_data = EI_INIT;
+static expert_field ei_gsm_a_rp_missing_mandatory_element = EI_INIT;
 
 static dissector_handle_t gsm_sms_handle;	/* SMS TPDU */
 
@@ -256,13 +245,13 @@ rp_data_n_ms(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset
 
 	pinfo->p2p_dir = P2P_DIR_SENT;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_ORIG_ADDR, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_ORIG_ADDR, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_DEST_ADDR, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_DEST_ADDR, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	EXTRANEOUS_DATA_CHECK(curr_len, 0, pinfo, &ei_gsm_a_rp_extraneous_data);
 }
@@ -282,13 +271,13 @@ rp_data_ms_n(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset
 
 	pinfo->p2p_dir = P2P_DIR_RECV;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_ORIG_ADDR, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_ORIG_ADDR, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_DEST_ADDR, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_DEST_ADDR, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	EXTRANEOUS_DATA_CHECK(curr_len, 0, pinfo, &ei_gsm_a_rp_extraneous_data);
 }
@@ -306,7 +295,7 @@ rp_smma(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo _U_, guint32 offset,
 	curr_offset = offset;
 	curr_len = len;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	EXTRANEOUS_DATA_CHECK(curr_len, 0, pinfo, &ei_gsm_a_rp_extraneous_data);
 }
@@ -326,7 +315,7 @@ rp_ack_n_ms(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset,
 
 	pinfo->p2p_dir = P2P_DIR_SENT;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	ELEM_OPT_TLV(0x41, GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL);
 
@@ -348,7 +337,7 @@ rp_ack_ms_n(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset,
 
 	pinfo->p2p_dir = P2P_DIR_RECV;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	ELEM_OPT_TLV(0x41, GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL);
 
@@ -370,9 +359,9 @@ rp_error_n_ms(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offse
 
 	pinfo->p2p_dir = P2P_DIR_SENT;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_CAUSE, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_CAUSE, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	ELEM_OPT_TLV(0x41, GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL);
 
@@ -394,9 +383,9 @@ rp_error_ms_n(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offse
 
 	pinfo->p2p_dir = P2P_DIR_RECV;
 
-	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL);
+	ELEM_MAND_V(GSM_A_PDU_TYPE_RP, DE_RP_MESSAGE_REF, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
-	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_CAUSE, NULL);
+	ELEM_MAND_LV(GSM_A_PDU_TYPE_RP, DE_RP_CAUSE, NULL, ei_gsm_a_rp_missing_mandatory_element);
 
 	ELEM_OPT_TLV(0x41, GSM_A_PDU_TYPE_RP, DE_RP_USER_DATA, NULL);
 
@@ -525,6 +514,7 @@ proto_register_gsm_a_rp(void)
 
 	static ei_register_info ei[] = {
 		{ &ei_gsm_a_rp_extraneous_data, { "gsm_a.rp.extraneous_data", PI_PROTOCOL, PI_NOTE, "Extraneous Data, dissector bug or later version spec(report to wireshark.org)", EXPFILL }},
+		{ &ei_gsm_a_rp_missing_mandatory_element, { "gsm_a.rp.missing_mandatory_element", PI_PROTOCOL, PI_ERROR, "Missing Mandatory element, rest of dissection is suspect", EXPFILL }},
 	};
 
 	expert_module_t* expert_gsm_a_rp;

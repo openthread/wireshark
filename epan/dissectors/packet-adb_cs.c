@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See thehf_class
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -101,8 +89,8 @@ dissect_adb_cs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     main_item = proto_tree_add_item(tree, proto_adb_cs, tvb, offset, -1, ENC_NA);
     main_tree = proto_item_add_subtree(main_item, ett_adb_cs);
 
-    if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-        wireshark_interface_id = pinfo->phdr->interface_id;
+    if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+        wireshark_interface_id = pinfo->rec->rec_header.packet_header.interface_id;
 
     if (pinfo->destport == server_port) { /* Client sent to Server */
         client_request_t  *client_request;
@@ -117,8 +105,8 @@ dissect_adb_cs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Client");
 
-        if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-            wireshark_interface_id = pinfo->phdr->interface_id;
+        if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+            wireshark_interface_id = pinfo->rec->rec_header.packet_header.interface_id;
 
         key[0].length = 1;
         key[0].key = &wireshark_interface_id;
@@ -175,15 +163,15 @@ dissect_adb_cs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
             adb_service_data.session_key[1] = pinfo->destport;
             adb_service_data.session_key[2] = pinfo->srcport;
 
-            next_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_captured_length_remaining(tvb, offset));
+            next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_captured_length_remaining(tvb, offset));
             call_dissector_with_data(adb_service_handle, next_tvb, pinfo, tree, &adb_service_data);
 
             return tvb_captured_length(tvb);
         }
 
         if (!pinfo->fd->flags.visited && length > 0) { /* save Length to client_requests */
-            if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-                wireshark_interface_id = pinfo->phdr->interface_id;
+            if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+                wireshark_interface_id = pinfo->rec->rec_header.packet_header.interface_id;
 
             key[0].length = 1;
             key[0].key = &wireshark_interface_id;
@@ -209,8 +197,8 @@ dissect_adb_cs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
         if (!pinfo->fd->flags.visited && (length == -1 || (client_request && client_request->service_in == -1 && tvb_reported_length_remaining(tvb, offset) > 0))) { /* save Service to client_requests */
             if (!client_request) {
-                if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-                    wireshark_interface_id = pinfo->phdr->interface_id;
+                if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+                    wireshark_interface_id = pinfo->rec->rec_header.packet_header.interface_id;
 
                 key[0].length = 1;
                 key[0].key = &wireshark_interface_id;
@@ -320,12 +308,14 @@ dissect_adb_cs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         if (tvb_reported_length_remaining(tvb, offset) <= 0) return offset;
 
         if (status == STATUS_FAIL) {
-            sub_item = proto_tree_add_item(main_tree, hf_fail_reason, tvb, offset, -1, ENC_NA | ENC_ASCII);
+            const guint8* str;
+            sub_item = proto_tree_add_item_ret_string(main_tree, hf_fail_reason, tvb, offset,
+                            tvb_reported_length_remaining(tvb, offset), ENC_NA | ENC_ASCII, wmem_packet_scope(), &str);
             if (length < tvb_reported_length_remaining(tvb, offset)) {
                 expert_add_info(pinfo, sub_item, &ei_incomplete_message);
             }
 
-            col_append_fstr(pinfo->cinfo, COL_INFO, " Fail=<%s>", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_ASCII));
+            col_append_fstr(pinfo->cinfo, COL_INFO, " Fail=<%s>", str);
             return tvb_captured_length(tvb);
         }
 
@@ -339,7 +329,7 @@ dissect_adb_cs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         adb_service_data.session_key[1] = pinfo->destport;
         adb_service_data.session_key[2] = pinfo->srcport;
 
-        next_tvb = tvb_new_subset(tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_captured_length_remaining(tvb, offset));
+        next_tvb = tvb_new_subset_length_caplen(tvb, offset, tvb_captured_length_remaining(tvb, offset), tvb_captured_length_remaining(tvb, offset));
         call_dissector_with_data(adb_service_handle, next_tvb, pinfo, tree, &adb_service_data);
         offset = tvb_captured_length(tvb);
     } else {
@@ -435,7 +425,7 @@ proto_reg_handoff_adb_cs(void)
 {
     adb_service_handle = find_dissector_add_dependency("adb_service", proto_adb_cs);
 
-    dissector_add_for_decode_as("tcp.port", adb_cs_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", adb_cs_handle);
 }
 
 /*

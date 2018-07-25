@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.com>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -199,6 +187,8 @@ static int hf_ehs_dz_udsm_event = -1;
 
 static int hf_ehs_dz_udsm_num_pkts_xmtd_rollover = -1;
 
+
+static dissector_handle_t ehs_handle;
 
 /* handle to ccsds packet dissector */
 static dissector_handle_t ccsds_handle;
@@ -1952,14 +1942,13 @@ proto_register_ehs(void)
   proto_register_subtree_array(ett, array_length(ett));
 
   /* XX: Does this dissector need to be publicly registered ?? */
-  register_dissector ( "ehs", dissect_ehs, proto_ehs );
-
+  ehs_handle = register_dissector ( "ehs", dissect_ehs, proto_ehs );
 }
 
 void
 proto_reg_handoff_ehs(void)
 {
-  dissector_add_for_decode_as ( "udp.port", find_dissector("ehs") );
+  dissector_add_for_decode_as_with_preference( "udp.port", ehs_handle );
   ccsds_handle = find_dissector_add_dependency ( "ccsds", proto_ehs  );
 }
 

@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -566,8 +554,7 @@ typedef [string] byte   NameString_t[AFS_NAMEMAX];
   col_append_fstr (pinfo->cinfo, COL_INFO, " String_size:%u", string_size);
   if (string_size < AFS_NAMEMAX)
     {
-      proto_tree_add_item (tree, hf_fileexp_afsNameString_t_principalName_string, tvb, offset, string_size, ENC_ASCII|ENC_NA);
-      namestring = tvb_get_string_enc (wmem_packet_scope(), tvb, offset, string_size, ENC_ASCII);
+      proto_tree_add_item_ret_string(tree, hf_fileexp_afsNameString_t_principalName_string, tvb, offset, string_size, ENC_ASCII|ENC_NA, wmem_packet_scope(), &namestring);
       offset += string_size;
       col_append_fstr (pinfo->cinfo, COL_INFO, " Principal:%s", namestring);
     }
@@ -754,7 +741,7 @@ dissect_afsAcl (tvbuff_t *tvb, int offset,
 */
 
   proto_item *item       = NULL;
-  proto_tree *tree       = NULL;
+  proto_tree *tree;
   int         old_offset = offset;
   guint32     acl_len;
   e_guid_t    uuid1, defaultcell;
@@ -764,10 +751,7 @@ dissect_afsAcl (tvbuff_t *tvb, int offset,
       return offset;
     }
 
-  if (parent_tree)
-    {
-      tree = proto_tree_add_subtree (parent_tree, tvb, offset, -1, ett_fileexp_afsAcl, &item, "afsAcl");
-    }
+  tree = proto_tree_add_subtree (parent_tree, tvb, offset, -1, ett_fileexp_afsAcl, &item, "afsAcl");
 
   offset =
     dissect_ndr_uint32 (tvb, offset, pinfo, tree, di, drep, hf_fileexp_acl_len,
@@ -794,10 +778,13 @@ dissect_afsAcl (tvbuff_t *tvb, int offset,
                      defaultcell.data4[4], defaultcell.data4[5],
                      defaultcell.data4[6], defaultcell.data4[7]);
 
-  offset += (acl_len - 38);
+  if (acl_len < 38)
+    {
+      /* XXX - exception */
+      return offset;
+    }
 
-  if (offset <= old_offset)
-    THROW (ReportedBoundsError);
+  offset += (acl_len - 38);
 
   proto_item_set_len (item, offset-old_offset);
   return offset;
@@ -3471,13 +3458,8 @@ static int
 static int
   fileexp_dissect_gettime_rqst (tvbuff_t *tvb _U_, int offset,
                                 packet_info *pinfo _U_, proto_tree *tree _U_,
-                                dcerpc_info *di, guint8 *drep _U_)
+                                dcerpc_info *di _U_, guint8 *drep _U_)
 {
-  if (di->conformant_run)
-    {
-      return offset;
-    }
-
   /* nothing */
 
   return offset;
@@ -3545,12 +3527,8 @@ static int
 static int
   fileexp_dissect_getserverinterfaces_rqst (tvbuff_t *tvb _U_, int offset,
                                             packet_info *pinfo _U_, proto_tree *tree _U_,
-                                            dcerpc_info *di, guint8 *drep _U_)
+                                            dcerpc_info *di _U_, guint8 *drep _U_)
 {
-  if (di->conformant_run)
-    {
-      return offset;
-    }
 
 /*
         [in, out]               dfs_interfaceList *serverInterfacesP
@@ -3673,12 +3651,8 @@ static int
 static int
   fileexp_dissect_getstatistics_resp (tvbuff_t *tvb _U_, int offset,
                                       packet_info *pinfo _U_, proto_tree *tree _U_,
-                                      dcerpc_info *di, guint8 *drep _U_)
+                                      dcerpc_info *di _U_, guint8 *drep _U_)
 {
-  if (di->conformant_run)
-    {
-      return offset;
-    }
 
 /*
         [out]   afsStatistics   *Statisticsp
@@ -3735,13 +3709,8 @@ static int
 static int
   fileexp_dissect_bulkfetchvv_resp (tvbuff_t *tvb _U_, int offset,
                                     packet_info *pinfo _U_, proto_tree *tree _U_,
-                                    dcerpc_info *di, guint8 *drep _U_)
+                                    dcerpc_info *di _U_, guint8 *drep _U_)
 {
-  if (di->conformant_run)
-    {
-      return offset;
-    }
-
 /*
         [out]   afsBulkVVs      *VolVVsp,
         [out]   unsigned32      *spare4

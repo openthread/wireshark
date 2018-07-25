@@ -24,19 +24,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -842,7 +830,7 @@ dissect_bitcoin_msg_version(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
   create_services_tree(tvb, ti, offset);
   offset += 8;
 
-  proto_tree_add_item(tree, &hfi_msg_version_timestamp, tvb, offset, 8, ENC_TIME_TIMESPEC|ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(tree, &hfi_msg_version_timestamp, tvb, offset, 8, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
   offset += 8;
 
   ti = proto_tree_add_item(tree, &hfi_msg_version_addr_you, tvb, offset, 26, ENC_NA);
@@ -902,7 +890,7 @@ dissect_bitcoin_msg_addr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
     ti = proto_tree_add_item(tree, &hfi_msg_addr_address, tvb, offset, 30, ENC_NA);
     subtree = create_address_tree(tvb, ti, offset+4);
 
-    proto_tree_add_item(subtree, &hfi_msg_addr_timestamp, tvb, offset, 4, ENC_TIME_TIMESPEC|ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(subtree, &hfi_msg_addr_timestamp, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
     offset += 26;
     offset += 4;
   }
@@ -1104,7 +1092,7 @@ dissect_bitcoin_msg_tx_common(tvbuff_t *tvb, guint32 offset, packet_info *pinfo,
   if (msgnum == 0) {
     rti  = proto_tree_add_item(tree, &hfi_bitcoin_msg_tx, tvb, offset, -1, ENC_NA);
   } else {
-    rti  = proto_tree_add_none_format(tree, hfi_bitcoin_msg_tx.id, tvb, offset, -1, "Tx message [ %4d ]", msgnum);
+    rti  = proto_tree_add_none_format(tree, &hfi_bitcoin_msg_tx, tvb, offset, -1, "Tx message [ %4d ]", msgnum);
   }
   tree = proto_item_add_subtree(rti, ett_bitcoin_msg);
 
@@ -1274,7 +1262,7 @@ dissect_bitcoin_msg_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
   proto_tree_add_item(tree, &hfi_msg_block_merkle_root, tvb, offset, 32, ENC_NA);
   offset += 32;
 
-  proto_tree_add_item(tree, &hfi_msg_block_time,        tvb, offset,  4, ENC_TIME_TIMESPEC|ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(tree, &hfi_msg_block_time,        tvb, offset,  4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
   offset += 4;
 
   proto_tree_add_item(tree, &hfi_msg_block_bits,        tvb, offset,  4, ENC_LITTLE_ENDIAN);
@@ -1335,7 +1323,7 @@ dissect_bitcoin_msg_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
     proto_tree_add_item(subtree, &hfi_msg_headers_merkle_root, tvb, offset, 32, ENC_NA);
     offset += 32;
 
-    proto_tree_add_item(subtree, &hfi_msg_headers_time, tvb, offset, 4, ENC_TIME_TIMESPEC|ENC_LITTLE_ENDIAN);
+    proto_tree_add_item(subtree, &hfi_msg_headers_time, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
     offset += 4;
 
     proto_tree_add_item(subtree, &hfi_msg_headers_bits, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -1488,7 +1476,7 @@ dissect_bitcoin_msg_merkleblock(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
   proto_tree_add_item(tree, &hfi_msg_merkleblock_merkle_root, tvb, offset, 32, ENC_NA);
   offset += 32;
 
-  proto_tree_add_item(tree, &hfi_msg_merkleblock_time, tvb, offset, 4, ENC_TIME_TIMESPEC|ENC_LITTLE_ENDIAN);
+  proto_tree_add_item(tree, &hfi_msg_merkleblock_time, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
   offset += 4;
 
   proto_tree_add_item(tree, &hfi_msg_merkleblock_bits, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -1540,9 +1528,9 @@ dissect_bitcoin_msg_empty(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tre
 
 static int dissect_bitcoin_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-  proto_item *ti;
-  guint32     offset = 0;
-  guint8*     command;
+  proto_item   *ti;
+  guint32       offset = 0;
+  const guint8* command;
   dissector_handle_t command_handle;
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "Bitcoin");
@@ -1552,13 +1540,12 @@ static int dissect_bitcoin_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
   /* add basic protocol data */
   proto_tree_add_item(tree, &hfi_bitcoin_magic,   tvb,  0,  4, ENC_BIG_ENDIAN);
-  proto_tree_add_item(tree, &hfi_bitcoin_command, tvb,  4, 12, ENC_ASCII|ENC_NA);
+  proto_tree_add_item_ret_string(tree, &hfi_bitcoin_command, tvb,  4, 12, ENC_ASCII|ENC_NA, wmem_packet_scope(), &command);
   proto_tree_add_item(tree, &hfi_bitcoin_length,  tvb, 16,  4, ENC_LITTLE_ENDIAN);
-  proto_tree_add_item(tree, &hfi_bitcoin_checksum, tvb, 20,  4, ENC_BIG_ENDIAN);
+  proto_tree_add_checksum(tree, tvb, 20, &hfi_bitcoin_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 
   offset = 24;
 
-  command = tvb_get_string_enc(wmem_packet_scope(), tvb, 4, 12, ENC_ASCII|ENC_NA);
   command_handle = dissector_get_string_handle(bitcoin_command_table, command);
   if (command_handle != NULL)
   {
@@ -1861,7 +1848,7 @@ proto_register_bitcoin(void)
   expert_bitcoin = expert_register_protocol(proto_bitcoin);
   expert_register_field_array(expert_bitcoin, ei, array_length(ei));
 
-  bitcoin_command_table = register_dissector_table("bitcoin.command", "Bitcoin Command", proto_bitcoin, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  bitcoin_command_table = register_dissector_table("bitcoin.command", "Bitcoin Command", proto_bitcoin, FT_STRING, BASE_NONE);
 
   bitcoin_handle = register_dissector("bitcoin", dissect_bitcoin, proto_bitcoin);
 
@@ -1879,7 +1866,7 @@ proto_reg_handoff_bitcoin(void)
 {
   dissector_handle_t command_handle;
 
-  dissector_add_for_decode_as("tcp.port", bitcoin_handle);
+  dissector_add_for_decode_as_with_preference("tcp.port", bitcoin_handle);
 
   heur_dissector_add( "tcp", dissect_bitcoin_heur, "Bitcoin over TCP", "bitcoin_tcp", hfi_bitcoin->id, HEURISTIC_ENABLE);
 

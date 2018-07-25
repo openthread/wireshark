@@ -8,23 +8,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
+#include <epan/packet.h>
+#include <epan/asn1.h>
+
+#include "packet-ber.h"
+#include "packet-isup.h"
 #include "packet-h248.h"
 
 void proto_register_h248_3gpp(void);
@@ -445,6 +438,42 @@ static h248_package_t h248_package_3GTFO = {
  * IP transport package
  * 3GPP TS 29.232 -- 15.2.7
  */
+static int hf_h248_package_threegiptra = -1;
+static int hf_h248_package_threegiptra_ipv4trans = -1;
+static int hf_h248_package_threegiptra_ipv6trans = -1;
+static int hf_h248_package_threegiptra_UDport = -1;
+
+static int ett_h248_package_threegiptra = -1;
+
+static const value_string h248_threegiptra_properties_vals[] = {
+	{ 0x0000, "threegiptra (3G IP transport)" },
+	{ 0001,  "IP V4 transport address" },
+	{ 0002,  "IP V6 transport address" },
+	{ 0003,  "UDP port" },
+	{ 0,  NULL }
+};
+
+static const h248_pkg_param_t h248_package_threegiptra_properties[] = {
+	{ 0x0001, &hf_h248_package_threegiptra_ipv4trans, h248_param_ber_octetstring, &implicit },
+	{ 0x0002, &hf_h248_package_threegiptra_ipv6trans, h248_param_ber_octetstring, &implicit },
+	{ 0x0003, &hf_h248_package_threegiptra_UDport, h248_param_ber_integer, &implicit },
+	{ 0x0000, NULL, NULL, NULL }
+};
+
+static h248_package_t h248_package_threegiptra = {
+	0x0083,                                    /* Package ID = threegiptra  */
+	&hf_h248_package_threegiptra,              /* hf_id */
+	&ett_h248_package_threegiptra,
+	h248_threegiptra_properties_vals,
+	NULL,                                      /* signal_names */
+	NULL,                                      /* event_names */
+	NULL,                                      /* stats_names */
+	h248_package_threegiptra_properties,       /* h248_pkg_param_t */
+	NULL,
+	NULL,
+	NULL
+};
+
 /*
  * Flexible Tone Generator Package
  * 3GPP TS 29.232 -- 15.2.8
@@ -614,6 +643,24 @@ void proto_register_h248_3gpp(void) {
 			FT_UINT32, BASE_DEC, VALS(h248_threegint_ipint_vals), 0,
 			NULL, HFILL }},
 
+
+		{ &hf_h248_package_threegiptra,
+		{ "IP transport", "h248.package_threegiptra",
+			FT_BYTES, BASE_NONE, NULL, 0,
+			"This package contains the information needed to be able to support IP transport from RAN to the media gateway", HFILL }},
+		{ &hf_h248_package_threegiptra_ipv4trans,
+		{ "IPv4 Address", "h248.package_threegiptra.ipv4trans",
+			FT_BYTES, BASE_NONE, NULL, 0,
+			NULL, HFILL }},
+		{ &hf_h248_package_threegiptra_ipv6trans,
+		{ "IPv6 Address", "h248.package_threegiptra.ipv6trans",
+			FT_BYTES, BASE_NONE, NULL, 0,
+			NULL, HFILL }},
+		{ &hf_h248_package_threegiptra_UDport,
+		{ "UDP Port", "h248.package_threegiptra.udport",
+			FT_UINT32, BASE_DEC, NULL, 0,
+			NULL, HFILL }},
+
 	};
 
 	static gint *ett[] = {
@@ -627,7 +674,8 @@ void proto_register_h248_3gpp(void) {
 		&ett_h248_3GTFO_evt_codec_modify,
 		&ett_h248_3GTFO_codec_list,
 		&ett_h248_3GTFO_codec,
-		&ett_pkg_3GCSD_sig_actprot
+		&ett_pkg_3GCSD_sig_actprot,
+		&ett_h248_package_threegiptra
 	};
 
 	proto_h248_package_3GUP = proto_register_protocol(PNAME, PSNAME, PFNAME);
@@ -640,6 +688,8 @@ void proto_register_h248_3gpp(void) {
 	h248_register_package(&h248_package_3GCSD, REPLACE_PKG);
 	h248_register_package(&h248_package_3GTFO, REPLACE_PKG);
 	h248_register_package(&h248_package_threegint, REPLACE_PKG);
+	h248_register_package(&h248_package_threegiptra, REPLACE_PKG);
+
 }
 
 /*

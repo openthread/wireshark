@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,13 +18,19 @@
 #include <epan/expert.h>
 #include <wsutil/str_util.h>
 
+#include <epan/tap.h>
+#include <epan/export_object.h>
+
 #include "packet-ber.h"
+#include "packet-http.h"
 #include "packet-imf.h"
 #include "packet-ess.h"
 #include "packet-p1.h"
 
 void proto_register_imf(void);
 void proto_reg_handoff_imf(void);
+
+static int imf_eo_tap = -1;
 
 #define PNAME  "Internet Message Format"
 #define PSNAME "IMF"
@@ -149,6 +143,52 @@ static dissector_handle_t imf_handle;
 
 static expert_field ei_imf_unknown_param = EI_INIT;
 
+/* Used for IMF Export Object feature */
+typedef struct _imf_eo_t {
+  gchar    *filename;
+  gchar    *sender_data;
+  gchar    *subject_data;
+  guint32  payload_len;
+  gchar    *payload_data;
+} imf_eo_t;
+
+static gboolean
+imf_eo_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _U_, const void *data)
+{
+  export_object_list_t *object_list = (export_object_list_t *)tapdata;
+  const imf_eo_t *eo_info = (const imf_eo_t *)data;
+  export_object_entry_t *entry;
+
+  if(eo_info) { /* We have data waiting for us */
+    /* These values will be freed when the Export Object window
+     * is closed. */
+    entry = g_new(export_object_entry_t, 1);
+
+    gchar *start = g_strrstr_len(eo_info->sender_data, -1, "<");
+    gchar *stop = g_strrstr_len(eo_info->sender_data, -1,  ">");
+    /* Only include the string inside of the "<>" brackets. If there is nothing between
+    the two brackets use the sender_data string */
+    if(start && stop && stop > start && (stop - start) > 2){
+        entry->hostname = g_strdup_printf("%.*s", (int) (stop - start - 1), start + 1);
+    } else {
+        entry->hostname = g_strdup(eo_info->sender_data);
+    }
+
+    entry->pkt_num = pinfo->num;
+    entry->content_type = g_strdup("EML file");
+    entry->filename = g_strdup_printf("%s.eml", eo_info->subject_data);
+    entry->payload_len = eo_info->payload_len;
+    entry->payload_data = (guint8 *)g_memdup(eo_info->payload_data, eo_info->payload_len);
+
+    object_list->add_entry(object_list->gui_data, entry);
+
+    return TRUE; /* State changed - window should be redrawn */
+  } else {
+    return FALSE; /* State unchanged - no window updates needed */
+  }
+}
+
+
 struct imf_field {
   char         *name;           /* field name - in lower case for matching purposes */
   int          *hf_id;          /* wireshark field */
@@ -238,7 +278,7 @@ static struct imf_field imf_fields[] = {
   {NULL, NULL, NULL, FALSE},
 };
 
-static GHashTable *imf_field_table=NULL;
+static wmem_map_t *imf_field_table=NULL;
 
 #define FORMAT_UNSTRUCTURED  0
 #define FORMAT_MAILBOX       1
@@ -270,10 +310,12 @@ typedef struct _header_field_t {
   guint  add_to_col_info;
 } header_field_t;
 
-static header_field_t *header_fields = NULL;
-static guint num_header_fields = 0;
+static header_field_t *header_fields;
+static guint num_header_fields;
 
-static GHashTable *custom_field_table = NULL;
+static GHashTable *custom_field_table;
+static hf_register_info *dynamic_hf;
+static guint dynamic_hf_size;
 
 static gboolean
 header_fields_update_cb(void *r, char **err)
@@ -536,8 +578,9 @@ dissect_imf_siolabel(tvbuff_t *tvb, int offset, int length, proto_item *item, pa
     }
 
     if (tvb_strneql(tvb, item_offset, "marking", 7) == 0) {
-      proto_item_append_text(item, ": %s", tvb_get_string_enc(wmem_packet_scope(), tvb, value_offset, value_length, ENC_ASCII));
-      proto_tree_add_item(tree, hf_imf_siolabel_marking, tvb, value_offset, value_length, ENC_ASCII|ENC_NA);
+      const guint8* marking;
+      proto_tree_add_item_ret_string(tree, hf_imf_siolabel_marking, tvb, value_offset, value_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &marking);
+      proto_item_append_text(item, ": %s", marking);
 
     } else if (tvb_strneql(tvb, item_offset, "fgcolor", 7) == 0) {
       proto_tree_add_item(tree, hf_imf_siolabel_fgcolor, tvb, value_offset, value_length, ENC_ASCII|ENC_NA);
@@ -586,7 +629,7 @@ dissect_imf_siolabel(tvbuff_t *tvb, int offset, int length, proto_item *item, pa
 
 static void
 dissect_imf_content_type(tvbuff_t *tvb, int offset, int length, proto_item *item,
-                         char **type, char **parameters)
+                         const guint8 **type, const guint8 **parameters)
 {
   int first_colon;
   int end_offset;
@@ -609,22 +652,14 @@ dissect_imf_content_type(tvbuff_t *tvb, int offset, int length, proto_item *item
     ct_tree = proto_item_add_subtree(item, ett_imf_content_type);
 
     len = first_colon - offset;
-    proto_tree_add_item(ct_tree, hf_imf_content_type_type, tvb, offset, len, ENC_ASCII|ENC_NA);
-    if(type) {
-      /* This string will be automatically freed */
-      (*type) = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, len, ENC_ASCII);
-    }
+    proto_tree_add_item_ret_string(ct_tree, hf_imf_content_type_type, tvb, offset, len, ENC_ASCII|ENC_NA, wmem_packet_scope(), type);
     end_offset = imf_find_field_end (tvb, first_colon + 1, offset + length, NULL);
     if (end_offset == -1) {
        /* No end found */
        return;
     }
     len = end_offset - (first_colon + 1) - 2;  /* Do not include the last CRLF */
-    proto_tree_add_item(ct_tree, hf_imf_content_type_parameters, tvb, first_colon + 1, len, ENC_ASCII|ENC_NA);
-    if(parameters) {
-      /* This string will be automatically freed */
-      (*parameters) = tvb_get_string_enc(wmem_packet_scope(), tvb, first_colon + 1, len, ENC_ASCII);
-    }
+    proto_tree_add_item_ret_string(ct_tree, hf_imf_content_type_parameters, tvb, first_colon + 1, len, ENC_ASCII|ENC_NA, wmem_packet_scope(), parameters);
   }
 }
 
@@ -685,9 +720,9 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
   proto_item  *item;
   proto_tree  *unknown_tree, *text_tree;
-  char  *content_type_str = NULL;
+  const guint8 *content_type_str = NULL;
   char  *content_encoding_str = NULL;
-  char  *parameters = NULL;
+  const guint8 *parameters = NULL;
   int   hf_id;
   gint  start_offset = 0;
   gint  value_offset = 0;
@@ -698,8 +733,20 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   gboolean last_field = FALSE;
   tvbuff_t *next_tvb;
   struct imf_field *f_info;
+  imf_eo_t *eo_info = NULL;
 
+  if (have_tap_listener(imf_eo_tap)) {
+    eo_info = wmem_new(wmem_packet_scope(), imf_eo_t);
+    /* initialize the eo_info fields in case they are missing later */
+    eo_info->sender_data = "";
+    eo_info->subject_data = "";
+  }
+
+  /* Want to preserve existing protocol name and show that it is carrying IMF */
+  col_append_str(pinfo->cinfo, COL_PROTOCOL, "|");
+  col_set_fence(pinfo->cinfo, COL_PROTOCOL);
   col_set_str(pinfo->cinfo, COL_PROTOCOL, PSNAME);
+
   col_clear(pinfo->cinfo, COL_INFO);
 
   item = proto_tree_add_item(tree, proto_imf, tvb, 0, -1, ENC_NA);
@@ -728,7 +775,7 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
       ascii_strdown_inplace (key);
 
       /* look up the key in built-in fields */
-      f_info = (struct imf_field *)g_hash_table_lookup(imf_field_table, key);
+      f_info = (struct imf_field *)wmem_map_lookup(imf_field_table, key);
 
       if(f_info == NULL && custom_field_table) {
         /* look up the key in custom fields */
@@ -785,6 +832,15 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
         col_append_fstr(pinfo->cinfo, COL_INFO, "%s: %s, ", f_info->name,
                         tvb_format_text(tvb, value_offset, end_offset - value_offset - 2));
+
+        /* if sender or subject, store for sending to the tap */
+        if (eo_info && have_tap_listener(imf_eo_tap)) {
+          if (*f_info->hf_id == hf_imf_from) {
+            eo_info->sender_data = tvb_get_string_enc(wmem_packet_scope(), tvb, value_offset, end_offset - value_offset - 2, ENC_ASCII|ENC_NA);
+          } else if(*f_info->hf_id == hf_imf_subject) {
+            eo_info->subject_data = tvb_get_string_enc(wmem_packet_scope(), tvb, value_offset, end_offset - value_offset - 2, ENC_ASCII|ENC_NA);
+          }
+        }
       }
 
       if(hf_id == hf_imf_content_type) {
@@ -820,6 +876,8 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
   /* now dissect the MIME based upon the content type */
 
   if(content_type_str && media_type_dissector_table) {
+    http_message_info_t message_info;
+
     col_set_fence(pinfo->cinfo, COL_INFO);
 
     if(content_encoding_str && !g_ascii_strncasecmp(content_encoding_str, "base64", 6)) {
@@ -830,7 +888,9 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
       next_tvb = tvb_new_subset_remaining(tvb, end_offset);
     }
 
-    dissector_try_string(media_type_dissector_table, content_type_str, next_tvb, pinfo, tree, parameters);
+    message_info.type = HTTP_OTHERS;
+    message_info.media_str = parameters;
+    dissector_try_string(media_type_dissector_table, content_type_str, next_tvb, pinfo, tree, (void*)&message_info);
   } else {
 
     /* just show the lines or highlight the rest of the buffer as message text */
@@ -851,13 +911,22 @@ dissect_imf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
        */
       proto_tree_add_format_wsp_text(text_tree, tvb, start_offset, end_offset - start_offset);
       col_append_sep_str(pinfo->cinfo, COL_INFO, ", ",
-                         tvb_format_text_wsp(tvb, start_offset, end_offset - start_offset));
+                         tvb_format_text_wsp(wmem_packet_scope(), tvb, start_offset, end_offset - start_offset));
 
       /*
        * Step to the next line.
        */
       start_offset = end_offset;
     }
+  }
+
+  if (eo_info && have_tap_listener(imf_eo_tap)) {
+    /* Set payload info */
+    eo_info->payload_len = max_length;
+    eo_info->payload_data = (gchar *) tvb_memdup(wmem_packet_scope(), tvb, 0, max_length);
+
+    /* Send to tap */
+    tap_queue_packet(imf_eo_tap, pinfo, eo_info);
   }
   return tvb_captured_length(tvb);
 }
@@ -872,44 +941,54 @@ free_imf_field (gpointer data)
 }
 
 static void
-header_fields_initialize_cb (void)
+deregister_header_fields(void)
 {
-  static hf_register_info *hf;
-  gint *hf_id;
-  struct imf_field *imffield;
-  guint i;
-  gchar *header_name;
-
-  if (custom_field_table && hf) {
-    guint hf_size = g_hash_table_size (custom_field_table);
+  if (dynamic_hf) {
     /* Deregister all fields */
-    for (i = 0; i < hf_size; i++) {
-      proto_deregister_field (proto_imf, *(hf[i].p_id));
-      g_free (hf[i].p_id);
+    for (guint i = 0; i < dynamic_hf_size; i++) {
+      proto_deregister_field (proto_imf, *(dynamic_hf[i].p_id));
+      g_free (dynamic_hf[i].p_id);
     }
+
+    proto_add_deregistered_data (dynamic_hf);
+    dynamic_hf = NULL;
+    dynamic_hf_size = 0;
+  }
+
+  if (custom_field_table) {
     g_hash_table_destroy (custom_field_table);
-    proto_add_deregistered_data (hf);
     custom_field_table = NULL;
   }
+}
+
+static void
+header_fields_post_update_cb (void)
+{
+  gint *hf_id;
+  struct imf_field *imffield;
+  gchar *header_name;
+
+  deregister_header_fields();
 
   if (num_header_fields) {
     custom_field_table = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, free_imf_field);
-    hf = (hf_register_info *)g_malloc0 (sizeof (hf_register_info) * num_header_fields);
+    dynamic_hf = (hf_register_info *)g_malloc0 (sizeof (hf_register_info) * num_header_fields);
+    dynamic_hf_size = num_header_fields;
 
-    for (i = 0; i < num_header_fields; i++) {
+    for (guint i = 0; i < dynamic_hf_size; i++) {
       hf_id = (gint *)g_malloc (sizeof (gint));
       *hf_id = -1;
       header_name = g_strdup (header_fields[i].header_name);
 
-      hf[i].p_id = hf_id;
-      hf[i].hfinfo.name = header_name;
-      hf[i].hfinfo.abbrev = g_strdup_printf ("imf.header.%s", header_name);
-      hf[i].hfinfo.type = FT_STRING;
-      hf[i].hfinfo.display = BASE_NONE;
-      hf[i].hfinfo.strings = NULL;
-      hf[i].hfinfo.blurb = g_strdup (header_fields[i].description);
-      hf[i].hfinfo.same_name_prev_id = -1;
-      hf[i].hfinfo.same_name_next = NULL;
+      dynamic_hf[i].p_id = hf_id;
+      dynamic_hf[i].hfinfo.name = header_name;
+      dynamic_hf[i].hfinfo.abbrev = g_strdup_printf ("imf.header.%s", header_name);
+      dynamic_hf[i].hfinfo.type = FT_STRING;
+      dynamic_hf[i].hfinfo.display = BASE_NONE;
+      dynamic_hf[i].hfinfo.strings = NULL;
+      dynamic_hf[i].hfinfo.bitmask = 0;
+      dynamic_hf[i].hfinfo.blurb = g_strdup (header_fields[i].description);
+      HFILL_INIT(dynamic_hf[i]);
 
       imffield = (struct imf_field *)g_malloc (sizeof (struct imf_field));
       imffield->hf_id = hf_id;
@@ -931,7 +1010,7 @@ header_fields_initialize_cb (void)
         imffield->subdissector = dissect_imf_address_list;
         break;
       case FORMAT_SIO_LABEL:
-        hf[i].hfinfo.type = FT_NONE; /* constructed */
+        dynamic_hf[i].hfinfo.type = FT_NONE; /* constructed */
         imffield->subdissector = dissect_imf_siolabel;
         break;
       default:
@@ -943,8 +1022,14 @@ header_fields_initialize_cb (void)
       g_hash_table_insert (custom_field_table, (gpointer)imffield->name, (gpointer)imffield);
     }
 
-    proto_register_field_array (proto_imf, hf, num_header_fields);
+    proto_register_field_array (proto_imf, dynamic_hf, dynamic_hf_size);
   }
+}
+
+static void
+header_fields_reset_cb(void)
+{
+  deregister_header_fields();
 }
 
 /* Register all the bits needed by the filtering engine */
@@ -1244,7 +1329,8 @@ proto_register_imf(void)
                                header_fields_copy_cb,
                                header_fields_update_cb,
                                header_fields_free_cb,
-                               header_fields_initialize_cb,
+                               header_fields_post_update_cb,
+                               header_fields_reset_cb,
                                attributes_flds);
 
   module_t *imf_module;
@@ -1267,11 +1353,14 @@ proto_register_imf(void)
                                 "setup and used for filtering/data extraction etc.",
                                 headers_uat);
 
-  imf_field_table=g_hash_table_new(g_str_hash, g_str_equal); /* oid to syntax */
+  imf_field_table=wmem_map_new(wmem_epan_scope(), wmem_str_hash, g_str_equal); /* oid to syntax */
 
   /* register the fields for lookup */
   for(f = imf_fields; f->name; f++)
-    g_hash_table_insert(imf_field_table, (gpointer)f->name, (gpointer)f);
+    wmem_map_insert(imf_field_table, (gpointer)f->name, (gpointer)f);
+
+  /* Register for tapping */
+  imf_eo_tap = register_export_object(proto_imf, imf_eo_packet, NULL);
 
 }
 

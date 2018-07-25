@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "lbm_lbtrm_transport_dialog.h"
@@ -26,7 +14,7 @@
 
 #include "file.h"
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include "wireshark_application.h"
 
 #include <QClipboard>
@@ -160,7 +148,6 @@ class LBMLBTRMFrameEntry : public QTreeWidgetItem
         guint32 getFrame(void) { return (m_frame); }
 
     private:
-        LBMLBTRMFrameEntry(void) { }
         guint32 m_frame;
 };
 
@@ -206,7 +193,7 @@ LBMLBTRMSQNEntry::LBMLBTRMSQNEntry(guint32 sqn) :
 
 LBMLBTRMSQNEntry::~LBMLBTRMSQNEntry(void)
 {
-    for (LBMLBTRMFrameMapIterator it = m_frames.begin(); it != m_frames.end(); it++)
+    for (LBMLBTRMFrameMapIterator it = m_frames.begin(); it != m_frames.end(); ++it)
     {
         delete *it;
     }
@@ -279,7 +266,7 @@ LBMLBTRMNCFReasonEntry::LBMLBTRMNCFReasonEntry(guint8 reason) :
 
 LBMLBTRMNCFReasonEntry::~LBMLBTRMNCFReasonEntry(void)
 {
-    for (LBMLBTRMFrameMapIterator it = m_frames.begin(); it != m_frames.end(); it++)
+    for (LBMLBTRMFrameMapIterator it = m_frames.begin(); it != m_frames.end(); ++it)
     {
         delete *it;
     }
@@ -336,7 +323,7 @@ LBMLBTRMNCFSQNEntry::LBMLBTRMNCFSQNEntry(guint32 sqn) :
 
 LBMLBTRMNCFSQNEntry::~LBMLBTRMNCFSQNEntry(void)
 {
-    for (LBMLBTRMNCFReasonMapIterator it = m_reasons.begin(); it != m_reasons.end(); it++)
+    for (LBMLBTRMNCFReasonMapIterator it = m_reasons.begin(); it != m_reasons.end(); ++it)
     {
         delete *it;
     }
@@ -385,7 +372,6 @@ class LBMLBTRMSourceTransportEntry : public QTreeWidgetItem
         QString m_transport;
 
     private:
-        LBMLBTRMSourceTransportEntry(void) { }
         void fillItem(void);
         guint64 m_data_frames;
         guint64 m_data_bytes;
@@ -434,25 +420,25 @@ LBMLBTRMSourceTransportEntry::LBMLBTRMSourceTransportEntry(const QString & trans
 
 LBMLBTRMSourceTransportEntry::~LBMLBTRMSourceTransportEntry(void)
 {
-    for (LBMLBTRMSQNMapIterator it = m_data_sqns.begin(); it != m_data_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = m_data_sqns.begin(); it != m_data_sqns.end(); ++it)
     {
         delete *it;
     }
     m_data_sqns.clear();
 
-    for (LBMLBTRMSQNMapIterator it = m_rx_data_sqns.begin(); it != m_rx_data_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = m_rx_data_sqns.begin(); it != m_rx_data_sqns.end(); ++it)
     {
         delete *it;
     }
     m_rx_data_sqns.clear();
 
-    for (LBMLBTRMNCFSQNMapIterator it = m_ncf_sqns.begin(); it != m_ncf_sqns.end(); it++)
+    for (LBMLBTRMNCFSQNMapIterator it = m_ncf_sqns.begin(); it != m_ncf_sqns.end(); ++it)
     {
         delete *it;
     }
     m_ncf_sqns.clear();
 
-    for (LBMLBTRMSQNMapIterator it = m_sm_sqns.begin(); it != m_sm_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = m_sm_sqns.begin(); it != m_sm_sqns.end(); ++it)
     {
         delete *it;
     }
@@ -623,7 +609,6 @@ class LBMLBTRMSourceEntry : public QTreeWidgetItem
         void processPacket(const packet_info * pinfo, const lbm_lbtrm_tap_info_t * tap_info);
 
     private:
-        LBMLBTRMSourceEntry(void) { }
         void fillItem(void);
         QString m_address;
         QString m_transport;
@@ -666,7 +651,7 @@ LBMLBTRMSourceEntry::LBMLBTRMSourceEntry(const QString & source_address) :
 
 LBMLBTRMSourceEntry::~LBMLBTRMSourceEntry(void)
 {
-    for (LBMLBTRMSourceTransportMapIterator it = m_transports.begin(); it != m_transports.end(); it++)
+    for (LBMLBTRMSourceTransportMapIterator it = m_transports.begin(); it != m_transports.end(); ++it)
     {
         delete *it;
     }
@@ -796,7 +781,6 @@ class LBMLBTRMReceiverTransportEntry : public QTreeWidgetItem
         void processPacket(const packet_info * pinfo, const lbm_lbtrm_tap_info_t * tap_info);
 
     private:
-        LBMLBTRMReceiverTransportEntry(void) { }
         void fillItem(void);
         QString m_transport;
         guint64 m_nak_frames;
@@ -828,7 +812,7 @@ LBMLBTRMReceiverTransportEntry::LBMLBTRMReceiverTransportEntry(const QString & t
 
 LBMLBTRMReceiverTransportEntry::~LBMLBTRMReceiverTransportEntry(void)
 {
-    for (LBMLBTRMSQNMapIterator it = m_nak_sqns.begin(); it != m_nak_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = m_nak_sqns.begin(); it != m_nak_sqns.end(); ++it)
     {
         delete *it;
     }
@@ -942,7 +926,7 @@ LBMLBTRMReceiverEntry::LBMLBTRMReceiverEntry(const QString & receiver_address) :
 
 LBMLBTRMReceiverEntry::~LBMLBTRMReceiverEntry(void)
 {
-    for (LBMLBTRMReceiverTransportMapIterator it = m_transports.begin(); it != m_transports.end(); it++)
+    for (LBMLBTRMReceiverTransportMapIterator it = m_transports.begin(); it != m_transports.end(); ++it)
     {
         delete *it;
     }
@@ -1116,13 +1100,13 @@ void LBMLBTRMTransportDialogInfo::processPacket(const packet_info * pinfo, const
 
 void LBMLBTRMTransportDialogInfo::clearMaps(void)
 {
-    for (LBMLBTRMSourceMapIterator it = m_sources.begin(); it != m_sources.end(); it++)
+    for (LBMLBTRMSourceMapIterator it = m_sources.begin(); it != m_sources.end(); ++it)
     {
         delete *it;
     }
     m_sources.clear();
 
-    for (LBMLBTRMReceiverMapIterator it = m_receivers.begin(); it != m_receivers.end(); it++)
+    for (LBMLBTRMReceiverMapIterator it = m_receivers.begin(); it != m_receivers.end(); ++it)
     {
         delete *it;
     }
@@ -1309,7 +1293,8 @@ void LBMLBTRMTransportDialog::fillTree(void)
         TL_REQUIRES_COLUMNS,
         resetTap,
         tapPacket,
-        drawTreeItems);
+        drawTreeItems,
+        NULL);
     if (error_string)
     {
         QMessageBox::critical(this, tr("LBT-RM Statistics failed to attach to tap"),
@@ -1420,7 +1405,7 @@ void LBMLBTRMTransportDialog::sourcesItemClicked(QTreeWidgetItem * item, int)
 
 void LBMLBTRMTransportDialog::loadSourceDataDetails(LBMLBTRMSourceTransportEntry * transport)
 {
-    for (LBMLBTRMSQNMapIterator it = transport->m_data_sqns.begin(); it != transport->m_data_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = transport->m_data_sqns.begin(); it != transport->m_data_sqns.end(); ++it)
     {
         LBMLBTRMSQNEntry * sqn = it.value();
         m_ui->sources_detail_sqn_TreeWidget->addTopLevelItem(sqn);
@@ -1429,7 +1414,7 @@ void LBMLBTRMTransportDialog::loadSourceDataDetails(LBMLBTRMSourceTransportEntry
 
 void LBMLBTRMTransportDialog::loadSourceRXDataDetails(LBMLBTRMSourceTransportEntry * transport)
 {
-    for (LBMLBTRMSQNMapIterator it = transport->m_rx_data_sqns.begin(); it != transport->m_rx_data_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = transport->m_rx_data_sqns.begin(); it != transport->m_rx_data_sqns.end(); ++it)
     {
         LBMLBTRMSQNEntry * sqn = it.value();
         m_ui->sources_detail_sqn_TreeWidget->addTopLevelItem(sqn);
@@ -1438,7 +1423,7 @@ void LBMLBTRMTransportDialog::loadSourceRXDataDetails(LBMLBTRMSourceTransportEnt
 
 void LBMLBTRMTransportDialog::loadSourceNCFDetails(LBMLBTRMSourceTransportEntry * transport)
 {
-    for (LBMLBTRMNCFSQNMapIterator it = transport->m_ncf_sqns.begin(); it != transport->m_ncf_sqns.end(); it++)
+    for (LBMLBTRMNCFSQNMapIterator it = transport->m_ncf_sqns.begin(); it != transport->m_ncf_sqns.end(); ++it)
     {
         LBMLBTRMNCFSQNEntry * sqn = it.value();
         m_ui->sources_detail_ncf_sqn_TreeWidget->addTopLevelItem(sqn);
@@ -1447,7 +1432,7 @@ void LBMLBTRMTransportDialog::loadSourceNCFDetails(LBMLBTRMSourceTransportEntry 
 
 void LBMLBTRMTransportDialog::loadSourceSMDetails(LBMLBTRMSourceTransportEntry * transport)
 {
-    for (LBMLBTRMSQNMapIterator it = transport->m_sm_sqns.begin(); it != transport->m_sm_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = transport->m_sm_sqns.begin(); it != transport->m_sm_sqns.end(); ++it)
     {
         LBMLBTRMSQNEntry * sqn = it.value();
         m_ui->sources_detail_sqn_TreeWidget->addTopLevelItem(sqn);
@@ -1471,7 +1456,7 @@ void LBMLBTRMTransportDialog::receiversItemClicked(QTreeWidgetItem * item, int)
 
 void LBMLBTRMTransportDialog::loadReceiverNAKDetails(LBMLBTRMReceiverTransportEntry * transport)
 {
-    for (LBMLBTRMSQNMapIterator it = transport->m_nak_sqns.begin(); it != transport->m_nak_sqns.end(); it++)
+    for (LBMLBTRMSQNMapIterator it = transport->m_nak_sqns.begin(); it != transport->m_nak_sqns.end(); ++it)
     {
         LBMLBTRMSQNEntry * sqn = it.value();
         m_ui->receivers_detail_TreeWidget->addTopLevelItem(sqn);

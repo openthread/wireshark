@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *******************************************************************************/
 
@@ -112,9 +100,13 @@
 #include <string.h>
 #include <wsutil/file_util.h>
 #include <wsutil/crash_info.h>
-#include <wsutil/ws_diag_control.h>
-#include <wsutil/ws_version_info.h>
+#include <version_info.h>
 #include <wsutil/inet_addr.h>
+
+#ifdef _WIN32
+#include <io.h>     /* for _setmode */
+#include <fcntl.h>  /* for O_BINARY */
+#endif
 
 #include <time.h>
 #include <glib.h>
@@ -126,10 +118,6 @@
 #include <errno.h>
 #include <assert.h>
 
-#ifdef HAVE_LIBZ
-#include <zlib.h>      /* to get the libz version number */
-#endif
-
 #ifndef HAVE_GETOPT_LONG
 #include "wsutil/wsgetopt.h"
 #endif
@@ -140,6 +128,8 @@
 
 #include "writecap/pcapio.h"
 #include "text2pcap.h"
+
+#include "wiretap/wtap.h"
 
 #ifdef _WIN32
 #include <wsutil/unicode-utils.h>
@@ -167,9 +157,9 @@ static long hdr_ip_proto = 0;
 /* Destination and source addresses for IP header */
 static guint32 hdr_ip_dest_addr = 0;
 static guint32 hdr_ip_src_addr = 0;
-static struct e_in6_addr hdr_ipv6_dest_addr = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
-static struct e_in6_addr hdr_ipv6_src_addr  = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
-static struct e_in6_addr NO_IPv6_ADDRESS    = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+static ws_in6_addr hdr_ipv6_dest_addr = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+static ws_in6_addr hdr_ipv6_src_addr  = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+static ws_in6_addr NO_IPv6_ADDRESS    = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
 
 /* Dummy UDP header */
 static int     hdr_udp       = FALSE;
@@ -207,15 +197,14 @@ static guint32 direction = 0;
 /*--- Local date -----------------------------------------------------------------*/
 
 /* This is where we store the packet currently being built */
-#define MAX_PACKET 65535
-static guint8  packet_buf[MAX_PACKET];
+static guint8  packet_buf[WTAP_MAX_PACKET_SIZE_STANDARD];
 static guint32 header_length;
 static guint32 ip_offset;
 static guint32 curr_offset;
-static guint32 max_offset = MAX_PACKET;
+static guint32 max_offset = WTAP_MAX_PACKET_SIZE_STANDARD;
 static guint32 packet_start = 0;
 
-static void start_new_packet(gboolean);
+static int start_new_packet(gboolean);
 
 /* This buffer contains strings present before the packet offset 0 */
 #define PACKET_PREAMBLE_MAX_LEN     2048
@@ -236,16 +225,16 @@ static struct tm timecode_default;
 static guint8* pkt_lnstart;
 
 /* Input file */
-static const char *input_filename;
+static char *input_filename;
 static FILE       *input_file  = NULL;
 /* Output file */
-static const char *output_filename;
+static char *output_filename;
 static FILE       *output_file = NULL;
 
 /* Offset base to parse */
 static guint32 offset_base = 16;
 
-extern FILE *yyin;
+extern FILE *text2pcap_in;
 
 /* ----- State machine -----------------------------------------------------------*/
 
@@ -302,7 +291,7 @@ typedef struct {
 } hdr_ip_t;
 
 static hdr_ip_t HDR_IP = {0x45, 0, 0, 0x3412, 0, 0, 0xff, 0, 0,
-#ifdef WORDS_BIGENDIAN
+#if G_BYTE_ORDER == G_BIG_ENDIAN
 0x0a010101, 0x0a020202
 #else
 0x0101010a, 0x0202020a
@@ -310,7 +299,7 @@ static hdr_ip_t HDR_IP = {0x45, 0, 0, 0x3412, 0, 0, 0xff, 0, 0,
 };
 
 /* Fixed IP address values */
-#ifdef WORDS_BIGENDIAN
+#if G_BYTE_ORDER == G_BIG_ENDIAN
 #define IP_SRC 0x0a010101
 #define IP_DST 0x0a020202
 #else
@@ -339,8 +328,8 @@ typedef struct {
         } ip6_un1;
         guint8 ip6_un2_vfc;       /* 4 bits version, 4 bits priority */
     } ip6_ctlun;
-    struct e_in6_addr ip6_src;      /* source address */
-    struct e_in6_addr ip6_dst;      /* destination address */
+    ws_in6_addr ip6_src;      /* source address */
+    ws_in6_addr ip6_dst;      /* destination address */
 } hdr_ipv6_t;
 
 static hdr_ipv6_t HDR_IPv6;
@@ -412,38 +401,42 @@ static guint32 pcap_link_type = 1;   /* Default is LINKTYPE_ETHERNET */
  * Will abort the program if it can't parse the number
  * Pass in TRUE if this is an offset, FALSE if not
  */
-static guint32
-parse_num (const char *str, int offset)
+static int
+parse_num(const char *str, int offset, guint32* num)
 {
-    guint32  num;
     char    *c;
 
     if (str == NULL) {
         fprintf(stderr, "FATAL ERROR: str is NULL\n");
-        exit(1);
+        return EXIT_FAILURE;
     }
 
-    num = (guint32)strtoul(str, &c, offset ? offset_base : 16);
+    *num = (guint32)strtoul(str, &c, offset ? offset_base : 16);
     if (c == str) {
         fprintf(stderr, "FATAL ERROR: Bad hex number? [%s]\n", str);
-        exit(1);
+        return EXIT_FAILURE;
     }
-    return num;
+    return EXIT_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
  * Write this byte into current packet
  */
-static void
-write_byte (const char *str)
+static int
+write_byte(const char *str)
 {
     guint32 num;
 
-    num = parse_num(str, FALSE);
+    if (parse_num(str, FALSE, &num) != EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
     packet_buf[curr_offset] = (guint8) num;
     curr_offset++;
     if (curr_offset - header_length >= max_offset) /* packet full */
-        start_new_packet(TRUE);
+        if (start_new_packet(TRUE) != EXIT_SUCCESS)
+            return EXIT_FAILURE;
+
+    return EXIT_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
@@ -455,7 +448,7 @@ write_bytes (const char bytes[], guint32 nbytes)
 {
     guint32 i;
 
-    if (curr_offset + nbytes < MAX_PACKET) {
+    if (curr_offset + nbytes < WTAP_MAX_PACKET_SIZE_STANDARD) {
         for (i = 0; i < nbytes; i++) {
             packet_buf[curr_offset] = bytes[i];
             curr_offset++;
@@ -617,7 +610,7 @@ number_of_padding_bytes (guint32 length)
 /*----------------------------------------------------------------------
  * Write current packet out
  */
-static void
+static int
 write_current_packet (gboolean cont)
 {
     guint32  length         = 0;
@@ -671,10 +664,10 @@ write_current_packet (gboolean cont)
             HDR_IP.hdr_checksum = in_checksum(&HDR_IP, sizeof(HDR_IP));
             write_bytes((const char *)&HDR_IP, sizeof(HDR_IP));
         } else if (hdr_ipv6) {
-            if (memcmp(isInbound ? &hdr_ipv6_dest_addr : &hdr_ipv6_src_addr, &NO_IPv6_ADDRESS, sizeof(struct e_in6_addr)))
-                memcpy(&HDR_IPv6.ip6_src, isInbound ? &hdr_ipv6_dest_addr : &hdr_ipv6_src_addr, sizeof(struct e_in6_addr));
-            if (memcmp(isInbound ? &hdr_ipv6_src_addr : &hdr_ipv6_dest_addr, &NO_IPv6_ADDRESS, sizeof(struct e_in6_addr)))
-                memcpy(&HDR_IPv6.ip6_dst, isInbound ? &hdr_ipv6_src_addr : &hdr_ipv6_dest_addr, sizeof(struct e_in6_addr));
+            if (memcmp(isInbound ? &hdr_ipv6_dest_addr : &hdr_ipv6_src_addr, &NO_IPv6_ADDRESS, sizeof(ws_in6_addr)))
+                memcpy(&HDR_IPv6.ip6_src, isInbound ? &hdr_ipv6_dest_addr : &hdr_ipv6_src_addr, sizeof(ws_in6_addr));
+            if (memcmp(isInbound ? &hdr_ipv6_src_addr : &hdr_ipv6_dest_addr, &NO_IPv6_ADDRESS, sizeof(ws_in6_addr)))
+                memcpy(&HDR_IPv6.ip6_dst, isInbound ? &hdr_ipv6_src_addr : &hdr_ipv6_dest_addr, sizeof(ws_in6_addr));
 
             HDR_IPv6.ip6_ctlun.ip6_un2_vfc &= 0x0F;
             HDR_IPv6.ip6_ctlun.ip6_un2_vfc |= (6<< 4);
@@ -857,7 +850,7 @@ write_current_packet (gboolean cont)
         if (!success) {
             fprintf(stderr, "File write error [%s] : %s\n",
                     output_filename, g_strerror(err));
-            exit(1);
+            return EXIT_FAILURE;
         }
         if (ts_fmt == NULL) {
             /* fake packet counter */
@@ -874,13 +867,13 @@ write_current_packet (gboolean cont)
 
     packet_start += curr_offset - header_length;
     curr_offset = header_length;
-    return;
+    return EXIT_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
  * Write file header and trailer
  */
-static void
+static int
 write_file_header (void)
 {
     int      err;
@@ -924,8 +917,10 @@ write_file_header (void)
     if (!success) {
         fprintf(stderr, "File write error [%s] : %s\n",
                 output_filename, g_strerror(err));
-        exit(1);
+        return EXIT_FAILURE;
     }
+
+    return EXIT_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
@@ -1097,18 +1092,21 @@ parse_preamble (void)
 /*----------------------------------------------------------------------
  * Start a new packet
  */
-static void
+static int
 start_new_packet (gboolean cont)
 {
     if (debug >= 1)
         fprintf(stderr, "Start new packet (cont = %s).\n", cont ? "TRUE" : "FALSE");
 
     /* Write out the current packet, if required */
-    write_current_packet(cont);
+    if (write_current_packet(cont) != EXIT_SUCCESS)
+        return EXIT_FAILURE;
     num_packets_read++;
 
     /* Ensure we parse the packet preamble as it may contain the time */
     parse_preamble();
+
+    return EXIT_SUCCESS;
 }
 
 /*----------------------------------------------------------------------
@@ -1123,7 +1121,7 @@ process_directive (char *str)
 /*----------------------------------------------------------------------
  * Parse a single token (called from the scanner)
  */
-void
+int
 parse_token (token_t token, char *str)
 {
     guint32  num;
@@ -1162,10 +1160,12 @@ parse_token (token_t token, char *str)
             process_directive(str);
             break;
         case T_OFFSET:
-            num = parse_num(str, TRUE);
+            if (parse_num(str, TRUE, &num) != EXIT_SUCCESS)
+                return EXIT_FAILURE;
             if (num == 0) {
                 /* New packet starts here */
-                start_new_packet(FALSE);
+                if (start_new_packet(FALSE) != EXIT_SUCCESS)
+                    return EXIT_FAILURE;
                 state = READ_OFFSET;
                 pkt_lnstart = packet_buf + num;
             }
@@ -1192,10 +1192,12 @@ parse_token (token_t token, char *str)
             process_directive(str);
             break;
         case T_OFFSET:
-            num = parse_num(str, TRUE);
+            if (parse_num(str, TRUE, &num) != EXIT_SUCCESS)
+                return EXIT_FAILURE;
             if (num == 0) {
                 /* New packet starts here */
-                start_new_packet(FALSE);
+                if (start_new_packet(FALSE) != EXIT_SUCCESS)
+                    return EXIT_FAILURE;
                 packet_start = 0;
                 state = READ_OFFSET;
             } else if ((num - packet_start) != curr_offset - header_length) {
@@ -1216,7 +1218,8 @@ parse_token (token_t token, char *str)
                     if (debug >= 1)
                         fprintf(stderr, "Inconsistent offset. Expecting %0X, got %0X. Ignoring rest of packet\n",
                                 curr_offset, num);
-                    write_current_packet(FALSE);
+                    if (write_current_packet(FALSE) != EXIT_SUCCESS)
+                        return EXIT_FAILURE;
                     state = INIT;
                 }
             } else {
@@ -1239,7 +1242,8 @@ parse_token (token_t token, char *str)
             /* Record the byte */
             state = READ_BYTE;
             if (!str) goto fail_null_str;
-            write_byte(str);
+            if (write_byte(str) != EXIT_SUCCESS)
+                return EXIT_FAILURE;
             break;
         case T_TEXT:
         case T_DIRECTIVE:
@@ -1259,7 +1263,8 @@ parse_token (token_t token, char *str)
         switch (token) {
         case T_BYTE:
             /* Record the byte */
-            write_byte(str);
+            if (write_byte(str) != EXIT_SUCCESS)
+                return EXIT_FAILURE;
             break;
         case T_TEXT:
         case T_DIRECTIVE:
@@ -1337,18 +1342,17 @@ parse_token (token_t token, char *str)
 
     default:
         fprintf(stderr, "FATAL ERROR: Bad state (%d)", state);
-        exit(1);
+        return EXIT_FAILURE;
     }
 
     if (debug >= 2)
         fprintf(stderr, ", %s)\n", state_str[state]);
 
-    return;
+    return EXIT_SUCCESS;
 
 fail_null_str:
     fprintf(stderr, "FATAL ERROR: got NULL str pointer in state (%d)", state);
-    exit(1);
-
+    return EXIT_FAILURE;
 }
 
 /*----------------------------------------------------------------------
@@ -1379,7 +1383,7 @@ print_usage (FILE *output)
             "                         used as the default for unspecified fields.\n"
             "  -D                     the text before the packet starts with an I or an O,\n"
             "                         indicating that the packet is inbound or outbound.\n"
-            "                         This is only stored if the output format is PCAP-NG.\n"
+            "                         This is only stored if the output format is pcapng.\n"
             "  -a                     enable ASCII text dump identification.\n"
             "                         The start of the ASCII text dump can be identified\n"
             "                         and excluded from the packet data, even if it looks\n"
@@ -1433,41 +1437,15 @@ print_usage (FILE *output)
             "  -h                     display this help and exit.\n"
             "  -d                     show detailed debug of parser states.\n"
             "  -q                     generate no output at all (automatically disables -d).\n"
-            "  -n                     use PCAP-NG instead of PCAP as output format.\n"
+            "  -n                     use pcapng instead of pcap as output format.\n"
             "",
-            MAX_PACKET);
-}
-
-static void
-get_text2pcap_compiled_info(GString *str)
-{
-    /* LIBZ */
-    g_string_append(str, ", ");
-#ifdef HAVE_LIBZ
-    g_string_append(str, "with libz ");
-#ifdef ZLIB_VERSION
-    g_string_append(str, ZLIB_VERSION);
-#else /* ZLIB_VERSION */
-    g_string_append(str, "(version unknown)");
-#endif /* ZLIB_VERSION */
-#else /* HAVE_LIBZ */
-    g_string_append(str, "without libz");
-#endif /* HAVE_LIBZ */
-}
-
-static void
-get_text2pcap_runtime_info(GString *str)
-{
-    /* zlib */
-#if defined(HAVE_LIBZ) && !defined(_WIN32)
-    g_string_append_printf(str, ", with libz %s", zlibVersion());
-#endif
+            WTAP_MAX_PACKET_SIZE_STANDARD);
 }
 
 /*----------------------------------------------------------------------
  * Parse CLI options
  */
-static void
+static int
 parse_options (int argc, char *argv[])
 {
     GString *comp_info_str;
@@ -1479,6 +1457,7 @@ parse_options (int argc, char *argv[])
         {"version", no_argument, NULL, 'v'},
         {0, 0, 0, 0 }
     };
+    struct tm *now_tm;
 
 #ifdef _WIN32
     arg_list_utf_16to8(argc, argv);
@@ -1486,10 +1465,10 @@ parse_options (int argc, char *argv[])
 #endif /* _WIN32 */
 
     /* Get the compile-time version information string */
-    comp_info_str = get_compiled_version_info(NULL, get_text2pcap_compiled_info);
+    comp_info_str = get_compiled_version_info(NULL, NULL);
 
     /* get the run-time version information string */
-    runtime_info_str = get_runtime_version_info(get_text2pcap_runtime_info);
+    runtime_info_str = get_runtime_version_info(NULL);
 
     /* Add it to the information to be reported on a crash. */
     ws_add_crash_info("Text2pcap (Wireshark) %s\n"
@@ -1498,6 +1477,8 @@ parse_options (int argc, char *argv[])
          "\n"
          "%s",
       get_ws_vcs_version_info(), comp_info_str->str, runtime_info_str->str);
+    g_string_free(comp_info_str, TRUE);
+    g_string_free(runtime_info_str, TRUE);
 
     /* Scan CLI parameters */
     while ((c = getopt_long(argc, argv, "aDdhqe:i:l:m:no:u:s:S:t:T:v4:6:", long_options, NULL)) != -1) {
@@ -1520,7 +1501,7 @@ parse_options (int argc, char *argv[])
             if (optarg[0] != 'h' && optarg[0] != 'o' && optarg[0] != 'd') {
                 fprintf(stderr, "Bad argument for '-o': %s\n", optarg);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             switch (optarg[0]) {
             case 'o': offset_base =  8; break;
@@ -1533,7 +1514,7 @@ parse_options (int argc, char *argv[])
             if (sscanf(optarg, "%x", &hdr_ethernet_proto) < 1) {
                 fprintf(stderr, "Bad argument for '-e': %s\n", optarg);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             break;
 
@@ -1544,7 +1525,7 @@ parse_options (int argc, char *argv[])
                   hdr_ip_proto > 255) {
                 fprintf(stderr, "Bad argument for '-i': %s\n", optarg);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             hdr_ethernet = TRUE;
             hdr_ethernet_proto = 0x800;
@@ -1559,12 +1540,12 @@ parse_options (int argc, char *argv[])
             if (p == optarg || (*p != ',' && *p != '\0')) {
                 fprintf(stderr, "Bad src port for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             if (*p == '\0') {
                 fprintf(stderr, "No dest port specified for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             p++;
             optarg = p;
@@ -1572,12 +1553,12 @@ parse_options (int argc, char *argv[])
             if (p == optarg || (*p != ',' && *p != '\0')) {
                 fprintf(stderr, "Bad dest port for '-s'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             if (*p == '\0') {
                 fprintf(stderr, "No tag specified for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             p++;
             optarg = p;
@@ -1585,7 +1566,7 @@ parse_options (int argc, char *argv[])
             if (p == optarg || *p != '\0') {
                 fprintf(stderr, "Bad tag for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
 
             hdr_ip = TRUE;
@@ -1602,12 +1583,12 @@ parse_options (int argc, char *argv[])
             if (p == optarg || (*p != ',' && *p != '\0')) {
                 fprintf(stderr, "Bad src port for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             if (*p == '\0') {
                 fprintf(stderr, "No dest port specified for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             p++;
             optarg = p;
@@ -1615,12 +1596,12 @@ parse_options (int argc, char *argv[])
             if (p == optarg || (*p != ',' && *p != '\0')) {
                 fprintf(stderr, "Bad dest port for '-s'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             if (*p == '\0') {
                 fprintf(stderr, "No ppi specified for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             p++;
             optarg = p;
@@ -1628,7 +1609,7 @@ parse_options (int argc, char *argv[])
             if (p == optarg || *p != '\0') {
                 fprintf(stderr, "Bad ppi for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
 
             hdr_ip = TRUE;
@@ -1650,12 +1631,12 @@ parse_options (int argc, char *argv[])
             if (p == optarg || (*p != ',' && *p != '\0')) {
                 fprintf(stderr, "Bad src port for '-u'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             if (*p == '\0') {
                 fprintf(stderr, "No dest port specified for '-u'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             p++;
             optarg = p;
@@ -1663,7 +1644,7 @@ parse_options (int argc, char *argv[])
             if (p == optarg || *p != '\0') {
                 fprintf(stderr, "Bad dest port for '-u'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             hdr_ip = TRUE;
             hdr_ip_proto = 17;
@@ -1680,12 +1661,12 @@ parse_options (int argc, char *argv[])
             if (p == optarg || (*p != ',' && *p != '\0')) {
                 fprintf(stderr, "Bad src port for '-T'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             if (*p == '\0') {
                 fprintf(stderr, "No dest port specified for '-u'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             p++;
             optarg = p;
@@ -1693,7 +1674,7 @@ parse_options (int argc, char *argv[])
             if (p == optarg || *p != '\0') {
                 fprintf(stderr, "Bad dest port for '-T'\n");
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
             hdr_ip = TRUE;
             hdr_ip_proto = 6;
@@ -1706,6 +1687,8 @@ parse_options (int argc, char *argv[])
             break;
 
         case 'v':
+            comp_info_str = get_compiled_version_info(NULL, NULL);
+            runtime_info_str = get_runtime_version_info(NULL);
             show_version("Text2pcap (Wireshark)", comp_info_str, runtime_info_str);
             g_string_free(comp_info_str, TRUE);
             g_string_free(runtime_info_str, TRUE);
@@ -1719,7 +1702,7 @@ parse_options (int argc, char *argv[])
             if (!p) {
                 fprintf(stderr, "Bad source param addr for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
 
             *p = '\0';
@@ -1739,13 +1722,13 @@ parse_options (int argc, char *argv[])
                 if (!ws_inet_pton6(optarg, &hdr_ipv6_src_addr)) {
                         fprintf(stderr, "Bad src addr -%c '%s'\n", c, p);
                         print_usage(stderr);
-                        exit(1);
+                        return EXIT_FAILURE;
                 }
             } else {
                 if (!ws_inet_pton4(optarg, &hdr_ip_src_addr)) {
                         fprintf(stderr, "Bad src addr -%c '%s'\n", c, p);
                         print_usage(stderr);
-                        exit(1);
+                        return EXIT_FAILURE;
                 }
             }
 
@@ -1753,20 +1736,20 @@ parse_options (int argc, char *argv[])
             if (*p == '\0') {
                 fprintf(stderr, "No dest addr specified for '-%c'\n", c);
                 print_usage(stderr);
-                exit(1);
+                return EXIT_FAILURE;
             }
 
             if (hdr_ipv6 == TRUE) {
                 if (!ws_inet_pton6(p, &hdr_ipv6_dest_addr)) {
                         fprintf(stderr, "Bad dest addr for -%c '%s'\n", c, p);
                         print_usage(stderr);
-                        exit(1);
+                        return EXIT_FAILURE;
                 }
             } else {
                 if (!ws_inet_pton4(p, &hdr_ip_dest_addr)) {
                         fprintf(stderr, "Bad dest addr for -%c '%s'\n", c, p);
                         print_usage(stderr);
-                        exit(1);
+                        return EXIT_FAILURE;
                 }
             }
             break;
@@ -1775,38 +1758,55 @@ parse_options (int argc, char *argv[])
         case '?':
         default:
             print_usage(stderr);
-            exit(1);
+            return EXIT_FAILURE;
         }
     }
 
     if (optind >= argc || argc-optind < 2) {
         fprintf(stderr, "Must specify input and output filename\n");
         print_usage(stderr);
-        exit(1);
+        return EXIT_FAILURE;
     }
 
-    if (strcmp(argv[optind], "-")) {
-        input_filename = g_strdup(argv[optind]);
+    if (max_offset > WTAP_MAX_PACKET_SIZE_STANDARD) {
+        fprintf(stderr, "Maximum packet length cannot be more than %d bytes\n",
+                WTAP_MAX_PACKET_SIZE_STANDARD);
+        return EXIT_FAILURE;
+    }
+
+    if (strcmp(argv[optind], "-") != 0) {
+        input_filename = argv[optind];
         input_file = ws_fopen(input_filename, "rb");
         if (!input_file) {
             fprintf(stderr, "Cannot open file [%s] for reading: %s\n",
                     input_filename, g_strerror(errno));
-            exit(1);
+            return EXIT_FAILURE;
         }
     } else {
         input_filename = "Standard input";
         input_file = stdin;
     }
 
-    if (strcmp(argv[optind+1], "-")) {
-        output_filename = g_strdup(argv[optind+1]);
+    if (strcmp(argv[optind+1], "-") != 0) {
+        /* Write to a file.  Open the file, in binary mode. */
+        output_filename = argv[optind+1];
         output_file = ws_fopen(output_filename, "wb");
         if (!output_file) {
             fprintf(stderr, "Cannot open file [%s] for writing: %s\n",
                     output_filename, g_strerror(errno));
-            exit(1);
+            return EXIT_FAILURE;
         }
     } else {
+        /* Write to the standard output. */
+#ifdef _WIN32
+        /* Put the standard output in binary mode. */
+        if (_setmode(1, O_BINARY) == -1) {
+            /* "Should not happen" */
+            fprintf(stderr, "Cannot put standard output in binary mode: %s\n",
+                    g_strerror(errno));
+            return EXIT_FAILURE;
+        }
+#endif
         output_filename = "Standard output";
         output_file = stdout;
     }
@@ -1814,7 +1814,7 @@ parse_options (int argc, char *argv[])
     /* Some validation */
     if (pcap_link_type != 1 && hdr_ethernet) {
         fprintf(stderr, "Dummy headers (-e, -i, -u, -s, -S -T) cannot be specified with link type override (-l)\n");
-        exit(1);
+        return EXIT_FAILURE;
     }
 
     /* Set up our variables */
@@ -1828,14 +1828,24 @@ parse_options (int argc, char *argv[])
     }
 
     ts_sec = time(0);               /* initialize to current time */
-    timecode_default = *localtime(&ts_sec);
+    now_tm = localtime(&ts_sec);
+    if (now_tm == NULL) {
+        /*
+         * This shouldn't happen - on UN*X, this should Just Work, and
+         * on Windows, it won't work if ts_sec is before the Epoch,
+         * but it's long after 1970, so....
+         */
+        fprintf(stderr, "localtime(right now) failed\n");
+        return EXIT_FAILURE;
+    }
+    timecode_default = *now_tm;
     timecode_default.tm_isdst = -1; /* Unknown for now, depends on time given to the strptime() function */
 
     /* Display summary of our state */
     if (!quiet) {
         fprintf(stderr, "Input from: %s\n", input_filename);
         fprintf(stderr, "Output to: %s\n",  output_filename);
-        fprintf(stderr, "Output format: %s\n", use_pcapng ? "PCAP-NG" : "PCAP");
+        fprintf(stderr, "Output format: %s\n", use_pcapng ? "pcapng" : "pcap");
 
         if (hdr_ethernet) fprintf(stderr, "Generate dummy Ethernet header: Protocol: 0x%0X\n",
                                   hdr_ethernet_proto);
@@ -1850,17 +1860,27 @@ parse_options (int argc, char *argv[])
         if (hdr_data_chunk) fprintf(stderr, "Generate dummy DATA chunk header: TSN: %u. SID: %u. SSN: %u. PPID: %u\n",
                                     hdr_data_chunk_tsn, hdr_data_chunk_sid, hdr_data_chunk_ssn, hdr_data_chunk_ppid);
     }
+
+    return EXIT_SUCCESS;
 }
 
 int
 main(int argc, char *argv[])
 {
-    parse_options(argc, argv);
+    int ret = EXIT_SUCCESS;
+
+    if (parse_options(argc, argv) != EXIT_SUCCESS) {
+        ret = EXIT_FAILURE;
+        goto clean_exit;
+    }
 
     assert(input_file  != NULL);
     assert(output_file != NULL);
 
-    write_file_header();
+    if (write_file_header() != EXIT_SUCCESS) {
+        ret = EXIT_FAILURE;
+        goto clean_exit;
+    }
 
     header_length = 0;
     if (hdr_ethernet) {
@@ -1887,12 +1907,13 @@ main(int argc, char *argv[])
     }
     curr_offset = header_length;
 
-    yyin = input_file;
-    yylex();
-
-    write_current_packet(FALSE);
-    fclose(input_file);
-    fclose(output_file);
+    text2pcap_in = input_file;
+    if (text2pcap_scan() == EXIT_SUCCESS) {
+        if (write_current_packet(FALSE) != EXIT_SUCCESS)
+            ret = EXIT_FAILURE;
+    } else {
+        ret = EXIT_FAILURE;
+    }
     if (debug)
         fprintf(stderr, "\n-------------------------\n");
     if (!quiet) {
@@ -1901,7 +1922,14 @@ main(int argc, char *argv[])
                 num_packets_written, (num_packets_written == 1) ? "" : "s",
                 bytes_written, (bytes_written == 1) ? "" : "s");
     }
-    return 0;
+clean_exit:
+    if (input_file) {
+        fclose(input_file);
+    }
+    if (output_file) {
+        fclose(output_file);
+    }
+    return ret;
 }
 
 /*

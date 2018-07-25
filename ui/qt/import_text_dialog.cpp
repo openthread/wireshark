@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -41,9 +29,9 @@
 
 #include <ui_import_text_dialog.h>
 #include "wireshark_application.h"
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 
-#include <QFileDialog>
 #include <QDebug>
 #include <QFile>
 
@@ -134,13 +122,19 @@ void ImportTextDialog::convertTextFile() {
     capfile_name_.append(tmpname ? tmpname : "temporary file");
     qDebug() << capfile_name_ << ":" << import_info_.wdh << import_info_.encapsulation << import_info_.max_frame_length;
     if (import_info_.wdh == NULL) {
-        open_failure_alert_box(capfile_name_.toUtf8().constData(), err, TRUE);
+        cfile_dump_open_failure_alert_box(capfile_name_.toUtf8().constData(), err, WTAP_FILE_TYPE_SUBTYPE_PCAP);
         fclose(import_info_.import_text_file);
         setResult(QDialog::Rejected);
         return;
     }
 
-    text_import(&import_info_);
+    err = text_import(&import_info_);
+    if (err != 0) {
+        failure_alert_box("Can't initialize scanner: %s", g_strerror(err));
+        fclose(import_info_.import_text_file);
+        setResult(QDialog::Rejected);
+        return;
+    }
 
     if (fclose(import_info_.import_text_file))
     {
@@ -149,7 +143,7 @@ void ImportTextDialog::convertTextFile() {
 
     if (!wtap_dump_close(import_info_.wdh, &err))
     {
-        write_failure_alert_box(capfile_name_.toUtf8().constData(), err);
+        cfile_close_failure_alert_box(capfile_name_.toUtf8().constData(), err);
     }
 }
 
@@ -282,7 +276,7 @@ void ImportTextDialog::on_textFileBrowseButton_clicked()
         break;
     }
 
-    QString file_name = QFileDialog::getOpenFileName(this, wsApp->windowTitleString(tr("Import Text File")), open_dir);
+    QString file_name = WiresharkFileDialog::getOpenFileName(this, wsApp->windowTitleString(tr("Import Text File")), open_dir);
     ti_ui_->textFileLineEdit->setText(file_name);
 }
 
@@ -309,6 +303,15 @@ void ImportTextDialog::on_textFileLineEdit_textChanged(const QString &file_name)
         file_ok_ = false;
     }
     updateImportButtonState();
+}
+
+void ImportTextDialog::on_noOffsetButton_toggled(bool checked)
+{
+    if (checked) {
+        ti_ui_->noOffsetLabel->setText("(only one packet will be created)");
+    } else {
+        ti_ui_->noOffsetLabel->setText("");
+    }
 }
 
 void ImportTextDialog::on_encapComboBox_currentIndexChanged(int index)
@@ -350,7 +353,10 @@ void ImportTextDialog::on_dateTimeLineEdit_textChanged(const QString &time_forma
 
             time(&cur_time);
             cur_tm = localtime(&cur_time);
-            strftime(time_str, 100, ti_ui_->dateTimeLineEdit->text().toUtf8().constData(), cur_tm);
+            if (cur_tm != NULL)
+                strftime(time_str, sizeof time_str, ti_ui_->dateTimeLineEdit->text().toUtf8().constData(), cur_tm);
+            else
+                g_strlcpy(time_str, "Not representable", sizeof time_str);
             ti_ui_->timestampExampleLabel->setText(QString(tr("Example: %1")).arg(time_str));
             time_format_ok_ = true;
         }
@@ -419,7 +425,7 @@ void ImportTextDialog::check_line_edit(SyntaxLineEdit *le, bool &ok_enabled, con
         if (is_short) {
             *val_ptr = num_str.toUShort(&conv_ok, base);
         } else {
-            *val_ptr = num_str.toULong(&conv_ok, base);
+            *val_ptr = (guint)num_str.toULong(&conv_ok, base);
         }
         if (conv_ok && *val_ptr <= max_val) {
             syntax_state = SyntaxLineEdit::Valid;

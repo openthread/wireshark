@@ -10,19 +10,7 @@
  *
  * Copied from packet-quake.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,7 +18,12 @@
 #include <stdlib.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
+#include <epan/expert.h>
+
+#include <wsutil/strtoi.h>
+
 void proto_register_quakeworld(void);
+void proto_reg_handoff_quakeworld(void);
 
 static int proto_quakeworld = -1;
 
@@ -69,6 +62,8 @@ static gint ett_quakeworld_game_seq2 = -1;
 static gint ett_quakeworld_game_clc = -1;
 static gint ett_quakeworld_game_svc = -1;
 
+static expert_field ei_quakeworld_connectionless_command_invalid = EI_INIT;
+
 /*
 	helper functions, they may ave to go somewhere else
 	they are mostly copied without change from
@@ -78,20 +73,15 @@ static gint ett_quakeworld_game_svc = -1;
 
 #define MAX_TEXT_SIZE	2048
 
-static	char	com_token[MAX_TEXT_SIZE+1];
-static	int	com_token_start;
-static	int	com_token_length;
-
 static const char *
-COM_Parse (const char *data)
+COM_Parse (const char *data, int data_len, int* token_start, int* token_len)
 {
-	int	c;
-	int	len;
+	int c;
+	char* com_token = (char*)wmem_alloc(wmem_packet_scope(), data_len+1);
 
-	len = 0;
 	com_token[0] = '\0';
-	com_token_start = 0;
-	com_token_length = 0;
+	*token_start = 0;
+	*token_len = 0;
 
 	if (data == NULL)
 		return NULL;
@@ -105,14 +95,14 @@ skipwhite:
 		if ((c != ' ') && (!g_ascii_iscntrl(c)))
 		    break;
 		data++;
-		com_token_start++;
+		(*token_start)++;
 	}
 
 	/* skip // comments */
 	if ((c=='/') && (data[1]=='/')) {
 		while (*data && *data != '\n'){
 			data++;
-			com_token_start++;
+			(*token_start)++;
 		}
 		goto skipwhite;
 	}
@@ -120,36 +110,39 @@ skipwhite:
 	/* handle quoted strings specially */
 	if (c == '\"') {
 		data++;
-		com_token_start++;
-		while (TRUE) {
+		(*token_start)++;
+		while (*token_len < data_len) {
 			c = *data++;
 			if ((c=='\"') || (c=='\0')) {
-				com_token[len] = '\0';
+				com_token[*token_len] = '\0';
 				return data;
 			}
-			com_token[len] = c;
-			len++;
-			com_token_length++;
+			com_token[*token_len] = c;
+			(*token_len)++;
 		}
+	}
+
+	if (*token_len == data_len) {
+		com_token[*token_len] = '\0';
+		return data;
 	}
 
 	/* parse a regular word */
 	do {
-		com_token[len] = c;
+		com_token[*token_len] = c;
 		data++;
-		len++;
-		com_token_length++;
+		(*token_len)++;
 		c = *data;
-	} while (( c != ' ') && (!g_ascii_iscntrl(c)));
+	} while (( c != ' ') && (!g_ascii_iscntrl(c)) && (*token_len < data_len));
 
-	com_token[len] = '\0';
+	com_token[*token_len] = '\0';
 	return data;
 }
 
 
 #define			MAX_ARGS 80
 static	int		cmd_argc = 0;
-static	char		*cmd_argv[MAX_ARGS];
+static	const char	*cmd_argv[MAX_ARGS];
 static	const char	*cmd_null_string = "";
 static	int		cmd_argv_start[MAX_ARGS];
 static	int		cmd_argv_length[MAX_ARGS];
@@ -191,17 +184,18 @@ Cmd_Argv_length(int arg)
 
 
 static void
-Cmd_TokenizeString(const char* text)
+Cmd_TokenizeString(const char* text, int text_len)
 {
 	int start;
-
+	int com_token_start;
+	int com_token_length;
 	cmd_argc = 0;
 
 	start = 0;
-	while (TRUE) {
+	while (start < text_len) {
 
 		/* skip whitespace up to a \n */
-		while (*text && *text <= ' ' && *text != '\n') {
+		while (*text && *text <= ' ' && *text != '\n' && start < text_len) {
 			text++;
 			start++;
 		}
@@ -212,15 +206,15 @@ Cmd_TokenizeString(const char* text)
 			break;
 		}
 
-		if (!*text)
+		if ((!*text) || (start == text_len))
 			return;
 
-		text = COM_Parse (text);
+		text = COM_Parse (text, text_len-start, &com_token_start, &com_token_length);
 		if (!text)
 			return;
 
 		if (cmd_argc < MAX_ARGS) {
-			cmd_argv[cmd_argc] = wmem_strdup(wmem_packet_scope(), com_token);
+			cmd_argv[cmd_argc] = (char*)text;
 			cmd_argv_start[cmd_argc] = start + com_token_start;
 			cmd_argv_length[cmd_argc] = com_token_length;
 			cmd_argc++;
@@ -257,7 +251,8 @@ dissect_id_infostring(tvbuff_t *tvb, proto_tree* tree,
 			*(keypos + keylength) != '\\' &&
 			*(keypos + keylength) != '\0'
 			;
-			keylength++) ;
+			keylength++)
+		;
 		keyvaluesep = keypos + keylength;
 		if (*keyvaluesep == '\0') break;
 		valuepos = keyvaluesep+1;
@@ -266,7 +261,8 @@ dissect_id_infostring(tvbuff_t *tvb, proto_tree* tree,
 			*(valuepos + valuelength) != '\\' &&
 			*(valuepos + valuelength) != '\0'
 			;
-			valuelength++) ;
+			valuelength++)
+		;
 		valueend = valuepos + valuelength;
 		if (*valueend == '\0') {
 			end_of_info = TRUE;
@@ -313,7 +309,7 @@ static const value_string names_direction[] = {
 
 
 /* I took this name and value directly out of the QW source. */
-#define PORT_MASTER 27500
+#define PORT_MASTER 27500 /* Not IANA registered */
 static guint gbl_quakeworldServerPort=PORT_MASTER;
 
 
@@ -342,6 +338,7 @@ dissect_quakeworld_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo,
 {
 	proto_tree	*cl_tree;
 	proto_tree	*text_tree = NULL;
+	proto_item	*pi = NULL;
 	guint8		*text;
 	int		len;
 	int		offset;
@@ -373,7 +370,7 @@ dissect_quakeworld_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo,
 		/* client to server commands */
 		const char *c;
 
-		Cmd_TokenizeString(text);
+		Cmd_TokenizeString(text, len);
 		c = Cmd_Argv(0);
 
 		/* client to sever commands */
@@ -387,16 +384,19 @@ dissect_quakeworld_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo,
 			command = "Log";
 			command_len = 3;
 		} else if (strcmp(c,"connect") == 0) {
-			int version;
-			int qport;
-			int challenge;
+			guint32 version = 0;
+			guint16 qport = 0;
+			guint32 challenge = 0;
+			gboolean version_valid = TRUE;
+			gboolean qport_valid = TRUE;
+			gboolean challenge_valid = TRUE;
 			const char *infostring;
 			proto_tree *argument_tree = NULL;
 			command = "Connect";
 			command_len = Cmd_Argv_length(0);
 			if (text_tree) {
 				proto_item *argument_item;
-				proto_tree_add_string(text_tree, hf_quakeworld_connectionless_command,
+				pi = proto_tree_add_string(text_tree, hf_quakeworld_connectionless_command,
 					tvb, offset, command_len, command);
 				argument_item = proto_tree_add_string(text_tree,
 					hf_quakeworld_connectionless_arguments,
@@ -406,10 +406,14 @@ dissect_quakeworld_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo,
 								       ett_quakeworld_connectionless_arguments);
 				command_finished=TRUE;
 			}
-			version    = atoi(Cmd_Argv(1));
-			qport      = atoi(Cmd_Argv(2));
-			challenge  = atoi(Cmd_Argv(3));
+			version_valid = ws_strtou32(Cmd_Argv(1), NULL, &version);
+			qport_valid = ws_strtou16(Cmd_Argv(2), NULL, &qport);
+			challenge_valid = ws_strtou32(Cmd_Argv(3), NULL, &challenge);
 			infostring = Cmd_Argv(4);
+
+			if (text_tree && (!version_valid || !qport_valid || !challenge_valid))
+				expert_add_info(pinfo, pi, &ei_quakeworld_connectionless_command_invalid);
+
 			if (argument_tree) {
 				proto_item *info_item;
 				proto_tree *info_tree;
@@ -515,7 +519,7 @@ dissect_quakeworld_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo,
 		} else if (text[0] == S2C_CHALLENGE) {
 			command = "Challenge";
 			command_len = 1;
-			/* string, atoi */
+			/* string, conversion */
 		} else {
 			command = "Unknown";
 			command_len = len - 1;
@@ -685,12 +689,18 @@ dissect_quakeworld(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 	return tvb_captured_length(tvb);
 }
 
-
-void proto_reg_handoff_quakeworld(void);
+static void
+apply_quakeworld_prefs(void)
+{
+    /* Port preference used to determine client/server */
+    gbl_quakeworldServerPort = prefs_get_uint_value("quakeworld", "udp.port");
+}
 
 void
 proto_register_quakeworld(void)
 {
+	expert_module_t* expert_quakeworld;
+
 	static hf_register_info hf[] = {
 		{ &hf_quakeworld_c2s,
 			{ "Client to Server", "quakeworld.c2s",
@@ -794,42 +804,31 @@ proto_register_quakeworld(void)
 		&ett_quakeworld_game_clc,
 		&ett_quakeworld_game_svc
 	};
-	module_t *quakeworld_module;
 
-	proto_quakeworld = proto_register_protocol("QuakeWorld Network Protocol",
-						"QUAKEWORLD", "quakeworld");
+	static ei_register_info ei[] = {
+		{ &ei_quakeworld_connectionless_command_invalid, { "quakeworld.connectionless.command.invalid",
+			PI_MALFORMED, PI_ERROR, "Invalid connectionless command", EXPFILL }}
+	};
+
+	proto_quakeworld = proto_register_protocol("QuakeWorld Network Protocol", "QUAKEWORLD", "quakeworld");
 	proto_register_field_array(proto_quakeworld, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
 	/* Register a configuration option for port */
-	quakeworld_module = prefs_register_protocol(proto_quakeworld,
-		proto_reg_handoff_quakeworld);
-	prefs_register_uint_preference(quakeworld_module, "udp.port",
-					"QuakeWorld Server UDP Port",
-					"Set the UDP port for the QuakeWorld Server",
-					10, &gbl_quakeworldServerPort);
+	prefs_register_protocol(proto_quakeworld, apply_quakeworld_prefs);
+
+	expert_quakeworld = expert_register_protocol(proto_quakeworld);
+	expert_register_field_array(expert_quakeworld, ei, array_length(ei));
 }
 
 
 void
 proto_reg_handoff_quakeworld(void)
 {
-	static gboolean Initialized=FALSE;
-	static dissector_handle_t quakeworld_handle;
-	static guint ServerPort;
+	dissector_handle_t quakeworld_handle;
 
-	if (!Initialized) {
-		quakeworld_handle = create_dissector_handle(dissect_quakeworld,
-				proto_quakeworld);
-		Initialized=TRUE;
-	} else {
-		dissector_delete_uint("udp.port", ServerPort, quakeworld_handle);
-	}
-
-	/* set port for future deletes */
-	ServerPort=gbl_quakeworldServerPort;
-
-	dissector_add_uint("udp.port", gbl_quakeworldServerPort, quakeworld_handle);
+	quakeworld_handle = create_dissector_handle(dissect_quakeworld, proto_quakeworld);
+	dissector_add_uint("udp.port", PORT_MASTER, quakeworld_handle);
 }
 
 /*

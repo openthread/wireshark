@@ -1,31 +1,19 @@
 /* packet-alcap.c
-* Routines for ALCAP (Q.2630.3) dissection
-* AAL type 2 signalling protocol - Capability set 3
-* 10/2003
-*
-* Copyright 2003, Michael Lum <mlum [AT] telostech.com>
-* In association with Telos Technology Inc.
-*
-* Copyright 2005, Luis E. Garcia Ontanon <luis.ontanon [AT] gmail.com>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998 Gerald Combs
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ * Routines for ALCAP (Q.2630.3) dissection
+ * AAL type 2 signalling protocol - Capability set 3
+ * 10/2003
+ *
+ * Copyright 2003, Michael Lum <mlum [AT] telostech.com>
+ * In association with Telos Technology Inc.
+ *
+ * Copyright 2005, Luis E. Garcia Ontanon <luis.ontanon [AT] gmail.com>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
 #include "config.h"
 
@@ -188,10 +176,18 @@ static const value_string connection_priority[] = {
     { 0, NULL }
 };
 
-
-
 static const char *alcap_proto_name = "AAL type 2 signalling protocol (Q.2630)";
 static const char *alcap_proto_name_short = "ALCAP";
+
+static const value_string all_paths_vals[] = {
+    { 0, "All Paths in association" },
+    { 0, NULL }
+};
+
+static const value_string all_cids_vals[] = {
+    { 0, "All CIDs in the Path" },
+    { 0, NULL }
+};
 
 /* Initialize the subtree pointers */
 static gint ett_alcap = -1;
@@ -405,6 +401,8 @@ static expert_field ei_alcap_release_cause_not31 = EI_INIT;
 static expert_field ei_alcap_abnormal_release = EI_INIT;
 static expert_field ei_alcap_response = EI_INIT;
 
+static dissector_handle_t alcap_handle = NULL;
+
 static gboolean keep_persistent_info = TRUE;
 
 static wmem_tree_t* legs_by_dsaid = NULL;
@@ -494,27 +492,22 @@ static const gchar* dissect_fields_ceid(packet_info* pinfo, tvbuff_t *tvb, proto
      * 7.4.3 Path Identifier
      * 7.4.4 Channel Identifier
      */
-    proto_item* pi;
-
     if (len != 5) {
         proto_tree_add_expert(tree, pinfo, &ei_alcap_parameter_field_bad_length, tvb, offset, len);
         return NULL;
     }
 
-    pi = proto_tree_add_item(tree,hf_alcap_ceid_pathid,tvb,offset,4,ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint(tree, hf_alcap_ceid_pathid, tvb, offset, 4, ENC_BIG_ENDIAN, &msg_info->pathid);
 
-    msg_info->pathid = tvb_get_ntohl(tvb,offset);
     msg_info->cid = tvb_get_guint8(tvb,offset+4);
 
     if (msg_info->pathid == 0) {
-        proto_item_append_text(pi," (All Paths in association)");
         return "Path: 0 (All Paths)";
     }
 
-    pi = proto_tree_add_item(tree,hf_alcap_ceid_cid,tvb,offset+4,1,ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree,hf_alcap_ceid_cid,tvb,offset+4,1,ENC_BIG_ENDIAN);
 
     if (msg_info->cid == 0) {
-        proto_item_append_text(pi," (All CIDs in the Path)");
         return wmem_strdup_printf(wmem_packet_scope(), "Path: %u CID: 0 (Every CID)",msg_info->pathid);
     } else {
         return wmem_strdup_printf(wmem_packet_scope(), "Path: %u CID: %u",msg_info->pathid,msg_info->cid);
@@ -1581,12 +1574,12 @@ proto_register_alcap(void)
 
     { &hf_alcap_ceid_pathid,
       { "Path ID", "alcap.ceid.pathid",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT32, BASE_DEC|BASE_SPECIAL_VALS, VALS(all_paths_vals), 0,
         NULL, HFILL }
     },
     { &hf_alcap_ceid_cid,
       { "CID", "alcap.ceid.cid",
-        FT_UINT8, BASE_DEC, NULL, 0,
+        FT_UINT8, BASE_DEC|BASE_SPECIAL_VALS, VALS(all_cids_vals), 0,
         NULL, HFILL }
     },
 
@@ -2392,7 +2385,7 @@ proto_register_alcap(void)
 
     proto_alcap = proto_register_protocol(alcap_proto_name, alcap_proto_name_short, "alcap");
 
-    register_dissector("alcap", dissect_alcap, proto_alcap);
+    alcap_handle = register_dissector("alcap", dissect_alcap, proto_alcap);
 
     proto_register_field_array(proto_alcap, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -2415,8 +2408,6 @@ proto_register_alcap(void)
 void
 proto_reg_handoff_alcap(void)
 {
-    dissector_handle_t alcap_handle = find_dissector("alcap");
-
     dissector_add_uint("mtp3.service_indicator", MTP_SI_AAL2, alcap_handle);
 }
 

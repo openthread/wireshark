@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -122,19 +110,6 @@ static const fragment_items cbch_frag_items = {
     NULL,
     "blocks"
 };
-
-static void
-cbch_defragment_init(void)
-{
-    reassembly_table_init(&cbch_block_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-cbch_defragment_cleanup(void)
-{
-    reassembly_table_destroy(&cbch_block_reassembly_table);
-}
 
 static const range_string gsm_cbch_sched_begin_slot_rvals[] = {
     { 0,     0,     "Out of range (ignoring message)" },
@@ -645,8 +620,9 @@ proto_register_gsm_cbch(void)
 
     /* subdissector code */
     register_dissector("gsm_cbch", dissect_cbch, proto_cbch);
-    register_init_routine(cbch_defragment_init);
-    register_cleanup_routine(cbch_defragment_cleanup);
+
+    reassembly_table_register(&cbch_block_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
     /* subtree array */
     proto_register_subtree_array(ett, array_length(ett));

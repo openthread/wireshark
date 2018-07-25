@@ -10,19 +10,7 @@
  * Updated by Neil Hunter <neil.hunter@energis-squared.com>
  * WTLS support by Alexandre P. Ferreira (Splice IP)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,6 +20,7 @@
 #endif
 
 #include <epan/packet.h>
+#include <epan/iana_charsets.h>
 #include "packet-wap.h"
 #include "packet-wtls.h"
 
@@ -472,7 +461,6 @@ static void
 dissect_wtls_handshake(proto_tree *tree, tvbuff_t *tvb, guint offset, guint count)
 {
 	char pdu_msg_type;
-	nstime_t timeValue;
 	int client_size = 0;
 	guint value = 0;
 	int size = 0;
@@ -507,10 +495,8 @@ dissect_wtls_handshake(proto_tree *tree, tvbuff_t *tvb, guint offset, guint coun
 			proto_tree_add_item (wtls_msg_type_item_tree, hf_wtls_hands_cli_hello_version,
 					tvb,offset,1,ENC_BIG_ENDIAN);
 			offset++;
-			timeValue.secs = tvb_get_ntohl (tvb, offset);
-			timeValue.nsecs = 0;
-			proto_tree_add_time (wtls_msg_type_item_tree, hf_wtls_hands_cli_hello_gmt, tvb,
-					offset, 4, &timeValue);
+			proto_tree_add_item (wtls_msg_type_item_tree, hf_wtls_hands_cli_hello_gmt, tvb,
+					offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 			offset+=4;
 			proto_tree_add_item (wtls_msg_type_item_tree, hf_wtls_hands_cli_hello_random,
 					tvb,offset,12,ENC_NA);
@@ -850,10 +836,8 @@ dissect_wtls_handshake(proto_tree *tree, tvbuff_t *tvb, guint offset, guint coun
 			proto_tree_add_item (wtls_msg_type_item_tree, hf_wtls_hands_serv_hello_version,
 					tvb,offset,1,ENC_BIG_ENDIAN);
 			offset++;
-			timeValue.secs = tvb_get_ntohl (tvb, offset);
-			timeValue.nsecs = 0;
-			proto_tree_add_time (wtls_msg_type_item_tree, hf_wtls_hands_serv_hello_gmt, tvb,
-					offset, 4, &timeValue);
+			proto_tree_add_item (wtls_msg_type_item_tree, hf_wtls_hands_serv_hello_gmt, tvb,
+					offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 			offset+=4;
 			proto_tree_add_item (wtls_msg_type_item_tree, hf_wtls_hands_serv_hello_random,
 					tvb,offset,12,ENC_NA);
@@ -952,18 +936,14 @@ dissect_wtls_handshake(proto_tree *tree, tvbuff_t *tvb, guint offset, guint coun
 							case IDENTIFIER_X509 :
 								break;
 						}
-						timeValue.secs = tvb_get_ntohl (tvb, offset);
-						timeValue.nsecs = 0;
-						proto_tree_add_time (wtls_msg_type_item_sub_tree,
+						proto_tree_add_item (wtls_msg_type_item_sub_tree,
 								hf_wtls_hands_certificate_wtls_valid_not_before,
-								tvb, offset, 4, &timeValue);
+								tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 						offset+=4;
 						client_size+=4;
-						timeValue.secs = tvb_get_ntohl (tvb, offset);
-						timeValue.nsecs = 0;
-						proto_tree_add_time (wtls_msg_type_item_sub_tree,
+						proto_tree_add_item (wtls_msg_type_item_sub_tree,
 								hf_wtls_hands_certificate_wtls_valid_not_after,
-								tvb, offset, 4, &timeValue);
+								tvb, offset, 4, ENC_TIME_SECS|ENC_BIG_ENDIAN);
 						offset+=4;
 						client_size+=4;
 						value =  tvb_get_guint8 (tvb, offset);
@@ -1229,7 +1209,7 @@ proto_register_wtls(void)
 		{ &hf_wtls_hands_cli_hello_key_identifier_charset,
 			{ 	"Identifier CharSet",
 				"wtls.handshake.client_hello.ident_charset",
-				 FT_UINT16, BASE_HEX|BASE_EXT_STRING, &wap_mib_enum_vals_character_sets_ext, 0x00,
+				 FT_UINT16, BASE_DEC|BASE_EXT_STRING, &mibenum_vals_character_sets_ext, 0x00,
 				NULL, HFILL
 			}
 		},
@@ -1439,7 +1419,7 @@ proto_register_wtls(void)
 		{ &hf_wtls_hands_certificate_wtls_issuer_charset,
 			{ 	"Charset",
 				"wtls.handshake.certificate.issuer.charset",
-				 FT_UINT16, BASE_HEX|BASE_EXT_STRING, &wap_mib_enum_vals_character_sets_ext, 0x00,
+				 FT_UINT16, BASE_DEC|BASE_EXT_STRING, &mibenum_vals_character_sets_ext, 0x00,
 				NULL, HFILL
 			}
 		},
@@ -1481,7 +1461,7 @@ proto_register_wtls(void)
 		{ &hf_wtls_hands_certificate_wtls_subject_charset,
 			{ 	"Charset",
 				"wtls.handshake.certificate.subject.charset",
-				 FT_UINT16, BASE_HEX|BASE_EXT_STRING, &wap_mib_enum_vals_character_sets_ext, 0x00,
+				 FT_UINT16, BASE_DEC|BASE_EXT_STRING, &mibenum_vals_character_sets_ext, 0x00,
 				NULL, HFILL
 			}
 		},
@@ -1568,13 +1548,7 @@ proto_register_wtls(void)
 	};
 
 /* Register the protocol name and description */
-	proto_wtls = proto_register_protocol(
-		"Wireless Transport Layer Security",   	/* protocol name for use by wireshark */
-		"WTLS",                          /* short version of name */
-		"wtls"                    	/* Abbreviated protocol name, should Match IANA
-						    < URL:http://www.iana.org/assignments/port-numbers/ >
-						  */
-	);
+	proto_wtls = proto_register_protocol("Wireless Transport Layer Security", "WTLS", "wtls" );
 
 /* Required function calls to register the header fields and subtrees used  */
 	proto_register_field_array(proto_wtls, hf, array_length(hf));
@@ -1587,9 +1561,7 @@ proto_reg_handoff_wtls(void)
 	dissector_handle_t wtls_handle;
 
 	wtls_handle = create_dissector_handle(dissect_wtls, proto_wtls);
-	dissector_add_uint("udp.port", UDP_PORT_WTLS_WSP,     wtls_handle);
-	dissector_add_uint("udp.port", UDP_PORT_WTLS_WTP_WSP, wtls_handle);
-	dissector_add_uint("udp.port", UDP_PORT_WTLS_WSP_PUSH,wtls_handle);
+	dissector_add_uint_range_with_preference("udp.port", UDP_PORT_WTLS_RANGE, wtls_handle);
 }
 
 /*

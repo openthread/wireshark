@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __SIMPLE_DIALOG_UI_H__
@@ -80,11 +68,29 @@ typedef enum {
 
 /** Create and show a simple dialog.
  *
- * @param type type of dialog
- * @param btn_mask the buttons to display
- * @param msg_format printf like message format
- * @param ... printf like parameters
- * @return the newly created dialog
+ * @param type type of dialog, e.g. ESD_TYPE_WARN
+ * @param btn_mask The buttons to display, e.g. ESD_BTNS_OK_CANCEL
+ * @param msg_format Printf like message format. Text must be plain.
+ * @param ... Printf like parameters
+ * @return The newly created dialog
+ */
+/*
+ * XXX This is a bit clunky. We typically pass in:
+ * - simple_dialog_primary_start
+ * - The primary message
+ * - simple_dialog_primary_end
+ * - Optionally, the secondary message.
+ *
+ * In the Qt UI we use primary_start and _end to split the primary and
+ * secondary messages. They are then added to a QMessageBox via setText and
+ * setInformativeText respectively. No formatting is applied.
+ *
+ * Callers are responsible for wrapping the primary message and formatting
+ * the message text.
+ *
+ * Explicitly passing in separate primary and secondary messages would let us
+ * get rid of primary_start and primary_end and reduce the amount of
+ * gymnastics we have to to in the Qt UI.
  */
 extern gpointer simple_dialog(ESD_TYPE_E type, gint btn_mask,
     const gchar *msg_format, ...)
@@ -92,12 +98,10 @@ extern gpointer simple_dialog(ESD_TYPE_E type, gint btn_mask,
 
 /** Surround the primary dialog message text by
  *  simple_dialog_primary_start() and simple_dialog_primary_end().
- *  To highlight the first sentence (will take effect on GTK2 only).
  */
 extern const char *simple_dialog_primary_start(void);
 /** Surround the primary dialog message text by
  *  simple_dialog_primary_start() and simple_dialog_primary_end().
- *  To highlight the first sentence (will take effect on GTK2 only).
  */
 extern const char *simple_dialog_primary_end(void);
 
@@ -126,6 +130,11 @@ extern void vsimple_error_message_box(const char *msg_format, va_list ap);
  * Error alert box, taking a format and a list of arguments.
  */
 extern void simple_error_message_box(const char *msg_format, ...) G_GNUC_PRINTF(1, 2);
+
+/*
+ * Warning alert box, taking a format and a va_list argument.
+ */
+extern void vsimple_warning_message_box(const char *msg_format, va_list ap);
 
 #ifdef __cplusplus
 }

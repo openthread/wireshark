@@ -5,25 +5,11 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2004 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __SMINMPEC_H__
 #define __SMINMPEC_H__
-
-#include "ws_symbol_export.h"
 
 /*
  * These are SMI Network Management Private Enterprise Codes for
@@ -69,6 +55,7 @@
 #define VENDOR_UNISPHERE             4874
 #define VENDOR_CISCO_BBSM            5263
 #define VENDOR_THE3GPP2              5535
+#define VENDOR_SKT_TELECOM           5806
 #define VENDOR_IP_UNPLUGGED          5925
 #define VENDOR_ISSANNI               5948
 #define VENDOR_NETSCALER             5951
@@ -76,23 +63,25 @@
 #define VENDOR_QUINTUM               6618
 #define VENDOR_INTERLINK             6728
 #define VENDOR_CNCTC                 7951
+#define VENDOR_STARENT_NETWORKS      8164
 #define VENDOR_COLUBRIS              8744
-#define VENDOR_BARRACUDA            10704 /* Former phion Information Technologies */
-#define VENDOR_ERICSSON_PKT_CORE    10923
-#define VENDOR_COLUMBIA_UNIVERSITY  11862
 #define VENDOR_THE3GPP              10415
 #define VENDOR_GEMTEK_SYSTEMS       10529
+#define VENDOR_BARRACUDA            10704 /* Former phion Information Technologies */
+#define VENDOR_ERICSSON_PKT_CORE    10923
+#define VENDOR_DACOM                11665
+#define VENDOR_COLUMBIA_UNIVERSITY  11862
 #define VENDOR_FORTINET             12356
 #define VENDOR_VERIZON              12951
 #define VENDOR_PLIXER               13745
 #define VENDOR_WIFI_ALLIANCE        14122
 #define VENDOR_T_SYSTEMS_NOVA       16787
 #define VENDOR_CHINATELECOM_GUANZHOU 20942
+#define VENDOR_GIGAMON              26866
 #define VENDOR_CACE                 32622
 /* Greater than 32,767 need to be tagged unsigned. */
 #define VENDOR_NTOP                 35632u
+#define VENDOR_ERICSSON_CANADA_INC  46098u
 #define VENDOR_CISCO_WIFI           4232704
-
-WS_DLL_PUBLIC value_string_ext sminmpec_values_ext;
 
 #endif /* __SMINMPEC_H__ */

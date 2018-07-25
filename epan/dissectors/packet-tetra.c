@@ -17,19 +17,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * REF: ETSI EN 300 392-2 V3.2.1
  */
@@ -56,7 +44,7 @@ static int proto_tetra = -1;
 
 static dissector_handle_t tetra_handle;
 
-static int global_tetra_port = 7074;
+#define TETRA_UDP_PORT  7074 /* Not IANA assigned */
 
 /* Whether the capture data include carrier numbers */
 static gboolean include_carrier_number = TRUE;
@@ -680,7 +668,7 @@ static int hf_tetra_proprietary_element_owner_extension = -1;  /* BIT_STRING */
 static int hf_tetra_simplex_duplex_selection_06 = -1;  /* T_simplex_duplex_selection_05 */
 
 /*--- End of included file: packet-tetra-hf.c ---*/
-#line 79 "./asn1/tetra/packet-tetra-template.c"
+#line 67 "./asn1/tetra/packet-tetra-template.c"
 
 /* Initialize the subtree pointers */
 /* These are the ids of the subtrees that we may be creating */
@@ -965,7 +953,7 @@ static gint ett_tetra_Type2 = -1;
 static gint ett_tetra_Modify_type = -1;
 
 /*--- End of included file: packet-tetra-ett.c ---*/
-#line 89 "./asn1/tetra/packet-tetra-template.c"
+#line 77 "./asn1/tetra/packet-tetra-template.c"
 
 static expert_field ei_tetra_channels_incorrect = EI_INIT;
 
@@ -8811,7 +8799,7 @@ static int dissect_MAC_ACCESS_DEFINE_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _
 
 
 /*--- End of included file: packet-tetra-fn.c ---*/
-#line 93 "./asn1/tetra/packet-tetra-template.c"
+#line 81 "./asn1/tetra/packet-tetra-template.c"
 
 static const value_string channeltypenames[] = {
 	{ 0, "Reserved" },
@@ -9268,13 +9256,8 @@ dissect_tetra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
 void proto_reg_handoff_tetra(void)
 {
-	static gboolean initialized=FALSE;
-
-	if (!initialized) {
-		tetra_handle = create_dissector_handle(dissect_tetra, proto_tetra);
-		dissector_add_uint("udp.port", global_tetra_port, tetra_handle);
-	}
-
+	tetra_handle = create_dissector_handle(dissect_tetra, proto_tetra);
+	dissector_add_uint_with_preference("udp.port", TETRA_UDP_PORT, tetra_handle);
 }
 
 
@@ -10465,7 +10448,7 @@ void proto_register_tetra (void)
         "INTEGER_0_7", HFILL }},
     { &hf_tetra_network_time,
       { "network-time", "tetra.network_time",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         NULL, HFILL }},
     { &hf_tetra_local_time_offset_sign,
       { "local-time-offset-sign", "tetra.local_time_offset_sign",
@@ -10481,7 +10464,7 @@ void proto_register_tetra (void)
         "INTEGER_0_63", HFILL }},
     { &hf_tetra_reserved_04,
       { "reserved", "tetra.reserved",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         NULL, HFILL }},
     { &hf_tetra_u_Authentication,
       { "u-Authentication", "tetra.u_Authentication_element",
@@ -11713,7 +11696,7 @@ void proto_register_tetra (void)
         "T_simplex_duplex_selection_05", HFILL }},
 
 /*--- End of included file: packet-tetra-hfarr.c ---*/
-#line 622 "./asn1/tetra/packet-tetra-template.c"
+#line 605 "./asn1/tetra/packet-tetra-template.c"
  	};
 
 	/* List of subtrees */
@@ -11998,14 +11981,14 @@ void proto_register_tetra (void)
     &ett_tetra_Modify_type,
 
 /*--- End of included file: packet-tetra-ettarr.c ---*/
-#line 632 "./asn1/tetra/packet-tetra-template.c"
+#line 615 "./asn1/tetra/packet-tetra-template.c"
 	};
 
 	static ei_register_info ei[] = {
 		{ &ei_tetra_channels_incorrect, { "tetra.channels.incorrect", PI_MALFORMED, PI_WARN, "Channel count incorrect, must be <= 3", EXPFILL }},
 	};
 
-	proto_tetra = proto_register_protocol("TETRA Protocol", "tetra", "tetra");
+	proto_tetra = proto_register_protocol("TETRA Protocol", "TETRA", "tetra");
 	proto_register_field_array (proto_tetra, hf, array_length (hf));
 	proto_register_subtree_array (ett, array_length (ett));
 	register_dissector("tetra", dissect_tetra, proto_tetra);

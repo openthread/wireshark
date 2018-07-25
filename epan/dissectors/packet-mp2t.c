@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -36,9 +24,9 @@
 #include <epan/reassemble.h>
 #include <epan/address_types.h>
 #include <epan/proto_data.h>
+#include <epan/exceptions.h>
+#include <epan/show_exception.h>
 #include "packet-l2tp.h"
-
-#include <epan/tvbuff-int.h> /* XXX, for tvb_new_proxy() */
 
 void proto_register_mp2t(void);
 void proto_reg_handoff_mp2t(void);
@@ -481,7 +469,7 @@ mp2t_get_packet_length(tvbuff_t *tvb, guint offset, packet_info *pinfo,
         len_tvb = tvb;
     } else {
         /* Create a composite tvb out of the two */
-        frag_tvb = tvb_new_proxy(frag->tvb_data);
+        frag_tvb = tvb_new_subset_remaining(frag->tvb_data, 0);
         len_tvb = tvb_new_composite();
         tvb_composite_append(len_tvb, frag_tvb);
 
@@ -565,24 +553,52 @@ mp2t_fragment_handle(tvbuff_t *tvb, guint offset, packet_info *pinfo,
 }
 
 
-/*  Decoding of DOCSIS MAC frames within MPEG packets. MAC frames may begin anywhere
- *  within an MPEG packet or span multiple MPEG packets.
- *  payload_unit_start_indicator bit in MPEG header, and pointer field are used to
- *  decode fragmented DOCSIS frames within MPEG packet.
- *-------------------------------------------------------------------------------
- *MPEG Header | pointer_field | stuff_bytes | Start of MAC Frame #1              |
- *(PUSI = 1)  | (= 0)         | (0 or more) |(up to 183 bytes)                   |
- *-------------------------------------------------------------------------------
- *-------------------------------------------------------------------------------
- *MPEG Header |  Continuation of MAC Frame #1                                    |
- *(PUSI = 0)  |  (up to 183 bytes)                                               |
- *-------------------------------------------------------------------------------
- *-------------------------------------------------------------------------------
- *MPEG Header | pointer_field |Tail of MAC Frame| stuff_bytes |Start of MAC Frame|
- *(PUSI = 1)  | (= M)         | #1  (M bytes)   | (0 or more) |# 2 (N bytes)     |
- *-------------------------------------------------------------------------------
- *  Source - Data-Over-Cable Service Interface Specifications
- *  CM-SP-DRFI-I07-081209
+/*
+ * Reassembly of various payload types.
+ *
+ * DOCSIS MAC frames, PES packets, etc. may begin anywhere within an MPEG-TS
+ * packet or span multiple MPEG packets.
+ *
+ * The payload_unit_start_indicator bit in the MPEG-TS header, and the pointer
+ * field, are used to reassemble fragmented frames from MPEG-TS packets.
+ *
+ * If that bit is set, a higher-level packet begins in this MPEG-TS
+ * packet, and the MPEG-TS header is followed by a 1-octet pointer field.
+ * The value of the pointer field indicates at which byte the higher-
+ * level packet begins.  If that bit is not set, the packet begun in
+ * an earlier MPEG-TS packet continues in this packet, with the data
+ * in the payload going after the data in the previous MPEG-TS packet
+ * (there can be more than one continuing packet).
+ *
+ * If the pointer field is non-zero, this MPEG-TS packet contains
+ * the conclusion of one higher-level packet and the beginning of
+ * the next packet.
+ *
+ * As the MPEG-TS packets are of a fixed size, stuff bytes are used
+ * as padding before the first byte of a higher-level packet as
+ * necessary.
+ *
+ * This diagram is from Data-Over-Cable Service Interface Specifications,
+ * Downstream RF Interface Specification, CM-SP-DRFI-I16-170111, section 7
+ * "DOWNSTREAM TRANSMISSION CONVERGENCE SUBLAYER", and shows how the
+ * higher-level packets are transported over the MPEG Transport Stream:
+ *
+ *+--------------------------------------------------------------------------------+
+ *|MPEG Header | pointer_field | stuff_bytes | Start of Packet #1                  |
+ *|(PUSI = 1)  | (= 0)         | (0 or more) | (up to 183 bytes)                   |
+ *+--------------------------------------------------------------------------------+
+ *+--------------------------------------------------------------------------------+
+ *|MPEG Header |  Continuation of Packet #1                                        |
+ *|(PUSI = 0)  |  (up to 183 bytes)                                                |
+ *+--------------------------------------------------------------------------------+
+ *+---------------------------------------------------------------------------------+
+ *|MPEG Header | pointer_field |Tail of Packet #1 | stuff_bytes |Start of Packet #2 |
+ *|(PUSI = 1)  | (= M)         |(M bytes)         | (0 or more) |(N bytes)          |
+ *+---------------------------------------------------------------------------------+
+ *
+ * For PES and PSI, see ISO/IEC 13818-1 / ITU-T Rec. H.222.0 (05/2006),
+ * section 2.4.3.3 "Semantic definition of fields in Transport Stream packet
+ * layer", which says much the same thing.
  */
 static void
 mp2t_process_fragmented_payload(tvbuff_t *tvb, gint offset, guint remaining_len, packet_info *pinfo,
@@ -1207,13 +1223,40 @@ dissect_tsp(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 static int
 dissect_mp2t( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
-    guint         offset = 0;
-    conversation_t    *conv;
+    volatile guint offset = 0;
+    conversation_t *conv;
+    const char     *saved_proto;
 
     conv = find_or_create_conversation(pinfo);
 
     for (; tvb_reported_length_remaining(tvb, offset) >= MP2T_PACKET_SIZE; offset += MP2T_PACKET_SIZE) {
-       dissect_tsp(tvb, offset, pinfo, tree, conv);
+        /*
+         * Dissect the TSP.
+         *
+         * If it gets an error that means there's no point in
+         * dissecting any more TSPs, rethrow the exception in
+         * question.
+         *
+         * If it gets any other error, report it and continue, as that
+         * means that TSP got an error, but that doesn't mean we should
+         * stop dissecting TSPs within this frame or chunk of reassembled
+         * data.
+         */
+        saved_proto = pinfo->current_proto;
+        TRY {
+            dissect_tsp(tvb, offset, pinfo, tree, conv);
+        }
+        CATCH_NONFATAL_ERRORS {
+            show_exception(tvb, pinfo, tree, EXCEPT_CODE, GET_MESSAGE);
+
+            /*
+             * Restore the saved protocol as well; we do this after
+             * show_exception(), so that the "Malformed packet" indication
+             * shows the protocol for which dissection failed.
+             */
+            pinfo->current_proto = saved_proto;
+        }
+        ENDTRY;
     }
     return tvb_captured_length(tvb);
 }
@@ -1246,17 +1289,6 @@ heur_dissect_mp2t( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
     return TRUE;
 }
 
-
-static void
-mp2t_init(void) {
-    reassembly_table_init(&mp2t_reassembly_table,
-        &addresses_reassembly_table_functions);
-}
-
-static void
-mp2t_cleanup(void) {
-    reassembly_table_destroy(&mp2t_reassembly_table);
-}
 
 void
 proto_register_mp2t(void)
@@ -1538,12 +1570,12 @@ proto_register_mp2t(void)
     expert_mp2t = expert_register_protocol(proto_mp2t);
     expert_register_field_array(expert_mp2t, ei, array_length(ei));
 
-    mp2t_no_address_type = address_type_dissector_register("AT_MP2T_NONE", "No MP2T Address", none_addr_to_str, none_addr_str_len, NULL, none_addr_len, NULL, NULL);
+    mp2t_no_address_type = address_type_dissector_register("AT_MP2T_NONE", "No MP2T Address", none_addr_to_str, none_addr_str_len, NULL, NULL, none_addr_len, NULL, NULL);
 
     heur_subdissector_list = register_heur_dissector_list("mp2t.pid", proto_mp2t);
     /* Register init of processing of fragmented DEPI packets */
-    register_init_routine(mp2t_init);
-    register_cleanup_routine(mp2t_cleanup);
+    reassembly_table_register(&mp2t_reassembly_table,
+        &addresses_reassembly_table_functions);
 }
 
 
@@ -1554,10 +1586,12 @@ proto_reg_handoff_mp2t(void)
     heur_dissector_add("udp", heur_dissect_mp2t, "MP2T over UDP", "mp2t_udp", proto_mp2t, HEURISTIC_ENABLE);
 
     dissector_add_uint("rtp.pt", PT_MP2T, mp2t_handle);
-    dissector_add_for_decode_as("udp.port", mp2t_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", mp2t_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", mp2t_handle);
     heur_dissector_add("usb.bulk", heur_dissect_mp2t, "MP2T USB bulk endpoint", "mp2t_usb_bulk", proto_mp2t, HEURISTIC_ENABLE);
     dissector_add_uint("wtap_encap", WTAP_ENCAP_MPEG_2_TS, mp2t_handle);
     dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_DOCSIS_DMPT, mp2t_handle);
+    dissector_add_string("media_type", "video/mp2t", mp2t_handle);
 
     docsis_handle = find_dissector("docsis");
     mpeg_pes_handle = find_dissector("mpeg-pes");

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -47,7 +35,7 @@ static gint hf_vrrp_virt_rtr_id = -1;
 static gint hf_vrrp_prio = -1;
 static gint hf_vrrp_addr_count = -1;
 static gint hf_vrrp_checksum = -1;
-static gint hf_vrrp_checksum_bad = -1;
+static gint hf_vrrp_checksum_status = -1;
 static gint hf_vrrp_auth_type = -1;
 static gint hf_vrrp_adver_int = -1;
 static gint hf_vrrp_reserved_mbz = -1;
@@ -55,6 +43,7 @@ static gint hf_vrrp_short_adver_int = -1;
 static gint hf_vrrp_ip = -1;
 static gint hf_vrrp_ip6 = -1;
 static gint hf_vrrp_auth_string = -1;
+static gint hf_vrrp_md5_auth_data = -1;
 
 static gboolean g_vrrp_v3_checksum_as_in_v2 = FALSE;
 
@@ -73,10 +62,12 @@ static const value_string vrrp_type_vals[] = {
 #define VRRP_AUTH_TYPE_NONE        0
 #define VRRP_AUTH_TYPE_SIMPLE_TEXT 1
 #define VRRP_AUTH_TYPE_IP_AUTH_HDR 2
+#define VRRP_AUTH_TYPE_IP_MD5      254
 static const value_string vrrp_auth_vals[] = {
     {VRRP_AUTH_TYPE_NONE,        "No Authentication"},
     {VRRP_AUTH_TYPE_SIMPLE_TEXT, "Simple Text Authentication [RFC 2338] / Reserved [RFC 3768]"},
     {VRRP_AUTH_TYPE_IP_AUTH_HDR, "IP Authentication Header [RFC 2338] / Reserved [RFC 3768]"},
+    {VRRP_AUTH_TYPE_IP_MD5,      "Cisco VRRP MD5 authentication"},
     {0, NULL}
 };
 
@@ -101,10 +92,10 @@ dissect_vrrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     vec_t       cksum_vec[4];
     guint32     phdr[2];
     gboolean    is_ipv6;
-    proto_item *ti, *tv, *hidden_item, *checksum_item;
+    proto_item *ti, *tv;
     proto_tree *vrrp_tree, *ver_type_tree;
     guint8      priority, addr_count = 0, auth_type = VRRP_AUTH_TYPE_NONE;
-    guint16     cksum, computed_cksum;
+    guint16     computed_cksum = 0;
 
     is_ipv6 = (pinfo->src.type == AT_IPv6);
 
@@ -168,10 +159,6 @@ dissect_vrrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
         offset += 6;
     }
 
-
-    checksum_item = proto_tree_add_item(vrrp_tree, hf_vrrp_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
-
-    cksum = tvb_get_ntohs(tvb, offset);
     vrrp_len = (gint)tvb_reported_length(tvb);
     if (!pinfo->fragmented && (gint)tvb_captured_length(tvb) >= vrrp_len) {
         /* The packet isn't part of a fragmented datagram
@@ -189,6 +176,7 @@ dissect_vrrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                     computed_cksum = in_cksum(cksum_vec, 4);
                     break;
                 }
+            /* FALL THROUGH */
             case 2:
             default:
                 SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, vrrp_len);
@@ -196,22 +184,11 @@ dissect_vrrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                 break;
         }
 
-        if (computed_cksum == 0) {
-            hidden_item = proto_tree_add_boolean(vrrp_tree, hf_vrrp_checksum_bad, tvb, offset, 2, FALSE);
-            PROTO_ITEM_SET_HIDDEN(hidden_item);
-            proto_item_append_text(checksum_item, " [correct]");
-        } else {
-            hidden_item = proto_tree_add_boolean(vrrp_tree, hf_vrrp_checksum_bad, tvb, offset, 2, TRUE);
-            PROTO_ITEM_SET_HIDDEN(hidden_item);
-            if(hi_nibble(ver_type)==3){
-                proto_item_append_text(checksum_item, " [incorrect, should be 0x%04x(check preferences)]", in_cksum_shouldbe(cksum, computed_cksum));
-            } else {
-                proto_item_append_text(checksum_item, " [incorrect, should be 0x%04x]", in_cksum_shouldbe(cksum, computed_cksum));
-            }
-            expert_add_info_format(pinfo, checksum_item, &ei_vrrp_checksum,
-                                   "VRRP Checksum Incorrect, should be 0x%04x", in_cksum_shouldbe(cksum, computed_cksum));
-        }
-
+        proto_tree_add_checksum(vrrp_tree, tvb, offset, hf_vrrp_checksum, hf_vrrp_checksum_status, &ei_vrrp_checksum, pinfo, computed_cksum,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
+    } else {
+        proto_tree_add_checksum(vrrp_tree, tvb, offset, hf_vrrp_checksum, hf_vrrp_checksum_status, &ei_vrrp_checksum, pinfo, 0,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
     offset += 2;
 
@@ -229,6 +206,10 @@ dissect_vrrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     if (auth_type == VRRP_AUTH_TYPE_SIMPLE_TEXT) {
         proto_tree_add_item(vrrp_tree, hf_vrrp_auth_string, tvb, offset, VRRP_AUTH_DATA_LEN, ENC_ASCII|ENC_NA);
         offset += VRRP_AUTH_DATA_LEN;
+    } else if (auth_type == VRRP_AUTH_TYPE_IP_MD5) {
+        if (vrrp_len - offset >= 16) {
+            proto_tree_add_item(vrrp_tree, hf_vrrp_md5_auth_data, tvb, vrrp_len - 16, 16, ENC_NA);
+        }
     }
 
     return offset;
@@ -273,9 +254,9 @@ void proto_register_vrrp(void)
                 FT_UINT16, BASE_HEX, NULL, 0x0,
                 "Used to detect data corruption in the VRRP message", HFILL }},
 
-        { &hf_vrrp_checksum_bad,
-          { "Bad Checksum", "vrrp.checksum_bad",
-                FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+        { &hf_vrrp_checksum_status,
+          { "Checksum Status", "vrrp.checksum.status",
+                FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
                 NULL, HFILL }},
 
         { &hf_vrrp_auth_type,
@@ -312,6 +293,11 @@ void proto_register_vrrp(void)
             {"Authentication String", "vrrp.auth_string",
                 FT_STRING, BASE_NONE, NULL, 0x0,
                 NULL, HFILL }},
+
+        { &hf_vrrp_md5_auth_data,
+            {"MD5 Authentication Data", "vrrp.md5_auth_data",
+                FT_BYTES, BASE_NONE, NULL, 0x0,
+                "MD5 digest string is contained.", HFILL }},
     };
 
     static gint *ett[] = {

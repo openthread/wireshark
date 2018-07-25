@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -27,7 +15,7 @@
 #include <stdio.h>
 #include <glib.h>
 
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 
 #include <epan/stats_tree_priv.h>
 #include <epan/stat_tap_ui.h>
@@ -96,7 +84,8 @@ init_stats_tree(const char *opt_arg, void *userdata _U_)
 					     st->cfg->flags,
 					     stats_tree_reset,
 					     stats_tree_packet,
-					     draw_stats_tree);
+					     draw_stats_tree,
+					     NULL);
 
 	if (error_string) {
 		report_failure("stats_tree for: %s failed to attach to the tap: %s", cfg->name, error_string->str);
@@ -113,8 +102,8 @@ register_stats_tree_tap (gpointer k _U_, gpointer v, gpointer p _U_)
 	stats_tree_cfg *cfg = (stats_tree_cfg *)v;
 	stat_tap_ui ui_info;
 
-	cfg->pr = (tree_cfg_pres *)g_malloc(sizeof(tree_cfg_pres));
-	cfg->pr->init_string = g_strdup_printf("%s,tree", cfg->abbr);
+	cfg->pr = wmem_new(wmem_epan_scope(), tree_cfg_pres);
+	cfg->pr->init_string = wmem_strdup_printf(wmem_epan_scope(), "%s,tree", cfg->abbr);
 
 	ui_info.group = REGISTER_STAT_GROUP_GENERIC;
 	ui_info.title = NULL;

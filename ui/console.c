@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -26,6 +14,7 @@
 
 
 #include "epan/prefs.h"
+#include "wsutil/time_util.h"
 
 #include "console.h"
 
@@ -91,11 +80,18 @@ console_log_handler(const char *log_domain, GLogLevelFlags log_level,
         /* create a "timestamp" */
         time(&curr);
         today = localtime(&curr);
-
-        fprintf(stderr, "%02d:%02d:%02d %8s %s %s\n",
-                today->tm_hour, today->tm_min, today->tm_sec,
-                log_domain != NULL ? log_domain : "",
-                level, message);
+        guint64 microseconds = create_timestamp();
+        if (today != NULL) {
+                fprintf(stderr, "%02d:%02d:%02d.%03" G_GUINT64_FORMAT " %8s %s %s\n",
+                        today->tm_hour, today->tm_min, today->tm_sec,
+                        microseconds % 1000000 / 1000,
+                        log_domain != NULL ? log_domain : "",
+                        level, message);
+        } else {
+                fprintf(stderr, "Time not representable %8s %s %s\n",
+                        log_domain != NULL ? log_domain : "",
+                        level, message);
+        }
 #ifdef _WIN32
         if(log_level & G_LOG_LEVEL_ERROR) {
             /* wait for a key press before the following error handler will terminate the program
@@ -106,7 +102,7 @@ console_log_handler(const char *log_domain, GLogLevelFlags log_level,
     } else {
         /* XXX - on UN*X, should we just use g_log_default_handler()?
            We want the error messages to go to the standard output;
-           on Mac OS X, that will cause them to show up in various
+           on macOS, that will cause them to show up in various
            per-user logs accessible through Console (details depend
            on whether you're running 10.0 through 10.4 or running
            10.5 and later), and, on other UN*X desktop environments,

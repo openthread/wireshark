@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __WMEM_STRUTL_H__
@@ -66,10 +54,25 @@ gchar *
 wmem_strconcat(wmem_allocator_t *allocator, const gchar *first, ...)
 G_GNUC_MALLOC G_GNUC_NULL_TERMINATED;
 
+WS_DLL_PUBLIC
+gchar *
+wmem_strjoin(wmem_allocator_t *allocator,
+             const gchar *separator, const gchar *first, ...)
+G_GNUC_MALLOC G_GNUC_NULL_TERMINATED;
+
+WS_DLL_PUBLIC
+gchar *
+wmem_strjoinv(wmem_allocator_t *allocator,
+              const gchar *separator, gchar **str_array)
+G_GNUC_MALLOC;
+
 /**
  * Splits a string into a maximum of max_tokens pieces, using the given
  * delimiter. If max_tokens is reached, the remainder of string is appended
- * to the last token. Consecutive delimiters are treated as a single delimiter.
+ * to the last token. Successive tokens are not folded and will instead result
+ * in an empty string as element.
+ *
+ * Do not use with a NULL allocator, use g_strsplit instead.
  */
 WS_DLL_PUBLIC
 gchar **

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2007 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -78,17 +66,28 @@ static gint ett_pktap = -1;
 static expert_field ei_pktap_hdrlen_too_short = EI_INIT;
 
 static dissector_handle_t pktap_handle;
+static capture_dissector_handle_t eth_cap_handle;
 
 /*
- * XXX - these are little-endian in the captures I've seen, but Apple
- * no longer make any big-endian machines (Macs use x86, iOS machines
- * use ARM and run it little-endian), so that might be by definition
- * or they might be host-endian.
+ * XXX - these are only little-endian because they've been created on
+ * little-endian machines; the code in bsd/net/pktap.c in XNU writes
+ * the structure out in host byte order.
  *
- * If a big-endian PKTAP file ever shows up, and it comes from a
- * big-endian machine, presumably these are host-endian, and we need
- * to just fetch the fields in host byte order here but byte-swap them
- * to host byte order in libwiretap.
+ * We haven't been treating it as host-endian in libpcap and libwiretap,
+ * i.e. we haven't been byte-swapping its members when reading it on
+ * a machine whose byte order differs from the byte order of the machine
+ * on which the file is being read.
+ *
+ * Furthermore, the header is extensible, so we don't necessarily know
+ * what fields to swap.
+ *
+ * Fortunately, the length of the PKTAP header is a 32-bit field and is
+ * *presumably* never going to be 65536 or greater, so if any of the upper
+ * 16 bits appear to be set, it means we're looking at it in the wrong
+ * byte order, and it's never going to be zero, so those bits *will* be
+ * set if it's >= 65536, so we can determine its byte order.
+ *
+ * We should do that here.
  */
 
 static gboolean
@@ -110,7 +109,7 @@ capture_pktap(const guchar *pd, int offset _U_, int len, capture_packet_info_t *
 	switch (dlt) {
 
 	case 1: /* DLT_EN10MB */
-		return capture_eth(pd, hdrlen, len, cpinfo, pseudo_header);
+		return call_capture_dissector(eth_cap_handle, pd, hdrlen, len, cpinfo, pseudo_header);
 
 	}
 
@@ -274,6 +273,8 @@ proto_register_pktap(void)
 void
 proto_reg_handoff_pktap(void)
 {
+	capture_dissector_handle_t pktap_cap_handle;
+
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_PKTAP, pktap_handle);
 
 	pcap_pktdata_handle = find_dissector_add_dependency("pcap_pktdata", proto_pktap);
@@ -282,8 +283,11 @@ proto_reg_handoff_pktap(void)
 		uses DLT_USER2 for PKTAP; if you are using DLT_USER2 for your
 		own purposes, feel free to call your own capture_ routine for
 		WTAP_ENCAP_USER2. */
-	register_capture_dissector("wtap_encap", WTAP_ENCAP_PKTAP, capture_pktap, proto_pktap);
-	register_capture_dissector("wtap_encap", WTAP_ENCAP_USER2, capture_pktap, proto_pktap);
+	pktap_cap_handle = create_capture_dissector_handle(capture_pktap, proto_pktap);
+	capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_PKTAP, pktap_cap_handle);
+	capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_USER2, pktap_cap_handle);
+
+	eth_cap_handle = find_capture_dissector("eth");
 }
 
 /*

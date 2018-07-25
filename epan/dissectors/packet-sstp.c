@@ -12,19 +12,7 @@
  *   Stiftinger Thomas
  *   Werner Sebastian
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -112,7 +100,7 @@ void proto_reg_handoff_sstp(void);
 #define SSTP_ATTRIB_STATUS_UNRECOGNIZED_ATTRIBUTE 0x000002
 #define SSTP_ATTRIB_STATUS_VALUE_NOT_SUPPORTED 0x000004
 
-static dissector_handle_t ppp_handle = NULL;
+static dissector_handle_t ppp_hdlc_handle = NULL;
 static gint ett_sstp = -1;
 static gint ett_sstp_attribute = -1;
 static gint ett_sstp_version = -1;
@@ -329,7 +317,7 @@ dissect_sstp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
     /* our work here is done, since sstp encapsulates ppp, we hand the remaining buffer
        over to the ppp dissector for further analysis */
     tvb_next = tvb_new_subset_remaining(tvb, SSTP_OFFSET_DATA);
-    call_dissector(ppp_handle, tvb_next, pinfo, tree);
+    call_dissector(ppp_hdlc_handle, tvb_next, pinfo, tree);
   }
 
   return tvb_captured_length(tvb);
@@ -514,7 +502,7 @@ proto_register_sstp(void)
 void
 proto_reg_handoff_sstp(void)
 {
-  ppp_handle = find_dissector_add_dependency("ppp", proto_sstp);
+  ppp_hdlc_handle = find_dissector_add_dependency("ppp_hdlc", proto_sstp);
 }
 
 /*

@@ -10,19 +10,7 @@
  * Updated by Neil Hunter <neil.hunter@energis-squared.com>
  * WTLS support by Alexandre P. Ferreira (Splice IP)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -221,24 +209,12 @@ static const fragment_items wtp_frag_items = {
 
 /* Handle for WSP dissector */
 static dissector_handle_t wsp_handle;
+static dissector_handle_t wtp_fromudp_handle;
 
 /*
  * reassembly of WSP
  */
 static reassembly_table wtp_reassembly_table;
-
-static void
-wtp_defragment_init(void)
-{
-    reassembly_table_init(&wtp_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-wtp_defragment_cleanup(void)
-{
-    reassembly_table_destroy(&wtp_reassembly_table);
-}
 
 /*
  * Extract some bitfields
@@ -403,7 +379,7 @@ dissect_wtp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     pdut = pdu_type(b0);
 
 #ifdef DEBUG
-    printf("WTP packet %u: tree = %p, pdu = %s (%u) length: %u\n",
+    proto_tree_add_debug_text(tree, "WTP packet %u: tree = %p, pdu = %s (%u) length: %u\n",
             pinfo->num, tree,
             val_to_str(pdut, vals_wtp_pdu_type, "Unknown PDU type 0x%x"),
             pdut, tvb_captured_length(tvb));
@@ -721,7 +697,7 @@ dissect_wtp_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                     "Reassembled WTP", fd_wtp, &wtp_frag_items,
                     NULL, wtp_tree);
 #ifdef DEBUG
-            printf("WTP: Packet %u %s -> %d: wsp_tvb = %p, fd_wtp = %p, frame = %u\n",
+            proto_tree_add_debug_text(tree, "WTP: Packet %u %s -> %d: wsp_tvb = %p, fd_wtp = %p, frame = %u\n",
                     pinfo->num,
                     fd_wtp ? "Reassembled" : "Not reassembled",
                     fd_wtp ? fd_wtp->reassembled_in : -1,
@@ -1061,24 +1037,21 @@ proto_register_wtp(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     register_dissector("wtp-wtls", dissect_wtp_fromwtls, proto_wtp);
-    register_dissector("wtp-udp", dissect_wtp_fromudp, proto_wtp);
-    register_init_routine(wtp_defragment_init);
-    register_cleanup_routine(wtp_defragment_cleanup);
+    wtp_fromudp_handle = register_dissector("wtp-udp", dissect_wtp_fromudp, proto_wtp);
+    reassembly_table_register(&wtp_reassembly_table,
+                          &addresses_reassembly_table_functions);
 }
 
 void
 proto_reg_handoff_wtp(void)
 {
-    dissector_handle_t wtp_fromudp_handle;
-
     /*
      * Get a handle for the connection-oriented WSP dissector - if WTP
      * PDUs have data, it is WSP.
      */
     wsp_handle = find_dissector_add_dependency("wsp-co", proto_wtp);
 
-    wtp_fromudp_handle = find_dissector("wtp-udp");
-    dissector_add_uint("udp.port", UDP_PORT_WTP_WSP, wtp_fromudp_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_WTP_WSP, wtp_fromudp_handle);
     dissector_add_uint("gsm_sms_ud.udh.port", UDP_PORT_WTP_WSP, wtp_fromudp_handle);
     dissector_add_uint("gsm_sms.udh.port", UDP_PORT_WTP_WSP, wtp_fromudp_handle);
 }

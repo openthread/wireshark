@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -128,6 +116,23 @@ static int hf_biev_value                                                   = -1;
 static int hf_bind_parameter                                               = -1;
 static int hf_bia_indicator[20]  = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 static int hf_indicator[20] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+static int hf_aplefm_state                                                 = -1;
+static int hf_aplsiri_state                                                = -1;
+static int hf_iphoneaccev_count                                            = -1;
+static int hf_iphoneaccev_key                                              = -1;
+static int hf_iphoneaccev_value                                            = -1;
+static int hf_xapl_accessory_info                                          = -1;
+static int hf_xapl_accessory_info_vendor_id                                = -1;
+static int hf_xapl_accessory_info_product_id                               = -1;
+static int hf_xapl_accessory_info_version                                  = -1;
+static int hf_xapl_host_info                                               = -1;
+static int hf_xapl_features                                                = -1;
+static int hf_xapl_features_reserved_x                                     = -1;
+static int hf_xapl_features_noise_reduction_status_reporting               = -1;
+static int hf_xapl_features_siri_status_reporting                          = -1;
+static int hf_xapl_features_docked_or_powered                              = -1;
+static int hf_xapl_features_battery_reporting                              = -1;
+static int hf_xapl_features_reserved                                       = -1;
 
 static expert_field ei_non_mandatory_command                          = EI_INIT;
 static expert_field ei_invalid_usage                                  = EI_INIT;
@@ -157,6 +162,10 @@ static expert_field ei_vts_dtmf                                       = EI_INIT;
 static expert_field ei_at_type                                        = EI_INIT;
 static expert_field ei_cnum_service                                   = EI_INIT;
 static expert_field ei_cnum_itc                                       = EI_INIT;
+static expert_field ei_aplefm_out_of_range                            = EI_INIT;
+static expert_field ei_aplsiri_out_of_range                           = EI_INIT;
+static expert_field ei_iphoneaccev_key_out_of_range                   = EI_INIT;
+static expert_field ei_xapl_features_reserved                         = EI_INIT;
 static expert_field ei_parameter_blank                                = EI_INIT;
 
 static gint ett_bthfp            = -1;
@@ -164,6 +173,8 @@ static gint ett_bthfp_command    = -1;
 static gint ett_bthfp_parameters = -1;
 static gint ett_bthfp_brsf_hf    = -1;
 static gint ett_bthfp_brsf_ag    = -1;
+static gint ett_bthfp_xapl_features = -1;
+static gint ett_bthfp_xapl_accessory_info = -1;
 
 static dissector_handle_t bthfp_handle;
 
@@ -474,6 +485,27 @@ static const value_string biev_assigned_number_vals[] = {
     { 0, NULL }
 };
 
+static const value_string aplefm_state_vals[] = {
+    { 0,   "Disable" },
+    { 1,   "Enable" },
+    { 0, NULL }
+};
+
+static const value_string aplsiri_state_vals[] = {
+    { 1,   "Enabled" },
+    { 2,   "Disabled" },
+    { 0, NULL }
+};
+
+static const value_string iphoneaccev_key_vals[] = {
+    { 1,   "Battery Level" },
+    { 2,   "Dock State" },
+    { 0, NULL }
+};
+
+
+static const unit_name_string units_slash15 = { "/15", NULL };
+
 extern value_string_ext csd_data_rate_vals_ext;
 
 void proto_register_bthfp(void);
@@ -490,6 +522,46 @@ static guint32 get_uint_parameter(guint8 *parameter_stream, gint parameter_lengt
     value = (guint32) g_ascii_strtoull(val, NULL, 10);
 
     return value;
+}
+
+static guint32 get_uint_hex_parameter(guint8 *parameter_stream, gint parameter_length)
+{
+    guint32      value;
+    guint8      *val;
+
+    val = (guint8 *) wmem_alloc(wmem_packet_scope(), parameter_length + 1);
+    memcpy(val, parameter_stream, parameter_length);
+    val[parameter_length] = '\0';
+    value = (guint32) g_ascii_strtoull(val, NULL, 16);
+
+    return value;
+}
+
+static gboolean check_aplefm(gint role, guint16 type) {
+    if (role == ROLE_HS && type == TYPE_ACTION) return TRUE;
+    if (role == ROLE_AG && type == TYPE_RESPONSE) return TRUE;
+
+    return FALSE;
+}
+
+static gboolean check_aplsiri(gint role, guint16 type) {
+    if (role == ROLE_HS && type == TYPE_READ) return TRUE;
+    if (role == ROLE_AG && type == TYPE_RESPONSE) return TRUE;
+
+    return FALSE;
+}
+
+static gboolean check_iphoneaccev(gint role, guint16 type) {
+    if (role == ROLE_HS && type == TYPE_ACTION) return TRUE;
+
+    return FALSE;
+}
+
+static gboolean check_xapl(gint role, guint16 type) {
+    if (role == ROLE_HS && type == TYPE_ACTION) return TRUE;
+    if (role == ROLE_AG && (type == TYPE_RESPONSE || type == TYPE_ACTION)) return TRUE;
+
+    return FALSE;
 }
 
 static gboolean check_biev(gint role, guint16 type) {
@@ -723,7 +795,7 @@ dissect_brsf_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         };
 
         pitem = proto_tree_add_bitmask_value_with_flags(tree, tvb, offset, hf_brsf_hs, ett_bthfp_brsf_hf, hs, value, BMT_NO_APPEND);
-        if (value >> 8) {
+        if (value >> 10) {
             expert_add_info(pinfo, pitem, &ei_brfs_hs_reserved_bits);
         }
     } else {
@@ -746,7 +818,7 @@ dissect_brsf_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
         pitem = proto_tree_add_bitmask_value_with_flags(tree, tvb, offset, hf_brsf_ag, ett_bthfp_brsf_ag, ag, value, BMT_NO_APPEND);
 
-        if (value >> 10) {
+        if (value >> 12) {
             expert_add_info(pinfo, pitem, &ei_brfs_ag_reserved_bits);
         }
     }
@@ -772,7 +844,6 @@ dissect_vgs_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     value = get_uint_parameter(parameter_stream, parameter_length);
 
     pitem = proto_tree_add_uint(tree, hf_vgs, tvb, offset, parameter_length, value);
-    proto_item_append_text(pitem, "/15");
 
     if (value > 15) {
         expert_add_info(pinfo, pitem, &ei_vgs_gain);
@@ -799,7 +870,6 @@ dissect_vgm_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     value = get_uint_parameter(parameter_stream, parameter_length);
 
     pitem = proto_tree_add_uint(tree, hf_vgm, tvb, offset, parameter_length, value);
-    proto_item_append_text(pitem, "/15");
 
     if (value > 15) {
         expert_add_info(pinfo, pitem, &ei_vgm_gain);
@@ -928,6 +998,138 @@ dissect_bind_parameter(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     }
 
     return FALSE;
+}
+
+static gint
+dissect_aplefm_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, gint role, guint16 type, guint8 *parameter_stream,
+        guint parameter_number, gint parameter_length, void **data _U_)
+{
+    proto_item  *pitem;
+    guint32      value;
+
+    if (!check_aplefm(role, type)) return FALSE;
+
+    if (parameter_number == 0) {
+        value = get_uint_parameter(parameter_stream, parameter_length);
+
+        pitem = proto_tree_add_uint(tree, hf_aplefm_state, tvb, offset,
+                parameter_length, value);
+
+        if (value > 1) {
+            expert_add_info(pinfo, pitem, &ei_aplefm_out_of_range);
+        }
+    } else return FALSE;
+
+    return TRUE;
+}
+
+static gint
+dissect_aplsiri_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, gint role, guint16 type, guint8 *parameter_stream,
+        guint parameter_number, gint parameter_length, void **data _U_)
+{
+    proto_item  *pitem;
+    guint32      value;
+
+    if (!check_aplsiri(role, type)) return FALSE;
+
+    if (parameter_number == 0) {
+        value = get_uint_parameter(parameter_stream, parameter_length);
+
+        pitem = proto_tree_add_uint(tree, hf_aplsiri_state, tvb, offset,
+                parameter_length, value);
+
+        if (value < 1 || value > 2) {
+            expert_add_info(pinfo, pitem, &ei_aplsiri_out_of_range);
+        }
+    } else return FALSE;
+
+    return TRUE;
+}
+
+static gint
+dissect_iphoneaccev_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, gint role, guint16 type, guint8 *parameter_stream,
+        guint parameter_number, gint parameter_length, void **data _U_)
+{
+    proto_item  *pitem;
+    guint32      value;
+
+    if (!check_iphoneaccev(role, type)) return FALSE;
+
+    if (parameter_number == 0) {
+        value = get_uint_parameter(parameter_stream, parameter_length);
+
+        proto_tree_add_uint(tree, hf_iphoneaccev_count, tvb, offset,
+                parameter_length, value);
+    } else if (parameter_number % 2 == 1) {
+        value = get_uint_parameter(parameter_stream, parameter_length);
+
+        pitem = proto_tree_add_uint(tree, hf_iphoneaccev_key, tvb, offset,
+                parameter_length, value);
+
+        if (value < 1 || value > 2) {
+            expert_add_info(pinfo, pitem, &ei_iphoneaccev_key_out_of_range);
+        }
+    } else {
+        value = get_uint_parameter(parameter_stream, parameter_length);
+
+        proto_tree_add_uint(tree, hf_iphoneaccev_value, tvb, offset,
+                parameter_length, value);
+    }
+
+    return TRUE;
+}
+
+static gint
+dissect_xapl_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+        gint offset, gint role, guint16 type, guint8 *parameter_stream,
+        guint parameter_number, gint parameter_length, void **data _U_)
+{
+    proto_item  *pitem;
+    proto_tree  *ptree;
+    guint32      value;
+
+    if (!check_xapl(role, type)) return FALSE;
+
+    if (parameter_number == 0) {
+        if (role == ROLE_HS) {
+            pitem = proto_tree_add_item(tree, hf_xapl_accessory_info, tvb, offset, parameter_length, ENC_NA | ENC_ASCII);
+            ptree = proto_item_add_subtree(pitem, ett_bthfp_xapl_accessory_info);
+
+            value = get_uint_hex_parameter(parameter_stream + (4 + 1) * 0, 4);
+            proto_tree_add_uint(ptree, hf_xapl_accessory_info_vendor_id, tvb, offset, 4, value);
+
+            value = get_uint_hex_parameter(parameter_stream + (4 + 1) * 1, 4);
+            proto_tree_add_uint(ptree, hf_xapl_accessory_info_product_id, tvb, offset + (4 + 1) * 1, 4, value);
+
+            value = get_uint_hex_parameter(parameter_stream + (4 + 1) * 2, 4);
+            proto_tree_add_uint(ptree, hf_xapl_accessory_info_version, tvb, offset + (4 + 1) * 2, 4, value);
+        } else {
+            proto_tree_add_item(tree, hf_xapl_host_info, tvb, offset, parameter_length, ENC_NA | ENC_ASCII);
+        }
+    } else if (parameter_number == 1) {
+        static const int * hfx[] = {
+            &hf_xapl_features_reserved_x,
+            &hf_xapl_features_noise_reduction_status_reporting,
+            &hf_xapl_features_siri_status_reporting,
+            &hf_xapl_features_docked_or_powered,
+            &hf_xapl_features_battery_reporting,
+            &hf_xapl_features_reserved,
+            NULL
+        };
+
+        value = get_uint_parameter(parameter_stream, parameter_length);
+
+        pitem = proto_tree_add_bitmask_value_with_flags(tree, tvb, offset, hf_xapl_features, ett_bthfp_xapl_features, hfx, value, BMT_NO_APPEND);
+
+        if (value >> 5) {
+            expert_add_info(pinfo, pitem, &ei_xapl_features_reserved);
+        }
+    } else return FALSE;
+
+    return TRUE;
 }
 
 static gint
@@ -1534,6 +1736,11 @@ dissect_ciev_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
          Some commands can use TYPE_TEST respose to properly dissect parameters,
          for example: AT+CIND=?, AT+CIND? */
 static const at_cmd_t at_cmds[] = {
+    /* Vendor specific: Apple */
+    { "+XAPL",        "Apple Bluetooth Accessory Identification",         check_xapl,        dissect_xapl_parameter },
+    { "+IPHONEACCEV", "Apple Bluetooth Headset Battery Level Indication", check_iphoneaccev, dissect_iphoneaccev_parameter },
+    { "+APLSIRI",     "Apple Siri Availability Information",              check_aplsiri,     dissect_aplsiri_parameter },
+    { "+APLEFM",      "Apple Siri Eyes Free Mode",                        check_aplefm,      dissect_aplefm_parameter },
     /* Bluetooth HFP specific AT Commands */
     { "+BIEV",      "Bluetooth Indicator Enter Value",          check_biev, dissect_biev_parameter }, /* HFP 1.7 */
     { "+BIND",      "Bluetooth Indicator",                      check_bind, dissect_bind_parameter }, /* HFP 1.7 */
@@ -1623,7 +1830,7 @@ dissect_at_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         i_char += 1;
     }
 
-    if (!command_number) col_append_fstr(pinfo->cinfo, COL_INFO, "%s", col_str);
+    if (!command_number) col_append_str(pinfo->cinfo, COL_INFO, col_str);
 
     if (role == ROLE_HS) {
         if (command_number) {
@@ -1754,6 +1961,7 @@ dissect_at_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         parameters_item = proto_tree_add_none_format(command_tree, hf_parameters, tvb,
                 offset, 0, "Parameters");
         parameters_tree = proto_item_add_subtree(parameters_item, ett_bthfp_parameters);
+        first_parameter_offset = offset;
 
         data = NULL;
 
@@ -1801,7 +2009,6 @@ dissect_at_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                     parameter_length += 1;
                 }
 
-                first_parameter_offset = offset;
                 if (type == TYPE_ACTION || type == TYPE_RESPONSE) {
                     if (i_at_cmd && (i_at_cmd->dissect_parameter != NULL &&
                             !i_at_cmd->dissect_parameter(tvb, pinfo, parameters_tree, offset, role,
@@ -2231,7 +2438,7 @@ dissect_bthfp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         }
     } else {
         col_append_fstr(pinfo->cinfo, COL_INFO, "Fragment: %s",
-                tvb_format_text_wsp(tvb, offset, tvb_captured_length_remaining(tvb, offset)));
+                tvb_format_text_wsp(wmem_packet_scope(), tvb, offset, tvb_captured_length_remaining(tvb, offset)));
         pitem = proto_tree_add_item(main_tree, hf_fragmented, tvb, 0, 0, ENC_NA);
         PROTO_ITEM_SET_GENERATED(pitem);
         proto_tree_add_item(main_tree, hf_fragment, tvb, offset,
@@ -2441,12 +2648,12 @@ proto_register_bthfp(void)
         },
         { &hf_vgs,
            { "Gain",                             "bthfp.vgs",
-           FT_UINT8, BASE_DEC, NULL, 0,
+           FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_slash15, 0,
            NULL, HFILL}
         },
         { &hf_vgm,
            { "Gain",                             "bthfp.vgm",
-           FT_UINT8, BASE_DEC, NULL, 0,
+           FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_slash15, 0,
            NULL, HFILL}
         },
         { &hf_nrec,
@@ -2595,7 +2802,7 @@ proto_register_bthfp(void)
            NULL, HFILL}
         },
         { &hf_at_type,
-           { "Number",                           "bthfp.at.type",
+           { "Type",                             "bthfp.at.type",
            FT_UINT8, BASE_DEC | BASE_RANGE_STRING, RVALS(at_type_vals), 0,
            NULL, HFILL}
         },
@@ -2893,6 +3100,91 @@ proto_register_bthfp(void)
            { "Indicator 20",                     "bthfp.indicator.20",
            FT_STRING, BASE_NONE, NULL, 0,
            NULL, HFILL}
+        },
+        { &hf_aplefm_state,
+           { "State",                            "bthfp.aplefm.state",
+           FT_UINT16, BASE_DEC, VALS(aplefm_state_vals), 0,
+           NULL, HFILL}
+        },
+        { &hf_aplsiri_state,
+           { "Siri State",                       "bthfp.aplsiri.state",
+           FT_UINT16, BASE_DEC, VALS(aplsiri_state_vals), 0,
+           NULL, HFILL}
+        },
+        { &hf_iphoneaccev_count,
+           { "Count",                            "bthfp.iphoneaccev.count",
+           FT_UINT16, BASE_DEC, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_iphoneaccev_key,
+           { "Key",                              "bthfp.iphoneaccev.key",
+           FT_UINT16, BASE_DEC, VALS(iphoneaccev_key_vals), 0,
+           NULL, HFILL}
+        },
+        { &hf_iphoneaccev_value,
+           { "Value",                            "bthfp.iphoneaccev.value",
+           FT_UINT16, BASE_DEC, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_accessory_info,
+           { "Accessory Info",                   "bthfp.xapl.accessory_info",
+           FT_STRING, BASE_NONE, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_accessory_info_vendor_id,
+           { "Vendor ID",                        "bthfp.xapl.accessory_info.vendor_id",
+           FT_UINT16, BASE_HEX, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_accessory_info_product_id,
+           { "Product ID",                       "bthfp.xapl.accessory_info.product_id",
+           FT_UINT16, BASE_HEX, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_accessory_info_version,
+           { "Version",                          "bthfp.xapl.accessory_info.version",
+           FT_UINT16, BASE_HEX, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_host_info,
+           { "Host Info",                        "bthfp.xapl.host_info",
+           FT_STRING, BASE_NONE, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features,
+           { "Features",                         "bthfp.xapl.features",
+           FT_UINT32, BASE_DEC, NULL, 0,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features_reserved,
+           { "Reserved",                         "bthfp.xapl.features.reserved.0",
+           FT_BOOLEAN, 32, NULL, 0x00000001,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features_battery_reporting,
+           { "Battery Reporting",                "bthfp.xapl.features.battery_reporting",
+           FT_BOOLEAN, 32, NULL, 0x00000002,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features_docked_or_powered,
+           { "Accessory is Docked or Powered",   "bthfp.xapl.features.docked_or_powered",
+           FT_BOOLEAN, 32, NULL, 0x00000004,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features_siri_status_reporting,
+           { "Siri Status Reporting",            "bthfp.xapl.features.siri_status_reporting",
+           FT_BOOLEAN, 32, NULL, 0x00000008,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features_noise_reduction_status_reporting,
+           { "Noise Reduction Status Reporting", "bthfp.xapl.features.noise_reduction_status_reporting",
+           FT_BOOLEAN, 32, NULL, 0x00000010,
+           NULL, HFILL}
+        },
+        { &hf_xapl_features_reserved_x,
+           { "Reserved",                         "bthfp.xapl.features.reserved.x",
+           FT_BOOLEAN, 32, NULL, 0xFFFFFFE0,
+           NULL, HFILL}
         }
     };
 
@@ -2900,8 +3192,8 @@ proto_register_bthfp(void)
         { &ei_non_mandatory_command, { "bthfp.expert.non_mandatory_command", PI_PROTOCOL, PI_NOTE, "Non-mandatory command in HFP", EXPFILL }},
         { &ei_invalid_usage,         { "bthfp.expert.invalid_usage", PI_PROTOCOL, PI_WARN, "Non mandatory type or command in this role", EXPFILL }},
         { &ei_unknown_parameter,     { "bthfp.expert.unknown_parameter", PI_PROTOCOL, PI_WARN, "Unknown parameter", EXPFILL }},
-        { &ei_brfs_hs_reserved_bits, { "bthfp.expert.brsf.hs.reserved_bits", PI_PROTOCOL, PI_WARN, "The reserved bits [8-31] shall be initialized to Zero", EXPFILL }},
-        { &ei_brfs_ag_reserved_bits, { "bthfp.expert.brsf.ag.reserved_bits", PI_PROTOCOL, PI_WARN, "The reserved bits [10-31] shall be initialized to Zero", EXPFILL }},
+        { &ei_brfs_hs_reserved_bits, { "bthfp.expert.brsf.hs.reserved_bits", PI_PROTOCOL, PI_WARN, "The reserved bits [10-31] shall be initialized to Zero", EXPFILL }},
+        { &ei_brfs_ag_reserved_bits, { "bthfp.expert.brsf.ag.reserved_bits", PI_PROTOCOL, PI_WARN, "The reserved bits [12-31] shall be initialized to Zero", EXPFILL }},
         { &ei_vgm_gain,              { "bthfp.expert.vgm", PI_PROTOCOL, PI_WARN, "Gain of microphone exceeds range 0-15", EXPFILL }},
         { &ei_vgs_gain,              { "bthfp.expert.vgs", PI_PROTOCOL, PI_WARN, "Gain of speaker exceeds range 0-15", EXPFILL }},
         { &ei_nrec,                  { "bthfp.expert.nrec", PI_PROTOCOL, PI_WARN, "Only 0 is valid", EXPFILL }},
@@ -2926,6 +3218,10 @@ proto_register_bthfp(void)
         { &ei_parameter_blank,       { "bthfp.expert.parameter_blank", PI_PROTOCOL, PI_WARN, "Should be blank for HFP", EXPFILL }},
         { &ei_cnum_service,          { "bthfp.expert.cnum.service", PI_PROTOCOL, PI_WARN, "Only 0-5 is valid", EXPFILL }},
         { &ei_cnum_itc,              { "bthfp.expert.cnum.itc", PI_PROTOCOL, PI_WARN, "Only 0-1 is valid", EXPFILL }},
+        { &ei_aplefm_out_of_range,   { "bthfp.expert.aplefm.out_of_range", PI_PROTOCOL, PI_WARN, "Only 0-1 is valid", EXPFILL }},
+        { &ei_aplsiri_out_of_range,  { "bthfp.expert.aplsiri.out_of_range", PI_PROTOCOL, PI_WARN, "Only 1-2 is valid", EXPFILL }},
+        { &ei_iphoneaccev_key_out_of_range,  { "bthfp.expert.iphoneaccev.out_of_range", PI_PROTOCOL, PI_WARN, "Only 1-2 is valid", EXPFILL }},
+        { &ei_xapl_features_reserved, { "bthfp.expert.xapl.reserved", PI_PROTOCOL, PI_WARN, "The reserved bits [6-31] shall be initialized to Zero", EXPFILL }}
     };
 
     static gint *ett[] = {
@@ -2933,7 +3229,9 @@ proto_register_bthfp(void)
         &ett_bthfp_brsf_hf,
         &ett_bthfp_brsf_ag,
         &ett_bthfp_command,
-        &ett_bthfp_parameters
+        &ett_bthfp_parameters,
+        &ett_bthfp_xapl_features,
+        &ett_bthfp_xapl_accessory_info
     };
 
     fragments = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
@@ -2944,7 +3242,7 @@ proto_register_bthfp(void)
     proto_register_field_array(proto_bthfp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    module = prefs_register_protocol(proto_bthfp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_bthfp, NULL);
     prefs_register_static_text_preference(module, "hfp.version",
             "Bluetooth Profile HFP version: 1.7",
             "Version of profile supported by this dissector.");

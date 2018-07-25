@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -88,10 +76,9 @@ dissect_idp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	ti = proto_tree_add_item(tree, proto_idp, tvb, 0, IDP_HEADER_LEN, ENC_NA);
 	idp_tree = proto_item_add_subtree(ti, ett_idp);
 
-	proto_tree_add_item(idp_tree, hf_idp_checksum, tvb, 0, 2, ENC_BIG_ENDIAN);
+	proto_tree_add_checksum(idp_tree, tvb, 0, hf_idp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 	length = tvb_get_ntohs(tvb, 2);
-	proto_tree_add_uint_format_value(idp_tree, hf_idp_len, tvb, 2, 2, length,
-		"%u bytes", length);
+	proto_tree_add_uint(idp_tree, hf_idp_len, tvb, 2, 2, length);
 	/* Adjust the tvbuff length to include only the IDP datagram. */
 	set_actual_length(tvb, length);
 	proto_tree_add_item(idp_tree, hf_idp_hops, tvb, 4, 1, ENC_BIG_ENDIAN);
@@ -149,8 +136,8 @@ proto_register_idp(void)
 #endif
 
 		{ &hf_idp_len,
-		    { "Length",		"idp.len", FT_UINT16, BASE_DEC,
-			NULL, 0x0, NULL, HFILL }},
+		    { "Length",		"idp.len", FT_UINT16, BASE_DEC|BASE_UNIT_STRING,
+			&units_byte_bytes, 0x0, NULL, HFILL }},
 
 		/* XXX - does this have separate hop count and time subfields? */
 		{ &hf_idp_hops,
@@ -196,7 +183,7 @@ proto_register_idp(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 	idp_type_dissector_table = register_dissector_table("idp.packet_type",
-	    "IDP packet type", proto_idp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "IDP packet type", proto_idp, FT_UINT8, BASE_DEC);
 }
 
 void

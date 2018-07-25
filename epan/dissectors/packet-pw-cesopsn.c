@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * History:
  * ---------------------------------
@@ -63,6 +51,8 @@ static expert_field ei_cw_lm = EI_INIT;
 static expert_field ei_packet_size_too_small = EI_INIT;
 
 static dissector_handle_t pw_padding_handle;
+static dissector_handle_t pw_cesopsn_udp_handle;
+
 
 const char pwc_longname_pw_cesopsn[] = "CESoPSN basic NxDS0 mode (no RTP support)";
 static const char shortname[] = "CESoPSN basic (no RTP)";
@@ -359,7 +349,7 @@ void dissect_pw_cesopsn( tvbuff_t * tvb_original
 			tree2 = proto_item_add_subtree(item, ett);
 			{
 				tvbuff_t* tvb;
-				tvb = tvb_new_subset(tvb_original, PWC_SIZEOF_CW + payload_size, padding_size, -1);
+				tvb = tvb_new_subset_length_caplen(tvb_original, PWC_SIZEOF_CW + payload_size, padding_size, -1);
 				call_dissector(pw_padding_handle, tvb, pinfo, tree2);
 			}
 		}
@@ -443,7 +433,8 @@ void proto_register_pw_cesopsn(void)
 	proto_register_subtree_array(ett_array, array_length(ett_array));
 	expert_pwcesopsn = expert_register_protocol(proto);
 	expert_register_field_array(expert_pwcesopsn, ei, array_length(ei));
-	register_dissector("pw_cesopsn_udp", dissect_pw_cesopsn_udp, proto);
+	register_dissector("pw_cesopsn_mpls", dissect_pw_cesopsn_mpls, proto);
+	pw_cesopsn_udp_handle = register_dissector("pw_cesopsn_udp", dissect_pw_cesopsn_udp, proto);
 }
 
 
@@ -457,8 +448,7 @@ void proto_reg_handoff_pw_cesopsn(void)
 	pw_cesopsn_mpls_handle = create_dissector_handle( dissect_pw_cesopsn_mpls, proto );
 	dissector_add_for_decode_as("mpls.label", pw_cesopsn_mpls_handle);
 
-	dissector_add_for_decode_as("udp.port", find_dissector("pw_cesopsn_udp"));
-	return;
+	dissector_add_for_decode_as_with_preference("udp.port", pw_cesopsn_udp_handle);
 }
 
 /*

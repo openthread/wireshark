@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -35,7 +23,7 @@
 void proto_register_kink(void);
 void proto_reg_handoff_kink(void);
 
-#define KINK_PORT       57203
+#define KINK_PORT       57203 /* Not IANA registered */
 
 #define KINK_ISAKMP_PAYLOAD_BASE 14
 
@@ -356,7 +344,7 @@ dissect_payload_kink_ap_req(packet_info *pinfo, tvbuff_t *tvb, int offset, proto
     tvbuff_t *krb_tvb;
 
     krb_ap_req_length = payload_length - PAYLOAD_HEADER;
-    krb_tvb=tvb_new_subset(tvb, offset, (krb_ap_req_length>tvb_captured_length_remaining(tvb, offset))?tvb_captured_length_remaining(tvb, offset):krb_ap_req_length, krb_ap_req_length);
+    krb_tvb=tvb_new_subset_length_caplen(tvb, offset, (krb_ap_req_length>tvb_captured_length_remaining(tvb, offset))?tvb_captured_length_remaining(tvb, offset):krb_ap_req_length, krb_ap_req_length);
     keytype=kerberos_output_keytype();
     dissect_kerberos_main(krb_tvb, pinfo, payload_kink_ap_req_tree, FALSE, NULL);
     /*offset += krb_ap_req_length;*/
@@ -411,7 +399,7 @@ dissect_payload_kink_ap_rep(packet_info *pinfo, tvbuff_t *tvb, int offset, proto
     tvbuff_t *krb_tvb;
 
     krb_ap_rep_length = payload_length - PAYLOAD_HEADER;
-    krb_tvb=tvb_new_subset(tvb, offset, (krb_ap_rep_length>tvb_captured_length_remaining(tvb, offset))?tvb_captured_length_remaining(tvb, offset):krb_ap_rep_length, krb_ap_rep_length);
+    krb_tvb=tvb_new_subset_length_caplen(tvb, offset, (krb_ap_rep_length>tvb_captured_length_remaining(tvb, offset))?tvb_captured_length_remaining(tvb, offset):krb_ap_rep_length, krb_ap_rep_length);
     keytype=kerberos_output_keytype();
     dissect_kerberos_main(krb_tvb, pinfo, payload_kink_ap_rep_tree, FALSE, NULL);
 
@@ -464,7 +452,7 @@ dissect_payload_kink_krb_error(packet_info *pinfo, tvbuff_t *tvb, int offset, pr
     tvbuff_t *krb_tvb;
 
     krb_error_length = payload_length - KINK_KRB_ERROR_HEADER;
-    krb_tvb=tvb_new_subset(tvb, offset, (krb_error_length>tvb_captured_length_remaining(tvb, offset))?tvb_captured_length_remaining(tvb, offset):krb_error_length, krb_error_length);
+    krb_tvb=tvb_new_subset_length_caplen(tvb, offset, (krb_error_length>tvb_captured_length_remaining(tvb, offset))?tvb_captured_length_remaining(tvb, offset):krb_error_length, krb_error_length);
 
     dissect_kerberos_main(krb_tvb, pinfo, payload_kink_krb_error_tree, FALSE, NULL);
     /*offset += krb_error_length;*/
@@ -630,7 +618,7 @@ dissect_payload_kink_isakmp(packet_info *pinfo, tvbuff_t *tvb, int offset, proto
     reported_length = tvb_reported_length_remaining(tvb, offset);
     if (reported_length > (int)isakmp_length)
       reported_length = isakmp_length;
-    isakmp_tvb = tvb_new_subset(tvb, offset, length, reported_length);
+    isakmp_tvb = tvb_new_subset_length_caplen(tvb, offset, length, reported_length);
     isakmp_dissect_payloads(isakmp_tvb, payload_kink_isakmp_tree, 1, inner_next_pload, 0, isakmp_length, pinfo);
   }
 
@@ -688,11 +676,10 @@ dissect_payload_kink_encrypt(packet_info *pinfo, tvbuff_t *tvb, int offset, prot
     tvbuff_t *next_tvb;
     guint8 *plaintext=NULL;
 
-    next_tvb=tvb_new_subset(tvb, offset, MIN(tvb_captured_length_remaining(tvb, offset), encrypt_length), encrypt_length);
+    next_tvb=tvb_new_subset_length_caplen(tvb, offset, MIN(tvb_captured_length_remaining(tvb, offset), encrypt_length), encrypt_length);
     plaintext=decrypt_krb5_data(tree, pinfo, 0, next_tvb, keytype, NULL);
     if(plaintext){
       next_tvb=tvb_new_child_real_data(tvb, plaintext, encrypt_length, encrypt_length);
-      tvb_set_free_cb(next_tvb, g_free);
       add_new_data_source(pinfo, next_tvb, "decrypted kink encrypt");
       dissect_decrypt_kink_encrypt(pinfo, next_tvb, tree, encrypt_length);
     }
@@ -991,11 +978,11 @@ proto_register_kink(void) {
 
 void proto_reg_handoff_kink(void) {
 
-  dissector_handle_t kink_handle = NULL;
+  dissector_handle_t kink_handle;
 
   kink_handle = create_dissector_handle(dissect_kink, proto_kink);
 
-  dissector_add_uint("udp.port", KINK_PORT, kink_handle);
+  dissector_add_uint_with_preference("udp.port", KINK_PORT, kink_handle);
 
 }
 

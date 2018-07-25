@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -52,6 +40,9 @@ static gint ett_arcnet = -1;
 static int arcnet_address_type = -1;
 
 static dissector_table_t arcnet_dissector_table;
+
+static capture_dissector_handle_t ip_cap_handle;
+static capture_dissector_handle_t arp_cap_handle;
 
 /* Cache protocol for packet counting */
 static int proto_ipx = -1;
@@ -95,7 +86,7 @@ capture_arcnet_common(const guchar *pd, int offset, int len, capture_packet_info
 
   case ARCNET_PROTO_IP_1051:
     /* No fragmentation stuff in the header */
-    return capture_ip(pd, offset + 1, len, cpinfo, pseudo_header);
+    return call_capture_dissector(ip_cap_handle, pd, offset + 1, len, cpinfo, pseudo_header);
 
   case ARCNET_PROTO_IP_1201:
     /*
@@ -135,14 +126,14 @@ capture_arcnet_common(const guchar *pd, int offset, int len, capture_packet_info
          type appears after the padding. */
       offset += 4;
     }
-    return capture_ip(pd, offset + 3, len, cpinfo, pseudo_header);
+    return call_capture_dissector(ip_cap_handle, pd, offset + 3, len, cpinfo, pseudo_header);
 
   case ARCNET_PROTO_ARP_1051:
   case ARCNET_PROTO_ARP_1201:
     /*
      * XXX - do we have to worry about fragmentation for ARP?
      */
-    return capture_arp(pd, offset + 1, len, cpinfo, pseudo_header);
+    return call_capture_dissector(arp_cap_handle, pd, offset + 1, len, cpinfo, pseudo_header);
 
   case ARCNET_PROTO_IPX:
     capture_dissector_increment_count(cpinfo, proto_ipx);
@@ -392,9 +383,9 @@ proto_register_arcnet (void)
   proto_register_subtree_array (ett, array_length (ett));
 
   arcnet_dissector_table = register_dissector_table ("arcnet.protocol_id", "ARCNET Protocol ID",
-                                                     proto_arcnet, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                     proto_arcnet, FT_UINT8, BASE_HEX);
 
-  arcnet_address_type = address_type_dissector_register("AT_ARCNET", "ARCNET Address", arcnet_to_str, arcnet_str_len, arcnet_col_filter_str, arcnet_len, NULL, NULL);
+  arcnet_address_type = address_type_dissector_register("AT_ARCNET", "ARCNET Address", arcnet_to_str, arcnet_str_len, NULL, arcnet_col_filter_str, arcnet_len, NULL, NULL);
 }
 
 
@@ -402,6 +393,7 @@ void
 proto_reg_handoff_arcnet (void)
 {
   dissector_handle_t arcnet_handle, arcnet_linux_handle;
+  capture_dissector_handle_t arcnet_cap_handle;
 
   arcnet_handle = create_dissector_handle (dissect_arcnet, proto_arcnet);
   dissector_add_uint ("wtap_encap", WTAP_ENCAP_ARCNET, arcnet_handle);
@@ -411,8 +403,13 @@ proto_reg_handoff_arcnet (void)
 
   proto_ipx = proto_get_id_by_filter_name("ipx");
 
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_ARCNET_LINUX, capture_arcnet, proto_arcnet);
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_ARCNET, capture_arcnet_has_exception, proto_arcnet);
+  arcnet_cap_handle = create_capture_dissector_handle(capture_arcnet, proto_arcnet);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_ARCNET_LINUX, arcnet_cap_handle);
+  arcnet_cap_handle = create_capture_dissector_handle(capture_arcnet_has_exception, proto_arcnet);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_ARCNET, arcnet_cap_handle);
+
+  ip_cap_handle = find_capture_dissector("ip");
+  arp_cap_handle = find_capture_dissector("arp");
 }
 
 /*

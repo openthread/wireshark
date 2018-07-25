@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -30,11 +18,13 @@
 #ifndef __CAPTURE_OPTS_H__
 #define __CAPTURE_OPTS_H__
 
-#ifdef HAVE_SYS_TYPES_H
-# include <sys/types.h>     /* for gid_t */
-#endif
+#include <sys/types.h>     /* for gid_t */
 
 #include <caputils/capture_ifinfo.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +40,9 @@ extern "C" {
  * component of the entry for the long option, and have a case for that
  * option in the switch statement.
  *
+ * We also pick values < 4096, so as to leave values >= 4096 for
+ * other long options.
+ *
  * NOTE:
  * for tshark, we're using a leading - in the optstring to prevent getopt()
  * from permuting the argv[] entries, in this case, unknown argv[] entries
@@ -57,16 +50,9 @@ extern "C" {
  * In short: we must not use 1 here, which is another reason to use
  * values outside the range of ASCII graphic characters.
  */
-#define LONGOPT_NUM_CAP_COMMENT 128
-
-/*
- * Non-capture long-only options should start here, to avoid collision
- * with capture options.
- */
-#define MIN_NON_CAPTURE_LONGOPT  129
-#define LONGOPT_DISABLE_PROTOCOL  130
-#define LONGOPT_ENABLE_HEURISTIC  131
-#define LONGOPT_DISABLE_HEURISTIC 132
+#define LONGOPT_NUM_CAP_COMMENT   128
+#define LONGOPT_LIST_TSTAMP_TYPES 129
+#define LONGOPT_SET_TSTAMP_TYPE   130
 
 /*
  * Options for capturing common to all capturing programs.
@@ -95,20 +81,20 @@ extern "C" {
 #endif
 
 #define LONGOPT_CAPTURE_COMMON \
-    {"capture-comment",      required_argument, NULL, LONGOPT_NUM_CAP_COMMENT}, \
-    {"autostop",             required_argument, NULL, 'a'}, \
-    {"ring-buffer",          required_argument, NULL, 'b'}, \
+    {"capture-comment",       required_argument, NULL, LONGOPT_NUM_CAP_COMMENT}, \
+    {"autostop",              required_argument, NULL, 'a'}, \
+    {"ring-buffer",           required_argument, NULL, 'b'}, \
     LONGOPT_BUFFER_SIZE \
-    {"list-interfaces",      no_argument,       NULL, 'D'}, \
-    {"interface",            required_argument, NULL, 'i'}, \
+    {"list-interfaces",       no_argument,       NULL, 'D'}, \
+    {"interface",             required_argument, NULL, 'i'}, \
     LONGOPT_MONITOR_MODE \
-    {"list-data-link-types", no_argument,       NULL, 'L'}, \
-    {"no-promiscuous-mode",  no_argument,       NULL, 'p'}, \
-    {"snapshot-length",      required_argument, NULL, 's'}, \
-    {"linktype",             required_argument, NULL, 'y'}, \
-    {"disable-protocol", required_argument, NULL, LONGOPT_DISABLE_PROTOCOL }, \
-    {"enable-heuristic", required_argument, NULL, LONGOPT_ENABLE_HEURISTIC }, \
-    {"disable-heuristic", required_argument, NULL, LONGOPT_DISABLE_HEURISTIC },
+    {"list-data-link-types",  no_argument,       NULL, 'L'}, \
+    {"no-promiscuous-mode",   no_argument,       NULL, 'p'}, \
+    {"snapshot-length",       required_argument, NULL, 's'}, \
+    {"linktype",              required_argument, NULL, 'y'}, \
+    {"list-time-stamp-types", no_argument,       NULL, LONGOPT_LIST_TSTAMP_TYPES}, \
+    {"time-stamp-type",       required_argument, NULL, LONGOPT_SET_TSTAMP_TYPE},
+
 
 #define OPTSTRING_CAPTURE_COMMON \
     "a:" OPTSTRING_A "b:" OPTSTRING_B "c:Df:i:" OPTSTRING_I "Lps:y:"
@@ -143,22 +129,22 @@ typedef enum {
 
 #ifdef HAVE_PCAP_REMOTE
 struct remote_host_info {
-    gchar    *remote_host;      /**< Host name or network address for remote capturing */
-    gchar    *remote_port;      /**< TCP port of remote RPCAP server */
-    gint      auth_type;        /**< Authentication type */
-    gchar    *auth_username;    /**< Remote authentication parameters */
-    gchar    *auth_password;    /**< Remote authentication parameters */
-    gboolean  datatx_udp;
-    gboolean  nocap_rpcap;
-    gboolean  nocap_local;
+    gchar        *remote_host;      /**< Host name or network address for remote capturing */
+    gchar        *remote_port;      /**< TCP port of remote RPCAP server */
+    capture_auth  auth_type;        /**< Authentication type */
+    gchar        *auth_username;    /**< Remote authentication parameters */
+    gchar        *auth_password;    /**< Remote authentication parameters */
+    gboolean      datatx_udp;
+    gboolean      nocap_rpcap;
+    gboolean      nocap_local;
 };
 
 struct remote_host {
-    gchar    *r_host;           /**< Host name or network address for remote capturing */
-    gchar    *remote_port;      /**< TCP port of remote RPCAP server */
-    gint      auth_type;        /**< Authentication type */
-    gchar    *auth_username;    /**< Remote authentication parameters */
-    gchar    *auth_password;    /**< Remote authentication parameters */
+    gchar        *r_host;           /**< Host name or network address for remote capturing */
+    gchar        *remote_port;      /**< TCP port of remote RPCAP server */
+    capture_auth  auth_type;        /**< Authentication type */
+    gchar        *auth_username;    /**< Remote authentication parameters */
+    gchar        *auth_password;    /**< Remote authentication parameters */
 };
 
 typedef struct remote_options_tag {
@@ -200,23 +186,15 @@ typedef struct interface_tag {
     if_info_t       if_info;
     gboolean        selected;
     gboolean        hidden;
-    gboolean        locked;
-#ifdef HAVE_EXTCAP
     /* External capture cached data */
     GHashTable     *external_cap_args_settings;
-#endif
+    gchar          *timestamp_type;
 } interface_t;
 
 typedef struct link_row_tag {
     gchar *name;
     gint dlt;
 } link_row;
-
-#ifdef _WIN32
-#define INVALID_EXTCAP_PID INVALID_HANDLE_VALUE
-#else
-#define INVALID_EXTCAP_PID (GPid)-1
-#endif
 
 typedef struct interface_options_tag {
     gchar            *name;                 /* the name of the interface provided to winpcap/libpcap to specify the interface */
@@ -228,13 +206,19 @@ typedef struct interface_options_tag {
     int               linktype;
     gboolean          promisc_mode;
     interface_type    if_type;
-#ifdef HAVE_EXTCAP
     gchar            *extcap;
     gchar            *extcap_fifo;
     GHashTable       *extcap_args;
-    GPid              extcap_pid;           /* pid of running process or INVALID_EXTCAP_PID */
+    GPid              extcap_pid;           /* pid of running process or WS_INVALID_PID */
+    gpointer          extcap_pipedata;
     guint             extcap_child_watch;
+#ifdef _WIN32
+    HANDLE            extcap_pipe_h;
+    HANDLE            extcap_control_in_h;
+    HANDLE            extcap_control_out_h;
 #endif
+    gchar            *extcap_control_in;
+    gchar            *extcap_control_out;
 #ifdef CAN_SET_CAPTURE_BUFFER_SIZE
     int               buffer_size;
 #endif
@@ -254,6 +238,9 @@ typedef struct interface_options_tag {
     capture_sampling  sampling_method;
     int               sampling_param;
 #endif
+    gchar            *timestamp_type;       /* requested timestamp as string */
+    int               timestamp_type_id;    /* Timestamp type to pass to pcap_set_tstamp_type.
+                                               only valid if timestamp_type != NULL */
 } interface_options;
 
 /** Capture options coming from user interface */
@@ -295,8 +282,7 @@ typedef struct capture_options_tag {
 
     /* GUI related */
     gboolean           real_time_mode;        /**< Update list of packets in real time */
-    gboolean           show_info;             /**< show the info dialog. GTK+ only. */
-    gboolean           quit_after_cap;        /**< Makes a "capture only mode". Implies -k */
+    gboolean           show_info;             /**< show the info dialog. */
     gboolean           restart;               /**< restart after closing is done */
     gchar             *orig_save_file;        /**< the original capture file name (saved for a restart) */
 
@@ -305,6 +291,8 @@ typedef struct capture_options_tag {
 
     gboolean           has_file_duration;     /**< TRUE if ring duration specified */
     gint32             file_duration;         /**< Switch file after n seconds */
+    gboolean           has_file_interval;     /**< TRUE if ring interval specified */
+    gint32             file_interval;         /**< Create time intervals of n seconds */
     gboolean           has_ring_num_files;    /**< TRUE if ring num_files specified */
     guint32            ring_num_files;        /**< Number of multiple buffer files */
 
@@ -335,6 +323,10 @@ typedef struct capture_options_tag {
 extern void
 capture_opts_init(capture_options *capture_opts);
 
+/* clean internal structures */
+extern void
+capture_opts_cleanup(capture_options *capture_opts);
+
 /* set a command line option value */
 extern int
 capture_opts_add_opt(capture_options *capture_opts, int opt, const char *optarg, gboolean *start_capture);
@@ -343,10 +335,15 @@ capture_opts_add_opt(capture_options *capture_opts, int opt, const char *optarg,
 extern void
 capture_opts_log(const char *log_domain, GLogLevelFlags log_level, capture_options *capture_opts);
 
+enum caps_query {
+    CAPS_MONITOR_MODE          = 0x1,
+    CAPS_QUERY_LINK_TYPES      = 0x2,
+    CAPS_QUERY_TIMESTAMP_TYPES = 0x4
+};
+
 /* print interface capabilities, including link layer types */
 extern void
-capture_opts_print_if_capabilities(if_capabilities_t *caps, char *name,
-                                   gboolean monitor_mode);
+capture_opts_print_if_capabilities(if_capabilities_t *caps, char *name, int queries);
 
 /* print list of interfaces */
 extern void

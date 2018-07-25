@@ -5,26 +5,10 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
-
-#ifdef HAVE_NETDB_H
-# include <netdb.h>
-#endif
 
 #include <glib.h>
 
@@ -269,31 +253,7 @@ static const value_string ipproto_val[] = {
 value_string_ext ipproto_val_ext = VALUE_STRING_EXT_INIT(ipproto_val);
 
 const char *ipprotostr(const int proto) {
-    const char *s;
-
-    if ((s = try_val_to_str_ext(proto, &ipproto_val_ext)) != NULL)
-    return s;
-
-    s = "Unknown";
-
-#ifdef HAVE_GETPROTOBYNUMBER
-    /*
-     * XXX - have another flag for resolving network-layer
-     * protocol names?
-     */
-    if (gbl_resolv_flags.mac_name || gbl_resolv_flags.network_name ||
-        gbl_resolv_flags.transport_name || gbl_resolv_flags.concurrent_dns) {
-        static char buf[128];
-        struct protoent *pe;
-
-    pe = getprotobynumber(proto);
-    if (pe) {
-        g_strlcpy(buf, pe->p_name, sizeof(buf));
-        s = buf;
-    }
-    }
-#endif
-    return s;
+    return val_to_str_ext_const(proto, &ipproto_val_ext, "Unknown");
 }
 
 /* https://www.iana.org/assignments/ipv6-parameters/ipv6-parameters.xhtml#extension-header */

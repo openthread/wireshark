@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,6 +18,7 @@
 #include <math.h>
 #ifdef DEBUG
 #include <stdio.h>
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
 #endif
 
 #include <epan/packet.h>
@@ -272,7 +261,7 @@ double asn1_get_real(const guint8 *real_ptr, gint len) {
     }
     val = (double) S * N * pow(2, F) * pow(B, E);
 #ifdef DEBUG
-    printf("S = %d, N = %lu, F = %u, B = %u, E = %d -> %f\n", S, N, F, B, E, val);
+    ws_debug_printf("S = %d, N = %lu, F = %u, B = %u, E = %d -> %f\n", S, N, F, B, E, val);
 #endif
   } else if (octet & 0x40) {  /* SpecialRealValue */
     switch (octet & 0x3F) {

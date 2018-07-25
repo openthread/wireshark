@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -300,7 +288,7 @@ dissect_ipmi_trace(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
 
 
 	col_add_fstr(pinfo->cinfo, COL_DEF_SRC, "Channel %d", chn_num);
-	col_set_str(pinfo->cinfo, COL_PROTOCOL,
+	col_add_str(pinfo->cinfo, COL_PROTOCOL,
 			val_to_str(data_type, str_protocol_types,
 					"Reserved (0x%02x)"));
 
@@ -439,7 +427,7 @@ proto_register_ipmi_trace(void)
 
 	/* register dissector table for IPMI messaging protocols */
 	proto_dissector_table = register_dissector_table("ipmi.protocol",
-			"IPMI Channel Protocol Type", proto_ipmi_trace, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+			"IPMI Channel Protocol Type", proto_ipmi_trace, FT_UINT8, BASE_HEX);
 }
 
 void

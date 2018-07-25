@@ -11,24 +11,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 
 void proto_register_abis_om2000(void);
 
@@ -108,12 +97,24 @@ static int hf_om2k_conl_tag = -1;
 static int hf_om2k_conl_tei = -1;
 static int hf_om2k_tf_mode = -1;
 static int hf_om2k_tf_fs_offset = -1;
+static int hf_om2k_attr_id = -1;
+static int hf_om2k_attr_index = -1;
+static int hf_om2k_result_code = -1;
+static int hf_om2k_reason_code = -1;
+static int hf_om2k_iwd_type = -1;
+static int hf_om2k_iwd_gen_rev = -1;
 
 /* initialize the subtree pointers */
 static int ett_om2000 = -1;
 static int ett_om2k_mo = -1;
 static int ett_om2k_isl = -1;
 static int ett_om2k_conl = -1;
+static int ett_om2k_iwd = -1;
+
+static expert_field ei_om2k_not_performed = EI_INIT;
+static expert_field ei_om2k_reject = EI_INIT;
+static expert_field ei_om2k_nack = EI_INIT;
+static expert_field ei_om2k_ena_res_disabled = EI_INIT;
 
 static const value_string om2k_msgcode_vals[] = {
 	{ 0x0000, "Abort SP Command" },
@@ -499,10 +500,12 @@ static const value_string filerel_state_vals[] = {
 
 static const value_string om2k_mo_class_short_vals[] = {
 	{ 0x01, "TRXC" },
+	{ 0x02, "TG" },
 	{ 0x03, "TS" },
 	{ 0x04, "TF" },
 	{ 0x05, "IS" },
 	{ 0x06, "CON" },
+	{ 0x07, "DP" },
 	{ 0x0a, "CF" },
 	{ 0x0b, "TX" },
 	{ 0x0c, "RX" },
@@ -511,10 +514,12 @@ static const value_string om2k_mo_class_short_vals[] = {
 
 static const value_string om2k_mo_class_vals[] = {
 	{ 0x01, "TRXC (TRX Controller)" },
+	{ 0x02, "TG (TRX Group)" },
 	{ 0x03, "TS (Timeslot)" },
 	{ 0x04, "TF (Timing Function)" },
 	{ 0x05, "IS (Interface Switch)" },
 	{ 0x06, "CON (Concentrator)" },
+	{ 0x07, "DP (Data Path)" },
 	{ 0x0a, "CF (Central Function)" },
 	{ 0x0b, "TX (Transmitter)" },
 	{ 0x0c, "RX (Receiver)" },
@@ -526,6 +531,74 @@ static const value_string om2k_tf_mode_vals[] = {
 	{ 0x01, "Standalone" },
 	{ 0x02, "Slave" },
 	{ 0xff, "Not defined" },
+	{ 0, NULL }
+};
+
+static const value_string om2k_attr_id_vals[] = {
+	{ 0x0005, "Alarm Status Type" },
+	{ 0x0007, "Input BS_AG_BLKS_RES" },
+	{ 0x001d, "Input FN Offset" },
+	{ 0x002f, "Power GMSK" },
+	{ 0x0033, "Receiver Diversity" },
+	{ 0x0037, "Power 8-PSK" },
+	{ 0x003a, "TF Mode" },
+	{ 0x0043, "File Supported Functions OML I" },
+	{ 0x0044, "File Supported Functions OML II" },
+	{ 0x0045, "File Supported Functions RSL I" },
+	{ 0x0046, "File Supported Functions RSL II" },
+	{ 0x0047, "Input Extended Range" },
+	{ 0x0086, "TF Synchronization Source" },
+	{ 0x0101, "Alarm Information" },
+	{ 0x0127, "ICPs Signaling" },
+	{ 0x0143, "TG Supported Functions OML I" },
+	{ 0x0144, "TG Supported Functions OML II" },
+	{ 0x0145, "TG Supported Functions RSL I" },
+	{ 0x0146, "TG Supported Functions RSL II" },
+	{ 0x01ff, "ICPs IS" },
+	{ 0x0227, "ICPs Traffic" },
+	{ 0x0243, "TRXC Supported Functions OML I" },
+	{ 0x0244, "TRXC Supported Functions OML II" },
+	{ 0x0245, "TRXC Supported Functions RSL I" },
+	{ 0x0246, "TRXC Supported Functions RSL II" },
+	{ 0x02ff, "Cascadable" },
+	{ 0x0327, "ICPs PCM" },
+	{ 0x03ff, "TEI" },
+	{ 0x041f, "ARFCN AB RX" },
+	{ 0x0420, "ARFCN TX" },
+	{ 0x0427, "ICPs CON" },
+	{ 0x04ff, "TCH Capabilities" },
+	{ 0x0527, "ICP Group" },
+	{ 0x05ff, "Cascade downlink" },
+	{ 0x0627, "ICP Group Capacity" },
+	{ 0x07ff, "CRC-4 Option" },
+	{ 0x0bff, "Hopping Type" },
+	{ 0x0cff, "TRXC Domain" },
+	{ 0x19ff, "Band AB RX" },
+	{ 0x1aff, "Band TX" },
+	{ 0x1bff, "TX Chain Delay" },
+	{ 0, NULL }
+};
+
+static value_string_ext om2k_attr_id_vals_ext = VALUE_STRING_EXT_INIT(om2k_attr_id_vals);
+
+static const value_string om2k_res_code_vals[] = {
+	{ 0x02, "Wrong state or out of sequence" },
+	{ 0x03, "File error" },
+	{ 0x04, "Fault, unspecified" },
+	{ 0x05, "Tuning fault" },
+	{ 0x06, "Protocol error" },
+	{ 0x07, "MO not connected" },
+	{ 0x08, "Parameter error" },
+	{ 0x09, "Operational functio not supported" },
+	{ 0x0a, "Local Access state LOCALLY DISCONNECTED" },
+	{ 0, NULL }
+};
+
+static const value_string om2k_iwd_type_vals[] = {
+	{ 0x00, "OML" },
+	{ 0x01, "RSL" },
+	{ 0x02, "GSL" },
+	{ 0x03, "TRA" },
 	{ 0, NULL }
 };
 
@@ -642,18 +715,89 @@ dissect_om2k_con_list(tvbuff_t *tvb, gint base_offset, proto_tree *tree)
 	return offset - base_offset;
 }
 
+static gint
+dissect_om2k_negotiation_record1(tvbuff_t *tvb, gint base_offset, proto_tree *tree)
+{
+	gint offset = base_offset;
+	guint8 i;
+	guint8 num_iwd = tvb_get_guint8(tvb, offset++);
+
+	for (i = 0; i < num_iwd; i++) {
+		guint8 j;
+		proto_item *ti;
+		proto_tree *iwd_tree;
+		guint8 num_vers = tvb_get_guint8(tvb, offset++);
+
+		ti = proto_tree_add_item(tree, hf_om2k_iwd_type, tvb, offset++, 1, ENC_NA);
+		iwd_tree = proto_item_add_subtree(ti, ett_om2k_iwd);
+
+		for (j = 0; j < num_vers; j++) {
+			proto_tree_add_item(iwd_tree, hf_om2k_iwd_gen_rev, tvb,
+					    offset, 6, ENC_ASCII|ENC_NA);
+			offset += 6;
+		}
+	}
+	return offset - base_offset;
+}
 
 static gint
-dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
+dissect_om2k_mo_record(tvbuff_t *tvb, gint base_offset, gint len, proto_tree *tree)
+{
+	gint offset = base_offset;
+	proto_tree_add_item(tree, hf_om2k_mo_class, tvb, offset++, 1, ENC_NA);
+	proto_tree_add_item(tree, hf_om2k_mo_instance, tvb, offset++, 1, ENC_NA);
+
+	while (offset < len) {
+		guint16 attr_id;
+		guint8 attr_len;
+
+		attr_id = tvb_get_guint16(tvb, offset, ENC_BIG_ENDIAN);
+		offset += 2;
+		attr_len = tvb_get_guint8(tvb, offset++);
+		offset += dissect_om2k_attr_unkn(tvb, offset, attr_len, attr_id, tree);
+	}
+
+	return offset - base_offset;
+}
+
+static gint
+dissect_om2k_negotiation_record2(tvbuff_t *tvb, gint base_offset, proto_tree *tree)
+{
+	gint offset = base_offset;
+	guint8 i;
+	guint8 num_iwd = tvb_get_guint8(tvb, offset++);
+
+	for (i = 0; i < num_iwd; i++) {
+		proto_item *ti;
+		proto_tree *iwd_tree;
+
+		ti = proto_tree_add_item(tree, hf_om2k_iwd_type, tvb, offset++, 1, ENC_NA);
+		iwd_tree = proto_item_add_subtree(ti, ett_om2k_iwd);
+
+		proto_tree_add_item(iwd_tree, hf_om2k_iwd_gen_rev, tvb,
+				    offset, 6, ENC_ASCII|ENC_NA);
+		offset += 6;
+	}
+	return offset - base_offset;
+}
+
+
+
+static gint
+dissect_om2k_attrs(tvbuff_t *tvb, packet_info *pinfo, gint offset, proto_tree *tree, guint16 msg_code)
 {
 	while (tvb_reported_length_remaining(tvb, offset) > 0) {
 		guint8 iei = tvb_get_guint8(tvb, offset++);
 		guint8 len, tmp;
+		proto_item *ti;
 
 		switch (iei) {
 		case 0x00: /* Accordance Information */
-			proto_tree_add_item(tree, hf_om2k_aip, tvb,
-					    offset++, 1, ENC_BIG_ENDIAN);
+			tmp = tvb_get_guint8(tvb, offset);
+			ti = proto_tree_add_item(tree, hf_om2k_aip, tvb,
+						 offset++, 1, ENC_BIG_ENDIAN);
+			if (tmp != 0x00)
+				expert_add_info(pinfo, ti, &ei_om2k_not_performed);
 			break;
 		case 0x06: /* BCC */
 			proto_tree_add_item(tree, hf_om2k_bcc, tvb,
@@ -777,8 +921,11 @@ dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
 					    offset++, 1, ENC_BIG_ENDIAN);
 			break;
 		case 0x2c: /* MO State */
-			proto_tree_add_item(tree, hf_om2k_mo_state, tvb,
-					    offset++, 1, ENC_BIG_ENDIAN);
+			tmp = tvb_get_guint8(tvb, offset);
+			ti = proto_tree_add_item(tree, hf_om2k_mo_state, tvb,
+						 offset++, 1, ENC_BIG_ENDIAN);
+			if (msg_code == 0x3a && tmp != 0x02)
+				expert_add_info(pinfo, ti, &ei_om2k_ena_res_disabled);
 			break;
 		case 0x2d: /* Ny1 */
 			proto_tree_add_item(tree, hf_om2k_ny1, tvb,
@@ -792,6 +939,10 @@ dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
 			proto_tree_add_item(tree, hf_om2k_nom_pwr, tvb,
 					    offset++, 1, ENC_BIG_ENDIAN);
 			break;
+		case 0x32: /* Reason Code */
+			proto_tree_add_item(tree, hf_om2k_reason_code, tvb,
+					    offset++, 1, ENC_BIG_ENDIAN);
+			break;
 		case 0x33: /* Receiver Diversity */
 			proto_tree_add_item(tree, hf_om2k_diversity, tvb,
 					    offset++, 1, ENC_BIG_ENDIAN);
@@ -799,6 +950,10 @@ dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
 		case 0x34: /* Replacement Unit Map */
 			/* FIXME */
 			offset += dissect_om2k_attr_unkn(tvb, offset, 6, iei, tree);
+			break;
+		case 0x35: /* Result Code */
+			proto_tree_add_item(tree, hf_om2k_result_code, tvb,
+					    offset++, 1, ENC_BIG_ENDIAN);
 			break;
 		case 0x38: /* T3105 */
 			proto_tree_add_item(tree, hf_om2k_t3105, tvb,
@@ -878,10 +1033,20 @@ dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
 			proto_tree_add_item(tree, hf_om2k_icm_cr, tvb,
 					    offset++, 1, ENC_BIG_ENDIAN);
 			break;
+		case 0x7f: /* Attribute ID */
+			proto_tree_add_item(tree, hf_om2k_attr_id, tvb,
+					    offset, 2, ENC_BIG_ENDIAN);
+			proto_tree_add_item(tree, hf_om2k_attr_index, tvb,
+					    offset+2, 1, ENC_BIG_ENDIAN);
+			offset += 3;
+			break;
 		case 0x84: /* HW Info Signature */
 			proto_tree_add_item(tree, hf_om2k_hwinfo_sig, tvb,
 					    offset, 2, ENC_BIG_ENDIAN);
 			offset += 2;
+			break;
+		case 0x85: /* MO Record */
+			offset += dissect_om2k_mo_record(tvb, offset, tvb_reported_length_remaining(tvb, offset), tree);
 			break;
 		case 0x87: /* TTA */
 			proto_tree_add_item(tree, hf_om2k_tta, tvb,
@@ -893,10 +1058,12 @@ dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
 			offset += 2;
 			break;
 		case 0x90: /* Negotiation Record I */
+			offset++; /* skip len field */
+			offset += dissect_om2k_negotiation_record1(tvb, offset, tree);
+			break;
 		case 0x91: /* Negotiation Record II */
-			len = tvb_get_guint8(tvb, offset++);
-			/* FIXME */
-			offset += dissect_om2k_attr_unkn(tvb, offset, len, iei, tree);
+			offset++; /* skip len field */
+			offset += dissect_om2k_negotiation_record2(tvb, offset, tree);
 			break;
 		case 0x92: /* Encryption Algorithm */
 			proto_tree_add_item(tree, hf_om2k_ea, tvb,
@@ -921,6 +1088,15 @@ dissect_om2k_attrs(tvbuff_t *tvb, gint offset, proto_tree *tree)
 			break;
 		case 0x9d: /* TSs MO State */
 			offset += dissect_tss_mo_state(tvb, offset, tree);
+			break;
+		case 0xa3:
+		case 0xa5:
+		case 0xa6:
+			/* we don't know any of the above, but the
+			 * TLV structure is quite clear in the protocol
+			 * traces */
+			tmp = tvb_get_guint8(tvb, offset++);
+			offset += dissect_om2k_attr_unkn(tvb, offset, tmp, iei, tree);
 			break;
 		case 0x9e:
 		case 0x9f:
@@ -977,6 +1153,7 @@ dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 	proto_tree *om2k_tree;
 	guint16     msg_code;
 	guint8      tmp;
+	const gchar *msgt_str;
 
 	int offset;
 
@@ -1003,9 +1180,8 @@ dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 	if (tree == NULL)
 		return tvb_captured_length(tvb);   /* No refs to COL_...  beyond this point */
 
-	proto_item_append_text(ti, " %s ",
-			       val_to_str_ext(msg_code, &om2k_msgcode_vals_ext,
-					  "unknown 0x%04x"));
+	msgt_str = val_to_str_ext(msg_code, &om2k_msgcode_vals_ext, "unknown 0x%04x");
+	proto_item_append_text(ti, " %s ", msgt_str);
 
 	switch (msg_code) {
 	case 0x74: /* Operational Info */
@@ -1030,7 +1206,13 @@ dissect_abis_om2000(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 	default:
 		break;
 	}
-	dissect_om2k_attrs(tvb, offset, om2k_tree);
+
+	if (strstr(msgt_str, "Reject"))
+		expert_add_info(pinfo, ti, &ei_om2k_reject);
+	if (strstr(msgt_str, "NACK"))
+		expert_add_info(pinfo, ti, &ei_om2k_nack);
+
+	dissect_om2k_attrs(tvb, pinfo, offset, om2k_tree, msg_code);
 	return tvb_captured_length(tvb);
 }
 
@@ -1372,12 +1554,12 @@ proto_register_abis_om2000(void)
 		},
 		{ &hf_om2k_conl_ccp,
 		  { "CON Connection Point", "gsm_abis_om2000.con_list.cpp",
-		    FT_UINT16, BASE_DEC, NULL, 0x3ff,
+		    FT_UINT16, BASE_DEC, NULL, 0x7ff,
 		    NULL, HFILL }
 		},
 		{ &hf_om2k_conl_ci,
 		  { "Contiguity Index", "gsm_abis_om2000.con_list.ci",
-		    FT_UINT8, BASE_DEC, NULL, 0x7,
+		    FT_UINT8, BASE_DEC, NULL, 0,
 		    NULL, HFILL }
 		},
 		{ &hf_om2k_conl_tag,
@@ -1400,18 +1582,71 @@ proto_register_abis_om2000(void)
 		    FT_UINT64, BASE_DEC, NULL, 0,
 		    NULL, HFILL }
 		},
+		{ &hf_om2k_attr_id,
+		  { "Attribute Identifier", "gsm_abis_om2000.attr_id",
+		    FT_UINT16, BASE_HEX|BASE_EXT_STRING, &om2k_attr_id_vals_ext, 0,
+		    NULL, HFILL }
+		},
+		{ &hf_om2k_attr_index,
+		  { "Attribute Index", "gsm_abis_om2000.attr_index",
+		    FT_UINT8, BASE_DEC, NULL, 0,
+		    NULL, HFILL }
+		},
+		{ &hf_om2k_reason_code,
+		  { "Reason Code", "gsm_abis_om2000.reason_code",
+		    FT_UINT8, BASE_HEX, NULL, 0,
+		    NULL, HFILL }
+		},
+		{ &hf_om2k_result_code,
+		  { "Result Code", "gsm_abis_om2000.res_code",
+		    FT_UINT8, BASE_HEX, VALS(om2k_res_code_vals), 0,
+		    NULL, HFILL }
+		},
+		{ &hf_om2k_iwd_type,
+		  { "IWD", "gsm_abis_om2000.iwd_type",
+		    FT_UINT8, BASE_HEX, VALS(om2k_iwd_type_vals), 0,
+		    NULL, HFILL }
+		},
+		{ &hf_om2k_iwd_gen_rev,
+		  { "IWD Generation/Revision", "gsm_abis_om2000.iwd_gen_rev",
+		    FT_STRING, BASE_NONE, NULL, 0,
+		    NULL, HFILL }
+		},
 	};
 	static gint *ett[] = {
 		&ett_om2000,
 		&ett_om2k_mo,
 		&ett_om2k_isl,
 		&ett_om2k_conl,
+		&ett_om2k_iwd,
 	};
+	static ei_register_info ei[] = {
+		{ &ei_om2k_not_performed,
+		  { "gsm_abis_om2000.not_performed", PI_RESPONSE_CODE, PI_WARN,
+		    "Operation not performed as per request", EXPFILL }
+		},
+		{ &ei_om2k_reject,
+		  { "gsm_abis_om2000.reject", PI_RESPONSE_CODE, PI_WARN,
+		    "Operation Rejected by RBS", EXPFILL }
+		},
+		{ &ei_om2k_nack,
+		  { "gsm_abis_om2000.nack", PI_RESPONSE_CODE, PI_ERROR,
+		    "Operation NACKed by peer", EXPFILL }
+		},
+		{ &ei_om2k_ena_res_disabled,
+		  { "gsm_abis_om2000.ena_res_disabled", PI_RESPONSE_CODE, PI_WARN,
+		    "Enable Result != Enabled", EXPFILL }
+		},
+
+	};
+	expert_module_t *expert_om2000;
 
 	proto_abis_om2000 = proto_register_protocol("Ericsson A-bis OML",
 						    "Ericsson OML",
 						    "gsm_abis_om2000");
 
+	expert_om2000 = expert_register_protocol(proto_abis_om2000);
+	expert_register_field_array(expert_om2000, ei, array_length(ei));
 	proto_register_field_array(proto_abis_om2000, hf, array_length(hf));
 
 	proto_register_subtree_array(ett, array_length(ett));

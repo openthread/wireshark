@@ -9,20 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* INCLUDES */
@@ -69,6 +56,8 @@ void proto_register_iwarp_ddp_rdmap(void);
 #define RDMA_SEND_SE 0x05
 #define RDMA_SEND_SE_INVALIDATE 0x06
 #define RDMA_TERMINATE 0x07
+#define RDMA_ATOMIC_REQUEST 0x0A
+#define RDMA_ATOMIC_RESPONSE 0x0B
 
 /* bitmasks */
 #define	DDP_TAGGED_FLAG 0x80
@@ -175,6 +164,21 @@ static gint hf_iwarp_rdma_term_ddp_seg_len = -1;
 static gint hf_iwarp_rdma_term_ddp_h = -1;
 static gint hf_iwarp_rdma_term_rdma_h = -1;
 
+/* Atomic */
+static gint hf_iwarp_rdma_atomic_reserved = -1;
+static gint hf_iwarp_rdma_atomic_opcode = -1;
+static gint hf_iwarp_rdma_atomic_request_identifier = -1;
+static gint hf_iwarp_rdma_atomic_remote_stag = -1;
+static gint hf_iwarp_rdma_atomic_remote_tagged_offset = -1;
+static gint hf_iwarp_rdma_atomic_add_data = -1;
+static gint hf_iwarp_rdma_atomic_add_mask = -1;
+static gint hf_iwarp_rdma_atomic_swap_data = -1;
+static gint hf_iwarp_rdma_atomic_swap_mask = -1;
+static gint hf_iwarp_rdma_atomic_compare_data = -1;
+static gint hf_iwarp_rdma_atomic_compare_mask = -1;
+static gint hf_iwarp_rdma_atomic_original_request_identifier = -1;
+static gint hf_iwarp_rdma_atomic_original_remote_data_value = -1;
+
 /* initialize the subtree pointers */
 static gint ett_iwarp_rdma = -1;
 
@@ -193,6 +197,8 @@ static const value_string rdmap_messages[] = {
 		{ RDMA_SEND_SE,		   "Send with SE" },
 		{ RDMA_SEND_SE_INVALIDATE, "Send with SE and Invalidate" },
 		{ RDMA_TERMINATE,	   "Terminate" },
+		{ RDMA_ATOMIC_REQUEST,	   "Atomic Request" },
+		{ RDMA_ATOMIC_RESPONSE,	   "Atomic Response" },
 		{ 0, NULL	}
 };
 
@@ -253,6 +259,13 @@ static const value_string ddp_errcode_untagged_names[] = {
 		{ 0, NULL }
 };
 
+static const value_string rdma_atomic_opcode_names[] = {
+		{ 0x00, "FetchAdd" },
+		{ 0x02, "CmpSwap" },
+		{ 0, NULL }
+};
+
+
 static heur_dissector_list_t rdmap_heur_subdissector_list;
 
 static void
@@ -302,8 +315,6 @@ dissect_iwarp_rdmap(tvbuff_t *tvb, proto_tree *rdma_tree, guint32 offset,
 
 	guint8 layer, etype, hdrct;
 
-	guint32 rdmardsz;
-
 	if (rdma_tree) {
 
 		if (rdma_msg_opcode == RDMA_READ_REQUEST) {
@@ -319,11 +330,9 @@ dissect_iwarp_rdmap(tvbuff_t *tvb, proto_tree *rdma_tree, guint32 offset,
 					offset, RDMA_SINKTO_LEN, ENC_BIG_ENDIAN);
 			offset += RDMA_SINKTO_LEN;
 
-			rdmardsz = (guint32) tvb_get_ntohl(tvb, offset);
-			proto_tree_add_uint_format_value(rdma_header_tree,
+			proto_tree_add_item(rdma_header_tree,
 					hf_iwarp_rdma_rdmardsz, tvb, offset,
-					RDMA_RDMARDSZ_LEN, rdmardsz, "%u bytes",
-					rdmardsz);
+					RDMA_RDMARDSZ_LEN, ENC_BIG_ENDIAN);
 
 			offset += RDMA_RDMARDSZ_LEN;
 			proto_tree_add_item(rdma_header_tree, hf_iwarp_rdma_srcstag, tvb,
@@ -457,6 +466,54 @@ dissect_iwarp_rdmap(tvbuff_t *tvb, proto_tree *rdma_tree, guint32 offset,
 			}
 		}
 	}
+}
+
+/* dissects RDMA Atomic Request and Terminate message header */
+static int
+dissect_iwarp_atomic(tvbuff_t *tvb, proto_tree *atomic_tree, guint32 offset,
+		guint8 rdma_msg_opcode)
+{
+	switch(rdma_msg_opcode){
+		case RDMA_ATOMIC_REQUEST:{
+			guint32 atomic_opcode;
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_reserved, tvb, offset, 4, ENC_BIG_ENDIAN);
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_opcode, tvb, offset, 4, ENC_BIG_ENDIAN);
+			atomic_opcode = tvb_get_ntohl(tvb, offset);
+			offset += 4;
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_request_identifier, tvb, offset, 4, ENC_BIG_ENDIAN);
+			offset += 4;
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_remote_stag, tvb, offset, 4, ENC_BIG_ENDIAN);
+			offset += 4;
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_remote_tagged_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+			offset += 8;
+			switch(atomic_opcode){
+				case 0: /* Add */
+					proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_add_data, tvb, offset, 8, ENC_BIG_ENDIAN);
+					offset += 8;
+					proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_add_mask, tvb, offset, 8, ENC_BIG_ENDIAN);
+					offset += 8;
+				break;
+				case 2: /* Swap */
+					proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_swap_data, tvb, offset, 8, ENC_BIG_ENDIAN);
+					offset += 8;
+					proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_swap_mask, tvb, offset, 8, ENC_BIG_ENDIAN);
+					offset += 8;
+				break;
+			}
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_compare_data, tvb, offset, 8, ENC_BIG_ENDIAN);
+			offset += 8;
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_compare_mask, tvb, offset, 8, ENC_BIG_ENDIAN);
+			offset += 8;
+		}
+		break;
+		case RDMA_ATOMIC_RESPONSE:
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_original_request_identifier, tvb, offset, 4, ENC_BIG_ENDIAN);
+			offset += 4;
+			proto_tree_add_item(atomic_tree, hf_iwarp_rdma_atomic_original_remote_data_value, tvb, offset, 8, ENC_BIG_ENDIAN);
+			offset += 4;
+		break;
+	}
+	return offset;
 }
 
 /*
@@ -649,6 +706,13 @@ dissect_iwarp_ddp_rdmap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 			|| info.opcode == RDMA_TERMINATE) {
 		dissect_iwarp_rdmap(tvb, rdma_tree, offset, info.opcode);
 	}
+
+	/* do further dissection for RDMA messages RDMA Atomic Request & Response */
+	if (info.opcode == RDMA_ATOMIC_REQUEST
+			|| info.opcode == RDMA_ATOMIC_RESPONSE) {
+		dissect_iwarp_atomic(tvb, rdma_tree, offset, info.opcode);
+	}
+
 	return tvb_captured_length(tvb);
 }
 
@@ -765,7 +829,7 @@ proto_register_iwarp_ddp_rdmap(void)
 				NULL, HFILL} },
 		{ &hf_iwarp_rdma_rdmardsz, {
 				"RDMA Read Message Size", "iwarp_rdma.rdmardsz",
-				FT_UINT32, BASE_DEC, NULL, 0x0,
+				FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,
 				NULL, HFILL} },
 		{ &hf_iwarp_rdma_srcstag, {
 				"Data Source STag", "iwarp_rdma.srcstag",
@@ -853,7 +917,61 @@ proto_register_iwarp_ddp_rdmap(void)
 		{ &hf_iwarp_rdma_term_rdma_h, {
 				"Terminated RDMA Header", "iwarp_rdma.term_rdma_h",
 				FT_BYTES, BASE_NONE, NULL, 0x0,
-				NULL, HFILL} }
+				NULL, HFILL} },
+
+		/* Atomic */
+		{ &hf_iwarp_rdma_atomic_reserved, {
+				"Reserved", "iwarp_rdma.atomic.reserved",
+				FT_UINT32, BASE_DEC, NULL, 0xFFFFFFF0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_opcode, {
+				"OpCode", "iwarp_rdma.atomic.opcode",
+				FT_UINT32, BASE_DEC, VALS(rdma_atomic_opcode_names), 0x0000000F,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_request_identifier, {
+				"Request Identifier", "iwarp_rdma.atomic.request_identifier",
+				FT_UINT32, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_remote_stag, {
+				"Remote STag", "iwarp_rdma.atomic.remote_stag",
+				FT_UINT32, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_remote_tagged_offset, {
+				"Remote Tagged Offset", "iwarp_rdma.atomic.remote_tagged_offset",
+				FT_UINT64, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_add_data, {
+				"Add Data", "iwarp_rdma.atomic.add_data",
+				FT_UINT64, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_add_mask, {
+				"Add Mask", "iwarp_rdma.atomic.add_mask",
+				FT_UINT64, BASE_HEX, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_swap_data, {
+				"Swap Data", "iwarp_rdma.atomic.swap_data",
+				FT_UINT64, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_swap_mask, {
+				"Swap Mask", "iwarp_rdma.atomic.swap_mask",
+				FT_UINT64, BASE_HEX, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_compare_data, {
+				"Compare Data", "iwarp_rdma.atomic.compare_data",
+				FT_UINT64, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_compare_mask, {
+				"Compare Mask", "iwarp_rdma.atomic.compare_mask",
+				FT_UINT64, BASE_HEX, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_original_request_identifier, {
+				"Original Request Identifier", "iwarp_rdma.atomic.original_request_identifier",
+				FT_UINT32, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
+		{ &hf_iwarp_rdma_atomic_original_remote_data_value, {
+				"Original Request Identifier", "iwarp_rdma.atomic.original_remote_data_value",
+				FT_UINT64, BASE_DEC, NULL, 0x0,
+				NULL, HFILL} },
 	};
 
 	/* setup protocol subtree array */

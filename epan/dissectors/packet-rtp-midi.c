@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>'
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * RTP-MIDI ( RFC 4695/6295 ) is a payload type for transmitting MIDI-data over
  * RTP-packets.  This payload type can be used on an RTP-conversation that has been
@@ -2528,7 +2516,7 @@ static int hf_rtp_midi_controller_value				= -1;
 static int hf_rtp_midi_program					= -1;
 static int hf_rtp_midi_channel_pressure				= -1;
 static int hf_rtp_midi_pitch_bend				= -1;
-static int hf_rtp_midi_pitch_bend_truncated			= -1;
+/* static int hf_rtp_midi_pitch_bend_truncated			= -1; */
 
 static int hf_rtp_midi_manu_short				= -1;
 static int hf_rtp_midi_manu_long				= -1;
@@ -2733,7 +2721,7 @@ static int hf_rtp_midi_sj_chapter_x_invalid_data		= -1;
 
 static int hf_rtp_midi_quarter_frame_type			= -1;
 static int hf_rtp_midi_quarter_frame_value			= -1;
-static int hf_rtp_midi_spp_truncated				= -1;
+/* static int hf_rtp_midi_spp_truncated				= -1; */
 static int hf_rtp_midi_spp					= -1;
 static int hf_rtp_midi_song_select				= -1;
 static int hf_rtp_midi_manu_data				= -1;
@@ -2902,6 +2890,7 @@ static guint saved_payload_type_value;
 static int proto_rtp_midi			= -1;
 
 
+static dissector_handle_t	rtp_midi_handle;
 
 
 void proto_reg_handoff_rtp_midi( void );
@@ -3515,7 +3504,7 @@ decode_sysex_common_nrt_fd( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
 			offset	 += ( data_len - 1 );
 		}
 
-		proto_tree_add_item( tree, hf_rtp_midi_sysex_common_nrt_fd_checksum, tvb, offset, 1, ENC_BIG_ENDIAN );
+		proto_tree_add_checksum(tree, tvb, offset, hf_rtp_midi_sysex_common_nrt_fd_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		offset++;
 
 	} else if ( sub_id == RTP_MIDI_SYSEX_COMMON_NRT_FD_REQUEST ) {
@@ -3589,7 +3578,7 @@ decode_sysex_common_tuning( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *t
 		}
 
 		/* checksum */
-		proto_tree_add_item( tree, hf_rtp_midi_sysex_common_tune_checksum, tvb, offset, 1, ENC_BIG_ENDIAN );
+		proto_tree_add_checksum(tree, tvb, offset, hf_rtp_midi_sysex_common_tune_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		offset++;
 
 	} else if ( sub_id == RTP_MIDI_SYSEX_COMMON_TUNING_NOTE_CHANGE ) {
@@ -5985,7 +5974,6 @@ decode_sj_chapter_x( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, un
 
 	}
 
-	/* XXX: 'cmdlen' in the following is always 0 (since initialized to 0 above) ??? */
 	if ( header & RTP_MIDI_SJ_CHAPTER_X_FLAG_D ) {
 		rtp_midi_sj_data_tree = proto_tree_add_subtree( rtp_midi_sj_chapter_tree, tvb, offset,  max_length - consumed,
 						ett_rtp_midi_sj_chapter_x_data, NULL, RTP_MIDI_TREE_NAME_SJ_CHAPTER_X_DATA );
@@ -5995,6 +5983,8 @@ decode_sj_chapter_x( tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, un
 				proto_tree_add_item( rtp_midi_sj_data_tree, hf_rtp_midi_sj_chapter_x_data, tvb, offset, cmdlen, ENC_NA );
 				offset += cmdlen;
 				cmdlen	= 0;
+			} else {
+				cmdlen += 1;
 			}
 			consumed += 1;
 		}
@@ -6598,6 +6588,7 @@ proto_register_rtp_midi( void )
 				NULL, HFILL
 			}
 		},
+#if 0
 		{
 			&hf_rtp_midi_pitch_bend_truncated,
 			{
@@ -6610,6 +6601,7 @@ proto_register_rtp_midi( void )
 				NULL, HFILL
 			}
 		},
+#endif
 		{
 			&hf_rtp_midi_manu_short,
 			{
@@ -8938,6 +8930,7 @@ proto_register_rtp_midi( void )
 				NULL, HFILL
 			}
 		},
+#if 0
 		{
 			&hf_rtp_midi_spp_truncated,
 			{
@@ -8950,6 +8943,7 @@ proto_register_rtp_midi( void )
 				NULL, HFILL
 			}
 		},
+#endif
 		{
 			&hf_rtp_midi_song_select,
 			{
@@ -10029,7 +10023,7 @@ proto_register_rtp_midi( void )
 
 	rtp_midi_module = prefs_register_protocol ( proto_rtp_midi, proto_reg_handoff_rtp_midi );
 	prefs_register_uint_preference ( rtp_midi_module, "midi_payload_type_value", "Payload Type for RFC 4695/6295 RTP-MIDI", "This is the value of the Payload Type field that specifies RTP-MIDI", 10, &rtp_midi_payload_type_value );
-	register_dissector( RTP_MIDI_DISSECTOR_ABBREVIATION, dissect_rtp_midi, proto_rtp_midi );
+	rtp_midi_handle = register_dissector( RTP_MIDI_DISSECTOR_ABBREVIATION, dissect_rtp_midi, proto_rtp_midi );
 }
 
 
@@ -10037,12 +10031,10 @@ proto_register_rtp_midi( void )
 void
 proto_reg_handoff_rtp_midi( void )
 {
-	static dissector_handle_t	rtp_midi_handle;
 	static int			rtp_midi_prefs_initialized = FALSE;
 
 
 	if ( !rtp_midi_prefs_initialized ) {
-		rtp_midi_handle = find_dissector( RTP_MIDI_DISSECTOR_ABBREVIATION );
 		dissector_add_string("rtp_dyn_payload_type", "rtp-midi", rtp_midi_handle);
 		rtp_midi_prefs_initialized = TRUE;
 	}

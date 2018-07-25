@@ -1,7 +1,6 @@
 /* packet-iec104.c
  * Routines for IEC-60870-5-104 (iec104) Protocol disassembly
  *
- *
  * Copyright (c) 2008 by Joan Ramio <joan@ramio.cat>
  * Joan is a masculine catalan name. Search the Internet for Joan Pujol (alias Garbo).
  *
@@ -13,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,6 +20,7 @@
 #include <math.h> /* floor */
 
 #include <epan/packet.h>
+#include <epan/prefs.h>
 #include <epan/expert.h>
 #include "packet-tcp.h"
 
@@ -76,6 +64,7 @@ typedef struct {
 } td_CmdInfo;
 
 #define IEC104_PORT     2404
+static guint iec104_port = IEC104_PORT;
 
 /* Define the iec104 proto */
 static int proto_iec104apci = -1;
@@ -151,6 +140,7 @@ static const value_string u_types[] = {
 #define M_EP_TD_1  38    /* event of protection equipment with time tag CP56Time2a 				*/
 #define M_EP_TE_1  39    /* packed start events of protection equipment with time tag CP56Time2a 		*/
 #define M_EP_TF_1  40    /* packed output circuit information of protection equipment with time tag CP56Time2a 	*/
+#define S_IT_TC_1  41    /* integrated totals containing time tagged security statistics			*/
 #define C_SC_NA_1  45    /* single command 									*/
 #define C_DC_NA_1  46    /* double command 									*/
 #define C_RC_NA_1  47    /* regulating step command 								*/
@@ -166,6 +156,19 @@ static const value_string u_types[] = {
 #define C_SE_TC_1  63    /* set point command, short floating-point number with time tag CP56Time2a 		*/
 #define C_BO_TA_1  64    /* bitstring of 32 bits with time tag CP56Time2a 					*/
 #define M_EI_NA_1  70    /* end of initialization 								*/
+#define S_CH_NA_1  81    /* authentication challenge								*/
+#define S_RP_NA_1  82    /* authentication reply								*/
+#define S_AR_NA_1  83    /* aggressive mode authentication request session key status request			*/
+#define S_KR_NA_1  84    /* session key status request								*/
+#define S_KS_NA_1  85    /* session key status									*/
+#define S_KC_NA_1  86    /* session key change									*/
+#define S_ER_NA_1  87    /* authentication error								*/
+#define S_US_NA_1  90    /* user status change									*/
+#define S_UQ_NA_1  91    /* update key change request								*/
+#define S_UR_NA_1  92    /* update key change reply								*/
+#define S_UK_NA_1  93    /* update key change symmetric								*/
+#define S_UA_NA_1  94    /* update key change asymmetric							*/
+#define S_UC_NA_1  95    /* update key change confirmation							*/
 #define C_IC_NA_1  100    /* interrogation command 								*/
 #define C_CI_NA_1  101    /* counter interrogation command 							*/
 #define C_RD_NA_1  102    /* read command 									*/
@@ -206,6 +209,7 @@ static const value_string asdu_types [] = {
 	{  M_EP_TD_1,		"M_EP_TD_1" },
 	{  M_EP_TE_1,		"M_EP_TE_1" },
 	{  M_EP_TF_1,		"M_EP_TF_1" },
+	{  S_IT_TC_1,		"S_IT_TC_1" },
 	{  C_SC_NA_1,		"C_SC_NA_1" },
 	{  C_DC_NA_1,		"C_DC_NA_1" },
 	{  C_RC_NA_1,		"C_RC_NA_1" },
@@ -221,6 +225,19 @@ static const value_string asdu_types [] = {
 	{  C_SE_TC_1,		"C_SE_TC_1" },
 	{  C_BO_TA_1,		"C_BO_TA_1" },
 	{  M_EI_NA_1,		"M_EI_NA_1" },
+	{  S_CH_NA_1,		"S_CH_NA_1" },
+	{  S_RP_NA_1,		"S_RP_NA_1" },
+	{  S_AR_NA_1,		"S_AR_NA_1" },
+	{  S_KR_NA_1,		"S_KR_NA_1" },
+	{  S_KS_NA_1,		"S_KS_NA_1" },
+	{  S_KC_NA_1,		"S_KC_NA_1" },
+	{  S_ER_NA_1,		"S_ER_NA_1" },
+	{  S_US_NA_1,		"S_US_NA_1" },
+	{  S_UQ_NA_1,		"S_UQ_NA_1" },
+	{  S_UR_NA_1,		"S_UR_NA_1" },
+	{  S_UK_NA_1,		"S_UK_NA_1" },
+	{  S_UA_NA_1,		"S_UA_NA_1" },
+	{  S_UC_NA_1,		"S_UC_NA_1" },
 	{  C_IC_NA_1,		"C_IC_NA_1" },
 	{  C_CI_NA_1,		"C_CI_NA_1" },
 	{  C_RD_NA_1,		"C_RD_NA_1" },
@@ -264,6 +281,7 @@ static const value_string asdu_lngtypes [] = {
 	{  M_EP_TD_1,		"event of protection equipment with time tag CP56Time2a" },
 	{  M_EP_TE_1,		"packed start events of protection equipment with time tag CP56Time2a" },
 	{  M_EP_TF_1,		"packed output circuit information of protection equipment with time tag CP56Time2a" },
+	{  S_IT_TC_1,		"integrated totals containing time tagged security statistics" },
 	{  C_SC_NA_1,		"single command" },
 	{  C_DC_NA_1,		"double command" },
 	{  C_RC_NA_1,		"regulating step command" },
@@ -279,6 +297,19 @@ static const value_string asdu_lngtypes [] = {
 	{  C_SE_TC_1,		"set point command, short floating-point number with time tag CP56Time2a" },
 	{  C_BO_TA_1,		"bitstring of 32 bits with time tag CP56Time2a" },
 	{  M_EI_NA_1,		"end of initialization" },
+	{  S_CH_NA_1,		"authentication challenge" },
+	{  S_RP_NA_1,		"authentication reply" },
+	{  S_AR_NA_1,		"aggressive mode authentication request session key status request" },
+	{  S_KR_NA_1,		"session key status request" },
+	{  S_KS_NA_1,		"session key status" },
+	{  S_KC_NA_1,		"session key change" },
+	{  S_ER_NA_1,		"authentication error" },
+	{  S_US_NA_1,		"user status change" },
+	{  S_UQ_NA_1,		"update key change request" },
+	{  S_UR_NA_1,		"update key change reply" },
+	{  S_UK_NA_1,		"update key change symmetric" },
+	{  S_UA_NA_1,		"update key change asymmetric" },
+	{  S_UC_NA_1,		"update key change confirmation" },
 	{  C_IC_NA_1,		"interrogation command" },
 	{  C_CI_NA_1,		"counter interrogation command" },
 	{  C_RD_NA_1,		"read command" },
@@ -327,6 +358,7 @@ static const td_asdu_length asdu_length [] = {
 	{  M_EP_TD_1,	10 },
 	{  M_EP_TE_1,	11 },
 	{  M_EP_TF_1,	11 },
+	{  S_IT_TC_1,    0 },
 	{  C_SC_NA_1,	 1 },
 	{  C_DC_NA_1,	 1 },
 	{  C_RC_NA_1,	 1 },
@@ -342,6 +374,19 @@ static const td_asdu_length asdu_length [] = {
 	{  C_SE_TC_1,	12 },
 	{  C_BO_TA_1,	11 },
 	{  M_EI_NA_1,	 1 },
+	{  S_CH_NA_1,    0 },
+	{  S_RP_NA_1,    0 },
+	{  S_AR_NA_1,    0 },
+	{  S_KR_NA_1,    0 },
+	{  S_KS_NA_1,    0 },
+	{  S_KC_NA_1,    0 },
+	{  S_ER_NA_1,    0 },
+	{  S_US_NA_1,    0 },
+	{  S_UQ_NA_1,    0 },
+	{  S_UR_NA_1,    0 },
+	{  S_UK_NA_1,    0 },
+	{  S_UA_NA_1,    0 },
+	{  S_UC_NA_1,    0 },
 	{  C_IC_NA_1,	 1 },
 	{  C_CI_NA_1,	 1 },
 	{  C_RD_NA_1,	 0 },
@@ -377,6 +422,9 @@ static const td_asdu_length asdu_length [] = {
 #define Retrem          11
 #define Retloc          12
 #define File            13
+#define Auth            14
+#define Seskey          15
+#define Usrkey          16
 #define Inrogen         20
 #define Inro1           21
 #define Inro2           22
@@ -418,6 +466,9 @@ static const value_string causetx_types [] = {
 	{ Retrem          ,"Retrem" },
 	{ Retloc          ,"Retloc" },
 	{ File            ,"File" },
+	{ Auth            ,"Auth" },
+	{ Seskey          ,"Seskey" },
+	{ Usrkey          ,"Usrkey" },
 	{ Inrogen         ,"Inrogen" },
 	{ Inro1           ,"Inro1" },
 	{ Inro2           ,"Inro2" },
@@ -596,6 +647,7 @@ static int hf_asdu_bitstring = -1;
 static int hf_asdu_float = -1;
 static int hf_asdu_normval = -1;
 static int hf_asdu_scalval = -1;
+static int hf_asdu_raw_data = -1;
 
 static gint ett_apci = -1;
 static gint ett_asdu = -1;
@@ -612,6 +664,7 @@ static gint ett_cp56time = -1;
 
 static expert_field ei_iec104_short_asdu = EI_INIT;
 static expert_field ei_iec104_apdu_min_len = EI_INIT;
+static expert_field ei_iec104_apdu_invalid_len = EI_INIT;
 
 /* Misc. functions for dissection of signal values */
 
@@ -830,7 +883,7 @@ static void get_NVA(tvbuff_t *tvb, guint8 *offset, proto_tree *iec104_header_tre
 	gint16 value;
 	float fvalue;
 
-	value = (gint16)tvb_get_letohs(tvb, *offset);
+	value = tvb_get_letohis(tvb, *offset);
 	fvalue = (float)value / 32768;
 
 	/* Normalized value F16[1..16]<-1..+1-2^-15> */
@@ -844,7 +897,7 @@ static void get_NVAspt(tvbuff_t *tvb, guint8 *offset, proto_tree *iec104_header_
 	gint16 value;
 	float fvalue;
 
-	value = (gint16)tvb_get_letohs(tvb, *offset);
+	value = tvb_get_letohis(tvb, *offset);
 	fvalue = (float)value / 32768;
 
 	/* Normalized value F16[1..16]<-1..+1-2^-15> */
@@ -1368,8 +1421,20 @@ static int dissect_iec104asdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 			break;
 		default:
 			proto_tree_add_item(it104tree, hf_ioa, tvb, offset, 3, ENC_LITTLE_ENDIAN);
+			offset += 3;
+
+			if (Len - offset > 0)
+				proto_tree_add_item(it104tree, hf_asdu_raw_data, tvb, offset, Len - offset, ENC_NA);
+			offset = Len;
+
 			break;
 	} /* end 'switch (asdu_typeid)' */
+
+	/* check correct apdu length */
+	if (Len != offset) {
+		expert_add_info(pinfo, it104tree, &ei_iec104_apdu_invalid_len);
+		return offset;
+	}
 
 	return tvb_captured_length(tvb);
 }
@@ -1429,7 +1494,7 @@ static int dissect_iec104apci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
 			if (len <= APDU_MAX_LEN) {
 				wmem_strbuf_append_printf(res, "%s %s ",
-					(pinfo->srcport == IEC104_PORT ? "->" : "<-"),
+					(pinfo->srcport == iec104_port ? "->" : "<-"),
 					val_to_str_const(type, apci_types, "<ERR>"));
 			}
 			else {
@@ -1462,7 +1527,7 @@ static int dissect_iec104apci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 			proto_item_append_text(it104, ": %s", wmem_strbuf_get_str(res));
 
 			if (type == I_TYPE)
-				call_dissector(iec104asdu_handle, tvb_new_subset(tvb, Off + APCI_LEN, -1, len - APCI_DATA_LEN), pinfo, tree);
+				call_dissector(iec104asdu_handle, tvb_new_subset_length_caplen(tvb, Off + APCI_LEN, -1, len - APCI_DATA_LEN), pinfo, tree);
 
 			/* Don't search more the APCI_START */
 			break;
@@ -1485,6 +1550,13 @@ static int dissect_iec104reas(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 	tcp_dissect_pdus(tvb, pinfo, tree, TRUE, APCI_LEN,
 			get_iec104apdu_len, dissect_iec104apci, data);
 	return tvb_captured_length(tvb);
+}
+
+static void
+apply_iec104_prefs(void)
+{
+  /* IEC104 uses the port preference to determine direction */
+  iec104_port = prefs_get_uint_value("104apci", "tcp.port");
 }
 
 /* The protocol has two subprotocols: Register APCI */
@@ -1522,13 +1594,12 @@ proto_register_iec104apci(void)
 		&ett_apci,
 	};
 
-	proto_iec104apci = proto_register_protocol(
-		"IEC 60870-5-104-Apci",
-		"104apci",
-		"104apci"
-		);
+	proto_iec104apci = proto_register_protocol("IEC 60870-5-104-Apci", "104apci", "104apci");
+
 	proto_register_field_array(proto_iec104apci, hf_ap, array_length(hf_ap));
 	proto_register_subtree_array(ett_ap, array_length(ett_ap));
+
+	prefs_register_protocol(proto_iec104apci, apply_iec104_prefs);
 }
 
 
@@ -1813,6 +1884,10 @@ proto_register_iec104asdu(void)
 		{ &hf_asdu_scalval,
 		  { "Value", "104asdu.scalval", FT_INT16, BASE_DEC, NULL, 0x0,
 		    "Scaled value", HFILL }},
+
+		{ &hf_asdu_raw_data,
+		  { "Raw Data", "104asdu.rawdata", FT_BYTES, BASE_NONE, NULL, 0x0,
+		    "Information object raw data", HFILL }},
 	};
 
 	static gint *ett_as[] = {
@@ -1832,15 +1907,12 @@ proto_register_iec104asdu(void)
 	static ei_register_info ei[] = {
 		{ &ei_iec104_short_asdu, { "iec104.short_asdu", PI_MALFORMED, PI_ERROR, "<ERR Short Asdu>", EXPFILL }},
 		{ &ei_iec104_apdu_min_len, { "iec104.apdu_min_len", PI_MALFORMED, PI_ERROR, "APDU less than bytes", EXPFILL }},
+		{ &ei_iec104_apdu_invalid_len, { "iec104.apdu_invalid_len", PI_MALFORMED, PI_ERROR, "Invalid ApduLen", EXPFILL }},
 	};
 
 	expert_module_t* expert_iec104;
 
-	proto_iec104asdu = proto_register_protocol(
-		"IEC 60870-5-104-Asdu",
-		"104asdu",
-		"104asdu"
-		);
+	proto_iec104asdu = proto_register_protocol("IEC 60870-5-104-Asdu", "104asdu", "104asdu");
 
 	proto_register_field_array(proto_iec104asdu, hf_as, array_length(hf_as));
 	proto_register_subtree_array(ett_as, array_length(ett_as));
@@ -1859,7 +1931,7 @@ proto_reg_handoff_iec104(void)
 	iec104apci_handle = create_dissector_handle(dissect_iec104reas, proto_iec104apci);
 	iec104asdu_handle = create_dissector_handle(dissect_iec104asdu, proto_iec104asdu);
 
-	dissector_add_uint("tcp.port", IEC104_PORT, iec104apci_handle);
+	dissector_add_uint_with_preference("tcp.port", IEC104_PORT, iec104apci_handle);
 }
 
 /*

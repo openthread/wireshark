@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -36,7 +24,7 @@
 
 /* Described in:
  * 3GPP TS 36.322 Evolved Universal Terrestial Radio Access (E-UTRA)
- * Radio Link Control (RLC) Protocol specification v12.1.0
+ * Radio Link Control (RLC) Protocol specification v14.0.0
  */
 
 /* TODO:
@@ -105,6 +93,18 @@ extern int proto_pdcp_lte;
 
 static dissector_handle_t pdcp_lte_handle;
 static dissector_handle_t ip_handle;
+static dissector_handle_t lte_rrc_mcch;
+static dissector_handle_t lte_rrc_ul_ccch;
+static dissector_handle_t lte_rrc_dl_ccch;
+static dissector_handle_t lte_rrc_bcch_bch;
+static dissector_handle_t lte_rrc_bcch_dl_sch;
+static dissector_handle_t lte_rrc_pcch;
+static dissector_handle_t lte_rrc_ul_ccch_nb;
+static dissector_handle_t lte_rrc_dl_ccch_nb;
+static dissector_handle_t lte_rrc_bcch_bch_nb;
+static dissector_handle_t lte_rrc_bcch_dl_sch_nb;
+static dissector_handle_t lte_rrc_pcch_nb;
+
 
 static int rlc_lte_tap = -1;
 
@@ -233,6 +233,8 @@ static expert_field ei_rlc_lte_sequence_analysis_ack_out_of_range_opposite_frame
 static expert_field ei_rlc_lte_sequence_analysis_last_segment_not_continued = EI_INIT;
 static expert_field ei_rlc_lte_reserved_bits_not_zero = EI_INIT;
 static expert_field ei_rlc_lte_no_per_frame_info = EI_INIT;
+static expert_field ei_rlc_lte_unknown_udp_framing_tag = EI_INIT;
+static expert_field ei_rlc_lte_missing_udp_framing_tag = EI_INIT;
 
 /* Value-strings */
 static const value_string direction_vals[] =
@@ -415,7 +417,7 @@ typedef struct
 } channel_sequence_analysis_status;
 
 /* The sequence analysis channel hash table */
-static GHashTable *sequence_analysis_channel_hash = NULL;
+static wmem_map_t *sequence_analysis_channel_hash = NULL;
 
 
 /* Types for sequence analysis frame report hash table                  */
@@ -446,7 +448,7 @@ typedef struct
 
 
 /* The sequence analysis frame report hash table instance itself   */
-static GHashTable *sequence_analysis_report_hash = NULL;
+static wmem_map_t *sequence_analysis_report_hash = NULL;
 
 
 static gpointer get_report_hash_key(guint16 SN, guint32 frameNumber,
@@ -457,7 +459,7 @@ static gpointer get_report_hash_key(guint16 SN, guint32 frameNumber,
 
 
 /* The reassembly result hash table */
-static GHashTable *reassembly_report_hash = NULL;
+static wmem_map_t *reassembly_report_hash = NULL;
 
 
 /* Create a new struct for reassembly */
@@ -505,7 +507,7 @@ static void reassembly_record(channel_sequence_analysis_status *status, packet_i
                               guint16 SN, rlc_lte_info *p_rlc_lte_info)
 {
     /* Just store existing info in hash table */
-    g_hash_table_insert(reassembly_report_hash,
+    wmem_map_insert(reassembly_report_hash,
                         get_report_hash_key(SN, pinfo->num, p_rlc_lte_info, TRUE),
                         status->reassembly_info);
 }
@@ -524,7 +526,7 @@ static tvbuff_t* reassembly_get_reassembled_tvb(rlc_channel_reassembly_info *rea
     for (n=0; n < reassembly_info->number_of_segments; n++) {
         combined_length += reassembly_info->segments[n].length;
     }
-    combined_data = (guint8 *)g_malloc(combined_length);
+    combined_data = (guint8 *)wmem_alloc(pinfo->pool, combined_length);
 
     /* Copy data into contiguous buffer */
     for (n=0; n < reassembly_info->number_of_segments; n++) {
@@ -536,7 +538,6 @@ static tvbuff_t* reassembly_get_reassembled_tvb(rlc_channel_reassembly_info *rea
 
     /* Create and return tvb with this data */
     reassembled_tvb = tvb_new_child_real_data(parent_tvb, combined_data, combined_offset, combined_offset);
-    tvb_set_free_cb(reassembled_tvb, g_free);
     add_new_data_source(pinfo, reassembled_tvb, "Reassembled SDU");
     return reassembled_tvb;
 }
@@ -622,7 +623,7 @@ typedef struct
     guint32         frameNum;
 } channel_repeated_nack_status;
 
-static GHashTable *repeated_nack_channel_hash = NULL;
+static wmem_map_t *repeated_nack_channel_hash = NULL;
 
 typedef struct {
     guint16         noOfNACKsRepeated;
@@ -630,7 +631,7 @@ typedef struct {
     guint32         previousFrameNum;
 } channel_repeated_nack_report;
 
-static GHashTable *repeated_nack_report_hash = NULL;
+static wmem_map_t *repeated_nack_report_hash = NULL;
 
 
 
@@ -830,7 +831,11 @@ static void show_PDU_in_tree(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb
             }
 
             p_pdcp_lte_info->ueid = rlc_info->ueid;
-            p_pdcp_lte_info->channelType = Channel_DCCH;
+            if (rlc_info->nbMode == rlc_nb_mode) {
+                p_pdcp_lte_info->channelType = Channel_DCCH_NB;
+            } else {
+                p_pdcp_lte_info->channelType = Channel_DCCH;
+            }
             p_pdcp_lte_info->channelId = rlc_info->channelId;
             p_pdcp_lte_info->direction = rlc_info->direction;
             p_pdcp_lte_info->is_retx = (state != SN_OK);
@@ -839,7 +844,12 @@ static void show_PDU_in_tree(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb
             p_pdcp_lte_info->no_header_pdu = FALSE;
             if (rlc_info->channelType == CHANNEL_TYPE_SRB) {
                 p_pdcp_lte_info->plane = SIGNALING_PLANE;
-                p_pdcp_lte_info->seqnum_length = 5;
+                if ((rlc_info->nbMode == rlc_nb_mode) && (rlc_info->channelId == 3)) {
+                    p_pdcp_lte_info->no_header_pdu = TRUE;
+                    p_pdcp_lte_info->seqnum_length = 0;
+                } else {
+                    p_pdcp_lte_info->seqnum_length = 5;
+                }
             }
             else {
                 p_pdcp_lte_info->plane = USER_PLANE;
@@ -870,7 +880,13 @@ static void show_PDU_in_tree(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb
                         if (params && (params->id != id)) {
                             params = NULL;
                         }
-                        p_pdcp_lte_info->seqnum_length = params ? params->pdcp_sn_bits : 12;
+                        if (params) {
+                            p_pdcp_lte_info->seqnum_length = params->pdcp_sn_bits;
+                        } else if (rlc_info->nbMode == rlc_nb_mode) {
+                            p_pdcp_lte_info->seqnum_length = 7;
+                        } else {
+                            p_pdcp_lte_info->seqnum_length = 12;
+                        }
                         break;
 
                     default:
@@ -891,7 +907,6 @@ static void show_PDU_in_tree(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb
         else if (global_rlc_lte_call_rrc_for_mcch && (rlc_info->channelType == CHANNEL_TYPE_MCCH)) {
             /* Send whole PDU to RRC */
             static tvbuff_t *rrc_tvb = NULL;
-            volatile dissector_handle_t protocol_handle;
 
             /* Get tvb for passing to LTE RRC dissector */
             if (reassembly_info == NULL) {
@@ -903,11 +918,8 @@ static void show_PDU_in_tree(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb
                 reassembly_show_source(reassembly_info, tree, tvb, offset);
             }
 
-            /* Get dissector handle */
-            protocol_handle = find_dissector("lte_rrc.mcch");
-
             TRY {
-                call_dissector_only(protocol_handle, rrc_tvb, pinfo, tree, NULL);
+                call_dissector_only(lte_rrc_mcch, rrc_tvb, pinfo, tree, NULL);
             }
             CATCH_ALL {
             }
@@ -1414,7 +1426,7 @@ static sequence_analysis_state checkChannelSequenceInfo(packet_info *pinfo, tvbu
 
     /* If find stat_report_in_frame already, use that and get out */
     if (pinfo->fd->flags.visited) {
-        p_report_in_frame = (sequence_analysis_report*)g_hash_table_lookup(sequence_analysis_report_hash,
+        p_report_in_frame = (sequence_analysis_report*)wmem_map_lookup(sequence_analysis_report_hash,
                                                                            get_report_hash_key(sequenceNumber,
                                                                                                pinfo->num,
                                                                                                p_rlc_lte_info,
@@ -1438,7 +1450,7 @@ static sequence_analysis_state checkChannelSequenceInfo(packet_info *pinfo, tvbu
     channel_key.direction = p_rlc_lte_info->direction;
 
     /* Do the table lookup */
-    p_channel_status = (channel_sequence_analysis_status*)g_hash_table_lookup(sequence_analysis_channel_hash, &channel_key);
+    p_channel_status = (channel_sequence_analysis_status*)wmem_map_lookup(sequence_analysis_channel_hash, &channel_key);
 
     /* Create table entry if necessary */
     if (p_channel_status == NULL) {
@@ -1452,7 +1464,7 @@ static sequence_analysis_state checkChannelSequenceInfo(packet_info *pinfo, tvbu
         p_channel_status->rlcMode = p_rlc_lte_info->rlcMode;
 
         /* Add entry */
-        g_hash_table_insert(sequence_analysis_channel_hash, p_channel_key, p_channel_status);
+        wmem_map_insert(sequence_analysis_channel_hash, p_channel_key, p_channel_status);
     }
 
     /* Create space for frame state_report */
@@ -1581,7 +1593,7 @@ static sequence_analysis_state checkChannelSequenceInfo(packet_info *pinfo, tvbu
                     }
 
                     /* Look up report for previous SN */
-                    p_previous_report = (sequence_analysis_report*)g_hash_table_lookup(sequence_analysis_report_hash,
+                    p_previous_report = (sequence_analysis_report*)wmem_map_lookup(sequence_analysis_report_hash,
                                                                                        get_report_hash_key((sequenceNumber+snLimit-1) % snLimit,
                                                                                                            p_report_in_frame->previousFrameNum,
                                                                                                            p_rlc_lte_info,
@@ -1684,7 +1696,7 @@ static sequence_analysis_state checkChannelSequenceInfo(packet_info *pinfo, tvbu
                 if (p_report_in_frame->previousFrameNum != 0) {
                     /* Get report for previous frame */
                     sequence_analysis_report *p_previous_report;
-                    p_previous_report = (sequence_analysis_report*)g_hash_table_lookup(sequence_analysis_report_hash,
+                    p_previous_report = (sequence_analysis_report*)wmem_map_lookup(sequence_analysis_report_hash,
                                                                                        get_report_hash_key((sequenceNumber+snLimit-1) % snLimit,
                                                                                                            p_report_in_frame->previousFrameNum,
                                                                                                            p_rlc_lte_info,
@@ -1751,7 +1763,7 @@ static sequence_analysis_state checkChannelSequenceInfo(packet_info *pinfo, tvbu
     }
 
     /* Associate with this frame number */
-    g_hash_table_insert(sequence_analysis_report_hash,
+    wmem_map_insert(sequence_analysis_report_hash,
                         get_report_hash_key(sequenceNumber, pinfo->num, p_rlc_lte_info, TRUE),
                         p_report_in_frame);
 
@@ -1831,7 +1843,7 @@ static void checkChannelRepeatedNACKInfo(packet_info *pinfo,
 
     /* If find state_report_in_frame already, use that and get out */
     if (pinfo->fd->flags.visited) {
-        p_report_in_frame = (channel_repeated_nack_report*)g_hash_table_lookup(repeated_nack_report_hash,
+        p_report_in_frame = (channel_repeated_nack_report*)wmem_map_lookup(repeated_nack_report_hash,
                                                                                get_report_hash_key(0, pinfo->num,
                                                                                                    p_rlc_lte_info, FALSE));
         if (p_report_in_frame != NULL) {
@@ -1855,7 +1867,7 @@ static void checkChannelRepeatedNACKInfo(packet_info *pinfo,
     memset(repeatedNACKs, 0, sizeof(repeatedNACKs));
 
     /* Do the table lookup */
-    p_channel_status = (channel_repeated_nack_status*)g_hash_table_lookup(repeated_nack_channel_hash, &channel_key);
+    p_channel_status = (channel_repeated_nack_status*)wmem_map_lookup(repeated_nack_channel_hash, &channel_key);
 
     /* Create table entry if necessary */
     if (p_channel_status == NULL) {
@@ -1868,7 +1880,7 @@ static void checkChannelRepeatedNACKInfo(packet_info *pinfo,
         memcpy(p_channel_key, &channel_key, sizeof(channel_hash_key));
 
         /* Add entry to table */
-        g_hash_table_insert(repeated_nack_channel_hash, p_channel_key, p_channel_status);
+        wmem_map_insert(repeated_nack_channel_hash, p_channel_key, p_channel_status);
     }
 
     /* Compare NACKs in channel status with NACKs in tap_info.
@@ -1905,7 +1917,7 @@ static void checkChannelRepeatedNACKInfo(packet_info *pinfo,
         p_report_in_frame->previousFrameNum = p_channel_status->frameNum;
 
         /* Associate with this frame number */
-        g_hash_table_insert(repeated_nack_report_hash,
+        wmem_map_insert(repeated_nack_report_hash,
                             get_report_hash_key(0, pinfo->num,
                                                 p_rlc_lte_info, TRUE),
                             p_report_in_frame);
@@ -1935,7 +1947,7 @@ static void checkChannelACKWindow(guint16 ack_sn,
 
     /* If find stat_report_in_frame already, use that and get out */
     if (pinfo->fd->flags.visited) {
-        p_report_in_frame = (sequence_analysis_report*)g_hash_table_lookup(sequence_analysis_report_hash,
+        p_report_in_frame = (sequence_analysis_report*)wmem_map_lookup(sequence_analysis_report_hash,
                                                                            get_report_hash_key(0, pinfo->num,
                                                                                                p_rlc_lte_info,
                                                                                                FALSE));
@@ -1961,7 +1973,7 @@ static void checkChannelACKWindow(guint16 ack_sn,
         (p_rlc_lte_info->direction == DIRECTION_UPLINK) ? DIRECTION_DOWNLINK : DIRECTION_UPLINK;
 
     /* Do the table lookup */
-    p_channel_status = (channel_sequence_analysis_status*)g_hash_table_lookup(sequence_analysis_channel_hash, &channel_key);
+    p_channel_status = (channel_sequence_analysis_status*)wmem_map_lookup(sequence_analysis_channel_hash, &channel_key);
 
     /* Create table entry if necessary */
     if (p_channel_status == NULL) {
@@ -1981,7 +1993,7 @@ static void checkChannelACKWindow(guint16 ack_sn,
         p_report_in_frame->firstSN = ack_sn;
 
         /* Associate with this frame number */
-        g_hash_table_insert(sequence_analysis_report_hash,
+        wmem_map_insert(sequence_analysis_report_hash,
                             get_report_hash_key(0, pinfo->num,
                                                 p_rlc_lte_info, TRUE),
                             p_report_in_frame);
@@ -2020,26 +2032,31 @@ static void dissect_rlc_lte_tm(tvbuff_t *tvb, packet_info *pinfo,
 
     if (global_rlc_lte_call_rrc_for_ccch) {
         tvbuff_t *rrc_tvb = tvb_new_subset_remaining(tvb, offset);
-        volatile dissector_handle_t protocol_handle = 0;
+        volatile dissector_handle_t protocol_handle;
 
         switch (p_rlc_lte_info->channelType) {
             case CHANNEL_TYPE_CCCH:
                 if (p_rlc_lte_info->direction == DIRECTION_UPLINK) {
-                    protocol_handle = find_dissector("lte_rrc.ul_ccch");
+                    protocol_handle = (p_rlc_lte_info->nbMode == rlc_nb_mode) ?
+                                        lte_rrc_ul_ccch_nb : lte_rrc_ul_ccch;
                 }
                 else {
-                    protocol_handle = find_dissector("lte_rrc.dl_ccch");
+                    protocol_handle = (p_rlc_lte_info->nbMode == rlc_nb_mode) ?
+                                        lte_rrc_dl_ccch_nb : lte_rrc_dl_ccch;
                 }
                 break;
 
             case CHANNEL_TYPE_BCCH_BCH:
-                protocol_handle = find_dissector("lte_rrc.bcch_bch");
+                protocol_handle = (p_rlc_lte_info->nbMode == rlc_nb_mode) ?
+                                    lte_rrc_bcch_bch_nb : lte_rrc_bcch_bch;
                 break;
             case CHANNEL_TYPE_BCCH_DL_SCH:
-                protocol_handle = find_dissector("lte_rrc.bcch_dl_sch");
+                protocol_handle = (p_rlc_lte_info->nbMode == rlc_nb_mode) ?
+                                    lte_rrc_bcch_dl_sch_nb : lte_rrc_bcch_dl_sch;
                 break;
             case CHANNEL_TYPE_PCCH:
-                protocol_handle = find_dissector("lte_rrc.pcch");
+                protocol_handle = (p_rlc_lte_info->nbMode == rlc_nb_mode) ?
+                                    lte_rrc_pcch_nb : lte_rrc_pcch;
                 break;
 
             case CHANNEL_TYPE_SRB:
@@ -2248,7 +2265,7 @@ static void dissect_rlc_lte_um(tvbuff_t *tvb, packet_info *pinfo,
     /*************************************/
     /* Data                              */
 
-    reassembly_info = (rlc_channel_reassembly_info *)g_hash_table_lookup(reassembly_report_hash,
+    reassembly_info = (rlc_channel_reassembly_info *)wmem_map_lookup(reassembly_report_hash,
                                                                          get_report_hash_key((guint16)sn, pinfo->num,
                                                                                              p_rlc_lte_info, FALSE));
 
@@ -2701,7 +2718,7 @@ static void dissect_rlc_lte_am(tvbuff_t *tvb, packet_info *pinfo,
     /* Data                              */
 
     if (!first_includes_start) {
-        reassembly_info = (rlc_channel_reassembly_info *)g_hash_table_lookup(reassembly_report_hash,
+        reassembly_info = (rlc_channel_reassembly_info *)wmem_map_lookup(reassembly_report_hash,
                                                                              get_report_hash_key((guint16)sn,
                                                                                                  pinfo->num,
                                                                                                  p_rlc_lte_info,
@@ -2751,6 +2768,18 @@ static void dissect_rlc_lte_am(tvbuff_t *tvb, packet_info *pinfo,
     }
 }
 
+static void report_heur_error(proto_tree *tree, packet_info *pinfo, expert_field *eiindex,
+                              tvbuff_t *tvb, gint start, gint length)
+{
+    proto_item *ti;
+    proto_tree *subtree;
+
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "RLC-LTE");
+    col_clear(pinfo->cinfo, COL_INFO);
+    ti = proto_tree_add_item(tree, proto_rlc_lte, tvb, 0, -1, ENC_NA);
+    subtree = proto_item_add_subtree(ti, ett_rlc_lte);
+    proto_tree_add_expert(subtree, pinfo, eiindex, tvb, start, length);
+}
 
 /* Heuristic dissector looks for supported framing protocol (see wiki page)  */
 static gboolean dissect_rlc_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
@@ -2760,10 +2789,7 @@ static gboolean dissect_rlc_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
     struct rlc_lte_info  *p_rlc_lte_info;
     tvbuff_t             *rlc_tvb;
     guint8               tag = 0;
-    gboolean             infoAlreadySet = FALSE;
     gboolean             seqNumLengthTagPresent = FALSE;
-
-    /* Do this again on re-dissection to re-discover offset of actual PDU */
 
     /* Needs to be at least as long as:
        - the signature string
@@ -2786,72 +2812,77 @@ static gboolean dissect_rlc_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
     if (p_rlc_lte_info == NULL) {
         /* Allocate new info struct for this frame */
         p_rlc_lte_info = wmem_new0(wmem_file_scope(), struct rlc_lte_info);
-        infoAlreadySet = FALSE;
-    }
-    else {
-        infoAlreadySet = TRUE;
-    }
 
-
-    /* Read fixed fields */
-    p_rlc_lte_info->rlcMode = tvb_get_guint8(tvb, offset++);
-    if (p_rlc_lte_info->rlcMode == RLC_AM_MODE) {
-        p_rlc_lte_info->sequenceNumberLength = AM_SN_LENGTH_10_BITS;
-    }
-
-    /* Read optional fields */
-    while (tag != RLC_LTE_PAYLOAD_TAG) {
-        /* Process next tag */
-        tag = tvb_get_guint8(tvb, offset++);
-        switch (tag) {
-            case RLC_LTE_SN_LENGTH_TAG:
-                p_rlc_lte_info->sequenceNumberLength = tvb_get_guint8(tvb, offset);
-                offset++;
-                seqNumLengthTagPresent = TRUE;
-                break;
-            case RLC_LTE_DIRECTION_TAG:
-                p_rlc_lte_info->direction = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case RLC_LTE_PRIORITY_TAG:
-                p_rlc_lte_info->priority = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case RLC_LTE_UEID_TAG:
-                p_rlc_lte_info->ueid = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-            case RLC_LTE_CHANNEL_TYPE_TAG:
-                p_rlc_lte_info->channelType = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-            case RLC_LTE_CHANNEL_ID_TAG:
-                p_rlc_lte_info->channelId = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-            case RLC_LTE_EXT_LI_FIELD_TAG:
-                p_rlc_lte_info->extendedLiField = TRUE;
-                break;
-
-            case RLC_LTE_PAYLOAD_TAG:
-                /* Have reached data, so set payload length and get out of loop */
-                p_rlc_lte_info->pduLength = tvb_reported_length_remaining(tvb, offset);
-                continue;
-
-            default:
-                /* It must be a recognised tag */
-                return FALSE;
+        /* Read fixed fields */
+        p_rlc_lte_info->rlcMode = tvb_get_guint8(tvb, offset++);
+        if (p_rlc_lte_info->rlcMode == RLC_AM_MODE) {
+            p_rlc_lte_info->sequenceNumberLength = AM_SN_LENGTH_10_BITS;
         }
-    }
 
-    if ((p_rlc_lte_info->rlcMode == RLC_UM_MODE) && (seqNumLengthTagPresent == FALSE)) {
-        /* Conditional field is not present */
-        return FALSE;
-    }
+        /* Read optional fields */
+        while (tag != RLC_LTE_PAYLOAD_TAG) {
+            /* Process next tag */
+            tag = tvb_get_guint8(tvb, offset++);
+            switch (tag) {
+                case RLC_LTE_SN_LENGTH_TAG:
+                    p_rlc_lte_info->sequenceNumberLength = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    seqNumLengthTagPresent = TRUE;
+                    break;
+                case RLC_LTE_DIRECTION_TAG:
+                    p_rlc_lte_info->direction = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case RLC_LTE_PRIORITY_TAG:
+                    p_rlc_lte_info->priority = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case RLC_LTE_UEID_TAG:
+                    p_rlc_lte_info->ueid = tvb_get_ntohs(tvb, offset);
+                    offset += 2;
+                    break;
+                case RLC_LTE_CHANNEL_TYPE_TAG:
+                    p_rlc_lte_info->channelType = tvb_get_ntohs(tvb, offset);
+                    offset += 2;
+                    break;
+                case RLC_LTE_CHANNEL_ID_TAG:
+                    p_rlc_lte_info->channelId = tvb_get_ntohs(tvb, offset);
+                    offset += 2;
+                    break;
+                case RLC_LTE_EXT_LI_FIELD_TAG:
+                    p_rlc_lte_info->extendedLiField = TRUE;
+                    break;
+                case RLC_LTE_NB_MODE_TAG:
+                    p_rlc_lte_info->nbMode =
+                        (rlc_lte_nb_mode)tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
 
-    if (!infoAlreadySet) {
+                case RLC_LTE_PAYLOAD_TAG:
+                    /* Have reached data, so set payload length and get out of loop */
+                    p_rlc_lte_info->pduLength = tvb_reported_length_remaining(tvb, offset);
+                    continue;
+
+                default:
+                    /* It must be a recognised tag */
+                    report_heur_error(tree, pinfo, &ei_rlc_lte_unknown_udp_framing_tag, tvb, offset-1, 1);
+                    wmem_free(wmem_file_scope(), p_rlc_lte_info);
+                    return TRUE;
+            }
+        }
+
+        if ((p_rlc_lte_info->rlcMode == RLC_UM_MODE) && (seqNumLengthTagPresent == FALSE)) {
+            /* Conditional field is not present */
+            report_heur_error(tree, pinfo, &ei_rlc_lte_missing_udp_framing_tag, tvb, 0, offset);
+            wmem_free(wmem_file_scope(), p_rlc_lte_info);
+            return TRUE;
+        }
+
         /* Store info in packet */
         p_add_proto_data(wmem_file_scope(), pinfo, proto_rlc_lte, 0, p_rlc_lte_info);
+    }
+    else {
+        offset = tvb_reported_length(tvb) - p_rlc_lte_info->pduLength;
     }
 
     /**************************************/
@@ -3043,26 +3074,6 @@ static void dissect_rlc_lte_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 }
 
 
-
-/* Initializes the hash tables each time a new
- * file is loaded or re-loaded in wireshark */
-static void rlc_lte_init_protocol(void)
-{
-    sequence_analysis_channel_hash = g_hash_table_new(rlc_channel_hash_func, rlc_channel_equal);
-    sequence_analysis_report_hash = g_hash_table_new(rlc_result_hash_func, rlc_result_hash_equal);
-    repeated_nack_channel_hash = g_hash_table_new(rlc_channel_hash_func, rlc_channel_equal);
-    repeated_nack_report_hash = g_hash_table_new(rlc_result_hash_func, rlc_result_hash_equal);
-    reassembly_report_hash = g_hash_table_new(rlc_result_hash_func, rlc_result_hash_equal);
-}
-
-static void rlc_lte_cleanup_protocol(void)
-{
-    g_hash_table_destroy(sequence_analysis_channel_hash);
-    g_hash_table_destroy(sequence_analysis_report_hash);
-    g_hash_table_destroy(repeated_nack_channel_hash);
-    g_hash_table_destroy(repeated_nack_report_hash);
-    g_hash_table_destroy(reassembly_report_hash);
-}
 
 /* Configure number of PDCP SN bits to use for DRB channels */
 void set_rlc_lte_drb_pdcp_seqnum_length(packet_info *pinfo, guint16 ueid, guint8 drbid,
@@ -3503,7 +3514,7 @@ void proto_register_rlc_lte(void)
         },
         { &hf_rlc_lte_sequence_analysis_repeated_nack_original_frame,
             { "Frame with previous status PDU",
-              "rlc-lte.sequence-analysis.repeated-nack.original-frame",  FT_FRAMENUM, BASE_NONE, 0, 0x0,
+              "rlc-lte.sequence-analysis.repeated-nack.original-frame",  FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_DUP_ACK), 0x0,
               NULL, HFILL
             }
         },
@@ -3516,7 +3527,7 @@ void proto_register_rlc_lte(void)
         },
         { &hf_rlc_lte_sequence_analysis_ack_out_of_range_opposite_frame,
             { "Frame with most recent SN",
-              "rlc-lte.sequence-analysis.ack-out-of-range.last-sn-frame",  FT_FRAMENUM, BASE_NONE, 0, 0x0,
+              "rlc-lte.sequence-analysis.ack-out-of-range.last-sn-frame",  FT_FRAMENUM, BASE_NONE, NULL, 0x0,
               NULL, HFILL
             }
         },
@@ -3554,7 +3565,7 @@ void proto_register_rlc_lte(void)
         },
         { &hf_rlc_lte_reassembly_source_segment_framenum,
             { "Frame",
-              "rlc-lte.reassembly-info.segment.frame", FT_FRAMENUM, BASE_NONE, 0, 0x0,
+              "rlc-lte.reassembly-info.segment.frame", FT_FRAMENUM, BASE_NONE, NULL, 0x0,
               NULL, HFILL
             }
         },
@@ -3610,6 +3621,8 @@ void proto_register_rlc_lte(void)
         { &ei_rlc_lte_am_data_no_data, { "rlc-lte.am-data.no-data", PI_MALFORMED, PI_ERROR, "AM data PDU doesn't contain any data", EXPFILL }},
         { &ei_rlc_lte_context_mode, { "rlc-lte.mode.invalid", PI_MALFORMED, PI_ERROR, "Unrecognised RLC Mode set", EXPFILL }},
         { &ei_rlc_lte_no_per_frame_info, { "rlc-lte.no_per_frame_info", PI_UNDECODED, PI_ERROR, "Can't dissect LTE RLC frame because no per-frame info was attached!", EXPFILL }},
+        { &ei_rlc_lte_unknown_udp_framing_tag, { "rlc-lte.unknown-udp-framing-tag", PI_UNDECODED, PI_WARN, "Unknown UDP framing tag, aborting dissection", EXPFILL }},
+        { &ei_rlc_lte_missing_udp_framing_tag, { "rlc-lte.missing-udp-framing-tag", PI_UNDECODED, PI_WARN, "Missing UDP framing conditional tag, aborting dissection", EXPFILL }}
     };
 
     static const enum_val_t sequence_analysis_vals[] = {
@@ -3696,8 +3709,11 @@ void proto_register_rlc_lte(void)
 
     ue_parameters_tree = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
-    register_init_routine(&rlc_lte_init_protocol);
-    register_cleanup_routine(&rlc_lte_cleanup_protocol);
+    sequence_analysis_channel_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), rlc_channel_hash_func, rlc_channel_equal);
+    sequence_analysis_report_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), rlc_result_hash_func, rlc_result_hash_equal);
+    repeated_nack_channel_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), rlc_channel_hash_func, rlc_channel_equal);
+    repeated_nack_report_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), rlc_result_hash_func, rlc_result_hash_equal);
+    reassembly_report_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), rlc_result_hash_func, rlc_result_hash_equal);
 }
 
 void proto_reg_handoff_rlc_lte(void)
@@ -3705,8 +3721,19 @@ void proto_reg_handoff_rlc_lte(void)
     /* Add as a heuristic UDP dissector */
     heur_dissector_add("udp", dissect_rlc_lte_heur, "RLC-LTE over UDP", "rlc_lte_udp", proto_rlc_lte, HEURISTIC_DISABLE);
 
-    pdcp_lte_handle = find_dissector_add_dependency("pdcp-lte", proto_rlc_lte);
-    ip_handle       = find_dissector_add_dependency("ip", proto_rlc_lte);
+    pdcp_lte_handle        = find_dissector_add_dependency("pdcp-lte", proto_rlc_lte);
+    ip_handle              = find_dissector_add_dependency("ip", proto_rlc_lte);
+    lte_rrc_mcch           = find_dissector_add_dependency("lte_rrc.mcch", proto_rlc_lte);
+    lte_rrc_ul_ccch        = find_dissector_add_dependency("lte_rrc.ul_ccch", proto_rlc_lte);
+    lte_rrc_dl_ccch        = find_dissector_add_dependency("lte_rrc.dl_dcch", proto_rlc_lte);
+    lte_rrc_bcch_bch       = find_dissector_add_dependency("lte_rrc.bcch_bch", proto_rlc_lte);
+    lte_rrc_bcch_dl_sch    = find_dissector_add_dependency("lte_rrc.bcch_dl_sch", proto_rlc_lte);
+    lte_rrc_pcch           = find_dissector_add_dependency("lte_rrc.pcch", proto_rlc_lte);
+    lte_rrc_ul_ccch_nb     = find_dissector_add_dependency("lte_rrc.ul_ccch.nb", proto_rlc_lte);
+    lte_rrc_dl_ccch_nb     = find_dissector_add_dependency("lte_rrc.dl_ccch.nb", proto_rlc_lte);
+    lte_rrc_bcch_bch_nb    = find_dissector_add_dependency("lte_rrc.bcch_bch.nb", proto_rlc_lte);
+    lte_rrc_bcch_dl_sch_nb = find_dissector_add_dependency("lte_rrc.bcch_dl_sch.nb", proto_rlc_lte);
+    lte_rrc_pcch_nb        = find_dissector_add_dependency("lte_rrc.pcch.nb", proto_rlc_lte);
 }
 
 /*

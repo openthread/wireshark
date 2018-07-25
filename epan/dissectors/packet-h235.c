@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -162,7 +150,7 @@ static int hf_h235_fecBeforeSrtp = -1;            /* NULL */
 static int hf_h235_fecAfterSrtp = -1;             /* NULL */
 
 /*--- End of included file: packet-h235-hf.c ---*/
-#line 52 "./asn1/h235/packet-h235-template.c"
+#line 40 "./asn1/h235/packet-h235-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -202,7 +190,7 @@ static gint ett_h235_SEQUENCE_OF_GenericData = -1;
 static gint ett_h235_FecOrder = -1;
 
 /*--- End of included file: packet-h235-ett.c ---*/
-#line 55 "./asn1/h235/packet-h235-template.c"
+#line 43 "./asn1/h235/packet-h235-template.c"
 
 
 static int
@@ -1048,7 +1036,7 @@ static int dissect_SrtpCryptoCapability_PDU(tvbuff_t *tvb _U_, packet_info *pinf
 
 
 /*--- End of included file: packet-h235-fn.c ---*/
-#line 64 "./asn1/h235/packet-h235-template.c"
+#line 52 "./asn1/h235/packet-h235-template.c"
 
 
 /*--- proto_register_h235 ----------------------------------------------*/
@@ -1465,7 +1453,7 @@ void proto_register_h235(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-h235-hfarr.c ---*/
-#line 72 "./asn1/h235/packet-h235-template.c"
+#line 60 "./asn1/h235/packet-h235-template.c"
   };
 
   /* List of subtrees */
@@ -1507,7 +1495,7 @@ void proto_register_h235(void) {
     &ett_h235_FecOrder,
 
 /*--- End of included file: packet-h235-ettarr.c ---*/
-#line 77 "./asn1/h235/packet-h235-template.c"
+#line 65 "./asn1/h235/packet-h235-template.c"
   };
 
   /* Register protocol */

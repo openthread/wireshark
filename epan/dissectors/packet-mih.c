@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -461,6 +449,7 @@ static gint ett_fn_agent = -1;
 static gint ett_access_router = -1;
 static gint ett_link_states_req = -1;
 static gint ett_link_desc_req = -1;
+static gint ett_dev_states_resp = -1;
 
 /*field definitions of evt, cmd, mob mgmt, ip cfg, iq type */
 static const int *event_fields[] = {
@@ -699,7 +688,7 @@ static const value_string reg_request_code_vals[] = {
 };
 
 static const value_string ip_renewal_vals[] = {
-{0, "Change Not Requiered"},
+{0, "Change Not Required"},
 {1, "Change Required"},
 {0, NULL}
 };
@@ -1076,9 +1065,11 @@ static gint16 dissect_qos_list(tvbuff_t *tvb, gint16 offset, proto_tree *tlv_tre
 static gint16 dissect_dev_states(tvbuff_t *tvb, gint16 offset, proto_tree *tlv_tree)
 {
         guint8 len = 0;
-        proto_tree *sub_tree = NULL;
+        proto_item *item;
+        proto_tree *sub_tree;
 
-        sub_tree = proto_tree_add_item(tlv_tree, hf_dev_states_resp, tvb, offset, 1, ENC_BIG_ENDIAN);
+        item = proto_tree_add_item(tlv_tree, hf_dev_states_resp, tvb, offset, 1, ENC_BIG_ENDIAN);
+        sub_tree = proto_item_add_subtree(item, ett_dev_states_resp);
         if(tvb_get_guint8(tvb, offset))
         {
                 /*BATT_LEVEL*/
@@ -4856,6 +4847,7 @@ void proto_register_mih(void)
                 &ett_access_router,
                 &ett_link_states_req,
                 &ett_link_desc_req,
+                &ett_dev_states_resp
         };
 
         proto_mih = proto_register_protocol("Media-Independent Handover", "MIH", "mih");
@@ -4871,8 +4863,8 @@ void proto_reg_handoff_mih(void)
 
         mih_handle = create_dissector_handle(dissect_mih, proto_mih);
         /*Layer 3 handle*/
-        dissector_add_uint("udp.port", MIH_PORT, mih_handle);
-        dissector_add_uint("tcp.port", MIH_PORT, mih_handle);
+        dissector_add_uint_with_preference("udp.port", MIH_PORT, mih_handle);
+        dissector_add_uint_with_preference("tcp.port", MIH_PORT, mih_handle);
 
         /*Layer 2 handle*/
         dissector_add_uint("ethertype", ETHERTYPE_MIH, mih_handle);

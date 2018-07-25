@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -43,6 +31,8 @@
 
 void proto_register_glbp(void);
 void proto_reg_handoff_glbp(void);
+
+#define GLBP_UDP_PORT 3222
 
 static int proto_glbp = -1;
 /* glbp header? */
@@ -596,8 +586,8 @@ proto_register_glbp(void)
 
   expert_module_t* expert_glbp;
 
-  proto_glbp = proto_register_protocol(
-        "Gateway Load Balancing Protocol", "GLBP", "glbp");
+  proto_glbp = proto_register_protocol("Gateway Load Balancing Protocol", "GLBP", "glbp");
+
   proto_register_field_array(proto_glbp, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_glbp = expert_register_protocol(proto_glbp);
@@ -610,7 +600,7 @@ proto_reg_handoff_glbp(void)
   dissector_handle_t glbp_handle;
 
   glbp_handle = create_dissector_handle(dissect_glbp_static, proto_glbp);
-  dissector_add_uint("udp.port", 3222, glbp_handle);
+  dissector_add_uint_with_preference("udp.port", GLBP_UDP_PORT, glbp_handle);
 }
 
 /*

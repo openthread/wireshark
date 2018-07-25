@@ -9,28 +9,21 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/prefs.h>
+#include <epan/proto_data.h>
+#include <epan/expert.h>
 
 void proto_register_lwapp(void);
 void proto_reg_handoff_lwapp(void);
+
+#define LWAPP_8023_PORT     12220 /* Not IANA registered */
+#define LWAPP_UDP_PORT_RANGE  "12222-12223" /* Not IANA registered */
 
 #define LWAPP_FLAGS_T 0x04
 #define LWAPP_FLAGS_F 0x02
@@ -59,6 +52,10 @@ static gint hf_lwapp_control_mac = -1;
 static gint hf_lwapp_control_type = -1;
 static gint hf_lwapp_control_seq_no = -1;
 static gint hf_lwapp_control_length = -1;
+
+#define LWAPP_MAX_NESTED_ENCAP 10
+
+static expert_field ei_lwapp_too_many_encap = EI_INIT;
 
 static dissector_handle_t eth_withoutfcs_handle;
 static dissector_handle_t wlan_handle;
@@ -360,6 +357,7 @@ dissect_lwapp(tvbuff_t *tvb, packet_info *pinfo,
         &hf_lwapp_flags_fragment_type,
         NULL
     };
+    guint encap_nested_count;
 
     /* Set up structures needed to add the protocol subtree and manage it */
     proto_item      *ti;
@@ -400,12 +398,19 @@ dissect_lwapp(tvbuff_t *tvb, packet_info *pinfo,
         col_append_str(pinfo->cinfo, COL_INFO,
                         " 802.11 Packet");
 
+    /* create display subtree for the protocol */
+    ti = proto_tree_add_item(tree, proto_lwapp, tvb, offset, -1, ENC_NA);
+    encap_nested_count = GPOINTER_TO_UINT(p_get_proto_data(pinfo->pool, pinfo, proto_lwapp, 0));
+    if (++encap_nested_count > LWAPP_MAX_NESTED_ENCAP) {
+        expert_add_info(pinfo, ti, &ei_lwapp_too_many_encap);
+        return tvb_captured_length(tvb);
+    }
+    p_add_proto_data(pinfo->pool, pinfo, proto_lwapp, 0, GUINT_TO_POINTER(encap_nested_count));
+
     /* In the interest of speed, if "tree" is NULL, don't do any work not
        necessary to generate protocol tree items. */
     if (tree) {
 
-        /* create display subtree for the protocol */
-        ti = proto_tree_add_item(tree, proto_lwapp, tvb, offset, -1, ENC_NA);
         lwapp_tree = proto_item_add_subtree(ti, ett_lwapp);
 
         if (have_destmac) {
@@ -512,18 +517,21 @@ proto_register_lwapp(void)
         &ett_lwapp_control,
         &ett_lwapp_flags
     };
+    static ei_register_info ei[] = {
+        { &ei_lwapp_too_many_encap, { "lwapp.too_many_encap", PI_UNDECODED, PI_WARN, "Too many LWAPP encapsulation levels", EXPFILL }}
+    };
     module_t *lwapp_module;
+    expert_module_t* expert_lwapp;
 
-    proto_lwapp = proto_register_protocol ("LWAPP Encapsulated Packet",
-                                         "LWAPP", "lwapp");
+    proto_lwapp = proto_register_protocol ("LWAPP Encapsulated Packet", "LWAPP", "lwapp");
 
-    proto_lwapp_l3 = proto_register_protocol ("LWAPP Layer 3 Packet",
-                                         "LWAPP-L3", "lwapp-l3");
+    proto_lwapp_l3 = proto_register_protocol_in_name_only ("LWAPP Layer 3 Packet", "LWAPP-L3", "lwapp-l3", proto_lwapp, FT_PROTOCOL);
 
-    proto_lwapp_control = proto_register_protocol ("LWAPP Control Message",
-                                         "LWAPP-CNTL", "lwapp-cntl");
+    proto_lwapp_control = proto_register_protocol_in_name_only ("LWAPP Control Message", "LWAPP-CNTL", "lwapp-cntl", proto_lwapp, FT_PROTOCOL);
     proto_register_field_array(proto_lwapp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+    expert_lwapp = expert_register_protocol(proto_lwapp);
+    expert_register_field_array(expert_lwapp, ei, array_length(ei));
 
     lwapp_module = prefs_register_protocol(proto_lwapp, NULL);
 
@@ -573,12 +581,10 @@ proto_reg_handoff_lwapp(void)
      */
 
     /* Obsoleted LWAPP via encapsulated 802.3 over UDP */
-
-    dissector_add_uint("udp.port", 12220, lwapp_l3_handle);
+    dissector_add_uint_with_preference("udp.port", LWAPP_8023_PORT, lwapp_l3_handle);
 
     /* new-style lwapp directly over UDP: L3-lwapp*/
-    dissector_add_uint("udp.port", 12222, lwapp_handle);
-    dissector_add_uint("udp.port", 12223, lwapp_handle);
+    dissector_add_uint_range_with_preference("udp.port", LWAPP_UDP_PORT_RANGE, lwapp_handle);
 
     /* Lwapp over L2 */
     dissector_add_uint("ethertype", 0x88bb, lwapp_handle);

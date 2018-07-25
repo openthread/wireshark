@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef __PACKET_BTLE_H__
 #define __PACKET_BTLE_H__
@@ -52,14 +40,19 @@ typedef enum {
     E_AA_ILLEGAL
 } btle_AA_category_t;
 
+#define BTLE_DIR_UNKNOWN 0
+#define BTLE_DIR_MASTER_SLAVE 1
+#define BTLE_DIR_SLAVE_MASTER 2
+
 typedef struct {
     btle_AA_category_t aa_category;
     btle_CONNECT_REQ_t connection_info;
-    gint connection_info_valid: 1;
-    gint crc_checked_at_capture: 1;
-    gint crc_valid_at_capture: 1;
-    gint mic_checked_at_capture: 1;
-    gint mic_valid_at_capture: 1;
+    guint connection_info_valid: 1;
+    guint crc_checked_at_capture: 1;
+    guint crc_valid_at_capture: 1;
+    guint mic_checked_at_capture: 1;
+    guint mic_valid_at_capture: 1;
+    guint direction: 2; /* 0 Unknown, 1 Master -> Slave, 2 Slave -> Master */
 
     union {
         void              *data;

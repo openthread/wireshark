@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*  Include Files */
@@ -38,19 +26,19 @@
  * we can do is parse the security header and give up.
  */
 #include <wsutil/wsgcrypt.h>
+#include <wsutil/pint.h>
 
 #include "packet-ieee802154.h"
 #include "packet-zbee.h"
 #include "packet-zbee-nwk.h"
+#include "packet-zbee-aps.h"    /* for ZBEE_APS_CMD_KEY_LENGTH */
 #include "packet-zbee-security.h"
 
 /* Helper Functions */
-#ifdef HAVE_LIBGCRYPT
 static void        zbee_sec_key_hash(guint8 *, guint8, guint8 *);
 static void        zbee_sec_make_nonce (zbee_security_packet *, guint8 *);
 static gboolean    zbee_sec_decrypt_payload(zbee_security_packet *, const gchar *, const gchar, guint8 *,
         guint, guint, guint8 *);
-#endif
 static gboolean    zbee_security_parse_key(const gchar *, guint8 *, gboolean);
 
 /* Field pointers. */
@@ -140,18 +128,8 @@ static void* uat_key_record_copy_cb(void* n, const void* o, size_t siz _U_) {
     uat_key_record_t* new_key = (uat_key_record_t *)n;
     const uat_key_record_t* old_key = (const uat_key_record_t *)o;
 
-    if (old_key->string) {
-        new_key->string = g_strdup(old_key->string);
-    } else {
-        new_key->string = NULL;
-    }
-
-    if (old_key->label) {
-        new_key->label = g_strdup(old_key->label);
-    } else {
-        new_key->label = NULL;
-    }
-
+    new_key->string     = g_strdup(old_key->string);
+    new_key->label      = g_strdup(old_key->label);
     new_key->byte_order = old_key->byte_order;
 
     return new_key;
@@ -185,8 +163,16 @@ static gboolean uat_key_record_update_cb(void* r, char** err) {
 static void uat_key_record_free_cb(void*r) {
     uat_key_record_t* key = (uat_key_record_t *)r;
 
-    if (key->string) g_free(key->string);
-    if (key->label) g_free(key->label);
+    g_free(key->string);
+    g_free(key->label);
+}
+
+static void zbee_free_key_record(gpointer ptr)
+{
+    key_record_t *k = (key_record_t *)ptr;
+
+    g_free(k->label);
+    g_free(k);
 }
 
 static void uat_key_record_post_update(void) {
@@ -196,16 +182,16 @@ static void uat_key_record_post_update(void) {
 
     /* empty the key ring */
     if (zbee_pc_keyring) {
-       g_slist_free(zbee_pc_keyring);
+       g_slist_free_full(zbee_pc_keyring, zbee_free_key_record);
        zbee_pc_keyring = NULL;
     }
 
     /* Load the pre-configured slist from the UAT. */
     for (i=0; (uat_key_records) && (i<num_uat_key_records) ; i++) {
-        key_record.frame_num = ZBEE_SEC_PC_KEY; /* means it's a user PC key */
-        key_record.label = g_strdup(uat_key_records[i].label);
         if (zbee_security_parse_key(uat_key_records[i].string, key, uat_key_records[i].byte_order)) {
-            memcpy(&key_record.key, key, ZBEE_SEC_CONST_KEYSIZE);
+            key_record.frame_num = ZBEE_SEC_PC_KEY; /* means it's a user PC key */
+            key_record.label = g_strdup(uat_key_records[i].label);
+            memcpy(key_record.key, key, ZBEE_SEC_CONST_KEYSIZE);
             zbee_pc_keyring = g_slist_prepend(zbee_pc_keyring, g_memdup(&key_record, sizeof(key_record_t)));
         }
     }
@@ -323,6 +309,7 @@ void zbee_security_register(module_t *zbee_prefs, int proto)
                                uat_key_record_update_cb,
                                uat_key_record_free_cb,
                                uat_key_record_post_update,
+                               NULL,
                                key_uat_fields );
 
     prefs_register_uat_preference(zbee_prefs,
@@ -448,7 +435,6 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     gint            payload_len;
     tvbuff_t       *payload_tvb;
 
-#ifdef HAVE_LIBGCRYPT
     proto_item         *ti;
     proto_item         *key_item;
     guint8             *enc_buffer;
@@ -457,7 +443,6 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     GSList            **nwk_keyring;
     GSList             *GSList_i;
     key_record_t       *key_rec = NULL;
-#endif
     zbee_nwk_hints_t   *nwk_hints;
     ieee802154_hints_t *ieee_hints;
     ieee802154_map_rec *map_rec = NULL;
@@ -494,7 +479,6 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
      * so we can fix these 3 bits. Memory allocated by tvb_memdup(wmem_packet_scope(),...)
      * is automatically freed before the next packet is processed.
      */
-#ifdef HAVE_LIBGCRYPT
     enc_buffer = (guint8 *)tvb_memdup(wmem_packet_scope(), tvb, 0, tvb_captured_length(tvb));
     /*
      * Override the const qualifiers and patch the security level field, we
@@ -502,7 +486,6 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
      * allocated this memory via tvb_memdup(wmem_packet_scope(),...).
      */
     enc_buffer[offset] = packet.control;
-#endif /* HAVE_LIBGCRYPT */
     packet.level    = zbee_get_bit_field(packet.control, ZBEE_SEC_CONTROL_LEVEL);
     packet.key_id   = zbee_get_bit_field(packet.control, ZBEE_SEC_CONTROL_KEY);
     packet.nonce    = zbee_get_bit_field(packet.control, ZBEE_SEC_CONTROL_NONCE);
@@ -626,7 +609,6 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
         return tvb_new_subset_length(tvb, offset, payload_len);
     }
 
-#ifdef HAVE_LIBGCRYPT
     /* Have we captured all the payload? */
     if (tvb_captured_length_remaining(tvb, offset+mic_len) < payload_len) {
         /*
@@ -648,7 +630,7 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     }
 
     /* Allocate memory to decrypt the payload into. */
-    dec_buffer = (guint8 *)g_malloc(payload_len);
+    dec_buffer = (guint8 *)wmem_alloc(pinfo->pool, payload_len);
 
     decrypted = FALSE;
     if ( packet.src64 ) {
@@ -748,15 +730,11 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
 
         /* Found a key that worked, setup the new tvbuff_t and return */
         payload_tvb = tvb_new_child_real_data(tvb, dec_buffer, payload_len, payload_len);
-        tvb_set_free_cb(payload_tvb, g_free); /* set up callback to free dec_buffer */
         add_new_data_source(pinfo, payload_tvb, "Decrypted ZigBee Payload");
 
         /* Done! */
         return payload_tvb;
     }
-
-    g_free(dec_buffer);
-#endif /* HAVE_LIBGCRYPT */
 
     /* Add expert info. */
     expert_add_info(pinfo, sec_tree, &ei_zbee_sec_encrypted_payload);
@@ -768,7 +746,6 @@ dissect_zbee_secure(tvbuff_t *tvb, packet_info *pinfo, proto_tree* tree, guint o
     return NULL;
 } /* dissect_zbee_secure */
 
-#ifdef HAVE_LIBGCRYPT
 /*FUNCTION:------------------------------------------------------
  *  NAME
  *      zbee_sec_decrypt_payload
@@ -849,25 +826,15 @@ static void
 zbee_sec_make_nonce(zbee_security_packet *packet, guint8 *nonce)
 {
     /* First 8 bytes are the extended source address (little endian). */
-    *(nonce++) = (guint8)((packet->src64)>>0 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>8 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>16 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>24 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>32 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>40 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>48 & 0xff);
-    *(nonce++) = (guint8)((packet->src64)>>56 & 0xff);
+    phtole64(nonce, packet->src64);
+    nonce += 8;
     /* Next 4 bytes are the frame counter (little endian). */
-    *(nonce++) = (guint8)((packet->counter)>>0 & 0xff);
-    *(nonce++) = (guint8)((packet->counter)>>8 & 0xff);
-    *(nonce++) = (guint8)((packet->counter)>>16 & 0xff);
-    *(nonce++) = (guint8)((packet->counter)>>24 & 0xff);
+    phtole32(nonce, packet->counter);
+    nonce += 4;
     /* Next byte is the security control field. */
     *(nonce) = packet->control;
 } /* zbee_sec_make_nonce */
-#endif
 
-#ifdef HAVE_LIBGCRYPT
 /*FUNCTION:------------------------------------------------------
  *  NAME
  *      zbee_sec_ccm_decrypt
@@ -1237,21 +1204,42 @@ zbee_sec_key_hash(guint8 *key, guint8 input, guint8 *hash_out)
     /* Hash the contents of hash_in to get the final result. */
     zbee_sec_hash(hash_in, 2*ZBEE_SEC_CONST_BLOCKSIZE, hash_out);
 } /* zbee_sec_key_hash */
-#else   /* HAVE_LIBGCRYPT */
-gboolean
-zbee_sec_ccm_decrypt(const gchar    *key _U_,   /* Input */
-                    const gchar     *nonce _U_, /* Input */
-                    const gchar     *a _U_,     /* Input */
-                    const gchar     *c _U_,     /* Input */
-                    gchar           *m _U_,     /* Output */
-                    guint           l_a _U_,    /* sizeof(a) */
-                    guint           l_m _U_,    /* sizeof(m) */
-                    guint           M _U_)      /* sizeof(c) - sizeof(m) = sizeof(MIC) */
+
+/**
+ *Add NWK or APS key into NWK keyring
+ *
+ *@param pinfo pointer to packet information fields
+ *@param key APS or NWK key
+ */
+void zbee_sec_add_key_to_keyring(packet_info *pinfo, const guint8 *key)
 {
-    /* No libgcrypt, no decryption. */
-    return FALSE;
-}
-#endif  /* HAVE_LIBGCRYPT */
+    GSList            **nwk_keyring;
+    key_record_t        key_record;
+    zbee_nwk_hints_t   *nwk_hints;
+
+    /* Update the key ring for this pan */
+    if ( !pinfo->fd->flags.visited && (nwk_hints = (zbee_nwk_hints_t *)p_get_proto_data(wmem_file_scope(), pinfo,
+                    proto_get_id_by_filter_name(ZBEE_PROTOABBREV_NWK), 0))) {
+        nwk_keyring = (GSList **)g_hash_table_lookup(zbee_table_nwk_keyring, &nwk_hints->src_pan);
+        if ( !nwk_keyring ) {
+            nwk_keyring = (GSList **)g_malloc0(sizeof(GSList*));
+            g_hash_table_insert(zbee_table_nwk_keyring,
+                    g_memdup(&nwk_hints->src_pan, sizeof(nwk_hints->src_pan)), nwk_keyring);
+        }
+
+        if ( nwk_keyring ) {
+            if ( !*nwk_keyring ||
+                    memcmp( ((key_record_t *)((GSList *)(*nwk_keyring))->data)->key, key,
+                        ZBEE_APS_CMD_KEY_LENGTH) ) {
+                /* Store a new or different key in the key ring */
+                key_record.frame_num = pinfo->num;
+                key_record.label = NULL;
+                memcpy(&key_record.key, key, ZBEE_APS_CMD_KEY_LENGTH);
+                *nwk_keyring = g_slist_prepend(*nwk_keyring, g_memdup(&key_record, sizeof(key_record_t)));
+            }
+        }
+    }
+} /* nwk_add_key_to_keyring */
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

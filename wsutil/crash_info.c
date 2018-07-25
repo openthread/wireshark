@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2006 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -111,7 +99,7 @@ __private_extern__ char *__crashreporter_info__ = NULL;
  *
  * backtrace is reported under "Application Specific Backtrace".
  *
- * Dunno which versions are supported by which versions of OS X.
+ * Dunno which versions are supported by which versions of macOS.
  */
 struct crashreporter_annotations_t {
 	uint64_t version;		/* unsigned long */
@@ -139,14 +127,11 @@ struct crashreporter_annotations_t gCRAnnotations
 #endif /* 0 */
 
 void
-ws_add_crash_info(const char *fmt, ...)
+ws_vadd_crash_info(const char *fmt, va_list ap)
 {
-	va_list ap;
 	char *m, *old_info, *new_info;
 
-	va_start(ap, fmt);
 	m = g_strdup_vprintf(fmt, ap);
-	va_end(ap);
 	if (__crashreporter_info__ == NULL)
 		__crashreporter_info__ = m;
 	else {
@@ -166,10 +151,20 @@ ws_add_crash_info(const char *fmt, ...)
  * ?
  */
 void
-ws_add_crash_info(const char *fmt _U_, ...)
+ws_vadd_crash_info(const char *fmt _U_, va_list ap _U_)
 {
 }
 #endif /* __APPLE__ */
+
+void
+ws_add_crash_info(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	ws_vadd_crash_info(fmt, ap);
+	va_end(ap);
+}
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -121,6 +109,15 @@ static const value_string setup_request_names_vals[] = {
 #define USB_HUB_FEATURE_C_PORT_RESET          20
 #define USB_HUB_FEATURE_PORT_TEST             21
 #define USB_HUB_FEATURE_PORT_INDICATOR        22
+/* Table 10-9 Hub Class Feature Selectors (USB3) */
+#define USB_HUB_FEATURE_PORT_U1_TIMEOUT       23
+#define USB_HUB_FEATURE_PORT_U2_TIMEOUT       24
+#define USB_HUB_FEATURE_C_PORT_LINK_STATE     25
+#define USB_HUB_FEATURE_C_PORT_CONFIG_ERROR   26
+#define USB_HUB_FEATURE_PORT_REMOTE_WAKE_MASK 27
+#define USB_HUB_FEATURE_BH_PORT_RESET         28
+#define USB_HUB_FEATURE_C_BH_PORT_RESET       29
+#define USB_HUB_FEATURE_FORCE_LINKPM_ACCEPT   30
 
 static const value_string hub_class_feature_selectors_recipient_hub_vals[] = {
 	{ USB_HUB_FEATURE_C_HUB_LOCAL_POWER,  "C_HUB_LOCAL_POWER" },
@@ -129,20 +126,28 @@ static const value_string hub_class_feature_selectors_recipient_hub_vals[] = {
 };
 
 static const value_string hub_class_feature_selectors_recipient_port_vals[] = {
-	{ USB_HUB_FEATURE_PORT_CONNECTION,     "PORT_CONNECTION" },
-	{ USB_HUB_FEATURE_PORT_ENABLE,	       "PORT_ENABLE" },
-	{ USB_HUB_FEATURE_PORT_SUSPEND,	       "PORT_SUSPEND" },
-	{ USB_HUB_FEATURE_PORT_OVER_CURRENT,   "PORT_OVER_CURRENT" },
-	{ USB_HUB_FEATURE_PORT_RESET,	       "PORT_RESET" },
-	{ USB_HUB_FEATURE_PORT_POWER,	       "PORT_POWER" },
-	{ USB_HUB_FEATURE_PORT_LOW_SPEED,      "PORT_LOW_SPEED" },
-	{ USB_HUB_FEATURE_C_PORT_CONNECTION,   "C_PORT_CONNECTION" },
-	{ USB_HUB_FEATURE_C_PORT_ENABLE,       "C_PORT_ENABLE" },
-	{ USB_HUB_FEATURE_C_PORT_SUSPEND,      "C_PORT_SUSPEND" },
-	{ USB_HUB_FEATURE_C_PORT_OVER_CURRENT, "C_PORT_OVER_CURRENT" },
-	{ USB_HUB_FEATURE_C_PORT_RESET,	       "C_PORT_RESET" },
-	{ USB_HUB_FEATURE_PORT_TEST,	       "PORT_TEST" },
-	{ USB_HUB_FEATURE_PORT_INDICATOR,      "PORT_INDICATOR" },
+	{ USB_HUB_FEATURE_PORT_CONNECTION,      "PORT_CONNECTION" },
+	{ USB_HUB_FEATURE_PORT_ENABLE,          "PORT_ENABLE" },
+	{ USB_HUB_FEATURE_PORT_SUSPEND,         "PORT_SUSPEND" },
+	{ USB_HUB_FEATURE_PORT_OVER_CURRENT,    "PORT_OVER_CURRENT" },
+	{ USB_HUB_FEATURE_PORT_RESET,           "PORT_RESET" },
+	{ USB_HUB_FEATURE_PORT_POWER,           "PORT_POWER" },
+	{ USB_HUB_FEATURE_PORT_LOW_SPEED,       "PORT_LOW_SPEED" },
+	{ USB_HUB_FEATURE_C_PORT_CONNECTION,    "C_PORT_CONNECTION" },
+	{ USB_HUB_FEATURE_C_PORT_ENABLE,        "C_PORT_ENABLE" },
+	{ USB_HUB_FEATURE_C_PORT_SUSPEND,       "C_PORT_SUSPEND" },
+	{ USB_HUB_FEATURE_C_PORT_OVER_CURRENT,  "C_PORT_OVER_CURRENT" },
+	{ USB_HUB_FEATURE_C_PORT_RESET,         "C_PORT_RESET" },
+	{ USB_HUB_FEATURE_PORT_TEST,            "PORT_TEST" },
+	{ USB_HUB_FEATURE_PORT_INDICATOR,       "PORT_INDICATOR" },
+	{ USB_HUB_FEATURE_PORT_U1_TIMEOUT,      "PORT_U1_TIMEOUT" },
+	{ USB_HUB_FEATURE_PORT_U2_TIMEOUT,      "PORT_U2_TIMEOUT" },
+	{ USB_HUB_FEATURE_C_PORT_LINK_STATE,    "C_PORT_LINK_STATE" },
+	{ USB_HUB_FEATURE_C_PORT_CONFIG_ERROR,  "C_PORT_CONFIG_ERROR" },
+	{ USB_HUB_FEATURE_PORT_REMOTE_WAKE_MASK,"PORT_REMOTE_WAKE_MASK" },
+	{ USB_HUB_FEATURE_BH_PORT_RESET,        "BH_PORT_RESET" },
+	{ USB_HUB_FEATURE_C_BH_PORT_RESET,      "C_BH_PORT_RESET" },
+	{ USB_HUB_FEATURE_FORCE_LINKPM_ACCEPT,  "FORCE_LINKPM_ACCEPT" },
 	{ 0, NULL }
 };
 

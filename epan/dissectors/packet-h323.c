@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -127,7 +115,7 @@ static int hf_h323_timeToLive = -1;               /* TimeToLive */
 static int hf_h323_includeFastStart = -1;         /* NULL */
 
 /*--- End of included file: packet-h323-hf.c ---*/
-#line 90 "./asn1/h323/packet-h323-template.c"
+#line 78 "./asn1/h323/packet-h323-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -148,7 +136,7 @@ static gint ett_h323_T_fastStart = -1;
 static gint ett_h323_StatusInquiry_RD = -1;
 
 /*--- End of included file: packet-h323-ett.c ---*/
-#line 93 "./asn1/h323/packet-h323-template.c"
+#line 81 "./asn1/h323/packet-h323-template.c"
 
 
 /*--- Included file: packet-h323-fn.c ---*/
@@ -439,7 +427,7 @@ static int dissect_RobustnessData_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
 
 
 /*--- End of included file: packet-h323-fn.c ---*/
-#line 95 "./asn1/h323/packet-h323-template.c"
+#line 83 "./asn1/h323/packet-h323-template.c"
 
 /*--- proto_register_h323 ----------------------------------------------*/
 void proto_register_h323(void) {
@@ -563,7 +551,7 @@ void proto_register_h323(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-h323-hfarr.c ---*/
-#line 102 "./asn1/h323/packet-h323-template.c"
+#line 90 "./asn1/h323/packet-h323-template.c"
   };
 
   /* List of subtrees */
@@ -586,7 +574,7 @@ void proto_register_h323(void) {
     &ett_h323_StatusInquiry_RD,
 
 /*--- End of included file: packet-h323-ettarr.c ---*/
-#line 107 "./asn1/h323/packet-h323-template.c"
+#line 95 "./asn1/h323/packet-h323-template.c"
   };
 
   /* Register protocol */

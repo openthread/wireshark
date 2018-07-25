@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
  * V5 Data Link Layer
@@ -33,6 +21,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 #include <epan/xdlc.h>
 
 void proto_register_v5dl(void);
@@ -61,13 +50,14 @@ static int hf_v5dl_ftype_s_u = -1;
 static int hf_v5dl_ftype_s_u_ext = -1;
 #if 0
 static int hf_v5dl_checksum = -1;
-static int hf_v5dl_checksum_good = -1;
-static int hf_v5dl_checksum_bad = -1;
+static int hf_v5dl_checksum_status = -1;
 #endif
 static gint ett_v5dl = -1;
 static gint ett_v5dl_address = -1;
 static gint ett_v5dl_control = -1;
 /* static gint ett_v5dl_checksum = -1; */
+
+static expert_field ei_v5dl_checksum = EI_INIT;
 
 static dissector_handle_t v52_handle;
 
@@ -241,32 +231,15 @@ dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 		 * packet.
 		 */
 		checksum_offset = reported_length - 2;
-		checksum = tvb_get_ntohs(tvb, checksum_offset);
 		checksum_calculated = crc16_ccitt_tvb(tvb, checksum_offset);
 		checksum_calculated = g_htons(checksum_calculated);  /* Note: g_htons() macro may eval arg multiple times */
 
-		if (checksum == checksum_calculated) {
-			checksum_ti = proto_tree_add_uint_format_value(v5dl_tree, hf_v5dl_checksum, tvb, checksum_offset,
-								 2, 0,
-								 "0x%04x [correct]",
-								 checksum);
-			checksum_tree = proto_item_add_subtree(checksum_ti, ett_v5dl_checksum);
-			proto_tree_add_boolean(checksum_tree, hf_v5dl_checksum_good, tvb, checksum_offset, 2, TRUE);
-			proto_tree_add_boolean(checksum_tree, hf_v5dl_checksum_bad, tvb, checksum_offset, 2, FALSE);
-		} else {
-			checksum_ti = proto_tree_add_uint_format_value(v5dl_tree, hf_v5dl_checksum, tvb, checksum_offset,
-								 2, 0,
-								 "0x%04x [incorrect, should be 0x%04x]",
-								 checksum, checksum_calculated);
-			checksum_tree = proto_item_add_subtree(checksum_ti, ett_v5dl_checksum);
-			proto_tree_add_boolean(checksum_tree, hf_v5dl_checksum_good, tvb, checksum_offset, 2, FALSE);
-			proto_tree_add_boolean(checksum_tree, hf_v5dl_checksum_bad, tvb, checksum_offset, 2, TRUE);
-		}
-
+		proto_tree_add_checksum(v5dl_tree, tvb, checksum_offset, hf_v5dl_checksum, hf_v5dl_checksum_status, &ei_v5dl_checksum,
+								pinfo, checksum_calculated, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
 		/*
 		 * Remove the V5DL header *and* the checksum.
 		 */
-		next_tvb = tvb_new_subset(tvb, v5dl_header_len,
+		next_tvb = tvb_new_subset_length_caplen(tvb, v5dl_header_len,
 		    tvb_captured_length_remaining(tvb, v5dl_header_len) - 2,
 		    tvb_reported_length_remaining(tvb, v5dl_header_len) - 2);
 	} else {
@@ -281,7 +254,7 @@ dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 			 * Remove that byte from the captured length
 			 * and both bytes from the reported length.
 			 */
-			next_tvb = tvb_new_subset(tvb, v5dl_header_len,
+			next_tvb = tvb_new_subset_length_caplen(tvb, v5dl_header_len,
 			    tvb_captured_length_remaining(tvb, v5dl_header_len) - 1,
 			    tvb_reported_length_remaining(tvb, v5dl_header_len) - 2);
 		} else {
@@ -291,7 +264,7 @@ dissect_v5dl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
 			 * Just remove the checksum from the reported
 			 * length.
 			 */
-			next_tvb = tvb_new_subset(tvb, v5dl_header_len,
+			next_tvb = tvb_new_subset_length_caplen(tvb, v5dl_header_len,
 			    tvb_captured_length_remaining(tvb, v5dl_header_len),
 			    tvb_reported_length_remaining(tvb, v5dl_header_len) - 2);
 		}
@@ -406,13 +379,9 @@ proto_register_v5dl(void)
 	  { "Checksum", "v5dl.checksum", FT_UINT16, BASE_HEX,
 		NULL, 0x0, "Details at: http://www.wireshark.org/docs/wsug_html_chunked/ChAdvChecksums.html", HFILL }},
 
-	{ &hf_v5dl_checksum_good,
-	  { "Good Checksum", "v5dl.checksum_good", FT_BOOLEAN, BASE_NONE,
-		NULL, 0x0, "True: checksum matches packet content; False: doesn't match content or not checked", HFILL }},
-
-	{ &hf_v5dl_checksum_bad,
-	  { "Bad Checksum", "v5dl.checksum_bad", FT_BOOLEAN, BASE_NONE,
-		NULL, 0x0, "True: checksum doesn't match packet content; False: matches content or not checked", HFILL }}
+	{ &hf_v5dl_checksum_status,
+	  { "Checksum Status", "v5dl.checksum.status", FT_UINT8, BASE_NONE,
+		VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 #endif
 	};
 
@@ -423,10 +392,17 @@ proto_register_v5dl(void)
 		/* &ett_v5dl_checksum */
 	};
 
-	proto_v5dl = proto_register_protocol("V5 Data Link Layer",
-					     "V5DL", "v5dl");
+	static ei_register_info ei[] = {
+		{ &ei_v5dl_checksum, { "v5dl.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+	};
+
+	expert_module_t* expert_v5dl;
+
+	proto_v5dl = proto_register_protocol("V5 Data Link Layer", "V5DL", "v5dl");
 	proto_register_field_array (proto_v5dl, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+	expert_v5dl = expert_register_protocol(proto_v5dl);
+	expert_register_field_array(expert_v5dl, ei, array_length(ei));
 
 	register_dissector("v5dl", dissect_v5dl, proto_v5dl);
 }

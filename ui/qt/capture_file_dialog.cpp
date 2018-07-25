@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <wiretap/wtap.h>
@@ -26,72 +14,42 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
-#include "epan/packet-range.h"
+#include "ui/packet_range.h"
 #include "ui/win32/file_dlg_win32.h"
 #else // Q_OS_WIN
 
 #include <errno.h>
 #include "file.h"
-#include "epan/addr_resolv.h"
 #include "wsutil/filesystem.h"
 #include "wsutil/nstime.h"
+#include "wsutil/str_util.h"
+#include "wsutil/utf8_entities.h"
+
 #include "ui/all_files_wildcard.h"
 
-#include <QGridLayout>
-#include <QHBoxLayout>
-#include <QVBoxLayout>
-#include <QLabel>
-#include <QLineEdit>
 #include <QCheckBox>
 #include <QFileInfo>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QSortFilterProxyModel>
 #include <QSpacerItem>
-#endif // Q_OS_WIN
+#include <QVBoxLayout>
+#endif // ! Q_OS_WIN
 
 #include <QPushButton>
 #include "epan/prefs.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 #include <wireshark_application.h>
-
-#ifdef Q_OS_WIN
-// All of these routines are required by file_dlg_win32.c.
-// We don't yet have a good place for them so we'll add them as stubs here.
-
-extern "C" {
-
-// From gtk/capture_dlg.[ch]
-/* capture start confirmed by "Save unsaved capture", so do it now */
-extern void capture_start_confirmed(void) {
-}
-
-// From gtk/drag_and_drop.[ch]
-/** Open a new file coming from drag and drop.
- * @param cf_names_freeme the selection data reported from GTK
- */
-extern void dnd_open_file_cmd(gchar *) {
-}
-
-// From gtk/menus.h & main_menubar.c
-/** User pushed a recent file submenu item.
- *
- * @param widget parent widget
- */
-extern void menu_open_recent_file_cmd(gpointer){
-}
-
-/** One of the name resolution menu items changed. */
-extern void menu_name_resolution_changed(void) {
-
-}
-
-} // extern "C"
-// End stub routines
-#endif // Q_OS_WIN
 
 CaptureFileDialog::CaptureFileDialog(QWidget *parent, capture_file *cf, QString &display_filter) :
     QFileDialog(parent),
     cap_file_(cf),
     display_filter_(display_filter),
 #if !defined(Q_OS_WIN)
+    display_filter_edit_(NULL),
     default_ft_(-1),
     save_bt_(NULL),
     help_topic_(TOPIC_ACTION_NONE)
@@ -124,13 +82,14 @@ CaptureFileDialog::CaptureFileDialog(QWidget *parent, capture_file *cf, QString 
     // Add extra widgets
     // https://wiki.qt.io/Qt_project_org_faq#How_can_I_add_widgets_to_my_QFileDialog_instance.3F
     setOption(QFileDialog::DontUseNativeDialog, true);
+    setOption(QFileDialog::HideNameFilterDetails, true);
     QGridLayout *fd_grid = qobject_cast<QGridLayout*>(layout());
     QHBoxLayout *h_box = new QHBoxLayout();
 
     last_row_ = fd_grid->rowCount();
 
     fd_grid->addItem(new QSpacerItem(1, 1), last_row_, 0);
-    fd_grid->addLayout(h_box, last_row_, 1);
+    fd_grid->addLayout(h_box, last_row_, 0, 1, 2);
     last_row_++;
 
     // Left and right boxes for controls and preview
@@ -196,6 +155,35 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
         msg_dialog.setDefaultButton(QMessageBox::Cancel);
     }
 
+#if defined(Q_OS_MAC)
+    /*
+     * In macOS, the "default button" is not necessarily the button that
+     * has the input focus; Enter/Return activates the default button, and
+     * the spacebar activates the button that has the input focus, and
+     * they might be different buttons.
+     *
+     * In a "do you want to save" dialog, for example, the "save" button
+     * is the default button, and the "don't save" button has the input
+     * focus, so you can press Enter/Return to save or space not to save
+     * (or Escape to dismiss the dialog).
+     *
+     * In Qt terms, this means "no auto-default", as auto-default makes the
+     * button with the input focus the default button, so that Enter/Return
+     * will activate it.
+     */
+    QList<QAbstractButton *> buttons = msg_dialog.buttons();
+    for (int i = 0; i < buttons.size(); ++i) {
+        QPushButton *button = static_cast<QPushButton *>(buttons.at(i));;
+        button->setAutoDefault(false);
+    }
+
+    /*
+     * It also means that the "don't save" button should be the one
+     * initially given the focus.
+     */
+    discard_button->setFocus();
+#endif
+
     msg_dialog.exec();
     /* According to the Qt doc:
      * when using QMessageBox with custom buttons, exec() function returns an opaque value.
@@ -203,7 +191,7 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
      * Therefore we should use clickedButton() to determine which button was clicked. */
 
     if (msg_dialog.clickedButton() == save_button) {
-      /* OK, the only other format we support is pcap-ng.  Make that
+      /* OK, the only other format we support is pcapng.  Make that
          the one and only format in the combo box, and return to
          let the user continue with the dialog.
 
@@ -211,7 +199,7 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
          the compressed checkbox; get the current value and restore
          it.
 
-         XXX - we know pcap-ng can be compressed; if we ever end up
+         XXX - we know pcapng can be compressed; if we ever end up
          supporting saving comments in a format that *can't* be
          compressed, such as NetMon format, we must check this. */
       /* XXX - need a compressed checkbox here! */
@@ -227,6 +215,21 @@ check_savability_t CaptureFileDialog::checkSaveAsWithComments(QWidget *
     return CANCELLED;
 #endif // Q_OS_WIN
 }
+
+
+#ifndef Q_OS_WIN
+void CaptureFileDialog::accept()
+{
+    // XXX also useful for Windows, but that uses a different dialog...
+    // Ensure that the filename has a valid extension before performing file
+    // existence checks and before closing the dialog.
+    // HACK: ensure that the filename field does not have the focus, otherwise
+    // selectFile will not change the filename.
+    setFocus();
+    fixFilenameExtension();
+    QFileDialog::accept();
+}
+#endif // ! Q_OS_WIN
 
 
 // You have to use open, merge, saveAs, or exportPackets. We should
@@ -315,51 +318,53 @@ int CaptureFileDialog::mergeType() {
     return merge_type_;
 }
 
-#else // not Q_OS_WINDOWS
+#else // ! Q_OS_WIN
 // Not Windows
 // We use the Qt dialogs here
 QString CaptureFileDialog::fileExtensionType(int et, bool extension_globs)
 {
-    QString filter;
+    QString extension_type_name;
+    QStringList all_wildcards;
+    QStringList nogz_wildcards;
     GSList *extensions_list;
     GSList *extension;
 
-    filter = wtap_get_file_extension_type_name(et);
+    extension_type_name = wtap_get_file_extension_type_name(et);
 
     if (!extension_globs) {
-        return filter;
+        return extension_type_name;
     }
-
-    filter += " (";
 
     extensions_list = wtap_get_file_extension_type_extensions(et);
 
     /* Construct the list of patterns. */
     for (extension = extensions_list; extension != NULL;
          extension = g_slist_next(extension)) {
-        if (!filter.endsWith('('))
-            filter += ' ';
-        filter += "*.";
-        filter += (char *)extension->data;
+        QString bare_wc = QString("*.%1").arg((char *)extension->data);
+        all_wildcards << bare_wc;
+        if (!bare_wc.endsWith(".gz")) {
+            nogz_wildcards << bare_wc;
+        }
     }
     wtap_free_extensions_list(extensions_list);
-    filter += ')';
-    return filter;
-    /* XXX - does QStringList's destructor destroy the strings in the list? */
+
+    // We set HideNameFilterDetails so that "All Files" and "All Capture
+    // Files" don't show a wildcard list. We want to show the associated
+    // wildcards for individual file types so we add them twice.
+    return QString("%1 (%2) (%3)")
+            .arg(extension_type_name)
+            .arg(nogz_wildcards.join(" "))
+            .arg(all_wildcards.join(" "));
 }
 
-QString CaptureFileDialog::fileType(int ft, bool extension_globs)
+// Returns " (...)", containing the suffix list suitable for setNameFilters.
+// All extensions ("pcap", "pcap.gz", etc.) are also returned in "suffixes".
+QString CaptureFileDialog::fileType(int ft, QStringList &suffixes)
 {
     QString filter;
     GSList *extensions_list;
 
-    filter = wtap_file_type_subtype_string(ft);
-
-    if (!extension_globs) {
-        return filter;
-    }
-
-    filter += " (";
+    filter = " (";
 
     extensions_list = wtap_get_file_extensions_list(ft, TRUE);
     if (extensions_list == NULL) {
@@ -370,20 +375,22 @@ QString CaptureFileDialog::fileType(int ft, bool extension_globs)
            compressed file extensions. */
            filter += ALL_FILES_WILDCARD;
     } else {
-        GSList *extension;
+        // HACK: at least for Qt 5.10 and before, if the first extension is
+        // empty ("."), it will prevent the default (broken) extension
+        // replacement from being applied in the non-native Save file dialog.
+        filter += '.';
+
         /* Construct the list of patterns. */
-        for (extension = extensions_list; extension != NULL;
+        for (GSList *extension = extensions_list; extension != NULL;
              extension = g_slist_next(extension)) {
-            if (!filter.endsWith('('))
-                filter += ' ';
-            filter += "*.";
-            filter += (char *)extension->data;
+            QString suffix((char *)extension->data);
+            filter += " *." + suffix;;
+            suffixes << suffix;
         }
         wtap_free_extensions_list(extensions_list);
     }
     filter += ')';
     return filter;
-    /* XXX - does QStringList's destructor destroy the strings in the list? */
 }
 
 QStringList CaptureFileDialog::buildFileOpenTypeList() {
@@ -411,16 +418,15 @@ QStringList CaptureFileDialog::buildFileOpenTypeList() {
     filters << QString(tr("All Files (" ALL_FILES_WILDCARD ")"));
 
     /*
-     * Add an "All Capture Files" entry, with all the extensions we
-     * know about.
+     * Add an "All Capture Files" entry, with all the capture file
+     * extensions we know about.
      */
     filter = tr("All Capture Files");
 
     /*
-     * Construct its list of patterns from a list of all extensions
-     * we support.
+     * Construct its list of patterns.
      */
-    extensions_list = wtap_get_all_file_extensions_list();
+    extensions_list = wtap_get_all_capture_file_extensions_list();
     sep = " (";
     for (extension = extensions_list; extension != NULL;
          extension = g_slist_next(extension)) {
@@ -429,6 +435,7 @@ QStringList CaptureFileDialog::buildFileOpenTypeList() {
         filter += (char *)extension->data;
         sep = " ";
     }
+    wtap_free_extensions_list(extensions_list);
     filter += ")";
     filters << filter;
 
@@ -438,6 +445,68 @@ QStringList CaptureFileDialog::buildFileOpenTypeList() {
     }
 
     return filters;
+}
+
+// Replaces or appends an extension based on the current file filter.
+void CaptureFileDialog::fixFilenameExtension()
+{
+    QFileInfo fi(selectedFiles()[0]);
+    QString filename = fi.fileName();
+    if (fi.isDir() || filename.isEmpty()) {
+        // no file selected, or a directory was selected. Ignore.
+        return;
+    }
+
+    QString old_suffix;
+    QString new_suffix(wtap_default_file_extension(selectedFileType()));
+    QStringList valid_extensions = type_suffixes_.value(selectedNameFilter());
+    // Find suffixes such as "pcap" or "pcap.gz" if any
+    if (!fi.suffix().isEmpty()) {
+        QStringList current_suffixes(fi.suffix());
+        int pos = filename.lastIndexOf('.', -2 - current_suffixes.at(0).size());
+        if (pos > 0) {
+            current_suffixes.prepend(filename.right(filename.size() - (pos + 1)));
+        }
+
+        // If the current suffix is valid for the current file type, try to
+        // preserve it. Otherwise use the default file extension (if available).
+        foreach (const QString &current_suffix, current_suffixes) {
+            if (valid_extensions.contains(current_suffix)) {
+                old_suffix = current_suffix;
+                new_suffix = current_suffix;
+                break;
+            }
+        }
+        if (old_suffix.isEmpty()) {
+            foreach (const QString &current_suffix, current_suffixes) {
+                foreach (const QStringList &suffixes, type_suffixes_.values()) {
+                    if (suffixes.contains(current_suffix)) {
+                        old_suffix = current_suffix;
+                        break;
+                    }
+                }
+                if (!old_suffix.isEmpty()) {
+                    break;
+                }
+            }
+        }
+    }
+
+    // Fixup the new suffix based on compression availability.
+    if (!isCompressed() && new_suffix.endsWith(".gz")) {
+        new_suffix.chop(3);
+    } else if (isCompressed() && valid_extensions.contains(new_suffix + ".gz")) {
+        new_suffix += ".gz";
+    }
+
+    if (!new_suffix.isEmpty() && old_suffix != new_suffix) {
+        filename.chop(old_suffix.size());
+        if (old_suffix.isEmpty()) {
+            filename += '.';
+        }
+        filename += new_suffix;
+        selectFile(filename);
+    }
 }
 
 void CaptureFileDialog::addPreview(QVBoxLayout &v_box) {
@@ -460,20 +529,10 @@ void CaptureFileDialog::addPreview(QVBoxLayout &v_box) {
     preview_grid->addWidget(&preview_size_, 1, 1);
     preview_labels_ << lbl << &preview_size_;
 
-    lbl = new QLabel(tr("Packets:"));
-    preview_grid->addWidget(lbl, 2, 0);
-    preview_grid->addWidget(&preview_packets_, 2, 1);
-    preview_labels_ << lbl << &preview_packets_;
-
-    lbl = new QLabel(tr("First Packet:"));
+    lbl = new QLabel(tr("Start / elapsed:"));
     preview_grid->addWidget(lbl, 3, 0);
-    preview_grid->addWidget(&preview_first_, 3, 1);
-    preview_labels_ << lbl << &preview_first_;
-
-    lbl = new QLabel(tr("Elapsed Time:"));
-    preview_grid->addWidget(lbl, 4, 0);
-    preview_grid->addWidget(&preview_elapsed_, 4, 1);
-    preview_labels_ << lbl << &preview_elapsed_;
+    preview_grid->addWidget(&preview_first_elapsed_, 3, 1);
+    preview_labels_ << lbl << &preview_first_elapsed_;
 
     connect(this, SIGNAL(currentChanged(const QString &)), this, SLOT(preview(const QString &)));
 
@@ -516,30 +575,12 @@ void CaptureFileDialog::addDisplayFilterEdit() {
 }
 
 void CaptureFileDialog::addFormatTypeSelector(QVBoxLayout &v_box) {
-    format_type_.addItem(tr("Automatic"));
+    format_type_.addItem(tr("Automatically detect file type"));
     for (int i = 0; open_routines[i].name != NULL; i += 1) {
         format_type_.addItem(open_routines[i].name);
     }
 
     v_box.addWidget(&format_type_, 0, Qt::AlignTop);
-}
-
-void CaptureFileDialog::addResolutionControls(QVBoxLayout &v_box) {
-    mac_res_.setText(tr("&MAC name resolution"));
-    mac_res_.setChecked(gbl_resolv_flags.mac_name);
-    v_box.addWidget(&mac_res_, 0, Qt::AlignTop);
-
-    transport_res_.setText(tr("&Transport name resolution"));
-    transport_res_.setChecked(gbl_resolv_flags.transport_name);
-    v_box.addWidget(&transport_res_, 0, Qt::AlignTop);
-
-    network_res_.setText(tr("&Network name resolution"));
-    network_res_.setChecked(gbl_resolv_flags.network_name);
-    v_box.addWidget(&network_res_, 0, Qt::AlignTop);
-
-    external_res_.setText(tr("&External name resolver"));
-    external_res_.setChecked(gbl_resolv_flags.use_external_net_name_resolver);
-    v_box.addWidget(&external_res_, 0, Qt::AlignTop);
 }
 
 void CaptureFileDialog::addGzipControls(QVBoxLayout &v_box) {
@@ -550,6 +591,7 @@ void CaptureFileDialog::addGzipControls(QVBoxLayout &v_box) {
         compress_.setChecked(false);
     }
     v_box.addWidget(&compress_, 0, Qt::AlignTop);
+    connect(&compress_, &QCheckBox::stateChanged, this, &CaptureFileDialog::fixFilenameExtension);
 
 }
 
@@ -580,7 +622,6 @@ int CaptureFileDialog::open(QString &file_name, unsigned int &type) {
 
     addFormatTypeSelector(left_v_box_);
     addDisplayFilterEdit();
-    addResolutionControls(left_v_box_);
     addPreview(right_v_box_);
     addHelpButton(HELP_OPEN_DIALOG);
 
@@ -597,11 +638,6 @@ int CaptureFileDialog::open(QString &file_name, unsigned int &type) {
         file_name = selectedFiles()[0];
         type = format_type_.currentIndex();
         display_filter_.append(display_filter_edit_->text());
-
-        gbl_resolv_flags.mac_name = mac_res_.isChecked();
-        gbl_resolv_flags.transport_name = transport_res_.isChecked();
-        gbl_resolv_flags.network_name = network_res_.isChecked();
-        gbl_resolv_flags.use_external_net_name_resolver = external_res_.isChecked();
 
         return QDialog::Accepted;
     } else {
@@ -627,6 +663,7 @@ check_savability_t CaptureFileDialog::saveAs(QString &file_name, bool must_suppo
     if (!file_name.isEmpty()) {
         selectFile(file_name);
     }
+    connect(this, &QFileDialog::filterSelected, this, &CaptureFileDialog::fixFilenameExtension);
 
     if (QFileDialog::exec() && selectedFiles().length() > 0) {
         file_name = selectedFiles()[0];
@@ -662,6 +699,7 @@ check_savability_t CaptureFileDialog::exportSelectedPackets(QString &file_name, 
     if (!file_name.isEmpty()) {
         selectFile(file_name);
     }
+    connect(this, &QFileDialog::filterSelected, this, &CaptureFileDialog::fixFilenameExtension);
 
     if (QFileDialog::exec() && selectedFiles().length() > 0) {
         file_name = selectedFiles()[0];
@@ -703,6 +741,7 @@ QStringList CaptureFileDialog::buildFileSaveAsTypeList(bool must_support_all_com
     guint i;
 
     type_hash_.clear();
+    type_suffixes_.clear();
 
     /* What types of comments do we have to support? */
     if (must_support_all_comments)
@@ -716,7 +755,6 @@ QStringList CaptureFileDialog::buildFileSaveAsTypeList(bool must_support_all_com
                                                                        required_comment_types);
 
     if (savable_file_types_subtypes != NULL) {
-        QString file_type;
         int ft;
         /* OK, we have at least one file type we can save this file as.
            (If we didn't, we shouldn't have gotten here in the first
@@ -725,9 +763,9 @@ QStringList CaptureFileDialog::buildFileSaveAsTypeList(bool must_support_all_com
             ft = g_array_index(savable_file_types_subtypes, int, i);
             if (default_ft_ < 1)
                 default_ft_ = ft; /* first file type is the default */
-            file_type = fileType(ft);
-            filters << file_type;
-            type_hash_[file_type] = ft;
+            QString type_name(wtap_file_type_subtype_string(ft));
+            filters << type_name + fileType(ft, type_suffixes_[type_name]);
+            type_hash_[type_name] = ft;
         }
         g_array_free(savable_file_types_subtypes, TRUE);
     }
@@ -752,32 +790,21 @@ int CaptureFileDialog::mergeType() {
 void CaptureFileDialog::preview(const QString & path)
 {
     wtap        *wth;
-    int          err = 0;
+    int          err;
     gchar       *err_info;
-    gint64       data_offset;
-    const struct wtap_pkthdr *phdr;
-    double       start_time = 0; /* seconds, with nsec resolution */
-    double       stop_time = 0;  /* seconds, with nsec resolution */
-    double       cur_time;
-    unsigned int packets = 0;
-    bool         timed_out = FALSE;
-    time_t       time_preview;
-    time_t       time_current;
+    ws_file_preview_stats stats;
+    ws_file_preview_stats_status status;
     time_t       ti_time;
     struct tm   *ti_tm;
     unsigned int elapsed_time;
-
-    // Follow the same steps as ui/win32/file_dlg_win32.c
 
     foreach (QLabel *lbl, preview_labels_) {
         lbl->setEnabled(false);
     }
 
-    preview_format_.setText(tr("-"));
-    preview_size_.setText(tr("-"));
-    preview_packets_.setText(tr("-"));
-    preview_first_.setText(tr("-"));
-    preview_elapsed_.setText(tr("-"));
+    preview_format_.setText(tr(UTF8_EM_DASH));
+    preview_size_.setText(tr(UTF8_EM_DASH));
+    preview_first_elapsed_.setText(tr(UTF8_EM_DASH));
 
     if (path.length() < 1) {
         return;
@@ -807,74 +834,79 @@ void CaptureFileDialog::preview(const QString & path)
     preview_format_.setText(QString::fromUtf8(wtap_file_type_subtype_string(wtap_file_type_subtype(wth))));
 
     // Size
-    preview_size_.setText(QString(tr("%1 bytes")).arg(wtap_file_size(wth, &err)));
+    gint64 filesize = wtap_file_size(wth, &err);
+    // Finder and Windows Explorer use IEC. What do the various Linux file managers use?
+    QString size_str(gchar_free_to_qstring(format_size(filesize, format_size_unit_bytes|format_size_prefix_iec)));
 
-    time(&time_preview);
-    while ((wtap_read(wth, &err, &err_info, &data_offset))) {
-        phdr = wtap_phdr(wth);
-        cur_time = nstime_to_sec(&phdr->ts);
-        if(packets == 0) {
-            start_time = cur_time;
-            stop_time = cur_time;
-        }
-        if (cur_time < start_time) {
-            start_time = cur_time;
-        }
-        if (cur_time > stop_time){
-            stop_time = cur_time;
-        }
+    status = get_stats_for_preview(wth, &stats, &err, &err_info);
 
-        packets++;
-        if(packets%1000 == 0) {
-            /* do we have a timeout? */
-            time(&time_current);
-            if(time_current-time_preview >= (time_t) prefs.gui_fileopen_preview) {
-                timed_out = TRUE;
-                break;
-            }
-        }
-    }
-
-    if(err != 0) {
-        preview_packets_.setText(QString(tr("error after reading %1 packets")).arg(packets));
+    if(status == PREVIEW_READ_ERROR) {
+        // XXX - give error details?
+        g_free(err_info);
+        preview_size_.setText(tr("%1, error after %Ln data record(s)", "", stats.records)
+                              .arg(size_str));
         return;
     }
 
     // Packet count
-    if(timed_out) {
-        preview_packets_.setText(QString(tr("more than %1 (preview timeout)")).arg(packets));
+    if(status == PREVIEW_TIMED_OUT) {
+        preview_size_.setText(tr("%1, timed out at %Ln data record(s)", "", stats.data_records)
+                              .arg(size_str));
     } else {
-        preview_packets_.setText(QString("%1").arg(packets));
+        preview_size_.setText(tr("%1, %Ln data record(s)", "", stats.data_records)
+                              .arg(size_str));
     }
 
-    // First packet
-    ti_time = (long)start_time;
-    ti_tm = localtime(&ti_time);
-    if(ti_tm) {
-        preview_first_.setText(QString().sprintf(
-                 "%04d-%02d-%02d %02d:%02d:%02d",
-                 ti_tm->tm_year + 1900,
-                 ti_tm->tm_mon + 1,
-                 ti_tm->tm_mday,
-                 ti_tm->tm_hour,
-                 ti_tm->tm_min,
-                 ti_tm->tm_sec
-                 ));
+    // First packet + elapsed time
+    QString first_elapsed;
+    if(stats.have_times) {
+        //
+        // We saw at least one record with a time stamp, so we can give
+        // a start time (if we have a mix of records with and without
+        // time stamps, and there were records without time stamps
+        // before the first one with a time stamp, this may be inaccurate).
+        //
+        ti_time = (long)stats.start_time;
+        ti_tm = localtime(&ti_time);
+        first_elapsed = "?";
+        if(ti_tm) {
+            first_elapsed = QString().sprintf(
+                     "%04d-%02d-%02d %02d:%02d:%02d",
+                     ti_tm->tm_year + 1900,
+                     ti_tm->tm_mon + 1,
+                     ti_tm->tm_mday,
+                     ti_tm->tm_hour,
+                     ti_tm->tm_min,
+                     ti_tm->tm_sec
+                     );
+        }
     } else {
-        preview_first_.setText(tr("?"));
+        first_elapsed = tr("unknown");
     }
 
     // Elapsed time
-    elapsed_time = (unsigned int)(stop_time-start_time);
-    if(timed_out) {
-        preview_elapsed_.setText(tr("unknown"));
-    } else if(elapsed_time/86400) {
-        preview_elapsed_.setText(QString().sprintf("%02u days %02u:%02u:%02u",
-                elapsed_time/86400, elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60));
+    first_elapsed += " / ";
+    if(status == PREVIEW_SUCCEEDED && stats.have_times) {
+        //
+        // We didn't time out, so we looked at all packets, and we got
+        // at least one packet with a time stamp, so we can calculate
+        // an elapsed time from the time stamp of the last packet with
+        // with a time stamp (if we have a mix of records with and without
+        // time stamps, and there were records without time stamps after
+        // the last one with a time stamp, this may be inaccurate).
+        //
+        elapsed_time = (unsigned int)(stats.stop_time-stats.start_time);
+        if(elapsed_time/86400) {
+            first_elapsed += QString().sprintf("%02u days %02u:%02u:%02u",
+                    elapsed_time/86400, elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60);
+        } else {
+            first_elapsed += QString().sprintf("%02u:%02u:%02u",
+                    elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60);
+        }
     } else {
-        preview_elapsed_.setText(QString().sprintf("%02u:%02u:%02u",
-                elapsed_time%86400/3600, elapsed_time%3600/60, elapsed_time%60));
+        first_elapsed += tr("unknown");
     }
+    preview_first_elapsed_.setText(first_elapsed);
 
     wtap_close(wth);
 }
@@ -884,7 +916,7 @@ void CaptureFileDialog::on_buttonBox_helpRequested()
     if (help_topic_ != TOPIC_ACTION_NONE) wsApp->helpTopicAction(help_topic_);
 }
 
-#endif // Q_OS_WINDOWS
+#endif // ! Q_OS_WIN
 
 /*
  * Editor modelines

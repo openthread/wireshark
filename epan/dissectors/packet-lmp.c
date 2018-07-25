@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -58,8 +46,6 @@ void proto_reg_handoff_lmp(void);
 static int proto_lmp = -1;
 
 #define UDP_PORT_LMP_DEFAULT 701
-static guint lmp_udp_port = UDP_PORT_LMP_DEFAULT;
-static guint lmp_udp_port_config = UDP_PORT_LMP_DEFAULT;
 
 static gboolean lmp_checksum_config = FALSE;
 
@@ -493,6 +479,7 @@ enum hf_lmp_filter_keys {
   LMPF_VAL_LAD_INFO_SUBOBJ_LSP_ENCODING,
 
   LMPF_CHECKSUM,
+  LMPF_CHECKSUM_STATUS,
 
   LMPF_MAX
 };
@@ -707,7 +694,6 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     proto_item *hidden_item, *msg_item;
 
     guint8 message_type;
-    guint16 cksum, computed_cksum;
     vec_t cksum_vec[1];
     int j, k, l, len;
     int msg_length;
@@ -759,24 +745,16 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
     }
 
     if (lmp_checksum_config) {
-        cksum = tvb_get_ntohs(tvb, offset+6);
-        ti = proto_tree_add_item(lmp_header_tree, hf_lmp_filter[LMPF_CHECKSUM], tvb,
-                                 offset+6, 2, ENC_BIG_ENDIAN);
         if (!pinfo->fragmented && (int) tvb_captured_length(tvb) >= msg_length) {
             /* The packet isn't part of a fragmented datagram and isn't truncated, so we can checksum it. */
             SET_CKSUM_VEC_TVB(cksum_vec[0], tvb, 0, msg_length);
-            computed_cksum = in_cksum(cksum_vec, 1);
-
-            if (computed_cksum == 0) {
-                proto_item_append_text( ti, " [correct]");
-            }
-            else {
-                expert_add_info_format(pinfo, ti, &ei_lmp_checksum_incorrect, "[incorrect, should be 0x%04x]",
-                                       in_cksum_shouldbe(cksum, computed_cksum));
-            }
+            proto_tree_add_checksum(lmp_header_tree, tvb, offset+6, hf_lmp_filter[LMPF_CHECKSUM], hf_lmp_filter[LMPF_CHECKSUM_STATUS], &ei_lmp_checksum_incorrect, pinfo,
+                                    in_cksum(cksum_vec, 1), ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
+        } else {
+            proto_tree_add_checksum(lmp_header_tree, tvb, offset+6, hf_lmp_filter[LMPF_CHECKSUM], hf_lmp_filter[LMPF_CHECKSUM_STATUS], &ei_lmp_checksum_incorrect, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
         }
     } else {
-        proto_tree_add_uint_format_value(lmp_header_tree, hf_lmp_filter[LMPF_CHECKSUM], tvb, offset+6, 2, 0, "[None]");
+        proto_tree_add_checksum(lmp_header_tree, tvb, offset+6, hf_lmp_filter[LMPF_CHECKSUM], hf_lmp_filter[LMPF_CHECKSUM_STATUS], &ei_lmp_checksum_incorrect, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NOT_PRESENT);
     }
 
     offset += 8;
@@ -836,15 +814,15 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             case 1:
                 l = LMPF_VAL_LOCAL_CCID;
                 proto_item_append_text(ti, ": %d", tvb_get_ntohl(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree, hf_lmp_filter[l], tvb,
-                                    offset2, 4, tvb_get_ntohl(tvb, offset2));
+                proto_tree_add_item(lmp_object_tree, hf_lmp_filter[l], tvb,
+                                    offset2, 4, ENC_BIG_ENDIAN);
                 break;
 
             case 2:
                 l = LMPF_VAL_REMOTE_CCID;
                 proto_item_append_text(ti, ": %d", tvb_get_ntohl(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree, hf_lmp_filter[l], tvb,
-                                    offset2, 4, tvb_get_ntohl(tvb, offset2));
+                proto_tree_add_item(lmp_object_tree, hf_lmp_filter[l], tvb,
+                                    offset2, 4, ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(lmp_object_tree, hf_lmp_data, tvb, offset2, mylen, ENC_NA);
@@ -958,15 +936,15 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
                 l = LMPF_VAL_MESSAGE_ID;
                 proto_item_append_text(ti, ": %d", tvb_get_ntohl(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree, hf_lmp_filter[l], tvb,
-                                    offset2, 4, tvb_get_ntohl(tvb, offset2));
+                proto_tree_add_item(lmp_object_tree, hf_lmp_filter[l], tvb,
+                                    offset2, 4, ENC_BIG_ENDIAN);
                 break;
 
             case 2:
                 l = LMPF_VAL_MESSAGE_ID_ACK;
                 proto_item_append_text(ti, ": %d", tvb_get_ntohl(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree, hf_lmp_filter[l], tvb,
-                                    offset2, 4, tvb_get_ntohl(tvb, offset2));
+                proto_tree_add_item(lmp_object_tree, hf_lmp_filter[l], tvb,
+                                    offset2, 4, ENC_BIG_ENDIAN);
                 break;
 
             default:
@@ -983,13 +961,12 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 proto_item_append_text(ti, ": HelloInterval: %d, HelloDeadInterval: %d",
                                        tvb_get_ntohs(tvb, offset2),
                                        tvb_get_ntohs(tvb, offset2+2));
-                proto_tree_add_uint(lmp_object_tree,
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_CONFIG_HELLO],
-                                    tvb, offset2, 2, tvb_get_ntohs(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree,
+                                    tvb, offset2, 2, ENC_BIG_ENDIAN);
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_CONFIG_HELLO_DEAD],
-                                    tvb, offset2+2, 2,
-                                    tvb_get_ntohs(tvb, offset2+2));
+                                    tvb, offset2+2, 2, ENC_BIG_ENDIAN);
                 break;
 
             default:
@@ -1006,14 +983,12 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 proto_item_append_text(ti, ": TxSeq %d, RxSeq: %d",
                                        tvb_get_ntohl(tvb, offset2),
                                        tvb_get_ntohl(tvb, offset2+4));
-                proto_tree_add_uint(lmp_object_tree,
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_HELLO_TXSEQ],
-                                    tvb, offset2, 4,
-                                    tvb_get_ntohl(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree,
+                                    tvb, offset2, 4, ENC_BIG_ENDIAN);
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_HELLO_RXSEQ],
-                                    tvb, offset2+4, 4,
-                                    tvb_get_ntohl(tvb, offset2+4));
+                                    tvb, offset2+4, 4, ENC_BIG_ENDIAN);
                 break;
 
             default:
@@ -1037,8 +1012,7 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
                 proto_tree_add_bitmask(lmp_object_tree, tvb, offset2, hf_lmp_filter[LMPF_VAL_BEGIN_VERIFY_FLAGS], lmp_subtree[LMP_TREE_BEGIN_VERIFY_FLAGS], verify_flags, ENC_BIG_ENDIAN);
 
-                proto_tree_add_uint_format_value(lmp_object_tree, hf_lmp_verify_interval, tvb, offset2+2, 2,
-                                    tvb_get_ntohs(tvb, offset2+2), "%d ms", tvb_get_ntohs(tvb, offset2+2));
+                proto_tree_add_item(lmp_object_tree, hf_lmp_verify_interval, tvb, offset2+2, 2, ENC_BIG_ENDIAN);
                 proto_tree_add_item(lmp_object_tree, hf_lmp_number_of_data_links, tvb, offset2+4, 4, ENC_BIG_ENDIAN);
                 proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_BEGIN_VERIFY_ENCTYPE],
@@ -1065,9 +1039,7 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 proto_item_append_text(ti, ": VerifyDeadInterval: %d, TransportResponse: 0x%0x",
                                        tvb_get_ntohs(tvb, offset2),
                                        tvb_get_ntohs(tvb, offset2+2));
-                proto_tree_add_uint_format_value(lmp_object_tree, hf_lmp_verifydeadinterval, tvb, offset2, 2,
-                                    tvb_get_ntohs(tvb, offset2), "%d ms",
-                                    tvb_get_ntohs(tvb, offset2));
+                proto_tree_add_item(lmp_object_tree, hf_lmp_verifydeadinterval, tvb, offset2, 2, ENC_BIG_ENDIAN);
                 proto_tree_add_item(lmp_object_tree, hf_lmp_verify_transport_response, tvb, offset2+2, 2, ENC_BIG_ENDIAN);
                 break;
 
@@ -1084,10 +1056,10 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             case 1:
                 proto_item_append_text(ti, ": %d",
                                        tvb_get_ntohl(tvb, offset2));
-                proto_tree_add_uint(lmp_object_tree,
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_VERIFY_ID],
                                     tvb, offset2, 4,
-                                    tvb_get_ntohl(tvb, offset2));
+                                    ENC_BIG_ENDIAN);
                 break;
             default:
                 proto_tree_add_item(lmp_object_tree, hf_lmp_data, tvb, offset2, mylen, ENC_NA);
@@ -1633,15 +1605,13 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                                        tvb_get_ntohs(tvb, offset2+4),
                                        tvb_get_ntohs(tvb, offset2+6));
 
-                proto_tree_add_uint(lmp_object_tree,
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_SERVICE_CONFIG_CPSA_MIN_NCC],
-                                    tvb, offset2+4, 2,
-                                    tvb_get_ntohs(tvb, offset2+4));
+                                    tvb, offset2+4, 2, ENC_BIG_ENDIAN);
 
-                proto_tree_add_uint(lmp_object_tree,
+                proto_tree_add_item(lmp_object_tree,
                                     hf_lmp_filter[LMPF_VAL_SERVICE_CONFIG_CPSA_MAX_NCC],
-                                    tvb, offset2+6, 2,
-                                    tvb_get_ntohs(tvb, offset2+6));
+                                    tvb, offset2+6, 2, ENC_BIG_ENDIAN);
 
                 /* Min and Max NVC */
                 proto_item_append_text(ti, ": Minimum NVC: %d, Maximum NVC: %d",
@@ -1883,30 +1853,16 @@ dissect_lmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 }
 
 static void
-lmp_prefs_applied (void)
-{
-    if (lmp_udp_port != lmp_udp_port_config) {
-        dissector_delete_uint("udp.port", lmp_udp_port, lmp_handle);
-        lmp_udp_port = lmp_udp_port_config;
-        dissector_add_uint("udp.port", lmp_udp_port, lmp_handle);
-    }
-}
-
-static void
 register_lmp_prefs (void)
 {
     module_t *lmp_module;
 
-    lmp_module = prefs_register_protocol(proto_lmp, lmp_prefs_applied);
+    lmp_module = prefs_register_protocol(proto_lmp, NULL);
 
-    prefs_register_uint_preference(
-        lmp_module, "udp_port", "LMP UDP Port",
-        "UDP port number to use for LMP", 10, &lmp_udp_port_config);
     prefs_register_bool_preference(
         lmp_module, "checksum", "LMP checksum field",
         "Whether LMP contains a checksum which can be checked", &lmp_checksum_config);
-    prefs_register_obsolete_preference(
-        lmp_module, "version");
+    prefs_register_obsolete_preference(lmp_module, "version");
 }
 
 void
@@ -2588,6 +2544,9 @@ proto_register_lmp(void)
         {&hf_lmp_filter[LMPF_CHECKSUM],
          { "Message Checksum", "lmp.checksum", FT_UINT16, BASE_HEX, NULL, 0x0,
            NULL, HFILL }},
+        {&hf_lmp_filter[LMPF_CHECKSUM_STATUS],
+         { "Checksum Status", "lmp.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+           NULL, HFILL }},
         {&hf_lmp_data,
          { "Data", "lmp.data", FT_BYTES, BASE_NONE, NULL, 0x0,
            NULL, HFILL }},
@@ -2595,16 +2554,16 @@ proto_register_lmp(void)
       /* Generated from convert_proto_tree_add_text.pl */
       { &hf_lmp_version, { "LMP Version", "lmp.version", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_header_flags, { "Flags", "lmp.header_flags", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-      { &hf_lmp_header_length, { "Length", "lmp.header_length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_lmp_header_length, { "Length", "lmp.header_length", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
       { &hf_lmp_negotiable, { "Negotiable", "lmp.negotiable", FT_BOOLEAN, 8, TFS(&tfs_yes_no), 0x80, NULL, HFILL }},
       { &hf_lmp_object_length, { "Length", "lmp.object_length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_object_class, { "Object Class", "lmp.object_class", FT_UINT8, BASE_DEC, VALS(lmp_class_vals), 0x0, NULL, HFILL }},
-      { &hf_lmp_verify_interval, { "Verify Interval", "lmp.verify_interval", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_lmp_verify_interval, { "Verify Interval", "lmp.verify_interval", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0, NULL, HFILL }},
       { &hf_lmp_number_of_data_links, { "Number of Data Links", "lmp.number_of_data_links", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_verify_transport_mechanism, { "Verify Transport Mechanism", "lmp.verify_transport_mechanism", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_transmission_rate, { "Transmission Rate", "lmp.transmission_rate", FT_FLOAT, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_wavelength, { "Wavelength", "lmp.wavelength", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_lmp_verifydeadinterval, { "VerifyDeadInterval", "lmp.verifydeadinterval", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_lmp_verifydeadinterval, { "VerifyDeadInterval", "lmp.verifydeadinterval", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0, NULL, HFILL }},
       { &hf_lmp_verify_transport_response, { "Verify Transport Response", "lmp.verify_transport_response", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_data_link_local_id_ipv6, { "Data-Link Local ID - IPv6", "lmp.data_link.local_ipv6", FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_lmp_data_link_remote_id_ipv6, { "Data-Link Remote ID - IPv6", "lmp.data_link.remote_ipv6", FT_IPv6, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -2639,11 +2598,12 @@ proto_register_lmp(void)
         ett[i] = &lmp_subtree[i];
     }
 
+
+    proto_lmp = proto_register_protocol("Link Management Protocol (LMP)", "LMP", "lmp");
+
     expert_lmp = expert_register_protocol(proto_lmp);
     expert_register_field_array(expert_lmp, ei, array_length(ei));
 
-    proto_lmp = proto_register_protocol("Link Management Protocol (LMP)",
-                                        "LMP", "lmp");
     proto_register_field_array(proto_lmp, lmpf_info, array_length(lmpf_info));
     proto_register_subtree_array(ett, array_length(ett));
 
@@ -2654,7 +2614,7 @@ void
 proto_reg_handoff_lmp(void)
 {
     lmp_handle = create_dissector_handle(dissect_lmp, proto_lmp);
-    dissector_add_uint("udp.port", lmp_udp_port, lmp_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_LMP_DEFAULT, lmp_handle);
 }
 
 /*

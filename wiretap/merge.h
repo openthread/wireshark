@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __MERGE_H__
@@ -30,8 +18,8 @@ extern "C" {
 #endif /* __cplusplus */
 
 typedef enum {
-    PACKET_PRESENT,
-    PACKET_NOT_PRESENT,
+    RECORD_PRESENT,
+    RECORD_NOT_PRESENT,
     AT_EOF,
     GOT_ERROR
 } in_file_state_e;
@@ -42,7 +30,6 @@ typedef enum {
 typedef struct merge_in_file_s {
     const char     *filename;
     wtap           *wth;
-    gint64          data_offset;
     in_file_state_e state;
     guint32         packet_num;     /* current packet number */
     gint64          size;           /* file size */
@@ -59,7 +46,8 @@ typedef enum {
     MERGE_ERR_CANT_READ_INFILE,
     MERGE_ERR_BAD_PHDR_INTERFACE_ID,
     MERGE_ERR_CANT_WRITE_OUTFILE,
-    MERGE_ERR_CANT_CLOSE_OUTFILE
+    MERGE_ERR_CANT_CLOSE_OUTFILE,
+    MERGE_ERR_INVALID_OPTION
 } merge_result;
 
 
@@ -68,7 +56,7 @@ typedef enum {
     MERGE_EVENT_INPUT_FILES_OPENED,
     MERGE_EVENT_FRAME_TYPE_SELECTED,
     MERGE_EVENT_READY_TO_MERGE,
-    MERGE_EVENT_PACKET_WAS_READ,
+    MERGE_EVENT_RECORD_WAS_READ,
     MERGE_EVENT_DONE
 } merge_event;
 
@@ -122,10 +110,9 @@ typedef struct {
 } merge_progress_callback_t;
 
 
-/** Merge the given input files to the output file descriptor.
+/** Merge the given input files to a file with the given filename
  *
- * @param out_fd The already opened output file decriptor
- * @param out_filename The output filename, used in error messages
+ * @param out_filename The output filename
  * @param file_type The WTAP_FILE_TYPE_SUBTYPE_XXX output file type
  * @param in_filenames An array of input filenames to merge from
  * @param in_file_count The number of entries in in_filenames
@@ -135,16 +122,82 @@ typedef struct {
  * @param app_name The application name performing the merge, used in SHB info
  * @param cb The callback information to use during execution
  * @param[out] err Set to the internal WTAP_ERR_XXX error code if it failed
- * @param[out] err_info Set to a descriptive error string, which must be g_free'd
- * @param[out] err_fileno Set to the input file number which failed, if it failed
+ *   with MERGE_ERR_CANT_OPEN_INFILE, MERGE_ERR_CANT_OPEN_OUTFILE,
+ *   MERGE_ERR_CANT_READ_INFILE, MERGE_ERR_CANT_WRITE_OUTFILE, or
+ *   MERGE_ERR_CANT_CLOSE_OUTFILE
+ * @param[out] err_info Additional information for some WTAP_ERR_XXX codes
+ * @param[out] err_fileno Set to the input file number which failed, if it
+ *   failed
+ * @param[out] err_framenum Set to the input frame number if it failed
  * @return the frame type
  */
 WS_DLL_PUBLIC merge_result
-merge_files(int out_fd, const gchar* out_filename, const int file_type,
+merge_files(const gchar* out_filename, const int file_type,
             const char *const *in_filenames, const guint in_file_count,
             const gboolean do_append, const idb_merge_mode mode,
             guint snaplen, const gchar *app_name, merge_progress_callback_t* cb,
-            int *err, gchar **err_info, guint *err_fileno);
+            int *err, gchar **err_info, guint *err_fileno,
+            guint32 *err_framenum);
+
+/** Merge the given input files to a temporary file
+ *
+ * @param out_filenamep Points to a pointer that's set to point to the
+ *        pathname of the temporary file; it's allocated with g_malloc()
+ * @param pfx A string to be used as the prefix for the temporary file name
+ * @param file_type The WTAP_FILE_TYPE_SUBTYPE_XXX output file type
+ * @param in_filenames An array of input filenames to merge from
+ * @param in_file_count The number of entries in in_filenames
+ * @param do_append Whether to append by file order instead of chronological order
+ * @param mode The IDB_MERGE_MODE_XXX merge mode for interface data
+ * @param snaplen The snaplen to limit it to, or 0 to leave as it is in the files
+ * @param app_name The application name performing the merge, used in SHB info
+ * @param cb The callback information to use during execution
+ * @param[out] err Set to the internal WTAP_ERR_XXX error code if it failed
+ *   with MERGE_ERR_CANT_OPEN_INFILE, MERGE_ERR_CANT_OPEN_OUTFILE,
+ *   MERGE_ERR_CANT_READ_INFILE, MERGE_ERR_CANT_WRITE_OUTFILE, or
+ *   MERGE_ERR_CANT_CLOSE_OUTFILE
+ * @param[out] err_info Additional information for some WTAP_ERR_XXX codes
+ * @param[out] err_fileno Set to the input file number which failed, if it
+ *   failed
+ * @param[out] err_framenum Set to the input frame number if it failed
+ * @return the frame type
+ */
+WS_DLL_PUBLIC merge_result
+merge_files_to_tempfile(gchar **out_filenamep, const char *pfx,
+                        const int file_type, const char *const *in_filenames,
+                        const guint in_file_count, const gboolean do_append,
+                        const idb_merge_mode mode, guint snaplen,
+                        const gchar *app_name, merge_progress_callback_t* cb,
+                        int *err, gchar **err_info, guint *err_fileno,
+                        guint32 *err_framenum);
+
+/** Merge the given input files to the standard output
+ *
+ * @param file_type The WTAP_FILE_TYPE_SUBTYPE_XXX output file type
+ * @param in_filenames An array of input filenames to merge from
+ * @param in_file_count The number of entries in in_filenames
+ * @param do_append Whether to append by file order instead of chronological order
+ * @param mode The IDB_MERGE_MODE_XXX merge mode for interface data
+ * @param snaplen The snaplen to limit it to, or 0 to leave as it is in the files
+ * @param app_name The application name performing the merge, used in SHB info
+ * @param cb The callback information to use during execution
+ * @param[out] err Set to the internal WTAP_ERR_XXX error code if it failed
+ *   with MERGE_ERR_CANT_OPEN_INFILE, MERGE_ERR_CANT_OPEN_OUTFILE,
+ *   MERGE_ERR_CANT_READ_INFILE, MERGE_ERR_CANT_WRITE_OUTFILE, or
+ *   MERGE_ERR_CANT_CLOSE_OUTFILE
+ * @param[out] err_info Additional information for some WTAP_ERR_XXX codes
+ * @param[out] err_fileno Set to the input file number which failed, if it
+ *   failed
+ * @param[out] err_framenum Set to the input frame number if it failed
+ * @return the frame type
+ */
+WS_DLL_PUBLIC merge_result
+merge_files_to_stdout(const int file_type, const char *const *in_filenames,
+                      const guint in_file_count, const gboolean do_append,
+                      const idb_merge_mode mode, guint snaplen,
+                      const gchar *app_name, merge_progress_callback_t* cb,
+                      int *err, gchar **err_info, guint *err_fileno,
+                      guint32 *err_framenum);
 
 #ifdef __cplusplus
 }

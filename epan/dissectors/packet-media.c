@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,6 +19,8 @@
 #include <epan/packet.h>
 
 #include <wsutil/str_util.h>
+
+#include "packet-http.h"
 
 void proto_register_media(void);
 
@@ -48,6 +38,7 @@ dissect_media(tvbuff_t *tvb, packet_info *pinfo , proto_tree *tree, void* data)
     int bytes;
     proto_item *ti;
     proto_tree *media_tree = 0;
+    http_message_info_t *message_info = (http_message_info_t *)data;
     heur_dtbl_entry_t *hdtbl_entry;
 
     if (dissector_try_heuristic(heur_subdissector_list, tvb, pinfo, tree, &hdtbl_entry, data)) {
@@ -63,11 +54,12 @@ dissect_media(tvbuff_t *tvb, packet_info *pinfo , proto_tree *tree, void* data)
             ti = proto_tree_add_item(tree, proto_media, tvb, 0, -1, ENC_NA);
             media_tree = proto_item_add_subtree(ti, ett_media);
 
-            if (data) {
+            if (message_info != NULL && message_info->media_str != NULL) {
                 /* The media type has parameters */
+
                 proto_tree_add_bytes_format_value(media_tree, hf_media_type, tvb, 0, bytes,
                     NULL, "%s; %s (%d byte%s)",
-                    pinfo->match_string, (char *)data,
+                    pinfo->match_string, message_info->media_str,
                     bytes, plurality(bytes, "", "s"));
             } else {
                 /* The media type has no parameters */

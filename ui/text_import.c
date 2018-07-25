@@ -8,20 +8,7 @@
  *
  * Based on text2pcap.c by Ashok Narayanan <ashokn@cisco.com>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
- * USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*******************************************************************************
@@ -126,6 +113,7 @@
 
 #include "text_import.h"
 #include "text_import_scanner.h"
+#include "text_import_scanner_lex.h"
 
 /*--- Options --------------------------------------------------------------------*/
 
@@ -517,23 +505,23 @@ write_current_packet (void)
 
         {
             /* Write the packet */
-            struct wtap_pkthdr pkthdr;
+            wtap_rec rec;
             int err;
             gchar *err_info;
 
-            memset(&pkthdr, 0, sizeof(struct wtap_pkthdr));
+            memset(&rec, 0, sizeof rec);
 
-            pkthdr.rec_type = REC_TYPE_PACKET;
-            pkthdr.ts.secs = (guint32)ts_sec;
-            pkthdr.ts.nsecs = ts_usec * 1000;
+            rec.rec_type = REC_TYPE_PACKET;
+            rec.ts.secs = (guint32)ts_sec;
+            rec.ts.nsecs = ts_usec * 1000;
             if (ts_fmt == NULL) { ts_usec++; }  /* fake packet counter */
-            pkthdr.caplen = pkthdr.len = prefix_length + curr_offset + eth_trailer_length;
-            pkthdr.pkt_encap = pcap_link_type;
-            pkthdr.pack_flags |= direction;
-            pkthdr.presence_flags = WTAP_HAS_CAP_LEN|WTAP_HAS_INTERFACE_ID|WTAP_HAS_TS|WTAP_HAS_PACK_FLAGS;
+            rec.rec_header.packet_header.caplen = rec.rec_header.packet_header.len = prefix_length + curr_offset + eth_trailer_length;
+            rec.rec_header.packet_header.pkt_encap = pcap_link_type;
+            rec.rec_header.packet_header.pack_flags |= direction;
+            rec.presence_flags = WTAP_HAS_CAP_LEN|WTAP_HAS_INTERFACE_ID|WTAP_HAS_TS|WTAP_HAS_PACK_FLAGS;
 
             /* XXX - report errors! */
-            if (!wtap_dump(wdh, &pkthdr, packet_buf, &err, &err_info)) {
+            if (!wtap_dump(wdh, &rec, packet_buf, &err, &err_info)) {
                 switch (err) {
 
                 case WTAP_ERR_UNWRITABLE_REC_DATA:
@@ -787,6 +775,13 @@ parse_token (token_t token, char *str)
                 state = READ_OFFSET;
             }
             break;
+        case T_BYTE:
+            if (offset_base == 0) {
+                start_new_packet();
+                write_byte(str);
+                state = READ_BYTE;
+            }
+            break;
         default:
             break;
         }
@@ -831,6 +826,12 @@ parse_token (token_t token, char *str)
                 }
             } else
                 state = READ_OFFSET;
+            break;
+        case T_BYTE:
+            if (offset_base == 0) {
+                write_byte(str);
+                state = READ_BYTE;
+            }
             break;
         default:
             break;
@@ -902,9 +903,12 @@ parse_token (token_t token, char *str)
 /*----------------------------------------------------------------------
  * Import a text file.
  */
-void
+int
 text_import(text_import_info_t *info)
 {
+    int ret;
+    struct tm *now_tm;
+
     packet_buf = (guint8 *)g_malloc(sizeof(HDR_ETHERNET) + sizeof(HDR_IP) +
                                     sizeof(HDR_SCTP) + sizeof(HDR_DATA_CHUNK) +
                                     IMPORT_MAX_PACKET);
@@ -921,7 +925,17 @@ text_import(text_import_info_t *info)
     packet_start = 0;
     packet_preamble_len = 0;
     ts_sec = time(0);            /* initialize to current time */
-    timecode_default = *localtime(&ts_sec);
+    now_tm = localtime(&ts_sec);
+    if (now_tm == NULL) {
+        /*
+         * This shouldn't happen - on UN*X, this should Just Work, and
+         * on Windows, it won't work if ts_sec is before the Epoch,
+         * but it's long after 1970, so....
+         */
+        fprintf(stderr, "localtime(right now) failed\n");
+        exit(-1);
+    }
+    timecode_default = *now_tm;
     timecode_default.tm_isdst = -1;     /* Unknown for now, depends on time given to the strptime() function */
     ts_usec = 0;
 
@@ -933,7 +947,8 @@ text_import(text_import_info_t *info)
     hdr_sctp = FALSE;
     hdr_data_chunk = FALSE;
 
-    offset_base = (info->offset_type == OFFSET_HEX) ? 16 :
+    offset_base = (info->offset_type == OFFSET_NONE) ? 0 :
+                  (info->offset_type == OFFSET_HEX) ? 16 :
                   (info->offset_type == OFFSET_OCT) ? 8 :
                   (info->offset_type == OFFSET_DEC) ? 10 :
                   16;
@@ -1014,11 +1029,9 @@ text_import(text_import_info_t *info)
 
     max_offset = info->max_frame_length;
 
-    text_importin = info->import_text_file;
-
-    text_importlex();
-
+    ret = text_import_scan(info->import_text_file);
     g_free(packet_buf);
+    return ret;
 }
 
 /*

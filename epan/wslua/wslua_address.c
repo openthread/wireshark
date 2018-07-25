@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -36,10 +24,10 @@
 /* WSLUA_CONTINUE_MODULE Pinfo */
 
 
-WSLUA_CLASS_DEFINE(Address,FAIL_ON_NULL("Address"),NOP); /* Represents an address. */
+WSLUA_CLASS_DEFINE(Address,FAIL_ON_NULL("Address")); /* Represents an address. */
 
 WSLUA_CONSTRUCTOR Address_ip(lua_State* L) {
-    /* Creates an Address Object representing an IP address. */
+    /* Creates an Address Object representing an IPv4 address. */
 
 #define WSLUA_ARG_Address_ip_HOSTNAME 1 /* The address or name of the IP host. */
     Address addr = (Address)g_malloc(sizeof(address));
@@ -55,16 +43,25 @@ WSLUA_CONSTRUCTOR Address_ip(lua_State* L) {
     WSLUA_RETURN(1); /* The Address object. */
 }
 
+WSLUA_CONSTRUCTOR Address_ipv6(lua_State* L) {
+    /* Creates an Address Object representing an IPv6 address. */
+
+#define WSLUA_ARG_Address_ipv6_HOSTNAME 1 /* The address or name of the IP host. */
+    Address addr = (Address)g_malloc(sizeof(address));
+    ws_in6_addr ip_addr;
+    const gchar* name = luaL_checkstring(L,WSLUA_ARG_Address_ipv6_HOSTNAME);
+
+    if (!get_host_ipaddr6(name, &ip_addr)) {
+        memset(&ip_addr, 0, sizeof(ip_addr));
+    }
+
+    alloc_address_wmem(NULL, addr, AT_IPv6, sizeof(ip_addr.bytes), &ip_addr.bytes);
+    pushAddress(L,addr);
+    WSLUA_RETURN(1); /* The Address object */
+}
+
 #if 0
 /* TODO */
-static int Address_ipv6(lua_State* L) {
-    Address addr = g_malloc(sizeof(address));
-
-    /* alloc_address() */
-
-    pushAddress(L,addr);
-    return 1;
-}
 static int Address_ss7(lua_State* L) {
     Address addr = g_malloc(sizeof(address));
 
@@ -166,8 +163,8 @@ static int Address_tipc(lua_State* L) {
 WSLUA_METHODS Address_methods[] = {
     WSLUA_CLASS_FNREG(Address,ip),
     WSLUA_CLASS_FNREG_ALIAS(Address,ipv4,ip),
-#if 0
     WSLUA_CLASS_FNREG(Address,ipv6),
+#if 0
     WSLUA_CLASS_FNREG_ALIAS(Address,ss7pc,ss7),
     WSLUA_CLASS_FNREG(Address,eth),
     WSLUA_CLASS_FNREG(Address,sna},

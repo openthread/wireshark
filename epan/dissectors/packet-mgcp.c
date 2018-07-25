@@ -7,7 +7,7 @@
  * NCS 1.0: PacketCable Network-Based Call Signaling Protocol Specification,
  *          PKT-SP-EC-MGCP-I09-040113, January 13, 2004, Cable Television
  *          Laboratories, Inc., http://www.PacketCable.com/
- * NCS 1.5: PKT-SP-NCS1.5-I03-070412, April 12, 2007 Cable Television
+ * NCS 1.5: PKT-SP-NCS1.5-I04-120412, April 12, 2012 Cable Television
  *          Laboratories, Inc., http://www.PacketCable.com/
  * www.iana.org/assignments/mgcp-localconnectionoptions
  *
@@ -18,19 +18,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -43,8 +31,10 @@
 #include <epan/conversation.h>
 #include <epan/tap.h>
 #include <epan/rtd_table.h>
+#include <epan/expert.h>
 #include "packet-mgcp.h"
 
+#include <wsutil/strtoi.h>
 
 #define TCP_PORT_MGCP_GATEWAY 2427
 #define UDP_PORT_MGCP_GATEWAY 2427
@@ -101,6 +91,31 @@ static int hf_mgcp_param_localconnoptions_rdir = -1;
 static int hf_mgcp_param_localconnoptions_rsh = -1;
 static int hf_mgcp_param_localconnoptions_mp = -1;
 static int hf_mgcp_param_localconnoptions_fxr = -1;
+static int hf_mgcp_param_localvoicemetrics = -1;
+static int hf_mgcp_param_remotevoicemetrics = -1;
+static int hf_mgcp_param_voicemetrics_nlr = -1;
+static int hf_mgcp_param_voicemetrics_jdr = -1;
+static int hf_mgcp_param_voicemetrics_bld = -1;
+static int hf_mgcp_param_voicemetrics_gld = -1;
+static int hf_mgcp_param_voicemetrics_bd = -1;
+static int hf_mgcp_param_voicemetrics_gd = -1;
+static int hf_mgcp_param_voicemetrics_rtd = -1;
+static int hf_mgcp_param_voicemetrics_esd = -1;
+static int hf_mgcp_param_voicemetrics_sl = -1;
+static int hf_mgcp_param_voicemetrics_nl = -1;
+static int hf_mgcp_param_voicemetrics_rerl = -1;
+static int hf_mgcp_param_voicemetrics_gmn = -1;
+static int hf_mgcp_param_voicemetrics_nsr = -1;
+static int hf_mgcp_param_voicemetrics_xsr = -1;
+static int hf_mgcp_param_voicemetrics_mlq = -1;
+static int hf_mgcp_param_voicemetrics_mcq = -1;
+static int hf_mgcp_param_voicemetrics_plc = -1;
+static int hf_mgcp_param_voicemetrics_jba = -1;
+static int hf_mgcp_param_voicemetrics_jbr = -1;
+static int hf_mgcp_param_voicemetrics_jbn = -1;
+static int hf_mgcp_param_voicemetrics_jbm = -1;
+static int hf_mgcp_param_voicemetrics_jbs = -1;
+static int hf_mgcp_param_voicemetrics_iaj = -1;
 static int hf_mgcp_param_connectionmode = -1;
 static int hf_mgcp_param_reqevents = -1;
 static int hf_mgcp_param_restartmethod = -1;
@@ -142,6 +157,8 @@ static int hf_mgcp_rsp_dup = -1;
 static int hf_mgcp_rsp_dup_frame = -1;
 static int hf_mgcp_unknown_parameter = -1;
 static int hf_mgcp_malformed_parameter = -1;
+
+static expert_field ei_mgcp_rsp_rspcode_invalid = EI_INIT;
 
 static const value_string mgcp_return_code_vals[] = {
 	{000, "Response Acknowledgement"},
@@ -229,6 +246,8 @@ static int ett_mgcp = -1;
 static int ett_mgcp_param = -1;
 static int ett_mgcp_param_connectionparam = -1;
 static int ett_mgcp_param_localconnectionoptions = -1;
+static int ett_mgcp_param_localvoicemetrics = -1;
+static int ett_mgcp_param_remotevoicemetrics = -1;
 
 /*
  * Define the tap for mgcp
@@ -259,7 +278,7 @@ static gboolean global_mgcp_message_count = FALSE;
 /* Some basic utility functions that are specific to this dissector */
 static gboolean is_mgcp_verb(tvbuff_t *tvb, gint offset, gint maxlength, const gchar **verb_name);
 static gboolean is_mgcp_rspcode(tvbuff_t *tvb, gint offset, gint maxlength);
-static gint tvb_parse_param(tvbuff_t *tvb, gint offset, gint maxlength, int** hf);
+static gint tvb_parse_param(tvbuff_t *tvb, gint offset, gint maxlength, int** hf, mgcp_info_t* mi);
 
 /*
  * The various functions that either dissect some
@@ -268,15 +287,20 @@ static gint tvb_parse_param(tvbuff_t *tvb, gint offset, gint maxlength, int** hf
  */
 static void dissect_mgcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 				 proto_tree *mgcp_tree, proto_tree *ti);
-static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree);
-static void dissect_mgcp_params(tvbuff_t *tvb, proto_tree *tree);
+static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, mgcp_info_t* mi);
+static void dissect_mgcp_params(tvbuff_t *tvb, proto_tree *tree, mgcp_info_t* mi);
 static void dissect_mgcp_connectionparams(proto_tree *parent_tree, tvbuff_t *tvb,
 					  gint offset, gint param_type_len,
 					  gint param_val_len);
 static void dissect_mgcp_localconnectionoptions(proto_tree *parent_tree, tvbuff_t *tvb,
 						gint offset, gint param_type_len,
 						gint param_val_len);
-
+static void dissect_mgcp_localvoicemetrics(proto_tree *parent_tree, tvbuff_t *tvb,
+						gint offset, gint param_type_len,
+						gint param_val_len);
+static void dissect_mgcp_remotevoicemetrics(proto_tree *parent_tree, tvbuff_t *tvb,
+						gint offset, gint param_type_len,
+						gint param_val_len);
 
 static void mgcp_raw_text_add(tvbuff_t *tvb, proto_tree *tree);
 
@@ -401,7 +425,7 @@ typedef struct _mgcp_call_info_key
 	conversation_t *conversation;
 } mgcp_call_info_key;
 
-static GHashTable *mgcp_calls;
+static wmem_map_t *mgcp_calls;
 
 /* Compare 2 keys */
 static gint mgcp_call_equal(gconstpointer k1, gconstpointer k2)
@@ -418,7 +442,7 @@ static guint mgcp_call_hash(gconstpointer k)
 {
 	const mgcp_call_info_key* key = (const mgcp_call_info_key*) k;
 
-	return key->transid  + key->conversation->index;
+	return key->transid  + key->conversation->conv_index;
 }
 
 
@@ -430,7 +454,8 @@ static int dissect_mgcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	gint sectionlen;
 	guint32 num_messages;
 	gint tvb_sectionend, tvb_sectionbegin, tvb_len;
-	proto_tree *mgcp_tree, *ti;
+	proto_tree *mgcp_tree = NULL;
+	proto_item *ti = NULL, *tii;
 	const gchar *verb_name = "";
 
 	/* Initialize variables */
@@ -438,86 +463,78 @@ static int dissect_mgcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	tvb_sectionbegin = tvb_sectionend;
 	tvb_len = tvb_reported_length(tvb);
 	num_messages = 0;
-	mgcp_tree = NULL;
-	ti = NULL;
 
 	/*
 	 * Check to see whether we're really dealing with MGCP by looking
 	 * for a valid MGCP verb or response code.  This isn't infallible,
 	 * but it's cheap and it's better than nothing.
 	 */
-	if (is_mgcp_verb(tvb, 0, tvb_len, &verb_name) || is_mgcp_rspcode(tvb, 0, tvb_len))
+	if (!is_mgcp_verb(tvb, 0, tvb_len, &verb_name) && !is_mgcp_rspcode(tvb, 0, tvb_len))
+		return 0;
+
+	/*
+	 * Set the columns now, so that they'll be set correctly if we throw
+	 * an exception.  We can set them later as well....
+	 */
+	col_set_str(pinfo->cinfo, COL_PROTOCOL, "MGCP");
+	col_clear(pinfo->cinfo, COL_INFO);
+
+	/*
+	 * Loop through however many mgcp messages may be stuck in
+	 * this packet using piggybacking
+	 */
+	do
 	{
-		/*
-		 * Set the columns now, so that they'll be set correctly if we throw
-		 * an exception.  We can set them later as well....
-		 */
-		col_set_str(pinfo->cinfo, COL_PROTOCOL, "MGCP");
-		col_clear(pinfo->cinfo, COL_INFO);
+		num_messages++;
 
-		/*
-		 * Loop through however many mgcp messages may be stuck in
-		 * this packet using piggybacking
-		 */
-		do
+		/* Create our mgcp subtree */
+		ti = proto_tree_add_item(tree, proto_mgcp, tvb, 0, 0, ENC_NA);
+		mgcp_tree = proto_item_add_subtree(ti, ett_mgcp);
+
+		sectionlen = tvb_find_dot_line(tvb, tvb_sectionbegin, -1, &tvb_sectionend);
+		if (sectionlen != -1)
 		{
-			num_messages++;
-			if (tree)
-			{
-				/* Create our mgcp subtree */
-				ti = proto_tree_add_item(tree, proto_mgcp, tvb, 0, 0, ENC_NA);
-				mgcp_tree = proto_item_add_subtree(ti, ett_mgcp);
-			}
-
-			sectionlen = tvb_find_dot_line(tvb, tvb_sectionbegin, -1, &tvb_sectionend);
-			if (sectionlen != -1)
-			{
-				dissect_mgcp_message(tvb_new_subset(tvb, tvb_sectionbegin,
-				                                    sectionlen, sectionlen),
-				                                    pinfo, tree, mgcp_tree, ti);
-				tvb_sectionbegin = tvb_sectionend;
-			}
-			else
-			{
-				break;
-			}
-		} while (tvb_sectionend < tvb_len);
-
-		if (mgcp_tree)
-		{
-			proto_item *tii = proto_tree_add_uint(mgcp_tree, hf_mgcp_messagecount, tvb,
-			                                     0 , 0 , num_messages);
-			PROTO_ITEM_SET_HIDDEN(tii);
+			dissect_mgcp_message(tvb_new_subset_length_caplen(tvb, tvb_sectionbegin,
+						sectionlen, sectionlen),
+					pinfo, tree, mgcp_tree, ti);
+			tvb_sectionbegin = tvb_sectionend;
 		}
-
-		/*
-		 * Add our column information after dissecting SDP
-		 * in order to prevent the column info changing to reflect the SDP
-		 * (when showing message count)
-		 */
-		tvb_sectionbegin = 0;
-		if (global_mgcp_message_count == TRUE )
+		else
 		{
-			if (num_messages > 1)
-			{
-				col_add_fstr(pinfo->cinfo, COL_PROTOCOL, "MGCP (%i messages)", num_messages);
-			}
-			else
-			{
-				col_add_fstr(pinfo->cinfo, COL_PROTOCOL, "MGCP (%i message)", num_messages);
-			}
+			break;
 		}
+	} while (tvb_sectionend < tvb_len);
 
-		sectionlen = tvb_find_line_end(tvb, tvb_sectionbegin, -1,
-		                               &tvb_sectionend, FALSE);
-		col_prepend_fstr(pinfo->cinfo, COL_INFO, "%s",
-		                 tvb_format_text(tvb, tvb_sectionbegin, sectionlen));
+	tii = proto_tree_add_uint(mgcp_tree, hf_mgcp_messagecount, tvb,
+			0 , 0 , num_messages);
+	PROTO_ITEM_SET_HIDDEN(tii);
 
-		return tvb_len;
+	/*
+	 * Add our column information after dissecting SDP
+	 * in order to prevent the column info changing to reflect the SDP
+	 * (when showing message count)
+	 */
+	tvb_sectionbegin = 0;
+	if (global_mgcp_message_count == TRUE )
+	{
+		if (num_messages > 1)
+		{
+			col_add_fstr(pinfo->cinfo, COL_PROTOCOL, "MGCP (%i messages)", num_messages);
+		}
+		else
+		{
+			col_add_fstr(pinfo->cinfo, COL_PROTOCOL, "MGCP (%i message)", num_messages);
+		}
 	}
 
-	return 0;
+	sectionlen = tvb_find_line_end(tvb, tvb_sectionbegin, -1,
+			&tvb_sectionend, FALSE);
+	col_prepend_fstr(pinfo->cinfo, COL_INFO, "%s",
+			tvb_format_text(tvb, tvb_sectionbegin, sectionlen));
+
+	return tvb_len;
 }
+
 /************************************************************************
  * dissect_tpkt_mgcp - The dissector for the ASCII TPKT Media Gateway Control Protocol
  ************************************************************************/
@@ -551,11 +568,6 @@ static int dissect_tpkt_mgcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 	return offset;
 }
 
-#define MAX_MGCP_MESSAGES_IN_PACKET 5
-static mgcp_info_t pi_arr[MAX_MGCP_MESSAGES_IN_PACKET];
-static int pi_current = 0;
-static mgcp_info_t *mi;
-
 /* Dissect an individual MGCP message */
 static void dissect_mgcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 				 proto_tree *mgcp_tree, proto_tree *ti)
@@ -565,30 +577,9 @@ static void dissect_mgcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 	gint tvb_sectionend, tvb_sectionbegin, tvb_len;
 	tvbuff_t *next_tvb;
 	const gchar *verb_name = "";
-
-	/* Initialise stat info for passing to tap */
-	pi_current++;
-	if (pi_current == MAX_MGCP_MESSAGES_IN_PACKET)
-	{
-		/* Overwrite info in first struct if run out of space... */
-		pi_current = 0;
-	}
-	mi = &pi_arr[pi_current];
-
+    mgcp_info_t* mi = wmem_new0(pinfo->pool, mgcp_info_t);
 
 	mi->mgcp_type = MGCP_OTHERS;
-	mi->code[0] = '\0';
-	mi->transid = 0;
-	mi->req_time.secs = 0;
-	mi->req_time.nsecs = 0;
-	mi->is_duplicate = FALSE;
-	mi->request_available = FALSE;
-	mi->req_num = 0;
-	mi->endpointId = NULL;
-	mi->observedEvents = NULL;
-	mi->rspcode = 0;
-	mi->signalReq = NULL;
-	mi->hasDigitMap = FALSE;
 
 	/* Initialize variables */
 	tvb_len = tvb_reported_length(tvb);
@@ -606,9 +597,9 @@ static void dissect_mgcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 		sectionlen = tvb_find_line_end(tvb, 0, -1, &tvb_sectionend, FALSE);
 		if (sectionlen > 0)
 		{
-			dissect_mgcp_firstline(tvb_new_subset(tvb, tvb_sectionbegin,
+			dissect_mgcp_firstline(tvb_new_subset_length_caplen(tvb, tvb_sectionbegin,
 			                       sectionlen, sectionlen), pinfo,
-			                       mgcp_tree);
+			                       mgcp_tree, mi);
 		}
 		tvb_sectionbegin = tvb_sectionend;
 
@@ -619,8 +610,8 @@ static void dissect_mgcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 			                                &tvb_sectionend);
 			if (sectionlen > 0)
 			{
-				dissect_mgcp_params(tvb_new_subset(tvb, tvb_sectionbegin, sectionlen, sectionlen),
-				                                   mgcp_tree);
+				dissect_mgcp_params(tvb_new_subset_length_caplen(tvb, tvb_sectionbegin, sectionlen, sectionlen),
+				                                   mgcp_tree, mi);
 			}
 		}
 
@@ -634,8 +625,7 @@ static void dissect_mgcp_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 		/* Do we want to display the raw text of our MGCP packet? */
 		if (global_mgcp_raw_text)
 		{
-			if (tree)
-				mgcp_raw_text_add(tvb, mgcp_tree);
+			mgcp_raw_text_add(tvb, mgcp_tree);
 		}
 
 		/* Dissect sdp payload */
@@ -667,18 +657,6 @@ static void mgcp_raw_text_add(tvbuff_t *tvb, proto_tree *tree)
 	} while (tvb_offset_exists(tvb, tvb_lineend));
 }
 
-/* Discard and init any state we've saved */
-static void mgcp_init_protocol(void)
-{
-	mgcp_calls = g_hash_table_new(mgcp_call_hash, mgcp_call_equal);
-}
-
-static void mgcp_cleanup_protocol(void)
-{
-	g_hash_table_destroy(mgcp_calls);
-}
-
-
 /*
  * is_mgcp_verb - A function for determining whether there is a
  *                MGCP verb at offset in tvb
@@ -696,6 +674,14 @@ static gboolean is_mgcp_verb(tvbuff_t *tvb, gint offset, gint maxlength, const g
 {
 	gboolean returnvalue = FALSE;
 	gchar word[5];
+
+	/* This function is used for checking if a packet is actually an
+	   mgcp packet. Make sure that we do not throw an exception
+	   during such a check. If we did throw an exeption, we could
+	   not refuse the packet and give other dissectors the chance to
+	   look at it. */
+	if (tvb_captured_length_remaining(tvb, offset) < (gint)sizeof(word))
+		return FALSE;
 
 	/* Read the string into 'word' and see if it looks like the start of a verb */
 	if ((maxlength >= 4) && tvb_get_nstringz0(tvb, offset, sizeof(word), word))
@@ -748,6 +734,10 @@ static gboolean is_mgcp_rspcode(tvbuff_t *tvb, gint offset, gint maxlength)
 {
 	gboolean returnvalue = FALSE;
 	guint8 word[4];
+
+	/* see the comment in is_mgcp_verb() */
+	if (tvb_captured_length_remaining(tvb, offset) < (gint)sizeof(word))
+		return FALSE;
 
 	/* Do 1st 3 characters look like digits? */
 	if (maxlength >= 3)
@@ -805,7 +795,7 @@ static gboolean is_rfc2234_alpha(guint8 c)
  * Returns: The offset in tvb where the value of the MGCP parameter
  *          begins.
  */
-static gint tvb_parse_param(tvbuff_t* tvb, gint offset, gint len, int** hf)
+static gint tvb_parse_param(tvbuff_t* tvb, gint offset, gint len, int** hf, mgcp_info_t* mi)
 {
 	gint returnvalue = -1, tvb_current_offset, counter;
 	guint8 tempchar, plus_minus;
@@ -877,6 +867,26 @@ static gint tvb_parse_param(tvbuff_t* tvb, gint offset, gint len, int** hf)
 				{
 					*hf = &hf_mgcp_param_requestid;
 					tvb_current_offset--;
+				}
+				/* XRM/MCR */
+				else
+				if (len > (tvb_current_offset - offset) &&
+				   (tempchar = tvb_get_guint8(tvb,tvb_current_offset)) == 'R')
+				{
+					/* Move past 'R' */
+					tvb_current_offset += 3;
+					if (len > (tvb_current_offset - offset) &&
+						(tempchar = tvb_get_guint8(tvb,tvb_current_offset)) == 'R')
+					{
+						*hf = &hf_mgcp_param_remotevoicemetrics;
+					}
+					else
+					if (len > (tvb_current_offset - offset) &&
+					   (tempchar = tvb_get_guint8(tvb,tvb_current_offset)) == 'L')
+					{
+						*hf = &hf_mgcp_param_localvoicemetrics;
+					}
+					tvb_current_offset -= 4;
 				}
 
 				/* X+...: or X-....: are vendor extension parameters */
@@ -1084,7 +1094,8 @@ static gint tvb_parse_param(tvbuff_t* tvb, gint offset, gint len, int** hf)
 
 	/* For these types, show the whole line */
 	if ((*hf == &hf_mgcp_param_invalid) ||
-	    (*hf == &hf_mgcp_param_extension) || (*hf == &hf_mgcp_param_extension_critical))
+	    (*hf == &hf_mgcp_param_extension) || (*hf == &hf_mgcp_param_extension_critical) ||
+	    (*hf == &hf_mgcp_param_localvoicemetrics) || (*hf == &hf_mgcp_param_remotevoicemetrics))
 	{
 		returnvalue = offset;
 	}
@@ -1109,7 +1120,7 @@ static gint tvb_parse_param(tvbuff_t* tvb, gint offset, gint len, int** hf)
  * tree - The tree from which to hang the structured information parsed
  *        from the first line of the MGCP message.
  */
-static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, mgcp_info_t* mi)
 {
 	gint tvb_current_offset, tvb_previous_offset, tvb_len, tvb_current_len;
 	gint tokennum, tokenlen;
@@ -1123,9 +1134,9 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 	mgcp_call_info_key *new_mgcp_call_key = NULL;
 	mgcp_call_t *mgcp_call = NULL;
 	nstime_t delta;
-	gint rspcode = 0;
 	const gchar *verb_description = "";
 	char code_with_verb[64] = "";  /* To fit "<4-letter-code> (<longest-verb>)" */
+	proto_item* pi;
 
 	static address null_address = ADDRESS_INIT_NONE;
 	tvb_previous_offset = 0;
@@ -1154,7 +1165,11 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 			if (tokennum == 0)
 			{
 				if (tokenlen > 4)
-					THROW(ReportedBoundsError);
+				{
+					/* XXX - exception */
+					return;
+				}
+
 				code = tvb_format_text(tvb, tvb_previous_offset, tokenlen);
 				g_strlcpy(mi->code, code, 5);
 				if (is_mgcp_verb(tvb, tvb_previous_offset, tvb_current_len, &verb_description))
@@ -1174,11 +1189,13 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 				else
 				if (is_mgcp_rspcode(tvb, tvb_previous_offset, tvb_current_len))
 				{
+					gboolean rspcode_valid;
 					mgcp_type = MGCP_RESPONSE;
-					rspcode = atoi(code);
-					mi->rspcode = rspcode;
-					proto_tree_add_uint(tree, hf_mgcp_rsp_rspcode, tvb,
-					                    tvb_previous_offset, tokenlen, rspcode);
+					rspcode_valid = ws_strtou32(code, NULL, &mi->rspcode);
+					pi = proto_tree_add_uint(tree, hf_mgcp_rsp_rspcode, tvb,
+					                    tvb_previous_offset, tokenlen, mi->rspcode);
+					if (!rspcode_valid)
+						expert_add_info(pinfo, pi, &ei_mgcp_rsp_rspcode_invalid);
 				}
 				else
 				{
@@ -1271,9 +1288,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 				   to which the call was sent. */
 				if (pinfo->ptype == PT_TCP)
 				{
-					conversation = find_conversation(pinfo->num, &pinfo->src,
-					                                 &pinfo->dst, pinfo->ptype, pinfo->srcport,
-					                                 pinfo->destport, 0);
+					conversation = find_conversation_pinfo(pinfo, 0);
 				}
 				else
 				{
@@ -1283,7 +1298,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					 * if you do that.
 					 */
 					conversation = find_conversation(pinfo->num, &null_address,
-					                                 &pinfo->dst, pinfo->ptype, pinfo->srcport,
+					                                 &pinfo->dst, conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
 					                                 pinfo->destport, 0);
 				}
 				if (conversation != NULL)
@@ -1292,7 +1307,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					   matching conversation is available. */
 					mgcp_call_key.transid = mi->transid;
 					mgcp_call_key.conversation = conversation;
-					mgcp_call = (mgcp_call_t *)g_hash_table_lookup(mgcp_calls, &mgcp_call_key);
+					mgcp_call = (mgcp_call_t *)wmem_map_lookup(mgcp_calls, &mgcp_call_key);
 					if (mgcp_call)
 					{
 						/* Indicate the frame to which this is a reply. */
@@ -1328,23 +1343,22 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 							    (mi->rspcode >= 200) &&
 							    (mi->rspcode == mgcp_call->rspcode))
 							{
+								proto_item* item;
+
 								/* No, so it's a duplicate response. Mark it as such. */
 								mi->is_duplicate = TRUE;
 								col_append_fstr(pinfo->cinfo, COL_INFO,
-								                ", Duplicate Response %u",
-								                mi->transid);
-								if (tree)
-								{
-									proto_item* item;
-									item = proto_tree_add_uint(tree, hf_mgcp_dup, tvb, 0, 0, mi->transid);
-									PROTO_ITEM_SET_HIDDEN(item);
-									item = proto_tree_add_uint(tree, hf_mgcp_rsp_dup,
-									                           tvb, 0, 0, mi->transid);
-									PROTO_ITEM_SET_GENERATED(item);
-									item = proto_tree_add_uint(tree, hf_mgcp_rsp_dup_frame,
-									                           tvb, 0, 0, mgcp_call->rsp_num);
-									PROTO_ITEM_SET_GENERATED(item);
-								}
+										", Duplicate Response %u",
+										mi->transid);
+
+								item = proto_tree_add_uint(tree, hf_mgcp_dup, tvb, 0, 0, mi->transid);
+								PROTO_ITEM_SET_HIDDEN(item);
+								item = proto_tree_add_uint(tree, hf_mgcp_rsp_dup,
+										tvb, 0, 0, mi->transid);
+								PROTO_ITEM_SET_GENERATED(item);
+								item = proto_tree_add_uint(tree, hf_mgcp_rsp_dup_frame,
+										tvb, 0, 0, mgcp_call->rsp_num);
+								PROTO_ITEM_SET_GENERATED(item);
 							}
 						}
 						/* Now store the response code (after comparison above) */
@@ -1374,9 +1388,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 				 */
 				if (pinfo->ptype == PT_TCP)
 				{
-					conversation = find_conversation(pinfo->num, &pinfo->src,
-					                                 &pinfo->dst, pinfo->ptype, pinfo->srcport,
-					                                 pinfo->destport, 0);
+					conversation = find_conversation_pinfo(pinfo, 0);
 				}
 				else
 				{
@@ -1387,7 +1399,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					 * if you do that.
 					 */
 					conversation = find_conversation(pinfo->num, &pinfo->src,
-					                                 &null_address, pinfo->ptype, pinfo->srcport,
+					                                 &null_address, conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
 					                                 pinfo->destport, 0);
 				}
 				if (conversation == NULL)
@@ -1396,13 +1408,13 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					if (pinfo->ptype == PT_TCP)
 					{
 						conversation = conversation_new(pinfo->num, &pinfo->src,
-						                                &pinfo->dst, pinfo->ptype, pinfo->srcport,
+						                                &pinfo->dst, ENDPOINT_TCP, pinfo->srcport,
 						                                pinfo->destport, 0);
 					}
 					else
 					{
 						conversation = conversation_new(pinfo->num, &pinfo->src,
-						                                &null_address, pinfo->ptype, pinfo->srcport,
+						                                &null_address, conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
 						                                pinfo->destport, 0);
 					}
 				}
@@ -1412,7 +1424,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 				mgcp_call_key.conversation = conversation;
 
 				/* Look up the request */
-				mgcp_call = (mgcp_call_t *)g_hash_table_lookup(mgcp_calls, &mgcp_call_key);
+				mgcp_call = (mgcp_call_t *)wmem_map_lookup(mgcp_calls, &mgcp_call_key);
 				if (mgcp_call != NULL)
 				{
 					/* We've seen a request with this TRANSID, with the same
@@ -1456,7 +1468,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 					g_strlcpy(mgcp_call->code, mi->code, 5);
 
 					/* Store it */
-					g_hash_table_insert(mgcp_calls, new_mgcp_call_key, mgcp_call);
+					wmem_map_insert(mgcp_calls, new_mgcp_call_key, mgcp_call);
 				}
 				if (mgcp_call->rsp_num)
 				{
@@ -1495,7 +1507,7 @@ static void dissect_mgcp_firstline(tvbuff_t *tvb, packet_info *pinfo, proto_tree
  * tree - The tree from which to hang the structured information parsed
  *        from the parameters of the MGCP message.
  */
-static void dissect_mgcp_params(tvbuff_t *tvb, proto_tree *tree)
+static void dissect_mgcp_params(tvbuff_t *tvb, proto_tree *tree, mgcp_info_t* mi)
 {
 	int linelen, tokenlen, *my_param;
 	gint tvb_lineend, tvb_linebegin, tvb_len, old_lineend;
@@ -1506,50 +1518,62 @@ static void dissect_mgcp_params(tvbuff_t *tvb, proto_tree *tree)
 	tvb_linebegin = 0;
 	tvb_lineend = tvb_linebegin;
 
-	if (tree)
+	mgcp_param_ti = proto_tree_add_item(tree, hf_mgcp_params, tvb,
+			tvb_linebegin, tvb_len, ENC_NA);
+	proto_item_set_text(mgcp_param_ti, "Parameters");
+	mgcp_param_tree = proto_item_add_subtree(mgcp_param_ti, ett_mgcp_param);
+
+	/* Parse the parameters */
+	while (tvb_offset_exists(tvb, tvb_lineend))
 	{
-		mgcp_param_ti = proto_tree_add_item(tree, hf_mgcp_params, tvb,
-		                                    tvb_linebegin, tvb_len, ENC_NA);
-		proto_item_set_text(mgcp_param_ti, "Parameters");
-		mgcp_param_tree = proto_item_add_subtree(mgcp_param_ti, ett_mgcp_param);
+		old_lineend = tvb_lineend;
+		linelen = tvb_find_line_end(tvb, tvb_linebegin, -1, &tvb_lineend, FALSE);
+		tvb_tokenbegin = tvb_parse_param(tvb, tvb_linebegin, linelen, &my_param, mi);
 
-		/* Parse the parameters */
-		while (tvb_offset_exists(tvb, tvb_lineend))
+		if (my_param)
 		{
-			old_lineend = tvb_lineend;
-			linelen = tvb_find_line_end(tvb, tvb_linebegin, -1, &tvb_lineend, FALSE);
-			tvb_tokenbegin = tvb_parse_param(tvb, tvb_linebegin, linelen, &my_param);
-
-			if (my_param)
+			if (*my_param == hf_mgcp_param_connectionparam)
 			{
-				if (*my_param == hf_mgcp_param_connectionparam)
-				{
-					tokenlen = tvb_find_line_end(tvb, tvb_tokenbegin, -1, &tvb_lineend, FALSE);
-					dissect_mgcp_connectionparams(mgcp_param_tree, tvb, tvb_linebegin,
-					                              tvb_tokenbegin - tvb_linebegin, tokenlen);
-				}
-				else
+				tokenlen = tvb_find_line_end(tvb, tvb_tokenbegin, -1, &tvb_lineend, FALSE);
+				dissect_mgcp_connectionparams(mgcp_param_tree, tvb, tvb_linebegin,
+						tvb_tokenbegin - tvb_linebegin, tokenlen);
+			}
+			else
 				if (*my_param == hf_mgcp_param_localconnoptions)
 				{
 					tokenlen = tvb_find_line_end(tvb, tvb_tokenbegin, -1, &tvb_lineend, FALSE);
 					dissect_mgcp_localconnectionoptions(mgcp_param_tree, tvb, tvb_linebegin,
-					                                    tvb_tokenbegin - tvb_linebegin, tokenlen);
+							tvb_tokenbegin - tvb_linebegin, tokenlen);
+				}
+				else
+				if (*my_param == hf_mgcp_param_localvoicemetrics)
+				{
+					tokenlen = tvb_find_line_end(tvb,tvb_tokenbegin,-1,&tvb_lineend,FALSE);
+					dissect_mgcp_localvoicemetrics(mgcp_param_tree, tvb, tvb_linebegin,
+					                         tvb_tokenbegin - tvb_linebegin, tokenlen);
+				}
+				else
+				if (*my_param == hf_mgcp_param_remotevoicemetrics)
+				{
+					tokenlen = tvb_find_line_end(tvb,tvb_tokenbegin,-1,&tvb_lineend,FALSE);
+					dissect_mgcp_remotevoicemetrics(mgcp_param_tree, tvb, tvb_linebegin,
+					                         tvb_tokenbegin - tvb_linebegin, tokenlen);
 				}
 				else
 				{
 					tokenlen = tvb_find_line_end(tvb, tvb_tokenbegin, -1, &tvb_lineend, FALSE);
 					proto_tree_add_string(mgcp_param_tree, *my_param, tvb,
-					                      tvb_linebegin, linelen,
-					                      tvb_format_text(tvb, tvb_tokenbegin, tokenlen));
+							tvb_linebegin, linelen,
+							tvb_format_text(tvb, tvb_tokenbegin, tokenlen));
 				}
-			}
+		}
 
-			tvb_linebegin = tvb_lineend;
-			/* Its a infinite loop if we didn't advance (or went backwards) */
-			if (old_lineend >= tvb_lineend)
-			{
-				THROW(ReportedBoundsError);
-			}
+		tvb_linebegin = tvb_lineend;
+		/* Its a infinite loop if we didn't advance (or went backwards) */
+		if (old_lineend >= tvb_lineend)
+		{
+			/* XXX - exception */
+			break;
 		}
 	}
 }
@@ -1558,18 +1582,15 @@ static void dissect_mgcp_params(tvbuff_t *tvb, proto_tree *tree)
 static void
 dissect_mgcp_connectionparams(proto_tree *parent_tree, tvbuff_t *tvb, gint offset, gint param_type_len, gint param_val_len)
 {
-	proto_tree *tree = parent_tree;
+	proto_tree *tree;
+	proto_item *item;
 
 	gchar *tokenline;
 	gchar **tokens;
 	guint i;
 
-	if (parent_tree)
-	{
-		proto_item *item;
-		item = proto_tree_add_item(parent_tree, hf_mgcp_param_connectionparam, tvb, offset, param_type_len+param_val_len, ENC_ASCII|ENC_NA);
-		tree = proto_item_add_subtree(item, ett_mgcp_param_connectionparam);
-	}
+	item = proto_tree_add_item(parent_tree, hf_mgcp_param_connectionparam, tvb, offset, param_type_len+param_val_len, ENC_ASCII|ENC_NA);
+	tree = proto_item_add_subtree(item, ett_mgcp_param_connectionparam);
 
 	/* The P: line */
 	offset += param_type_len; /* skip the P: */
@@ -1642,23 +1663,20 @@ dissect_mgcp_connectionparams(proto_tree *parent_tree, tvbuff_t *tvb, gint offse
 				hf_string = -1;
 			}
 
-			if (tree)
+			if (hf_uint != -1)
 			{
-				if (hf_uint != -1)
-				{
-					proto_tree_add_uint(tree, hf_uint, tvb, offset, tokenlen, (guint32)strtoul(typval[1], NULL, 10));
-				}
-				else if (hf_string != -1)
-				{
-					proto_tree_add_string(tree, hf_string, tvb, offset, tokenlen, g_strstrip(typval[1]));
-				}
-				else
-				{
-					proto_tree_add_string(tree, hf_mgcp_unknown_parameter, tvb, offset, tokenlen, tokens[i]);
-				}
+				proto_tree_add_uint(tree, hf_uint, tvb, offset, tokenlen, (guint32)strtoul(typval[1], NULL, 10));
+			}
+			else if (hf_string != -1)
+			{
+				proto_tree_add_string(tree, hf_string, tvb, offset, tokenlen, g_strstrip(typval[1]));
+			}
+			else
+			{
+				proto_tree_add_string(tree, hf_mgcp_unknown_parameter, tvb, offset, tokenlen, tokens[i]);
 			}
 		}
-		else if (tree)
+		else
 		{
 			proto_tree_add_string(tree, hf_mgcp_malformed_parameter, tvb, offset, tokenlen, tokens[i]);
 		}
@@ -1671,18 +1689,15 @@ dissect_mgcp_connectionparams(proto_tree *parent_tree, tvbuff_t *tvb, gint offse
 static void
 dissect_mgcp_localconnectionoptions(proto_tree *parent_tree, tvbuff_t *tvb, gint offset, gint param_type_len, gint param_val_len)
 {
-	proto_tree *tree = parent_tree;
+	proto_tree *tree;
+	proto_item *item;
 
 	gchar *tokenline;
 	gchar **tokens;
 	guint i;
 
-	if (parent_tree)
-	{
-		proto_item *item;
-		item = proto_tree_add_item(parent_tree, hf_mgcp_param_localconnoptions, tvb, offset, param_type_len+param_val_len, ENC_ASCII|ENC_NA);
-		tree = proto_item_add_subtree(item, ett_mgcp_param_localconnectionoptions);
-	}
+	item = proto_tree_add_item(parent_tree, hf_mgcp_param_localconnoptions, tvb, offset, param_type_len+param_val_len, ENC_ASCII|ENC_NA);
+	tree = proto_item_add_subtree(item, ett_mgcp_param_localconnectionoptions);
 
 	/* The L: line */
 	offset += param_type_len; /* skip the L: */
@@ -1811,13 +1826,156 @@ dissect_mgcp_localconnectionoptions(proto_tree *parent_tree, tvbuff_t *tvb, gint
 			}
 
 			/* Add item */
+			if (hf_uint != -1)
+			{
+				proto_tree_add_uint(tree, hf_uint, tvb, offset, tokenlen, (guint32)strtoul(typval[1], NULL, 10));
+			}
+			else if (hf_string != -1)
+			{
+				proto_tree_add_string(tree, hf_string, tvb, offset, tokenlen, g_strstrip(typval[1]));
+			}
+			else
+			{
+				proto_tree_add_string(tree, hf_mgcp_unknown_parameter, tvb, offset, tokenlen, tokens[i]);
+			}
+		}
+	}
+}
+
+/* Dissect the Local Voice Metrics option */
+static void
+dissect_mgcp_localvoicemetrics(proto_tree *parent_tree, tvbuff_t *tvb, gint offset, gint param_type_len, gint param_val_len)
+{
+	proto_tree *tree = parent_tree;
+	proto_item *item = NULL;
+
+	gchar *tokenline = NULL;
+	gchar **tokens = NULL;
+	gchar **typval = NULL;
+	guint i = 0;
+	guint tokenlen = 0;
+	int hf_string = -1;
+
+	if (parent_tree)
+	{
+	item = proto_tree_add_item(parent_tree, hf_mgcp_param_localvoicemetrics, tvb, offset, param_type_len+param_val_len, ENC_ASCII|ENC_NA);
+		tree = proto_item_add_subtree(item, ett_mgcp_param_localvoicemetrics);
+	}
+
+	/* The XRM/LVM: line */
+	offset += 9; /* skip the XRM/LVM: */
+	tokenline = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, param_val_len - 9, ENC_ASCII);
+
+	/* Split into type=value pairs separated by comma and WSP */
+	tokens = wmem_strsplit(wmem_packet_scope(), tokenline, ",", -1);
+	for (i = 0; tokens[i] != NULL; i++)
+	{
+
+		tokenlen = (int)strlen(tokens[i]);
+		typval = wmem_strsplit(wmem_packet_scope(), tokens[i], "=", 2);
+		if ((typval[0] != NULL) && (typval[1] != NULL))
+		{
+			if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "NLR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_nlr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JDR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jdr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "BLD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_bld;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "GLD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_gld;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "BD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_bd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "GD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_gd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "RTD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_rtd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "ESD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_esd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "SL"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_sl;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "NL"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_nl;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "RERL"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_rerl;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "GMN"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_gmn;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "NSR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_nsr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "XSR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_xsr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "MLQ"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_mlq;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "MCQ"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_mcq;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "PLC"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_plc;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBA"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jba;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBN"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbn;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBM"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbm;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBS"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbs;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "IAJ"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_iaj;
+			}
+			else
+			{
+				hf_string = -1;
+			}
+
+			/* Add item */
 			if (tree)
 			{
-				if (hf_uint != -1)
-				{
-					proto_tree_add_uint(tree, hf_uint, tvb, offset, tokenlen, (guint32)strtoul(typval[1], NULL, 10));
-				}
-				else if (hf_string != -1)
+				if (hf_string != -1)
 				{
 					proto_tree_add_string(tree, hf_string, tvb, offset, tokenlen, g_strstrip(typval[1]));
 				}
@@ -1835,7 +1993,155 @@ dissect_mgcp_localconnectionoptions(proto_tree *parent_tree, tvbuff_t *tvb, gint
 	}
 }
 
+/* Dissect the Remote Voice Metrics option */
+static void
+dissect_mgcp_remotevoicemetrics(proto_tree *parent_tree, tvbuff_t *tvb, gint offset, gint param_type_len, gint param_val_len)
+{
+	proto_tree *tree = parent_tree;
+	proto_item *item = NULL;
 
+	gchar *tokenline = NULL;
+	gchar **tokens = NULL;
+	gchar **typval = NULL;
+	guint i = 0;
+	guint tokenlen = 0;
+	int hf_string = -1;
+
+	if (parent_tree)
+	{
+	item = proto_tree_add_item(parent_tree, hf_mgcp_param_remotevoicemetrics, tvb, offset, param_type_len+param_val_len, ENC_ASCII|ENC_NA);
+		tree = proto_item_add_subtree(item, ett_mgcp_param_remotevoicemetrics);
+	}
+
+	/* The XRM/RVM: line */
+	offset += 9; /* skip the XRM/RVM: */
+	tokenline = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, param_val_len - 9, ENC_ASCII);
+
+	/* Split into type=value pairs separated by comma and WSP */
+	tokens = wmem_strsplit(wmem_packet_scope(), tokenline, ",", -1);
+	for (i = 0; tokens[i] != NULL; i++)
+	{
+		tokenlen = (int)strlen(tokens[i]);
+		typval = wmem_strsplit(wmem_packet_scope(), tokens[i], "=", 2);
+		if ((typval[0] != NULL) && (typval[1] != NULL))
+		{
+			if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "NLR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_nlr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JDR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jdr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "BLD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_bld;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "GLD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_gld;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "BD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_bd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "GD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_gd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "RTD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_rtd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "ESD"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_esd;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "SL"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_sl;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "NL"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_nl;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "RERL"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_rerl;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "GMN"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_gmn;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "NSR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_nsr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "XSR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_xsr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "MLQ"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_mlq;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "MCQ"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_mcq;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "PLC"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_plc;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBA"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jba;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBR"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbr;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBN"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbn;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBM"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbm;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "JBS"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_jbs;
+			}
+			else if (!g_ascii_strcasecmp(g_strstrip(typval[0]), "IAJ"))
+			{
+				hf_string = hf_mgcp_param_voicemetrics_iaj;
+			}
+			else
+			{
+				hf_string = -1;
+			}
+
+			/* Add item */
+			if (tree)
+			{
+				if (hf_string != -1)
+				{
+					proto_tree_add_string(tree, hf_string, tvb, offset, tokenlen, g_strstrip(typval[1]));
+				}
+				else
+				{
+					proto_tree_add_string(tree, hf_mgcp_unknown_parameter, tvb, offset, tokenlen, tokens[i]);
+				}
+			}
+		}
+		else if (tree)
+		{
+			proto_tree_add_string(tree, hf_mgcp_malformed_parameter, tvb, offset, tokenlen, tokens[i]);
+		}
+		offset += tokenlen + 1; /* 1 extra for the delimiter */
+	}
+}
 
 /*
  * tvb_find_null_line - Returns the length from offset to the first null
@@ -2029,6 +2335,8 @@ void proto_reg_handoff_mgcp(void);
 
 void proto_register_mgcp(void)
 {
+	expert_module_t* expert_mgcp;
+
 	static hf_register_info hf[] =
 		{
 			{ &hf_mgcp_req,
@@ -2166,6 +2474,81 @@ void proto_register_mgcp(void)
 			{ &hf_mgcp_param_localconnoptions_fxr,
 			  { "FXR (fxr/fx)", "mgcp.param.localconnectionoptions.fxr", FT_STRING, BASE_NONE, NULL, 0x0,
 			    "FXR", HFILL }},
+			{ &hf_mgcp_param_localvoicemetrics,
+			  { "LocalVoiceMetrics (XRM/LVM)", "mgcp.param.localvoicemetrics", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Local Voice Metrics", HFILL }},
+			{ &hf_mgcp_param_remotevoicemetrics,
+			  { "RemoteVoiceMetrics (XRM/RVM)", "mgcp.param.remotevoicemetrics", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Remote Voice Metrics", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_nlr,
+			  { "Network packet loss rate(NLR)", "mgcp.param.voicemetrics.nlr", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics NLR", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_jdr,
+			  { "Jitter buffer discard rate(JDR)", "mgcp.param.voicemetrics.jdr", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics JDR", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_bld,
+			  { "Burst loss density(BLD)", "mgcp.param.voicemetrics.bld", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics BLD", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_gld,
+			  { "Gap loss density(GLD)", "mgcp.param.voicemetrics.gld", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics GLD", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_bd,
+			  { "Burst duration(BD)", "mgcp.param.voicemetrics.bd", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics BD", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_gd,
+			  { "Gap duration(GD)", "mgcp.param.voicemetrics.gd", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics GD", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_rtd,
+			  { "Round trip network delay(RTD)", "mgcp.param.voicemetrics.rtd", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics RTD", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_esd,
+			  { "End system delay(ESD)", "mgcp.param.voicemetrics.esd", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics ESD", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_sl,
+			  { "Signal level(SL)", "mgcp.param.voicemetrics.sl", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics SL", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_nl,
+			  { "Noise level(NL)", "mgcp.param.voicemetrics.nl", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metricsx NL", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_rerl,
+			  { "Residual echo return loss(RERL)", "mgcp.param.voicemetrics.rerl", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics ERL", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_gmn,
+			  { "Minimum gap threshold(GMN)", "mgcp.param.voicemetrics.gmn", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics GMN", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_nsr,
+			  { "R factor(NSR)", "mgcp.param.voicemetrics.nsr", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics NSR", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_xsr,
+			  { "External R factor(XSR)", "mgcp.param.voicemetrics.xsr", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics XSR", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_mlq,
+			  { "Estimated MOS-LQ(MLQ)", "mgcp.param.voicemetrics.mlq", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics MLQ", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_mcq,
+			  { "Estimated MOS-CQ(MCQ)", "mgcp.param.voicemetrics.mcq", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics MCQ", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_plc,
+			  { "Packet loss concealment type(PLC)", "mgcp.param.voicemetrics.plc", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics PLC", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_jba,
+			  { "Jitter Buffer Adaptive(JBA)", "mgcp.param.voicemetrics.jba", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics JBA", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_jbr,
+			  { "Jitter Buffer Rate(JBR)", "mgcp.param.voicemetrics.jbr", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics JBR", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_jbn,
+			  { "Nominal jitter buffer delay(JBN)", "mgcp.param.voicemetrics.jbn", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics JBN", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_jbm,
+			  { "Maximum jitter buffer delay(JBM)", "mgcp.param.voicemetrics.jbm", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics JBM", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_jbs,
+			  { "Absolute maximum jitter buffer delay(JBS)", "mgcp.param.voicemetrics.jbs", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics JBS", HFILL }},
+			{ &hf_mgcp_param_voicemetrics_iaj,
+			  { "Inter-arrival Jitter(IAJ)", "mgcp.param.voicemetrics.iaj", FT_STRING, BASE_NONE, NULL, 0x0,
+			    "Voice Metrics IAJ", HFILL }},
 			{ &hf_mgcp_param_connectionmode,
 			  { "ConnectionMode (M)", "mgcp.param.connectionmode", FT_STRING, BASE_NONE, NULL, 0x0,
 			    "Connection Mode", HFILL }},
@@ -2296,8 +2679,15 @@ void proto_register_mgcp(void)
 			&ett_mgcp,
 			&ett_mgcp_param,
 			&ett_mgcp_param_connectionparam,
-			&ett_mgcp_param_localconnectionoptions
+			&ett_mgcp_param_localconnectionoptions,
+			&ett_mgcp_param_localvoicemetrics,
+			&ett_mgcp_param_remotevoicemetrics
 		};
+
+	static ei_register_info ei[] = {
+		{ &ei_mgcp_rsp_rspcode_invalid, { "mgcp.rsp.rspcode.invalid", PI_MALFORMED, PI_ERROR,
+		"RSP code must be a string containing an integer", EXPFILL }}
+	};
 
 	module_t *mgcp_module;
 
@@ -2305,8 +2695,8 @@ void proto_register_mgcp(void)
 	proto_mgcp = proto_register_protocol("Media Gateway Control Protocol", "MGCP", "mgcp");
 	proto_register_field_array(proto_mgcp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	register_init_routine(&mgcp_init_protocol);
-	register_cleanup_routine(&mgcp_cleanup_protocol);
+
+	mgcp_calls = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), mgcp_call_hash, mgcp_call_equal);
 
 	mgcp_handle = register_dissector("mgcp", dissect_mgcp, proto_mgcp);
 
@@ -2357,6 +2747,10 @@ void proto_register_mgcp(void)
 	mgcp_tap = register_tap("mgcp");
 
 	register_rtd_table(proto_mgcp, NULL, 1, NUM_TIMESTATS, mgcp_mesage_type, mgcpstat_packet, NULL);
+
+	expert_mgcp = expert_register_protocol(proto_mgcp);
+	expert_register_field_array(expert_mgcp, ei, array_length(ei));
+
 }
 
 /* The registration hand-off routine */
@@ -2395,6 +2789,7 @@ void proto_reg_handoff_mgcp(void)
 	callagent_tcp_port = global_mgcp_callagent_tcp_port;
 	callagent_udp_port = global_mgcp_callagent_udp_port;
 
+	/* Names of port preferences too specific to add "auto" preference here */
 	dissector_add_uint("tcp.port", global_mgcp_gateway_tcp_port,   mgcp_tpkt_handle);
 	dissector_add_uint("udp.port", global_mgcp_gateway_udp_port,   mgcp_handle);
 	dissector_add_uint("tcp.port", global_mgcp_callagent_tcp_port, mgcp_tpkt_handle);

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -98,12 +86,13 @@ static gint ett_nt_ace_object = -1;
 static gint ett_nt_ace_object_flags = -1;
 static gint ett_nt_security_information = -1;
 
+static expert_field ei_nt_owner_sid_beyond_data = EI_INIT;
 static expert_field ei_nt_owner_sid_beyond_reassembled_data = EI_INIT;
+static expert_field ei_nt_ace_extends_beyond_data = EI_INIT;
 static expert_field ei_nt_ace_extends_beyond_reassembled_data = EI_INIT;
-static expert_field ei_nt_ace_extends_beyond_capture = EI_INIT;
+static expert_field ei_nt_group_sid_beyond_data = EI_INIT;
 static expert_field ei_nt_group_sid_beyond_reassembled_data = EI_INIT;
-static expert_field ei_nt_group_sid_beyond_captured_data = EI_INIT;
-static expert_field ei_nt_owner_sid_beyond_captured_data = EI_INIT;
+static expert_field ei_nt_item_offs_out_of_range = EI_INIT;
 
 
 /* WERR error codes */
@@ -111,6 +100,15 @@ static expert_field ei_nt_owner_sid_beyond_captured_data = EI_INIT;
 VALUE_STRING_ARRAY2_GLOBAL_DEF(WERR_errors); /* XXX: Remove GLOBAL_DEF once all PIDL generated dissectors
 						     ref WERR_errors_ext */
 value_string_ext WERR_errors_ext = VALUE_STRING_EXT_INIT(WERR_errors);
+
+/*
+ * HRES error codes.
+ */
+
+VALUE_STRING_ARRAY2_GLOBAL_DEF(HRES_errors); /* XXX: Remove GLOBAL_DEF once all PIDL generated dissectors
+						     ref HRES_errors_ext */
+value_string_ext HRES_errors_ext = VALUE_STRING_EXT_INIT(HRES_errors);
+
 
 /*
  * DOS error codes.
@@ -238,6 +236,7 @@ const value_string NT_errors[] = {
 	{ 0x80000024, "STATUS_SERVER_HAS_OPEN_HANDLES" },
 	{ 0x80000025, "STATUS_ALREADY_DISCONNECTED" },
 	{ 0x80000026, "STATUS_LONGJUMP" },
+	{ 0x8000002D, "STATUS_STOPPED_ON_SYMLINK" },
 	{ 0x80000288, "STATUS_DEVICE_REQUIRES_CLEANING" },
 	{ 0x80000289, "STATUS_DEVICE_DOOR_OPEN" },
 	{ 0x80040111, "MAPI_E_LOGON_FAILED" },
@@ -977,6 +976,18 @@ const value_string NT_errors[] = {
 	{ 0xC003005C, "RPC_NT_INVALID_PIPE_OBJECT" },
 	{ 0xC003005D, "RPC_NT_INVALID_PIPE_OPERATION" },
 	{ 0xC003005E, "RPC_NT_WRONG_PIPE_VERSION" },
+	{ 0xC05C0000, "STATUS_SVHDX_ERROR_STORED" },
+	{ 0xC05CFF00, "STATUS_SVHDX_ERROR_NOT_AVAILABLE" },
+	{ 0xC05CFF01, "STATUS_SVHDX_UNIT_ATTENTION_AVAILABLE" },
+	{ 0xC05CFF02, "STATUS_SVHDX_UNIT_ATTENTION_CAPACITY_DATA_CHANGED" },
+	{ 0xC05CFF03, "STATUS_SVHDX_UNIT_ATTENTION_RESERVATIONS_PREEMPTED" },
+	{ 0xC05CFF04, "STATUS_SVHDX_UNIT_ATTENTION_RESERVATIONS_RELEASED" },
+	{ 0xC05CFF05, "STATUS_SVHDX_UNIT_ATTENTION_REGISTRATIONS_PREEMPTED" },
+	{ 0xC05CFF06, "STATUS_SVHDX_UNIT_ATTENTION_OPERATING_DEFINITION_CHANGED" },
+	{ 0xC05CFF07, "STATUS_SVHDX_RESERVATION_CONFLICT" },
+	{ 0xC05CFF08, "STATUS_SVHDX_WRONG_FILE_TYPE" },
+	{ 0xC05CFF09, "STATUS_SVHDX_VERSION_MISMATCH" },
+	{ 0xC05CFF0A, "STATUS_VHD_SHARED" },
 	{ 0,          NULL }
 };
 value_string_ext NT_errors_ext = VALUE_STRING_EXT_INIT(NT_errors);
@@ -1547,9 +1558,9 @@ dissect_nt_sid(tvbuff_t *tvb, int offset, proto_tree *parent_tree,
 	/* Add revision, num_auth, and authority */
 	proto_tree_add_item(subtree, hf_nt_sid_revision, tvb, offset_sid_start, 1, ENC_LITTLE_ENDIAN);
 	proto_tree_add_item(subtree, hf_nt_sid_num_auth, tvb, offset_sid_start+1, 1, ENC_LITTLE_ENDIAN);
-	proto_tree_add_uint64_format_value(subtree,
+	proto_tree_add_uint64(subtree,
 		(sid_display_hex ? hf_nt_sid_auth_hex : hf_nt_sid_auth_dec),
-		tvb, offset_sid_start+2, 6, authority, "%" G_GINT64_MODIFIER "u", authority);
+		tvb, offset_sid_start+2, 6, authority);
 
 	/* Add subauthorities */
 	proto_tree_add_string_format_value(subtree, hf_nt_sid_subauth, tvb, sa_offset,
@@ -1691,6 +1702,45 @@ dissect_nt_access_mask(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 	proto_tree *subtree, *generic_tree, *standard_tree, *specific_tree;
 	guint32 access;
 
+	static const int * generic_access_flags[] = {
+		&hf_access_generic_read,
+		&hf_access_generic_write,
+		&hf_access_generic_execute,
+		&hf_access_generic_all,
+		&hf_access_maximum_allowed,
+		&hf_access_sacl,
+		NULL
+	};
+
+	static const int * standard_access_flags[] = {
+		&hf_access_standard_synchronise,
+		&hf_access_standard_write_owner,
+		&hf_access_standard_write_dac,
+		&hf_access_standard_read_control,
+		&hf_access_standard_delete,
+		NULL
+	};
+
+	static const int * access_specific_flags[] = {
+		&hf_access_specific_15,
+		&hf_access_specific_14,
+		&hf_access_specific_13,
+		&hf_access_specific_12,
+		&hf_access_specific_11,
+		&hf_access_specific_10,
+		&hf_access_specific_9,
+		&hf_access_specific_8,
+		&hf_access_specific_7,
+		&hf_access_specific_6,
+		&hf_access_specific_5,
+		&hf_access_specific_4,
+		&hf_access_specific_3,
+		&hf_access_specific_2,
+		&hf_access_specific_1,
+		&hf_access_specific_0,
+		NULL
+	};
+
 	if (drep != NULL) {
 		/*
 		 * Called from a DCE RPC protocol dissector, for a
@@ -1725,33 +1775,7 @@ dissect_nt_access_mask(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 				   ett_nt_access_mask_generic, NULL, "Generic rights: 0x%08x",
 				   access & GENERIC_RIGHTS_MASK);
 
-	proto_tree_add_boolean(
-		generic_tree, hf_access_generic_read, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		generic_tree, hf_access_generic_write, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		generic_tree, hf_access_generic_execute, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		generic_tree, hf_access_generic_all, tvb, offset - 4, 4,
-		access);
-
-	/* Reserved (??) */
-
-	proto_tree_add_boolean(
-		subtree, hf_access_maximum_allowed, tvb, offset - 4, 4,
-		access);
-
-	/* Access system security */
-
-	proto_tree_add_boolean(
-		subtree, hf_access_sacl, tvb, offset - 4, 4,
-		access);
+	proto_tree_add_bitmask_list_value(generic_tree, tvb, offset - 4, 4, generic_access_flags, access);
 
 	/* Standard access rights */
 
@@ -1759,25 +1783,7 @@ dissect_nt_access_mask(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 				   ett_nt_access_mask_standard, NULL, "Standard rights: 0x%08x",
 				   access & STANDARD_RIGHTS_MASK);
 
-	proto_tree_add_boolean(
-		standard_tree, hf_access_standard_synchronise, tvb,
-		offset - 4, 4, access);
-
-	proto_tree_add_boolean(
-		standard_tree, hf_access_standard_write_owner, tvb,
-		offset - 4, 4, access);
-
-	proto_tree_add_boolean(
-		standard_tree, hf_access_standard_write_dac, tvb,
-		offset - 4, 4, access);
-
-	proto_tree_add_boolean(
-		standard_tree, hf_access_standard_read_control, tvb,
-		offset - 4, 4, access);
-
-	proto_tree_add_boolean(
-		standard_tree, hf_access_standard_delete, tvb, offset - 4, 4,
-		access);
+	proto_tree_add_bitmask_list_value(standard_tree, tvb, offset - 4, 4, standard_access_flags, access);
 
 	/* Specific access rights.  Call the specific_rights_fn
 	   pointer if we have one, otherwise just display bits 0-15 in
@@ -1818,69 +1824,7 @@ dissect_nt_access_mask(tvbuff_t *tvb, gint offset, packet_info *pinfo,
 		return offset;
 	}
 
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_15, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_14, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_13, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_12, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_11, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_10, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_9, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_8, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_7, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_6, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_5, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_4, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_3, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_2, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_1, tvb, offset - 4, 4,
-		access);
-
-	proto_tree_add_boolean(
-		specific_tree, hf_access_specific_0, tvb, offset - 4, 4,
-		access);
+	proto_tree_add_bitmask_list_value(specific_tree, tvb, offset - 4, 4, access_specific_flags, access);
 
 	return offset;
 }
@@ -2181,7 +2125,7 @@ dissect_nt_acl(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	int old_offset = offset_a;
 	int pre_ace_offset;
 	guint16 revision;
-	volatile guint32 num_aces;
+	guint32 num_aces;
 	volatile int offset_v = offset_a;
 	volatile gboolean missing_data = FALSE;
 	volatile gboolean bad_ace = FALSE;
@@ -2245,8 +2189,8 @@ dissect_nt_acl(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 		  }
 		}
 
-		CATCH(BoundsError) {
-			proto_tree_add_expert(tree, pinfo, &ei_nt_ace_extends_beyond_capture, tvb, offset_v, 0);
+		CATCH(ContainedBoundsError) {
+			proto_tree_add_expert(tree, pinfo, &ei_nt_ace_extends_beyond_data, tvb, offset_v, 0);
 			missing_data = TRUE;
 		}
 
@@ -2408,9 +2352,13 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	volatile int end_offset;
 	volatile int item_offset;
 	guint32 owner_sid_offset;
+	proto_item *it_owner_sid_offs = NULL;
 	volatile guint32 group_sid_offset;
+	proto_item * volatile it_gr_sid_offs = NULL;
 	volatile guint32 sacl_offset;
+	proto_item * volatile it_sacl_offs = NULL;
 	volatile guint32 dacl_offset;
+	proto_item * volatile it_dacl_offs = NULL;
 
 	tree = proto_tree_add_subtree(parent_tree, tvb, offset_v, -1,
 				   ett_nt_sec_desc, &item, "NT Security Descriptor");
@@ -2433,7 +2381,7 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	    proto_tree_add_uint_format_value(tree, hf_nt_offset_to_owner_sid, tvb, offset_v, 4, owner_sid_offset, "%u (bogus, must be >= 20)", owner_sid_offset);
 	    owner_sid_offset = 0;
 	  } else
-	    proto_tree_add_item(tree, hf_nt_offset_to_owner_sid, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
+	    it_owner_sid_offs = proto_tree_add_item(tree, hf_nt_offset_to_owner_sid, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
 	  offset_v += 4;
 
 	  /* offset to group sid */
@@ -2443,7 +2391,7 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	    proto_tree_add_uint_format_value(tree, hf_nt_offset_to_group_sid, tvb, offset_v, 4, group_sid_offset, "%u (bogus, must be >= 20)", group_sid_offset);
 	    group_sid_offset = 0;
 	  } else
-	    proto_tree_add_item(tree, hf_nt_offset_to_group_sid, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
+	    it_gr_sid_offs = proto_tree_add_item(tree, hf_nt_offset_to_group_sid, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
 	  offset_v += 4;
 
 	  /* offset to sacl */
@@ -2453,7 +2401,7 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	    proto_tree_add_uint_format_value(tree, hf_nt_offset_to_sacl, tvb, offset_v, 4, sacl_offset, "%u (bogus, must be >= 20)", sacl_offset);
 	    sacl_offset = 0;
 	  } else
-	    proto_tree_add_item(tree, hf_nt_offset_to_sacl, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
+	    it_sacl_offs = proto_tree_add_item(tree, hf_nt_offset_to_sacl, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
 	  offset_v += 4;
 
 	  /* offset to dacl */
@@ -2463,7 +2411,7 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	    proto_tree_add_uint_format_value(tree, hf_nt_offset_to_dacl, tvb, offset_v, 4, dacl_offset, "%u (bogus, must be >= 20)", dacl_offset);
 	    dacl_offset = 0;
 	  } else
-	    proto_tree_add_item(tree, hf_nt_offset_to_dacl, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
+	    it_dacl_offs = proto_tree_add_item(tree, hf_nt_offset_to_dacl, tvb, offset_v, 4, ENC_LITTLE_ENDIAN);
 	  offset_v += 4;
 
 	  end_offset = offset_v;
@@ -2472,10 +2420,9 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	  if(owner_sid_offset){
 	    item_offset = start_offset+owner_sid_offset;
 	    if (item_offset < start_offset) {
-	      /*
-	       * Overflow - throw an exception.
-	       */
-	      THROW(ReportedBoundsError);
+		    expert_add_info(pinfo, it_owner_sid_offs,
+				    &ei_nt_item_offs_out_of_range);
+		    break;
 	    }
 	    TRY{
 	      offset_v = dissect_nt_sid(tvb, item_offset, tree, "Owner", NULL, -1);
@@ -2483,8 +2430,8 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	        end_offset = offset_v;
 	    }
 
-	    CATCH(BoundsError) {
-	      proto_tree_add_expert(tree, pinfo, &ei_nt_owner_sid_beyond_captured_data, tvb, item_offset, 0);
+	    CATCH(ContainedBoundsError) {
+	      proto_tree_add_expert(tree, pinfo, &ei_nt_owner_sid_beyond_data, tvb, item_offset, 0);
 	    }
 
 	    CATCH(ReportedBoundsError) {
@@ -2498,10 +2445,9 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	  if(group_sid_offset){
 	    item_offset = start_offset+group_sid_offset;
 	    if (item_offset < start_offset) {
-	      /*
-	       * Overflow - throw an exception.
-	       */
-	      THROW(ReportedBoundsError);
+		    expert_add_info(pinfo, it_gr_sid_offs,
+				    &ei_nt_item_offs_out_of_range);
+		    break;
 	    }
 	    TRY {
 	      offset_v = dissect_nt_sid(tvb, item_offset, tree, "Group", NULL, -1);
@@ -2509,8 +2455,8 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	        end_offset = offset_v;
 	    }
 
-	    CATCH(BoundsError) {
-	      proto_tree_add_expert(tree, pinfo, &ei_nt_group_sid_beyond_captured_data, tvb, item_offset, 0);
+	    CATCH(ContainedBoundsError) {
+	      proto_tree_add_expert(tree, pinfo, &ei_nt_group_sid_beyond_data, tvb, item_offset, 0);
 	    }
 
 	    CATCH(ReportedBoundsError) {
@@ -2524,10 +2470,9 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	  if(sacl_offset){
 	    item_offset = start_offset+sacl_offset;
 	    if (item_offset < start_offset) {
-	      /*
-	       * Overflow - throw an exception.
-	       */
-	      THROW(ReportedBoundsError);
+		    expert_add_info(pinfo, it_sacl_offs,
+				    &ei_nt_item_offs_out_of_range);
+		    break;
 	    }
 	    offset_v = dissect_nt_acl(tvb, item_offset, pinfo, tree,
 				    drep, "System (SACL)", ami);
@@ -2539,10 +2484,9 @@ dissect_nt_sec_desc(tvbuff_t *tvb, int offset_a, packet_info *pinfo,
 	  if(dacl_offset){
 	    item_offset = start_offset+dacl_offset;
 	    if (item_offset < start_offset) {
-	      /*
-	       * Overflow - throw an exception.
-	       */
-	      THROW(ReportedBoundsError);
+		    expert_add_info(pinfo, it_dacl_offs,
+				    &ei_nt_item_offs_out_of_range);
+		    break;
 	    }
 	    offset_v = dissect_nt_acl(tvb, item_offset, pinfo, tree,
 				    drep, "User (DACL)", ami);
@@ -2944,12 +2888,13 @@ proto_do_register_windows_common(int proto_smb)
 	};
 
 	static ei_register_info ei[] = {
-		{ &ei_nt_ace_extends_beyond_capture, { "nt.ace_extends_beyond_capture", PI_MALFORMED, PI_ERROR, "ACE Extends beyond end of captured data", EXPFILL }},
+		{ &ei_nt_ace_extends_beyond_data, { "nt.ace_extends_beyond_data", PI_MALFORMED, PI_ERROR, "ACE Extends beyond end of data", EXPFILL }},
 		{ &ei_nt_ace_extends_beyond_reassembled_data, { "nt.ace_extends_beyond_reassembled_data", PI_MALFORMED, PI_ERROR, "ACE Extends beyond end of reassembled data", EXPFILL }},
-		{ &ei_nt_owner_sid_beyond_captured_data, { "nt.owner_sid.beyond_captured_data", PI_MALFORMED, PI_ERROR, "Owner SID beyond end of captured data", EXPFILL }},
+		{ &ei_nt_owner_sid_beyond_data, { "nt.owner_sid.beyond_data", PI_MALFORMED, PI_ERROR, "Owner SID beyond end of data", EXPFILL }},
 		{ &ei_nt_owner_sid_beyond_reassembled_data, { "nt.owner_sid.beyond_reassembled_data", PI_MALFORMED, PI_ERROR, "Owner SID beyond end of reassembled data", EXPFILL }},
-		{ &ei_nt_group_sid_beyond_captured_data, { "nt.group_sid.beyond_captured_data", PI_MALFORMED, PI_ERROR, "Group SID beyond end of captured data", EXPFILL }},
+		{ &ei_nt_group_sid_beyond_data, { "nt.group_sid.beyond_data", PI_MALFORMED, PI_ERROR, "Group SID beyond end of data", EXPFILL }},
 		{ &ei_nt_group_sid_beyond_reassembled_data, { "nt.group_sid.beyond_reassembled_data", PI_MALFORMED, PI_ERROR, "Group SID beyond end of reassembled data", EXPFILL }},
+		{ &ei_nt_item_offs_out_of_range, { "nt.item_offset.out_of_range", PI_MALFORMED, PI_ERROR, "Item offset is out of range", EXPFILL }},
 	};
 
 	expert_module_t* expert_nt;

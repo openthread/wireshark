@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -48,6 +36,7 @@ static gint ett_lapb_control = -1;
 
 static dissector_handle_t x25_dir_handle;
 static dissector_handle_t x25_handle;
+static dissector_handle_t lapb_handle;
 
 static const xdlc_cf_items lapb_cf_items = {
     &hf_lapb_n_r,
@@ -214,14 +203,12 @@ proto_register_lapb(void)
     proto_register_field_array (proto_lapb, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    register_dissector("lapb", dissect_lapb, proto_lapb);
+    lapb_handle = register_dissector("lapb", dissect_lapb, proto_lapb);
 }
 
 void
 proto_reg_handoff_lapb(void)
 {
-    dissector_handle_t lapb_handle;
-
     /*
      * Get handles for the X.25 dissectors; we don't get an X.25
      * pseudo-header for LAPB-over-Ethernet, but we do get it
@@ -230,7 +217,6 @@ proto_reg_handoff_lapb(void)
     x25_dir_handle = find_dissector_add_dependency("x.25_dir", proto_lapb);
     x25_handle = find_dissector_add_dependency("x.25", proto_lapb);
 
-    lapb_handle = find_dissector("lapb");
     dissector_add_uint("wtap_encap", WTAP_ENCAP_LAPB, lapb_handle);
 }
 

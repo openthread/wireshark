@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*  See http://ivifoundation.org/downloads/Class%20Specifications/IVI-6.1_HiSLIP-1.1-2011-02-24.pdf
@@ -104,8 +92,7 @@ typedef struct _hislipinfo
 void proto_register_hislip(void);
 void proto_reg_handoff_hislip(void);
 
-static gint global_hislip_port = 4880;
-
+#define HISLIP_PORT     4880
 
 /*Field indexs*/
 static gint hf_hislip_messagetype = -1;
@@ -297,7 +284,7 @@ static const value_string vendorID[] =
         { 0x4153, "ASCOR Incorporated" },
         { 0x4154, "Thurlby Thandar Instruments Limited" },
         { 0x4155, "Anritsu Company" },
-        { 0x4155, "Serendipity Systems, Inc." },
+/*        { 0x4155, "Serendipity Systems, Inc." }, XXX - duplicate of "Anritsu Company" */
         { 0x4156, "Advantest Corporation" },
         { 0x4241, "BAE Systems" },
         { 0x4242, "B&B Technologies" },
@@ -347,7 +334,7 @@ static const value_string vendorID[] =
         { 0x5343, "Scicom" },
         { 0x534C, "Schlumberger Technologies" },
         { 0x5352, "Scientific Research Corporation" },
-        { 0x5352, "Sony/Tektronix Corporation" },
+/*        { 0x5352, "Sony/Tektronix Corporation" }, XXX - duplicate of "Scientific Research Corporation" */
         { 0x5353, "Spectrum Signal Processing, Inc." },
         { 0x5441, "Talon Instruments" },
         { 0x5445, "Teradyne" },
@@ -1011,14 +998,7 @@ proto_register_hislip(void)
     proto_register_field_array(proto_hislip, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    hislip_module = prefs_register_protocol(proto_hislip, proto_reg_handoff_hislip);
-
-    prefs_register_uint_preference(hislip_module,
-                                    "tcp.port",
-                                    "TCP port for HiSLIP",
-                                    "Set the TCP port for HiSLIP traffic if other than the default",
-                                    10,
-                                    &global_hislip_port);
+    hislip_module = prefs_register_protocol(proto_hislip, NULL);
     prefs_register_obsolete_preference(hislip_module, "enable_heuristic");
 
 }
@@ -1026,24 +1006,11 @@ proto_register_hislip(void)
 void
 proto_reg_handoff_hislip(void)
 {
-    static gboolean initialized = FALSE;
-    static int currentPort;
+    hislip_handle = create_dissector_handle(dissect_hislip, proto_hislip);
+    /* disabled by default since heuristic is weak */
+    heur_dissector_add("tcp", dissect_hislip_heur, "HiSLIP over TCP", "hislip_tcp", proto_hislip, HEURISTIC_DISABLE);
 
-    if (!initialized)
-    {
-        hislip_handle = create_dissector_handle(dissect_hislip, proto_hislip);
-        /* disabled by default since heuristic is weak */
-        heur_dissector_add("tcp", dissect_hislip_heur, "HiSLIP over TCP", "hislip_tcp", proto_hislip, HEURISTIC_DISABLE);
-        initialized = TRUE;
-    }
-    else
-    {
-        dissector_delete_uint("tcp.port", currentPort, hislip_handle);
-    }
-
-    currentPort = global_hislip_port;
-
-    dissector_add_uint("tcp.port", currentPort, hislip_handle);
+    dissector_add_uint_with_preference("tcp.port", HISLIP_PORT, hislip_handle);
 }
 
 /*

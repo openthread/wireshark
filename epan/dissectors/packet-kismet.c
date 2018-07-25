@@ -8,19 +8,7 @@
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,7 +17,8 @@
 #include <epan/packet.h>
 #include <epan/to_str.h>
 #include <epan/strutil.h>
-#include <epan/prefs.h>
+#include <epan/expert.h>
+#include <wsutil/strtoi.h>
 
 static int proto_kismet = -1;
 static int hf_kismet_response = -1;
@@ -45,9 +34,9 @@ static int hf_kismet_time = -1;
 static gint ett_kismet = -1;
 static gint ett_kismet_reqresp = -1;
 
-#define TCP_PORT_KISMET	2501
+static expert_field ei_time_invalid = EI_INIT;
 
-static guint global_kismet_tcp_port = TCP_PORT_KISMET;
+#define TCP_PORT_KISMET	2501 /* Not IANA registered */
 
 static gboolean response_is_continuation(const guchar * data);
 void proto_reg_handoff_kismet(void);
@@ -125,7 +114,7 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 	else
 		col_add_fstr(pinfo->cinfo, COL_INFO, "%s: %s",
 				is_request ? "Request" : "Response",
-				format_text(line, linelen));
+				format_text(wmem_packet_scope(), line, linelen));
 
 	if (tree) {
 		ti = proto_tree_add_item(tree, proto_kismet, tvb, offset, -1, ENC_NA);
@@ -182,49 +171,52 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 						proto_tree_add_string(reqresp_tree, hf_kismet_version, tvb, offset,
-							tokenlen, format_text(line, tokenlen));
+							tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
 
 						offset += (gint) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 						proto_tree_add_string(reqresp_tree, hf_kismet_start_time, tvb, offset,
-							tokenlen, format_text(line, tokenlen));
+							tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
 
 						offset += (gint) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 						proto_tree_add_string(reqresp_tree, hf_kismet_server_name, tvb, offset,
-							tokenlen, format_text(line + 1, tokenlen - 2));
+							tokenlen, format_text(wmem_packet_scope(), line + 1, tokenlen - 2));
 
 						offset += (gint) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 						proto_tree_add_string(reqresp_tree, hf_kismet_build_revision, tvb, offset,
-							tokenlen, format_text(line, tokenlen));
+							tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
 
 						offset += (gint) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 						proto_tree_add_string(reqresp_tree, hf_kismet_unknown_field, tvb, offset,
-							tokenlen, format_text(line, tokenlen));
+							tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
 
 						offset += (gint) (next_token - line);
 						linelen -= (int) (next_token - line);
 						line = next_token;
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 						proto_tree_add_string(reqresp_tree, hf_kismet_extended_version_string, tvb, offset,
-							tokenlen, format_text(line, tokenlen));
+							tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
 					}
 					/*
 					 * *TIME: {Time}
 					 */
 					if (!strncmp(reqresp, "*TIME", 5)) {
 						nstime_t t;
-						char *ptr;
+						char *ptr = NULL;
+						proto_tree* time_item;
+
+						t.nsecs = 0;
 
 						offset += (gint) (next_token - line);
 						linelen -= (int) (next_token - line);
@@ -232,14 +224,17 @@ dissect_kismet(tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void * da
 						tokenlen = get_token_len(line, line + linelen, &next_token);
 
 						/* Convert form ascii to nstime */
-						t.secs = atoi(format_text (line, tokenlen));
-						t.nsecs = 0;
+						if (ws_strtou64(format_text(wmem_packet_scope(), line, tokenlen), NULL, (guint64*)&t.secs)) {
 
-						/*
-						 * Format ascii representation of time
-						 */
-						ptr = abs_time_secs_to_str(wmem_packet_scope(), t.secs, ABSOLUTE_TIME_LOCAL, TRUE);
-						proto_tree_add_time_format_value(reqresp_tree, hf_kismet_time, tvb, offset, tokenlen, &t, "%s", ptr);
+							/*
+							 * Format ascii representation of time
+							 */
+							ptr = abs_time_secs_to_str(wmem_packet_scope(), t.secs, ABSOLUTE_TIME_LOCAL, TRUE);
+						}
+						time_item = proto_tree_add_time_format_value(reqresp_tree, hf_kismet_time, tvb, offset,
+							tokenlen, &t, "%s", ptr ? ptr : "");
+						if (!ptr)
+							expert_add_info(pinfo, time_item, &ei_time_invalid);
 					}
 				}
 
@@ -307,45 +302,31 @@ proto_register_kismet(void)
 		NULL, 0x0, NULL, HFILL}},
 	};
 
+	static ei_register_info ei[] = {
+		{ &ei_time_invalid, { "kismet.time.invalid", PI_PROTOCOL, PI_WARN, "Invalid time", EXPFILL }}
+	};
+
 	static gint *ett[] = {
 		&ett_kismet,
 		&ett_kismet_reqresp,
 	};
-	module_t *kismet_module;
+	expert_module_t* expert_kismet;
 
 	proto_kismet = proto_register_protocol("Kismet Client/Server Protocol", "Kismet", "kismet");
 	proto_register_field_array(proto_kismet, hf, array_length (hf));
 	proto_register_subtree_array(ett, array_length (ett));
-
-	/* Register our configuration options for Kismet, particularly our port */
-
-	kismet_module = prefs_register_protocol(proto_kismet, proto_reg_handoff_kismet);
-
-	prefs_register_uint_preference(kismet_module, "tcp.port",
-			  "Kismet Server TCP Port",
-			  "Set the port for Kismet Client/Server messages (if other"
-			  " than the default of 2501)", 10,
-			  &global_kismet_tcp_port);
+	expert_kismet = expert_register_protocol(proto_kismet);
+	expert_register_field_array(expert_kismet, ei, array_length(ei));
 }
 
 void
 proto_reg_handoff_kismet(void)
 {
-	static gboolean kismet_prefs_initialized = FALSE;
-	static dissector_handle_t kismet_handle;
-	static guint tcp_port;
+	dissector_handle_t kismet_handle;
 
-	if (!kismet_prefs_initialized) {
-		kismet_handle = create_dissector_handle(dissect_kismet, proto_kismet);
-		kismet_prefs_initialized = TRUE;
-	} else {
-		dissector_delete_uint("tcp.port", tcp_port, kismet_handle);
-	}
+	kismet_handle = create_dissector_handle(dissect_kismet, proto_kismet);
 
-	/* Set our port number for future use */
-	tcp_port = global_kismet_tcp_port;
-
-	dissector_add_uint("tcp.port", global_kismet_tcp_port, kismet_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_KISMET, kismet_handle);
 }
 
 /*

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -127,7 +115,7 @@ static guint get_xot_pdu_len_mult(packet_info *pinfo _U_, tvbuff_t *tvb,
    int offset_next = offset + XOT_HEADER_LENGTH + X25_MIN_HEADER_LENGTH;
    int tvb_len;
 
-   while (tvb_len = tvb_captured_length_remaining(tvb, offset), tvb_len>0){
+   while ((tvb_len = tvb_captured_length_remaining(tvb, offset)) > 0){
       guint16 plen = 0;
       int modulo;
       guint16 bytes0_1;
@@ -257,17 +245,17 @@ static int dissect_xot_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
          hdr_offset += 1;
          proto_tree_add_item(xot_tree, hf_xot_pvc_send_out_window, tvb, hdr_offset, 1, ENC_BIG_ENDIAN);
          hdr_offset += 1;
-         pkt_size = 1 << tvb_get_guint8(tvb, hdr_offset);
-         proto_tree_add_uint(xot_tree, hf_xot_pvc_send_inc_pkt_size, tvb, hdr_offset, 1, pkt_size);
+         pkt_size = tvb_get_guint8(tvb, hdr_offset);
+         proto_tree_add_uint_format_value(xot_tree, hf_xot_pvc_send_inc_pkt_size, tvb, hdr_offset, 1, pkt_size, "2^%u", pkt_size);
          hdr_offset += 1;
-         pkt_size = 1 << tvb_get_guint8(tvb, hdr_offset);
-         proto_tree_add_uint(xot_tree, hf_xot_pvc_send_out_pkt_size, tvb, hdr_offset, 1, pkt_size);
+         pkt_size = tvb_get_guint8(tvb, hdr_offset);
+         proto_tree_add_uint_format_value(xot_tree, hf_xot_pvc_send_out_pkt_size, tvb, hdr_offset, 1, pkt_size, "2^%u", pkt_size);
          hdr_offset += 1;
          proto_tree_add_item(xot_tree, hf_xot_pvc_init_itf_name, tvb, hdr_offset, init_itf_name_len, ENC_ASCII|ENC_NA);
          hdr_offset += init_itf_name_len;
          proto_tree_add_item(xot_tree, hf_xot_pvc_resp_itf_name, tvb, hdr_offset, resp_itf_name_len, ENC_ASCII|ENC_NA);
       } else {
-         next_tvb = tvb_new_subset(tvb, offset,
+         next_tvb = tvb_new_subset_length_caplen(tvb, offset,
                                    MIN(plen, tvb_captured_length_remaining(tvb, offset)), plen);
          call_dissector(x25_handle, next_tvb, pinfo, tree);
       }
@@ -295,7 +283,7 @@ static int dissect_xot_mult(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
    while (offset <= offset_max - XOT_HEADER_LENGTH){
       int plen = get_xot_pdu_len(pinfo, tvb, offset, NULL);
-      next_tvb = tvb_new_subset(tvb, offset,plen, plen);
+      next_tvb = tvb_new_subset_length_caplen(tvb, offset,plen, plen);
                                 /*MIN(plen,tvb_captured_length_remaining(tvb, offset)),plen*/
 
       dissect_xot_pdu(next_tvb, pinfo, tree, data);
@@ -448,7 +436,7 @@ proto_register_xot(void)
 void
 proto_reg_handoff_xot(void)
 {
-   dissector_add_uint("tcp.port", TCP_PORT_XOT, xot_handle);
+   dissector_add_uint_with_preference("tcp.port", TCP_PORT_XOT, xot_handle);
 
    x25_handle = find_dissector_add_dependency("x.25", proto_xot);
 }

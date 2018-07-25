@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -245,10 +233,9 @@ dissect_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 col_append_fstr(pinfo->cinfo, COL_INFO, ", Number Of Bytes: %u", number);
                 offset += 2;
             } else {
-                guint8 *id;
+                const guint8 *id;
 
-                proto_tree_add_item(tree, hf_bthcrp_control_1284_id, tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_ASCII | ENC_NA);
-                id = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_ASCII);
+                proto_tree_add_item_ret_string(tree, hf_bthcrp_control_1284_id, tvb, offset, tvb_reported_length_remaining(tvb, offset), ENC_ASCII | ENC_NA, wmem_packet_scope(), &id);
                 col_append_fstr(pinfo->cinfo, COL_INFO, " - 1284 ID: %s", id);
                 offset += tvb_reported_length_remaining(tvb, offset);
             }
@@ -646,7 +633,7 @@ proto_register_bthcrp(void)
     expert_bthcrp = expert_register_protocol(proto_bthcrp);
     expert_register_field_array(expert_bthcrp, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_bthcrp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_bthcrp, NULL);
     prefs_register_static_text_preference(module, "hcrp.version",
             "Bluetooth Profile HCRP version: 1.2",
             "Version of profile supported by this dissector.");

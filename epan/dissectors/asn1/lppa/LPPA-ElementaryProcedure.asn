@@ -1,4 +1,4 @@
--- 3GPP TS 36.455 V11.3.0 (2013-06)
+-- 3GPP TS 36.455 V15.0.0 (2018-06)
 --
 
 -- **************************************************************
@@ -43,7 +43,9 @@ FROM LPPA-CommonDataTypes
 	UTDOAInformationRequest,
 	UTDOAInformationResponse,
 	UTDOAInformationFailure,
-	UTDOAInformationUpdate
+	UTDOAInformationUpdate,
+	AssistanceInformationControl,
+	AssistanceInformationFeedback
 
 
 FROM LPPA-PDU-Contents
@@ -56,7 +58,9 @@ FROM LPPA-PDU-Contents
 	id-e-CIDMeasurementTermination,
 	id-oTDOAInformationExchange,
 	id-uTDOAInformationExchange,
-	id-uTDOAInformationUpdate
+	id-uTDOAInformationUpdate,
+	id-assistanceInformationControl,
+	id-assistanceInformationFeedback
 
 
 FROM LPPA-Constants;
@@ -130,8 +134,8 @@ LPPA-ELEMENTARY-PROCEDURES LPPA-ELEMENTARY-PROCEDURE ::= {
 }
 
 LPPA-ELEMENTARY-PROCEDURES-CLASS-1 LPPA-ELEMENTARY-PROCEDURE ::= {
-	e-CIDMeasurementInitiation |
-	oTDOAInformationExchange   ,
+	e-CIDMeasurementInitiation		|
+	oTDOAInformationExchange		,
 	...,
 	uTDOAInformationExchange
 }
@@ -143,7 +147,9 @@ LPPA-ELEMENTARY-PROCEDURES-CLASS-2 LPPA-ELEMENTARY-PROCEDURE ::= {
 	errorIndication							|
 	privateMessage							,
 	...,
-	uTDOAInformationUpdate
+	uTDOAInformationUpdate					|
+	assistanceInformationControl			|
+	assistanceInformationFeedback
 }
 
 
@@ -199,6 +205,18 @@ uTDOAInformationUpdate LPPA-ELEMENTARY-PROCEDURE ::= {
 	INITIATING MESSAGE		UTDOAInformationUpdate
 	PROCEDURE CODE			id-uTDOAInformationUpdate
 	CRITICALITY				ignore
+}
+
+assistanceInformationControl LPPA-ELEMENTARY-PROCEDURE ::= {
+	INITIATING MESSAGE		AssistanceInformationControl
+	PROCEDURE CODE			id-assistanceInformationControl
+	CRITICALITY				reject
+}
+
+assistanceInformationFeedback LPPA-ELEMENTARY-PROCEDURE ::= {
+	INITIATING MESSAGE		AssistanceInformationFeedback
+	PROCEDURE CODE			id-assistanceInformationFeedback
+	CRITICALITY				reject
 }
 
 errorIndication LPPA-ELEMENTARY-PROCEDURE ::= {

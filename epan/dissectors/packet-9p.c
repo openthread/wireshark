@@ -8,19 +8,7 @@
  *
  * File permission bits decoding taken from packet-nfs.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -964,7 +952,7 @@ static gint ett_9P_lflags = -1;
 static expert_field ei_9P_first_250 = EI_INIT;
 static expert_field ei_9P_msgtype = EI_INIT;
 
-static GHashTable *_9p_hashtable = NULL;
+static wmem_map_t *_9p_hashtable = NULL;
 
 static void dissect_9P_dm(tvbuff_t *tvb,  proto_item *tree, int offset, int iscreate);
 static void dissect_9P_qid(tvbuff_t *tvb,  proto_tree *tree, int offset);
@@ -1010,37 +998,15 @@ static guint _9p_hash_hash(gconstpointer k)
 	return (key->conv_index ^ key->tag ^ key->fid);
 }
 
-static void _9p_hash_free_val(gpointer value)
-{
-	struct _9p_hashval *val = (struct _9p_hashval *)value;
-
-	if (val->data && val->len) {
-		g_free(val->data);
-		val->data = NULL;
-	}
-
-	g_free(value);
-}
-
 static struct _9p_hashval *_9p_hash_new_val(gsize len)
 {
 	struct _9p_hashval *val;
-	val = (struct _9p_hashval *)g_malloc(sizeof(struct _9p_hashval));
+	val = wmem_new(wmem_file_scope(), struct _9p_hashval);
 
-	val->data = g_malloc(len);
+	val->data = wmem_alloc(wmem_file_scope(), len);
 	val->len = len;
 
 	return val;
-}
-
-static void _9p_hash_init(void)
-{
-	_9p_hashtable = g_hash_table_new_full(_9p_hash_hash, _9p_hash_equal, g_free, _9p_hash_free_val);
-}
-
-static void _9p_hash_cleanup(void)
-{
-	g_hash_table_destroy(_9p_hashtable);
 }
 
 static void _9p_hash_set(packet_info *pinfo, guint16 tag, guint32 fid, struct _9p_hashval *val)
@@ -1051,18 +1017,18 @@ static void _9p_hash_set(packet_info *pinfo, guint16 tag, guint32 fid, struct _9
 
 	conv = find_or_create_conversation(pinfo);
 
-	key = (struct _9p_hashkey *)g_malloc(sizeof(struct _9p_hashkey));
+	key = wmem_new(wmem_file_scope(), struct _9p_hashkey);
 
-	key->conv_index = conv->index;
+	key->conv_index = conv->conv_index;
 	key->tag = tag;
 	key->fid = fid;
 
 	/* remove eventual old entry */
-	oldval = (struct _9p_hashval *)g_hash_table_lookup(_9p_hashtable, key);
+	oldval = (struct _9p_hashval *)wmem_map_lookup(_9p_hashtable, key);
 	if (oldval) {
-		g_hash_table_remove(_9p_hashtable, key);
+		wmem_map_remove(_9p_hashtable, key);
 	}
-	g_hash_table_insert(_9p_hashtable, key, val);
+	wmem_map_insert(_9p_hashtable, key, val);
 }
 
 static struct _9p_hashval *_9p_hash_get(packet_info *pinfo, guint16 tag, guint32 fid)
@@ -1072,11 +1038,11 @@ static struct _9p_hashval *_9p_hash_get(packet_info *pinfo, guint16 tag, guint32
 
 	conv = find_or_create_conversation(pinfo);
 
-	key.conv_index = conv->index;
+	key.conv_index = conv->conv_index;
 	key.tag = tag;
 	key.fid = fid;
 
-	return (struct _9p_hashval *)g_hash_table_lookup(_9p_hashtable, &key);
+	return (struct _9p_hashval *)wmem_map_lookup(_9p_hashtable, &key);
 }
 
 static void _9p_hash_free(packet_info *pinfo, guint16 tag, guint32 fid)
@@ -1086,11 +1052,11 @@ static void _9p_hash_free(packet_info *pinfo, guint16 tag, guint32 fid)
 
 	conv = find_or_create_conversation(pinfo);
 
-	key.conv_index = conv->index;
+	key.conv_index = conv->conv_index;
 	key.tag = tag;
 	key.fid = fid;
 
-	g_hash_table_remove(_9p_hashtable, &key);
+	wmem_map_remove(_9p_hashtable, &key);
 }
 
 static void conv_set_version(packet_info *pinfo, enum _9p_version version)
@@ -1244,7 +1210,6 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 	proto_item         *ti, *msg_item;
 	proto_tree         *ninep_tree;
 	struct _9p_taginfo *taginfo;
-	nstime_t            tv;
 	int                 _9p_version;
 
 	_9p_version = conv_get_version(pinfo);
@@ -1283,7 +1248,7 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
 		if (!pinfo->fd->flags.visited) {
 			_9p_len = tvb_get_letohs(tvb, offset);
-			tvb_s = tvb_get_string_enc(NULL, tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
+			tvb_s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
 
 			if (!strcmp(tvb_s, "9P2000.L")) {
 				u32 = _9P2000_L;
@@ -1296,7 +1261,6 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 			}
 
 			conv_set_version(pinfo, (enum _9p_version)u32);
-			g_free(tvb_s);
 		}
 		offset += _9p_dissect_string(tvb, ninep_tree, offset, hf_9P_version, ett_9P_version);
 
@@ -1354,9 +1318,8 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
 		if(!pinfo->fd->flags.visited) {
 			_9p_len = tvb_get_letohs(tvb, offset);
-			tvb_s = tvb_get_string_enc(NULL, tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
+			tvb_s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
 			conv_set_fid(pinfo, fid, tvb_s, _9p_len+1);
-			g_free(tvb_s);
 		}
 		offset += _9p_dissect_string(tvb, ninep_tree, offset, hf_9P_aname, ett_9P_aname);
 
@@ -1390,10 +1353,9 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 		for(i = 0 ; i < u16; i++) {
 			if (!pinfo->fd->flags.visited) {
 				_9p_len = tvb_get_letohs(tvb, offset);
-				tvb_s = tvb_get_string_enc(NULL, tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
+				tvb_s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
 				wmem_strbuf_append_c(tmppath, '/');
 				wmem_strbuf_append(tmppath, tvb_s);
-				g_free(tvb_s);
 			}
 
 			if (i < 250) {
@@ -1471,9 +1433,8 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 			tmppath = wmem_strbuf_sized_new(wmem_packet_scope(), 0, MAXPATHLEN);
 			wmem_strbuf_append(tmppath, fid_path);
 			wmem_strbuf_append_c(tmppath, '/');
-			tvb_s = tvb_get_string_enc(NULL, tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
+			tvb_s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
 			wmem_strbuf_append(tmppath, tvb_s);
-			g_free(tvb_s);
 		}
 		offset += _9p_dissect_string(tvb, ninep_tree, offset, hf_9P_filename, ett_9P_filename);
 
@@ -1505,9 +1466,8 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 			tmppath = wmem_strbuf_sized_new(wmem_packet_scope(), 0, MAXPATHLEN);
 			wmem_strbuf_append(tmppath, fid_path);
 			wmem_strbuf_append_c(tmppath, '/');
-			tvb_s = tvb_get_string_enc(NULL, tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
+			tvb_s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
 			wmem_strbuf_append(tmppath, tvb_s);
-			g_free(tvb_s);
 		}
 		offset += _9p_dissect_string(tvb, ninep_tree, offset, hf_9P_filename, ett_9P_filename);
 
@@ -1549,7 +1509,7 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 
 		len = tvb_reported_length_remaining(tvb, offset);
 		reportedlen = ((gint)u32&0xffff) > len ? len : (gint)u32&0xffff;
-		next_tvb = tvb_new_subset(tvb, offset, len, reportedlen);
+		next_tvb = tvb_new_subset_length_caplen(tvb, offset, len, reportedlen);
 		call_data_dissector(next_tvb, pinfo, tree);
 		offset += len;
 
@@ -1570,7 +1530,7 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 		offset += 4;
 		len = tvb_reported_length_remaining(tvb, offset);
 		reportedlen = ((gint)u32&0xffff) > len ? len : (gint)u32&0xffff;
-		next_tvb = tvb_new_subset(tvb, offset, len, reportedlen);
+		next_tvb = tvb_new_subset_length_caplen(tvb, offset, len, reportedlen);
 		call_data_dissector(next_tvb, pinfo, tree);
 		offset += len;
 
@@ -1604,14 +1564,10 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 		dissect_9P_dm(tvb, ti, offset, 0);
 		offset += 4;
 
-		tv.secs = tvb_get_letohl(tvb, offset);
-		tv.nsecs = 0;
-		proto_tree_add_time(ninep_tree, hf_9P_atime, tvb, offset, 4, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_atime, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
 		offset += 4;
 
-		tv.secs = tvb_get_letohl(tvb, offset);
-		tv.nsecs = 0;
-		proto_tree_add_time(ninep_tree, hf_9P_mtime, tvb, offset, 4, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_mtime, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
 		offset += 4;
 
 		proto_tree_add_item(ninep_tree, hf_9P_length, tvb, offset, 8, ENC_LITTLE_ENDIAN);
@@ -1650,14 +1606,10 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 		dissect_9P_dm(tvb, ti, offset, 0);
 		offset += 4;
 
-		tv.secs = tvb_get_letohl(tvb, offset);
-		tv.nsecs = 0;
-		proto_tree_add_time(ninep_tree, hf_9P_atime, tvb, offset, 4, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_atime, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
 		offset += 4;
 
-		tv.secs = tvb_get_letohl(tvb, offset);
-		tv.nsecs = 0;
-		proto_tree_add_time(ninep_tree, hf_9P_mtime, tvb, offset, 4, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_mtime, tvb, offset, 4, ENC_TIME_SECS|ENC_LITTLE_ENDIAN);
 		offset += 4;
 
 		proto_tree_add_item(ninep_tree, hf_9P_length, tvb, offset, 8, ENC_LITTLE_ENDIAN);
@@ -1717,24 +1669,16 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 		proto_tree_add_item(ninep_tree, hf_9P_blocks, tvb, offset, 8, ENC_LITTLE_ENDIAN);
 		offset += 8;
 
-		tv.secs = (time_t)tvb_get_letoh64(tvb, offset);
-		tv.nsecs = (guint32)tvb_get_letoh64(tvb, offset+8);
-		proto_tree_add_time(ninep_tree, hf_9P_atime, tvb, offset, 16, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_atime, tvb, offset, 16, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 		offset += 16;
 
-		tv.secs = (time_t)tvb_get_letoh64(tvb, offset);
-		tv.nsecs = (guint32)tvb_get_letoh64(tvb, offset+8);
-		proto_tree_add_time(ninep_tree, hf_9P_mtime, tvb, offset, 16, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_mtime, tvb, offset, 16, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 		offset += 16;
 
-		tv.secs = (time_t)tvb_get_letoh64(tvb, offset);
-		tv.nsecs = (guint32)tvb_get_letoh64(tvb, offset+8);
-		proto_tree_add_time(ninep_tree, hf_9P_ctime, tvb, offset, 16, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_ctime, tvb, offset, 16, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 		offset += 16;
 
-		tv.secs = (time_t)tvb_get_letoh64(tvb, offset);
-		tv.nsecs = (guint32)tvb_get_letoh64(tvb, offset+8);
-		proto_tree_add_time(ninep_tree, hf_9P_btime, tvb, offset, 16, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_btime, tvb, offset, 16, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 		offset += 16;
 
 		proto_tree_add_item(ninep_tree, hf_9P_gen, tvb, offset, 8, ENC_LITTLE_ENDIAN);
@@ -1769,14 +1713,10 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 		proto_tree_add_item(ninep_tree, hf_9P_size, tvb, offset, 8, ENC_LITTLE_ENDIAN);
 		offset += 8;
 
-		tv.secs = (time_t)tvb_get_letoh64(tvb, offset);
-		tv.nsecs = (guint32)tvb_get_letoh64(tvb, offset+8);
-		proto_tree_add_time(ninep_tree, hf_9P_atime, tvb, offset, 16, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_atime, tvb, offset, 16, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 		offset += 16;
 
-		tv.secs = (time_t)tvb_get_letoh64(tvb, offset);
-		tv.nsecs = (guint32)tvb_get_letoh64(tvb, offset+8);
-		proto_tree_add_time(ninep_tree, hf_9P_mtime, tvb, offset, 16, &tv);
+		proto_tree_add_item(ninep_tree, hf_9P_mtime, tvb, offset, 16, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 		offset += 16;
 
 		conv_set_tag(pinfo, tag, ninemsg, _9P_NOFID, NULL);
@@ -1872,9 +1812,8 @@ static int dissect_9P_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 			wmem_strbuf_append(tmppath, conv_get_fid(pinfo, dfid));
 			wmem_strbuf_append_c(tmppath, '/');
 
-			tvb_s = tvb_get_string_enc(NULL, tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
+			tvb_s = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+2, _9p_len, ENC_UTF_8|ENC_NA);
 			wmem_strbuf_append(tmppath, tvb_s);
-			g_free(tvb_s);
 
 			conv_set_fid(pinfo, fid, wmem_strbuf_get_str(tmppath), wmem_strbuf_get_len(tmppath)+1);
 		}
@@ -2749,8 +2688,7 @@ void proto_register_9P(void)
 	expert_9P = expert_register_protocol(proto_9P);
 	expert_register_field_array(expert_9P, ei, array_length(ei));
 
-	register_init_routine(_9p_hash_init);
-	register_cleanup_routine(_9p_hash_cleanup);
+	_9p_hashtable = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), _9p_hash_hash, _9p_hash_equal);
 }
 
 void proto_reg_handoff_9P(void)
@@ -2759,7 +2697,7 @@ void proto_reg_handoff_9P(void)
 
 	ninep_handle = create_dissector_handle(dissect_9P, proto_9P);
 
-	dissector_add_uint("tcp.port", NINEPORT, ninep_handle);
+	dissector_add_uint_with_preference("tcp.port", NINEPORT, ninep_handle);
 }
 
 

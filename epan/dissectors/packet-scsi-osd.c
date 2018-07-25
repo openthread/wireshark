@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2002 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -570,7 +558,7 @@ dissect_osd_attributes_list(packet_info *pinfo, tvbuff_t *tvb, int offset,
             /* user object id */
             dissect_osd_user_object_id(tvb, offset, tt);
             offset += 8;
-            /* fallthrough to the next case */
+            /* fallthrough */
         case 0x09: /* retrieved/set attributes OSD-1: 7.1.3.3  OSD-2: 7.1.4.3*/
             offset = dissect_osd_attribute_list_entry(pinfo, tvb, tt, ti, offset, lun_info, osd2);
             break;
@@ -4018,14 +4006,14 @@ proto_register_scsi_osd(void)
         { &ei_osd_attr_unknown,    { "scsi_osd.attr_unknown",    PI_UNDECODED, PI_NOTE,  "Unknown attribute, cannot decode attribute value", EXPFILL }},
         { &ei_osd2_invalid_offset, { "scsi_osd2.invalid_offset", PI_UNDECODED, PI_ERROR, "Invalid offset exponent", EXPFILL }},
         { &ei_osd2_invalid_object_descriptor_format, { "scsi_osd2.object_descriptor_format.invalid", PI_UNDECODED, PI_ERROR, "Invalid list format", EXPFILL }},
-        { &ei_osd_unknown_attributes_list_type, {"scsi_osd.attributes_list.type.invalid", PI_UNDECODED, PI_ERROR, "Unknown attribute list type", EXPFILL }},
-        { &ei_osd2_cdb_continuation_format_unknown, {"scsi_osd2.cdb_continuation.format.unknown", PI_UNDECODED, PI_ERROR, "Unknown CDB Continuation Format", EXPFILL }},
-        { &ei_osd2_continued_service_action_mismatch, {"scsi_osd2.cdb_continuation.sa.mismatch", PI_PROTOCOL, PI_WARN, "CONTINUED SERVICE ACTION and SERVICE ACTION do not match", EXPFILL }},
-        { &ei_osd2_cdb_continuation_descriptor_type_unknown, {"scsi_osd2.cdb_continuation.desc.type.unknown", PI_UNDECODED, PI_WARN, "Unknown descriptor type", EXPFILL }},
-        { &ei_osd2_cdb_continuation_descriptor_length_invalid, {"scsi_osd2.cdb_continuation.desc.length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid descriptor length (not a multiple of 8)", EXPFILL }},
-        { &ei_osd2_cdb_continuation_length_invalid, {"scsi_osd2.cdb_continuation.length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid CDB continuation length", EXPFILL }},
-        { &ei_osd_attr_length_invalid, {"scsi_osd.attribute_length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid Attribute Length", EXPFILL }},
-        { &ei_osd2_query_values_equal, {"scsi_osd2.query.entry.equal", PI_PROTOCOL, PI_NOTE, "The minimum and maximum values are equal", EXPFILL }},
+        { &ei_osd_unknown_attributes_list_type, { "scsi_osd.attributes_list.type.invalid", PI_UNDECODED, PI_ERROR, "Unknown attribute list type", EXPFILL }},
+        { &ei_osd2_cdb_continuation_format_unknown, { "scsi_osd2.cdb_continuation.format.unknown", PI_UNDECODED, PI_ERROR, "Unknown CDB Continuation Format", EXPFILL }},
+        { &ei_osd2_continued_service_action_mismatch, { "scsi_osd2.cdb_continuation.sa.mismatch", PI_PROTOCOL, PI_WARN, "CONTINUED SERVICE ACTION and SERVICE ACTION do not match", EXPFILL }},
+        { &ei_osd2_cdb_continuation_descriptor_type_unknown, { "scsi_osd2.cdb_continuation.desc.type.unknown", PI_UNDECODED, PI_WARN, "Unknown descriptor type", EXPFILL }},
+        { &ei_osd2_cdb_continuation_descriptor_length_invalid, { "scsi_osd2.cdb_continuation.desc.length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid descriptor length (not a multiple of 8)", EXPFILL }},
+        { &ei_osd2_cdb_continuation_length_invalid, { "scsi_osd2.cdb_continuation.length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid CDB continuation length", EXPFILL }},
+        { &ei_osd_attr_length_invalid, { "scsi_osd.attribute_length.invalid", PI_PROTOCOL, PI_ERROR, "Invalid Attribute Length", EXPFILL }},
+        { &ei_osd2_query_values_equal, { "scsi_osd2.query.entry.equal", PI_PROTOCOL, PI_NOTE, "The minimum and maximum values are equal", EXPFILL }},
     };
 
     /* Register the protocol name and description */

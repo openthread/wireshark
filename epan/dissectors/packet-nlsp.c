@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -442,7 +430,6 @@ nlsp_dissect_nlsp_hello(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 {
 	guint16		packet_length;
 	int 		len;
-	guint16		holding_timer;
 
 	if (hello_type == NLSP_TYPE_WAN_HELLO) {
 		proto_tree_add_item(tree, hf_nlsp_hello_state, tvb,
@@ -462,9 +449,7 @@ nlsp_dissect_nlsp_hello(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
 	offset += 6;
 
-	holding_timer = tvb_get_ntohs(tvb, offset);
-	proto_tree_add_uint_format_value(tree, hf_nlsp_hello_holding_timer,
-		tvb, offset, 2, holding_timer, "%us", holding_timer);
+	proto_tree_add_item(tree, hf_nlsp_hello_holding_timer, tvb, offset, 2, ENC_BIG_ENDIAN);
 	offset += 2;
 
 	packet_length = tvb_get_ntohs(tvb, offset);
@@ -680,8 +665,7 @@ dissect_lsp_link_info_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, i
 		    "Short link info entry");
 		return;
 	}
-	proto_tree_add_uint_format_value(tree, hf_nlsp_link_info_delay, tvb, offset, 4,
-			tvb_get_ntohl(tvb, offset), "%uus", tvb_get_ntohl(tvb, offset));
+	proto_tree_add_item(tree, hf_nlsp_link_info_delay, tvb, offset, 4, ENC_BIG_ENDIAN);
 	offset += 4;
 	length -= 4;
 
@@ -690,8 +674,7 @@ dissect_lsp_link_info_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, i
 		    "Short link info entry");
 		return;
 	}
-	proto_tree_add_uint_format_value(tree, hf_nlsp_link_info_throughput, tvb, offset, 4,
-			tvb_get_ntohl(tvb, offset), "%u bits/s", tvb_get_ntohl(tvb, offset));
+	proto_tree_add_item(tree, hf_nlsp_link_info_throughput, tvb, offset, 4, ENC_BIG_ENDIAN);
 	offset += 4;
 	length -= 4;
 
@@ -798,12 +781,6 @@ dissect_lsp_ext_routes_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, 
 			   int length)
 {
 	while (length > 0) {
-		if (length < 1) {
-			proto_tree_add_expert_format(tree, pinfo, &ei_nlsp_short_packet, tvb, offset, -1,
-			    "Short external routes entry");
-			return;
-		}
-
 		proto_tree_add_item(tree, hf_nlsp_ext_routes_hops, tvb, offset, 1, ENC_BIG_ENDIAN);
 		offset += 1;
 		length -= 1;
@@ -824,8 +801,7 @@ dissect_lsp_ext_routes_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, 
 			return;
 		}
 
-		proto_tree_add_uint_format_value(tree, hf_nlsp_ext_routes_rip_delay, tvb, offset, 2,
-				tvb_get_ntohs(tvb, offset), "%u ticks", tvb_get_ntohs(tvb, offset));
+		proto_tree_add_item(tree, hf_nlsp_ext_routes_rip_delay, tvb, offset, 2, ENC_BIG_ENDIAN);
 		offset += 2;
 		length -= 2;
 	}
@@ -918,8 +894,7 @@ nlsp_dissect_nlsp_lsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	offset += 2;
 
 	remaining_lifetime = tvb_get_ntohs(tvb, offset);
-	proto_tree_add_uint_format_value(tree, hf_nlsp_remaining_lifetime, tvb, offset, 2,
-					remaining_lifetime, "%us", remaining_lifetime);
+	proto_tree_add_uint(tree, hf_nlsp_remaining_lifetime, tvb, offset, 2, remaining_lifetime);
 	offset += 2;
 
 	col_append_fstr(pinfo->cinfo, COL_INFO, ", LSP ID: %s",
@@ -945,9 +920,7 @@ nlsp_dissect_nlsp_lsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 	offset += 4;
 
 	/* XXX -> we could validate the cksum here! */
-	proto_tree_add_item(tree, hf_nlsp_lsp_checksum, tvb,
-		offset, 2, ENC_BIG_ENDIAN );
-
+	proto_tree_add_checksum(tree, tvb, offset, hf_nlsp_lsp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 	offset += 2;
 
 	if (tree) {
@@ -1024,10 +997,9 @@ dissect_csnp_lsp_entries(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, in
 
 		proto_tree_add_item(subtree, hf_nlsp_csnp_lsp_sequence_number, tvb, offset+10, 4, ENC_BIG_ENDIAN);
 
-		proto_tree_add_uint_format_value(subtree, hf_nlsp_csnp_remaining_lifetime, tvb, offset, 2,
-			tvb_get_ntohs(tvb, offset), "%us", tvb_get_ntohs(tvb, offset));
+		proto_tree_add_item(subtree, hf_nlsp_csnp_remaining_lifetime, tvb, offset, 2, ENC_BIG_ENDIAN);
 
-		proto_tree_add_item(subtree, hf_nlsp_csnp_lsp_checksum, tvb, offset+14, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_checksum(subtree, tvb, offset+14, hf_nlsp_csnp_lsp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 
 		length -= 16;
 		offset += 16;
@@ -1060,10 +1032,9 @@ dissect_psnp_lsp_entries(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, in
 
 		proto_tree_add_item(subtree, hf_nlsp_psnp_lsp_sequence_number, tvb, offset+10, 4, ENC_BIG_ENDIAN);
 
-		proto_tree_add_uint_format_value(subtree, hf_nlsp_psnp_remaining_lifetime, tvb, offset, 2,
-			tvb_get_ntohs(tvb, offset), "%us", tvb_get_ntohs(tvb, offset));
+		proto_tree_add_item(subtree, hf_nlsp_psnp_remaining_lifetime, tvb, offset, 2, ENC_BIG_ENDIAN);
 
-		proto_tree_add_item(subtree, hf_nlsp_psnp_lsp_checksum, tvb, offset+14, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_checksum(subtree, tvb, offset+14, hf_nlsp_psnp_lsp_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 
 		length -= 16;
 		offset += 16;
@@ -1391,7 +1362,7 @@ proto_register_nlsp(void)
 
 		{ &hf_nlsp_hello_holding_timer,
 		  { "Holding Timer", "nlsp.hello.holding_timer",
-		    FT_UINT8, BASE_DEC, NULL, 0x0,
+		    FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0x0,
 		    NULL, HFILL }
 		},
 
@@ -1543,12 +1514,12 @@ proto_register_nlsp(void)
 		},
 		{ &hf_nlsp_link_info_delay,
 		  { "Delay", "nlsp.link_info.delay",
-		    FT_UINT32, BASE_DEC, NULL, 0x0,
+		    FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_microseconds, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_nlsp_link_info_throughput,
 		  { "Throughput", "nlsp.link_info.throughput",
-		    FT_UINT32, BASE_DEC, NULL, 0x0,
+		    FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_bit_sec, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_nlsp_link_info_media_type,
@@ -1598,12 +1569,12 @@ proto_register_nlsp(void)
 		},
 		{ &hf_nlsp_ext_routes_rip_delay,
 		  { "RIP delay", "nlsp.ext_routes.rip_delay",
-		    FT_UINT16, BASE_DEC, NULL, 0x0,
+		    FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_tick_ticks, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_nlsp_remaining_lifetime,
 		  { "Remaining Lifetime", "nlsp.remaining_lifetime",
-		    FT_UINT16, BASE_DEC, NULL, 0x0,
+		    FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_nlsp_lsp_id_system_id,
@@ -1643,7 +1614,7 @@ proto_register_nlsp(void)
 		},
 		{ &hf_nlsp_csnp_remaining_lifetime,
 		  { "Remaining Lifetime", "nlsp.csnp.remaining_lifetime",
-		    FT_UINT16, BASE_DEC, NULL, 0x0,
+		    FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_nlsp_csnp_lsp_checksum,
@@ -1673,7 +1644,7 @@ proto_register_nlsp(void)
 		},
 		{ &hf_nlsp_psnp_remaining_lifetime,
 		  { "Remaining Lifetime", "nlsp.psnp.remaining_lifetime",
-		    FT_UINT16, BASE_DEC, NULL, 0x0,
+		    FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0x0,
 		    NULL, HFILL }
 		},
 		{ &hf_nlsp_psnp_lsp_checksum,

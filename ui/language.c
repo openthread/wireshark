@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -46,10 +34,20 @@ read_language_pref(gchar *key, const gchar *value,
                    void *private_data _U_, gboolean return_range_errors _U_)
 {
     if (strcmp(key, LANGUAGE_PREF_LANGUAGE) == 0) {
-        if (language)
-            g_free(language);
-        if (!value || !*value)
-            language = g_strdup("auto");
+        g_free(language);
+        /*
+         * For backwards compatibility, treat "auto" as meaning "use the
+         * system language".
+         *
+         * To handle the old buggy code that didn't check whether "language"
+         * was null before trying to print it, treat "(null)" - which many,
+         * but *NOT* all, system printfs print for a null pointer (some
+         * printfs, such as the one in Solaris, *crash* with %s and a null
+         * pointer) - as meaning "use the system language".
+         */
+        if (!value || !*value || strcmp(value, "auto") == 0 ||
+            strcmp(value, "(null)") == 0)
+            language = g_strdup(USE_SYSTEM_LANGUAGE);
         else
             language = g_strdup(value);
     }
@@ -113,7 +111,7 @@ write_language_prefs(void)
         "# So be careful, if you want to make manual changes here.\n"
         "\n", rf);
 
-    fprintf(rf, LANGUAGE_PREF_LANGUAGE ": %s\n", language);
+    fprintf(rf, LANGUAGE_PREF_LANGUAGE ": %s\n", language ? language : USE_SYSTEM_LANGUAGE);
 
     fclose(rf);
 

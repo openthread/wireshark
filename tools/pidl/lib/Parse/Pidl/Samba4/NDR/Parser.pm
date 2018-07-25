@@ -321,6 +321,25 @@ sub check_null_pointer($$$$)
 	}
 }
 
+sub is_deferred_switch_non_empty($)
+{
+	# 1 if there needs to be a deferred branch in an ndr_pull/push,
+	# 0 otherwise.
+	my ($e) = @_;
+	my $have_default = 0;
+	foreach my $el (@{$e->{ELEMENTS}}) {
+		if ($el->{CASE} eq "default") {
+			$have_default = 1;
+		}
+		if ($el->{TYPE} ne "EMPTY") {
+			if (ContainsDeferred($el, $el->{LEVELS}[0])) {
+				return 1;
+			}
+		}
+	}
+	return ! $have_default;
+}
+
 sub ParseArrayPullGetSize($$$$$$)
 {
 	my ($self,$e,$l,$ndr,$var_name,$env) = @_;
@@ -506,11 +525,12 @@ sub ParseCompressionPullStart($$$$$)
 	my $comndr = "$ndr\_compressed";
 	my $alg = compression_alg($e, $l);
 	my $dlen = compression_dlen($e, $l, $env);
+	my $clen = compression_clen($e, $l, $env);
 
 	$self->pidl("{");
 	$self->indent;
 	$self->pidl("struct ndr_pull *$comndr;");
-	$self->pidl("NDR_CHECK(ndr_pull_compression_start($ndr, &$comndr, $alg, $dlen));");
+	$self->pidl("NDR_CHECK(ndr_pull_compression_start($ndr, &$comndr, $alg, $dlen, $clen));");
 
 	return $comndr;
 }
@@ -617,7 +637,11 @@ sub ParseElementPushLevel
 
 			# Allow speedups for arrays of scalar types
 			if (is_charset_array($e,$l)) {
-				$self->pidl("NDR_CHECK(ndr_push_charset($ndr, $ndr_flags, $var_name, $length, sizeof(" . mapTypeName($nl->{DATA_TYPE}) . "), CH_$e->{PROPERTIES}->{charset}));");
+				if ($l->{IS_TO_NULL}) {
+					$self->pidl("NDR_CHECK(ndr_push_charset_to_null($ndr, $ndr_flags, $var_name, $length, sizeof(" . mapTypeName($nl->{DATA_TYPE}) . "), CH_$e->{PROPERTIES}->{charset}));");
+				} else {
+					$self->pidl("NDR_CHECK(ndr_push_charset($ndr, $ndr_flags, $var_name, $length, sizeof(" . mapTypeName($nl->{DATA_TYPE}) . "), CH_$e->{PROPERTIES}->{charset}));");
+				}
 				return;
 			} elsif (has_fast_array($e,$l)) {
 				$self->pidl("NDR_CHECK(ndr_push_array_$nl->{DATA_TYPE}($ndr, $ndr_flags, $var_name, $length));");
@@ -697,6 +721,11 @@ sub ParseElementPush($$$$$$)
 	my $subndr = undef;
 
 	my $var_name = $env->{$e->{NAME}};
+
+	if (has_property($e, "skip") or has_property($e, "skip_noinit")) {
+		$self->pidl("/* [skip] '$var_name' */");
+		return;
+	}
 
 	return if ContainsPipe($e, $e->{LEVELS}[0]);
 
@@ -820,8 +849,10 @@ sub ParseElementPrint($$$$$)
 	my $cur_depth = 0;
 	my $ignore_depth = 0xFFFF;
 
+	$self->start_flags($e, $ndr);
 	if ($e->{REPRESENTATION_TYPE} ne $e->{TYPE}) {
 		$self->pidl("ndr_print_$e->{REPRESENTATION_TYPE}($ndr, \"$e->{NAME}\", $var_name);");
+		$self->end_flags($e, $ndr);
 		return;
 	}
 
@@ -916,6 +947,8 @@ sub ParseElementPrint($$$$$)
 			$self->pidl("$ndr->depth--;");
 		}
 	}
+
+	$self->end_flags($e, $ndr);
 }
 
 #####################################################################
@@ -960,11 +993,7 @@ sub ParseDataPull($$$$$$$)
 
 		$var_name = get_pointer_to($var_name);
 
-		if (has_property($e, "skip")) {
-			$self->pidl("/* [skip] '$var_name' */");
-		} else {
-			$self->pidl("NDR_CHECK(".TypeFunctionName("ndr_pull", $l->{DATA_TYPE})."($ndr, $ndr_flags, $var_name));");
-		}
+		$self->pidl("NDR_CHECK(".TypeFunctionName("ndr_pull", $l->{DATA_TYPE})."($ndr, $ndr_flags, $var_name));");
 
 		my $pl = GetPrevLevel($e, $l);
 
@@ -1002,11 +1031,7 @@ sub ParseDataPush($$$$$$$)
 			$var_name = get_pointer_to($var_name);
 		}
 
-		if (has_property($e, "skip")) {
-			$self->pidl("/* [skip] '$var_name' */");
-		} else {
-			$self->pidl("NDR_CHECK(".TypeFunctionName("ndr_push", $l->{DATA_TYPE})."($ndr, $ndr_flags, $var_name));");
-		}
+		$self->pidl("NDR_CHECK(".TypeFunctionName("ndr_push", $l->{DATA_TYPE})."($ndr, $ndr_flags, $var_name));");
 	} else {
 		$self->ParseTypePush($l->{DATA_TYPE}, $ndr, $var_name, $primitives, $deferred);
 	}
@@ -1105,6 +1130,14 @@ sub ParseElementPullLevel
 
 	my $ndr_flags = CalcNdrFlags($l, $primitives, $deferred);
 	my $array_length = undef;
+
+	if (has_property($e, "skip") or has_property($e, "skip_noinit")) {
+		$self->pidl("/* [skip] '$var_name' */");
+		if (not has_property($e, "skip_noinit")) {
+			$self->pidl("ZERO_STRUCT($var_name);");
+		}
+		return;
+	}
 
 	if ($l->{TYPE} eq "ARRAY" and ($l->{IS_VARYING} or $l->{IS_CONFORMANT})) {
 		$var_name = get_pointer_to($var_name);
@@ -1629,6 +1662,11 @@ sub ParseStructPrint($$$$$)
 sub DeclarePtrVariables($$)
 {
 	my ($self,$e) = @_;
+
+	if (has_property($e, "skip") or has_property($e, "skip_noinit")) {
+		return;
+	}
+
 	foreach my $l (@{$e->{LEVELS}}) {
 		my $size = 32;
 		if ($l->{TYPE} eq "POINTER" and 
@@ -1645,6 +1683,10 @@ sub DeclarePtrVariables($$)
 sub DeclareArrayVariables($$;$)
 {
 	my ($self,$e,$pull) = @_;
+
+	if (has_property($e, "skip") or has_property($e, "skip_noinit")) {
+		return;
+	}
 
 	foreach my $l (@{$e->{LEVELS}}) {
 		next if ($l->{TYPE} ne "ARRAY");
@@ -1664,6 +1706,10 @@ sub DeclareArrayVariablesNoZero($$$)
 {
 	my ($self,$e,$env) = @_;
 
+	if (has_property($e, "skip") or has_property($e, "skip_noinit")) {
+		return;
+	}
+
 	foreach my $l (@{$e->{LEVELS}}) {
 		next if ($l->{TYPE} ne "ARRAY");
 		next if has_fast_array($e,$l);
@@ -1680,6 +1726,11 @@ sub DeclareArrayVariablesNoZero($$$)
 sub DeclareMemCtxVariables($$)
 {
 	my ($self,$e) = @_;
+
+	if (has_property($e, "skip") or has_property($e, "skip_noinit")) {
+		return;
+	}
+
 	foreach my $l (@{$e->{LEVELS}}) {
 		my $mem_flags = $self->ParseMemCtxPullFlags($e, $l);
 
@@ -1923,11 +1974,13 @@ sub ParseUnionPush($$$$)
 	$self->ParseUnionPushPrimitives($e, $ndr, $varname);
 	$self->deindent;
 	$self->pidl("}");
-	$self->pidl("if (ndr_flags & NDR_BUFFERS) {");
-	$self->indent;
-	$self->ParseUnionPushDeferred($e, $ndr, $varname);
-	$self->deindent;
-	$self->pidl("}");
+        if (is_deferred_switch_non_empty($e)) {
+                $self->pidl("if (ndr_flags & NDR_BUFFERS) {");
+                $self->indent;
+                $self->ParseUnionPushDeferred($e, $ndr, $varname);
+                $self->deindent;
+                $self->pidl("}");
+        }
 	$self->end_flags($e, $ndr);
 }
 
@@ -2072,7 +2125,7 @@ sub ParseUnionPull($$$$)
 {
 	my ($self,$e,$ndr,$varname) = @_;
 	my $switch_type = $e->{SWITCH_TYPE};
-
+        my $needs_deferred_switch = is_deferred_switch_non_empty($e);
 	$self->pidl("uint32_t level;");
 	if (defined($switch_type)) {
 		if (Parse::Pidl::Typelist::typeIs($switch_type, "ENUM")) {
@@ -2093,21 +2146,27 @@ sub ParseUnionPull($$$$)
 
 	$self->start_flags($e, $ndr);
 
-	$self->pidl("level = ndr_pull_get_switch_value($ndr, $varname);");
-
 	$self->pidl("NDR_PULL_CHECK_FLAGS(ndr, ndr_flags);");
 	$self->pidl("if (ndr_flags & NDR_SCALARS) {");
 	$self->indent;
+	if (! $needs_deferred_switch) {
+		$self->pidl("/* This token is not used again */");
+		$self->pidl("level = ndr_pull_steal_switch_value($ndr, $varname);");
+	} else {
+		$self->pidl("level = ndr_pull_get_switch_value($ndr, $varname);");
+	}
 	$self->ParseUnionPullPrimitives($e,$ndr,$varname,$switch_type);
 	$self->deindent;
 	$self->pidl("}");
-
-	$self->pidl("if (ndr_flags & NDR_BUFFERS) {");
-	$self->indent;
-	$self->ParseUnionPullDeferred($e,$ndr,$varname);
-	$self->deindent;
-	$self->pidl("}");
-
+	if ($needs_deferred_switch) {
+		$self->pidl("if (ndr_flags & NDR_BUFFERS) {");
+		$self->indent;
+		$self->pidl("/* The token is not needed after this. */");
+		$self->pidl("level = ndr_pull_steal_switch_value($ndr, $varname);");
+		$self->ParseUnionPullDeferred($e,$ndr,$varname);
+		$self->deindent;
+		$self->pidl("}");
+	}
 	$self->add_deferred();
 
 	$self->end_flags($e, $ndr);

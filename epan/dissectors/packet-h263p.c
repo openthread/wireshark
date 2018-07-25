@@ -12,19 +12,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -64,6 +52,8 @@ static gint ett_h263P_data = -1;
 /* The dynamic payload type which will be dissected as H.263-1998/H263-2000 */
 
 static guint temp_dynamic_payload_type = 0;
+
+static dissector_handle_t h263P_handle;
 
 /* RFC 4629 */
 static int
@@ -202,12 +192,10 @@ dissect_h263P( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
 void
 proto_reg_handoff_h263P(void)
 {
-    static dissector_handle_t h263P_handle;
     static guint dynamic_payload_type;
     static gboolean h263P_prefs_initialized = FALSE;
 
     if (!h263P_prefs_initialized) {
-        h263P_handle = find_dissector("h263P");
         dissector_add_string("rtp_dyn_payload_type","H263-1998", h263P_handle);
         dissector_add_string("rtp_dyn_payload_type","H263-2000", h263P_handle);
         h263P_prefs_initialized = TRUE;
@@ -409,8 +397,7 @@ proto_register_h263P(void)
                        10,
                        &temp_dynamic_payload_type);
 
-    register_dissector("h263P", dissect_h263P, proto_h263P);
-
+    h263P_handle = register_dissector("h263P", dissect_h263P, proto_h263P);
 }
 
 /*

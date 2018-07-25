@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -52,6 +40,7 @@ static int hf_isis_csnp_lsp_seq_num = -1;
 static int hf_isis_csnp_lsp_remain_life = -1;
 static int hf_isis_csnp_lsp_checksum = -1;
 static int hf_isis_csnp_checksum = -1;
+static int hf_isis_csnp_checksum_status = -1;
 static int hf_isis_csnp_clv_type = -1;
 static int hf_isis_csnp_clv_length = -1;
 static int hf_isis_csnp_ip_authentication = -1;
@@ -71,6 +60,7 @@ static expert_field ei_isis_csnp_short_packet = EI_INIT;
 static expert_field ei_isis_csnp_long_packet = EI_INIT;
 static expert_field ei_isis_csnp_authentication = EI_INIT;
 static expert_field ei_isis_csnp_clv_unknown = EI_INIT;
+static expert_field ei_isis_csnp_checksum = EI_INIT;
 
 /* psnp packets */
 static int hf_isis_psnp_pdu_length = -1;
@@ -94,7 +84,7 @@ static void
 dissect_snp_authentication_clv(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, int offset,
     int id_length _U_, int length)
 {
-    isis_dissect_authentication_clv(tree, pinfo, tvb, hf_isis_csnp_authentication, &ei_isis_csnp_authentication, offset, length);
+    isis_dissect_authentication_clv(tree, pinfo, tvb, hf_isis_csnp_authentication, hf_isis_clv_key_id, &ei_isis_csnp_authentication, offset, length);
 }
 
 static void
@@ -134,7 +124,6 @@ dissect_snp_checksum_clv(tvbuff_t *tvb, packet_info* pinfo,
             return;
     }
 
-    ti = proto_tree_add_item( tree, hf_isis_csnp_checksum, tvb, offset, length, ENC_BIG_ENDIAN);
 
     checksum = tvb_get_ntohs(tvb, offset);
 
@@ -145,22 +134,18 @@ dissect_snp_checksum_clv(tvbuff_t *tvb, packet_info* pinfo,
 
     pdu_length = tvb_get_ntohs(tvb, 8);
 
-    /* unlike the LSP checksum verification which starts at an offset of 12 we start at offset 0*/
-    switch (check_and_get_checksum(tvb, 0, pdu_length, checksum, offset, &cacl_checksum))
-    {
-        case NO_CKSUM :
-             proto_item_append_text(ti, " [unused]");
-           break;
-        case DATA_MISSING :
-             expert_add_info_format(pinfo, ti, &ei_isis_csnp_long_packet,
+    if (checksum == 0) {
+        /* No checksum present */
+        proto_tree_add_checksum(tree, tvb, offset, hf_isis_csnp_checksum, hf_isis_csnp_checksum_status, &ei_isis_csnp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NOT_PRESENT);
+    } else {
+        if (osi_check_and_get_checksum(tvb, 0, pdu_length, offset, &cacl_checksum)) {
+            /* Successfully processed checksum, verify it */
+            proto_tree_add_checksum(tree, tvb, offset, hf_isis_csnp_checksum, hf_isis_csnp_checksum_status, &ei_isis_csnp_checksum, pinfo, cacl_checksum, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
+        } else {
+            ti = proto_tree_add_checksum(tree, tvb, offset, hf_isis_csnp_checksum, hf_isis_csnp_checksum_status, &ei_isis_csnp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
+            expert_add_info_format(pinfo, ti, &ei_isis_csnp_long_packet,
                                         "Packet length %d went beyond packet", tvb_captured_length(tvb));
-        break;
-        case CKSUM_NOT_OK :
-             proto_item_append_text(ti, " [incorrect, should be 0x%04x]", cacl_checksum);
-        break;
-        case CKSUM_OK :
-             proto_item_append_text(ti, " [correct]");
-        break;
+        }
     }
 }
 
@@ -518,6 +503,9 @@ proto_register_isis_csnp(void)
         { &hf_isis_csnp_checksum,
         { "Checksum",        "isis.csnp.checksum", FT_UINT16,
           BASE_HEX, NULL, 0x0, NULL, HFILL }},
+        { &hf_isis_csnp_checksum_status,
+        { "Checksum Status",        "isis.csnp.checksum.status", FT_UINT8,
+          BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
         { &hf_isis_csnp_clv_type,
         { "Type",        "isis.csnp.clv.type", FT_UINT8,
           BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -554,6 +542,7 @@ proto_register_isis_csnp(void)
         { &ei_isis_csnp_long_packet, { "isis.csnp.long_packet", PI_MALFORMED, PI_ERROR, "Long packet", EXPFILL }},
         { &ei_isis_csnp_authentication, { "isis.csnp.authentication.unknown", PI_PROTOCOL, PI_WARN, "Unknown authentication type", EXPFILL }},
         { &ei_isis_csnp_clv_unknown, { "isis.csnp.clv.unknown", PI_UNDECODED, PI_NOTE, "Unknown option", EXPFILL }},
+        { &ei_isis_csnp_checksum, { "isis.csnp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
     };
     expert_module_t* expert_isis_csnp;
 

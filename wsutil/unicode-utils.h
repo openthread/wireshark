@@ -5,25 +5,11 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2006 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __UNICODEUTIL_H__
 #define __UNICODEUTIL_H__
-
-#include <config.h>
 
 #include "ws_symbol_export.h"
 
@@ -55,7 +41,7 @@ int ws_utf8_char_len(guint8 ch);
  * NULL.  The return value should NOT be freed by the caller.
  */
 WS_DLL_PUBLIC
-wchar_t * utf_8to16(const char *utf8str);
+const wchar_t * utf_8to16(const char *utf8str);
 
 /** Create a UTF-16 string (in place) according to the format string.
  *
@@ -101,7 +87,7 @@ void arg_list_utf_16to8(int argc, char *argv[]);
 #define IS_TRAIL_SURROGATE(uchar2) \
 	((uchar2) >= 0xdc00 && (uchar2) < 0xe000)
 #define SURROGATE_VALUE(lead, trail) \
-	(((((lead) - 0xd800) << 10) | ((trail) - 0xdc00)) + 0x100000)
+	(((((lead) - 0xd800) << 10) | ((trail) - 0xdc00)) + 0x10000)
 
 #ifdef	__cplusplus
 }

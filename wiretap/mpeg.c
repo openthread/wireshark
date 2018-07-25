@@ -5,26 +5,12 @@
  * Copyright 2007 Shaun Jackman
  *
  * Wiretap Library
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
-#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
-#endif
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -73,7 +59,7 @@ mpeg_resync(FILE_T fh, int *err)
 #define SCRHZ 27000000
 
 static gboolean
-mpeg_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
+mpeg_read_packet(wtap *wth, FILE_T fh, wtap_rec *rec, Buffer *buf,
     gboolean is_random, int *err, gchar **err_info)
 {
 	mpeg_t *mpeg = (mpeg_t *)wth->priv;
@@ -101,7 +87,7 @@ mpeg_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
 		gint64 offset = file_tell(fh);
 		guint8 stream;
 
-		if (!file_skip(fh, 3, err))
+		if (!wtap_read_bytes(fh, NULL, 3, err, err_info))
 			return FALSE;
 
 		if (!wtap_read_bytes(fh, &stream, sizeof stream, err, err_info))
@@ -121,7 +107,8 @@ mpeg_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
 
 			switch (pack >> 62) {
 				case 1:
-					if (!file_skip(fh, 1, err))
+					if (!wtap_read_bytes(fh, NULL, 1, err,
+					    err_info))
 						return FALSE;
 					if (!wtap_read_bytes(fh, &stuffing,
 					    sizeof stuffing, err, err_info))
@@ -181,15 +168,15 @@ mpeg_read_packet(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf,
 	if (!wtap_read_packet_bytes(fh, buf, packet_size, err, err_info))
 		return FALSE;
 
-	phdr->rec_type = REC_TYPE_PACKET;
+	rec->rec_type = REC_TYPE_PACKET;
 
 	/* XXX - relative, not absolute, time stamps */
 	if (!is_random) {
-		phdr->presence_flags = WTAP_HAS_TS;
-		phdr->ts = ts;
+		rec->presence_flags = WTAP_HAS_TS;
+		rec->ts = ts;
 	}
-	phdr->caplen = packet_size;
-	phdr->len = packet_size;
+	rec->rec_header.packet_header.caplen = packet_size;
+	rec->rec_header.packet_header.len = packet_size;
 
 	return TRUE;
 }
@@ -199,19 +186,19 @@ mpeg_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 {
 	*data_offset = file_tell(wth->fh);
 
-	return mpeg_read_packet(wth, wth->fh, &wth->phdr, wth->frame_buffer,
+	return mpeg_read_packet(wth, wth->fh, &wth->rec, wth->rec_data,
 	    FALSE, err, err_info);
 }
 
 static gboolean
 mpeg_seek_read(wtap *wth, gint64 seek_off,
-		struct wtap_pkthdr *phdr, Buffer *buf,
+		wtap_rec *rec, Buffer *buf,
 		int *err, gchar **err_info)
 {
 	if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
 		return FALSE;
 
-	if (!mpeg_read_packet(wth, wth->random_fh, phdr, buf, TRUE, err,
+	if (!mpeg_read_packet(wth, wth->random_fh, rec, buf, TRUE, err,
 	    err_info)) {
 		if (*err == 0)
 			*err = WTAP_ERR_SHORT_READ;

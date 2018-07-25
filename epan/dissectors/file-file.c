@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2000 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -38,7 +26,6 @@
 #include <epan/expert.h>
 #include <epan/proto_data.h>
 
-#include <wsutil/md5.h>
 #include <wsutil/str_util.h>
 
 #include <epan/color_filters.h>
@@ -107,8 +94,6 @@ dissect_file_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 	if(!proto_field_is_referenced(tree, proto_file)) {
 		tree=NULL;
 	} else {
-		gboolean old_visible;
-
 		/* Put in frame header information. */
 		cap_len = tvb_captured_length(tvb);
 		frame_len = tvb_reported_length(tvb);
@@ -124,7 +109,8 @@ dissect_file_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 
 		fh_tree = proto_item_add_subtree(ti, ett_file);
 
-		proto_tree_add_int(fh_tree, hf_file_ftap_encap, tvb, 0, 0, pinfo->pkt_encap);
+		if (pinfo->rec->rec_type == REC_TYPE_PACKET)
+			proto_tree_add_int(fh_tree, hf_file_ftap_encap, tvb, 0, 0, pinfo->rec->rec_header.packet_header.pkt_encap);
 
 		proto_tree_add_uint(fh_tree, hf_file_record_number, tvb, 0, 0, pinfo->num);
 
@@ -137,20 +123,6 @@ dissect_file_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 
 		ti = proto_tree_add_boolean(fh_tree, hf_file_ignored, tvb, 0, 0,pinfo->fd->flags.ignored);
 		PROTO_ITEM_SET_GENERATED(ti);
-
-		if(proto_field_is_referenced(tree, hf_file_protocols)) {
-			/* we are going to be using proto_item_append_string() on
-			 * hf_frame_protocols, and we must therefore disable the
-			 * TRY_TO_FAKE_THIS_ITEM() optimisation for the tree by
-			 * setting it as visible.
-			 *
-			 * See proto.h for details.
-			 */
-			old_visible = proto_tree_set_visible(fh_tree, TRUE);
-			ti = proto_tree_add_string(fh_tree, hf_file_protocols, tvb, 0, 0, "");
-			PROTO_ITEM_SET_GENERATED(ti);
-			proto_tree_set_visible(fh_tree, old_visible);
-		}
 
 		if(pinfo->fd->pfd != 0){
 			proto_item *ppd_item;
@@ -194,12 +166,13 @@ dissect_file_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 		*/
 		__try {
 #endif
-			if (!dissector_try_uint(file_encap_dissector_table, pinfo->pkt_encap,
+			if (pinfo->rec->rec_type != REC_TYPE_PACKET ||
+			    !dissector_try_uint(file_encap_dissector_table, pinfo->rec->rec_header.packet_header.pkt_encap,
 						tvb, pinfo, parent_tree)) {
 
 				col_set_str(pinfo->cinfo, COL_PROTOCOL, "UNKNOWN");
 				col_add_fstr(pinfo->cinfo, COL_INFO, "FTAP_ENCAP = %d",
-					     pinfo->pkt_encap);
+					     pinfo->rec->rec_header.packet_header.pkt_encap);
 				call_data_dissector(tvb, pinfo, parent_tree);
 			}
 #ifdef _MSC_VER
@@ -246,7 +219,8 @@ dissect_file_record(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 			wmem_strbuf_append(val, proto_get_protocol_filter_name(GPOINTER_TO_UINT(wmem_list_frame_data(frame))));
 			frame = wmem_list_frame_next(frame);
 		}
-		proto_item_append_string(ti, wmem_strbuf_get_str(val));
+		ti = proto_tree_add_string(fh_tree, hf_file_protocols, tvb, 0, 0, wmem_strbuf_get_str(val));
+		PROTO_ITEM_SET_GENERATED(ti);
 	}
 
 	/*  Call postdissectors if we have any (while trying to avoid another
@@ -401,7 +375,7 @@ proto_register_file(void)
 	register_dissector("file",dissect_file_record,proto_file);
 
 	file_encap_dissector_table = register_dissector_table("ftap_encap",
-	    "Filetap encapsulation type", proto_file, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "Filetap encapsulation type", proto_file, FT_UINT32, BASE_DEC);
 
 	/* You can't disable dissection of "Frame", as that would be
 	   tantamount to not doing any dissection whatsoever. */

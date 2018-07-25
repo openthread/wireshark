@@ -8,26 +8,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/decode_as.h>
 
 void proto_register_moldudp(void);
 void proto_reg_handoff_moldudp(void);
@@ -49,15 +37,19 @@ static int hf_moldudp_msgdata  = -1;
 
 #define MOLDUDP_HEARTBEAT 0x0000
 
-/* Global port pref */
-static guint pf_moldudp_port = 0;
-
 /* Initialize the subtree pointers */
 static gint ett_moldudp        = -1;
 static gint ett_moldudp_msgblk = -1;
 
 static expert_field ei_moldudp_msglen_invalid = EI_INIT;
 static expert_field ei_moldudp_count_invalid = EI_INIT;
+
+static dissector_table_t moldudp_payload_table;
+
+static void moldudp_prompt(packet_info *pinfo _U_, gchar* result)
+{
+    g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Payload as");
+}
 
 /* Code to dissect a message block */
 static guint
@@ -68,6 +60,7 @@ dissect_moldudp_msgblk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     proto_tree *blk_tree;
     guint16     msglen, real_msglen, whole_len;
     guint       remaining;
+    tvbuff_t*   next_tvb;
 
     if (tvb_reported_length(tvb) - offset < MOLDUDP_MSGLEN_LEN)
         return 0;
@@ -109,8 +102,15 @@ dissect_moldudp_msgblk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
     offset += MOLDUDP_MSGLEN_LEN;
 
-    proto_tree_add_item(blk_tree, hf_moldudp_msgdata,
-            tvb, offset, real_msglen, ENC_NA);
+
+    /* Functionality for choosing subdissector is controlled through Decode As as MoldUDP doesn't
+       have a unique identifier to determine subdissector */
+    next_tvb = tvb_new_subset_length(tvb, offset, real_msglen);
+    if (!dissector_try_payload_new(moldudp_payload_table, next_tvb, pinfo, tree, FALSE, NULL))
+    {
+        proto_tree_add_item(blk_tree, hf_moldudp_msgdata,
+                tvb, offset, real_msglen, ENC_NA);
+    }
 
     return whole_len;
 }
@@ -187,8 +187,6 @@ dissect_moldudp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
 void
 proto_register_moldudp(void)
 {
-    module_t *moldudp_module;
-
     /* Setup list of header fields */
     static hf_register_info hf[] = {
 
@@ -235,8 +233,7 @@ proto_register_moldudp(void)
     expert_module_t* expert_moldudp;
 
     /* Register the protocol name and description */
-    proto_moldudp = proto_register_protocol("MoldUDP",
-            "MoldUDP", "moldudp");
+    proto_moldudp = proto_register_protocol("MoldUDP", "MoldUDP", "moldudp");
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_moldudp, hf, array_length(hf));
@@ -244,37 +241,17 @@ proto_register_moldudp(void)
     expert_moldudp = expert_register_protocol(proto_moldudp);
     expert_register_field_array(expert_moldudp, ei, array_length(ei));
 
-    /* Register preferences module */
-    moldudp_module = prefs_register_protocol(proto_moldudp,
-            proto_reg_handoff_moldudp);
-
-    /* Register a port preference   */
-    prefs_register_uint_preference(moldudp_module, "udp.port", "MoldUDP UDP Port",
-            "MoldUDP UDP port to capture on.",
-            10, &pf_moldudp_port);
+    moldudp_payload_table = register_decode_as_next_proto(proto_moldudp, "MoldUDP Payload", "moldudp.payload", "MoldUDP Payload", moldudp_prompt);
 }
 
 
 void
 proto_reg_handoff_moldudp(void)
 {
-    static gboolean           initialized = FALSE;
-    static dissector_handle_t moldudp_handle;
-    static int                currentPort;
+    dissector_handle_t moldudp_handle;
 
-    if (!initialized) {
-        moldudp_handle = create_dissector_handle(dissect_moldudp,
-                proto_moldudp);
-        initialized = TRUE;
-    } else {
-
-        dissector_delete_uint("udp.port", currentPort, moldudp_handle);
-    }
-
-    currentPort = pf_moldudp_port;
-
-    dissector_add_uint("udp.port", currentPort, moldudp_handle);
-
+    moldudp_handle = create_dissector_handle(dissect_moldudp, proto_moldudp);
+    dissector_add_for_decode_as_with_preference("udp.port", moldudp_handle);
 }
 
 /*

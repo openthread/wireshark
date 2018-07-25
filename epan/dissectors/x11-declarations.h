@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald[AT]wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 static int hf_x11_above_sibling = -1;
@@ -4546,14 +4534,6 @@ static int hf_x11_xinput_QueryDeviceState_device_id = -1;
 static int hf_x11_xinput_QueryDeviceState_reply_xi_reply_type = -1;
 static int hf_x11_xinput_QueryDeviceState_reply_num_classes = -1;
 static int hf_x11_xinput_QueryDeviceState_reply_classes = -1;
-static int hf_x11_xinput_SendExtensionEvent_destination = -1;
-static int hf_x11_xinput_SendExtensionEvent_device_id = -1;
-static int hf_x11_xinput_SendExtensionEvent_propagate = -1;
-static int hf_x11_xinput_SendExtensionEvent_num_classes = -1;
-static int hf_x11_xinput_SendExtensionEvent_num_events = -1;
-static int hf_x11_xinput_SendExtensionEvent_events = -1;
-static int hf_x11_xinput_SendExtensionEvent_classes = -1;
-static int hf_x11_xinput_SendExtensionEvent_classes_item = -1;
 static int hf_x11_xinput_DeviceBell_device_id = -1;
 static int hf_x11_xinput_DeviceBell_feedback_id = -1;
 static int hf_x11_xinput_DeviceBell_feedback_class = -1;
@@ -5142,6 +5122,14 @@ static int hf_x11_xinput_BarrierHit_root_x = -1;
 static int hf_x11_xinput_BarrierHit_root_y = -1;
 static int hf_x11_xinput_BarrierHit_dx = -1;
 static int hf_x11_xinput_BarrierHit_dy = -1;
+static int hf_x11_xinput_SendExtensionEvent_destination = -1;
+static int hf_x11_xinput_SendExtensionEvent_device_id = -1;
+static int hf_x11_xinput_SendExtensionEvent_propagate = -1;
+static int hf_x11_xinput_SendExtensionEvent_num_classes = -1;
+static int hf_x11_xinput_SendExtensionEvent_num_events = -1;
+static int hf_x11_xinput_SendExtensionEvent_events = -1;
+static int hf_x11_xinput_SendExtensionEvent_classes = -1;
+static int hf_x11_xinput_SendExtensionEvent_classes_item = -1;
 static int hf_x11_xinput_extension_minor = -1;
 
 static int hf_x11_struct_xkb_IndicatorMap = -1;
@@ -6982,7 +6970,6 @@ static int hf_x11_xkb_GetNames_reply_Compat_compatName = -1;
 static int hf_x11_xkb_GetNames_reply_KeyTypeNames_typeNames = -1;
 static int hf_x11_xkb_GetNames_reply_KeyTypeNames_typeNames_item = -1;
 static int hf_x11_xkb_GetNames_reply_KTLevelNames_nLevelsPerType = -1;
-static int hf_x11_xkb_GetNames_reply_KTLevelNames_alignment_pad = -1;
 static int hf_x11_xkb_GetNames_reply_KTLevelNames_ktLevelNames = -1;
 static int hf_x11_xkb_GetNames_reply_KTLevelNames_ktLevelNames_item = -1;
 static int hf_x11_xkb_GetNames_reply_IndicatorNames_indicatorNames = -1;

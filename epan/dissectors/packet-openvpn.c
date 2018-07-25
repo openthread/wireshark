@@ -13,19 +13,7 @@
  *   Stiftinger Thomas
  *   Werner Sebastian
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -90,8 +78,6 @@ static dissector_handle_t ssl_handle;
 static gboolean pref_long_format       = TRUE;
 static gboolean pref_tls_auth          = FALSE;
 static gboolean pref_tls_auth_override = FALSE;
-static guint    pref_tcp_port          = OPENVPN_PORT;
-static guint    pref_udp_port          = OPENVPN_PORT;
 static guint    tls_auth_hmac_size     = 20; /* Default SHA-1 160 Bits */
 
 static const value_string openvpn_message_types[] =
@@ -146,19 +132,6 @@ static const fragment_items openvpn_frag_items = {
   /* Tag */
   "Message fragments"
 };
-
-static void
-openvpn_reassemble_init(void)
-{
-  reassembly_table_init(&msg_reassembly_table,
-                        &addresses_reassembly_table_functions);
-}
-
-static void
-openvpn_reassemble_cleanup(void)
-{
-  reassembly_table_destroy(&msg_reassembly_table);
-}
 
 /* we check the leading 4 byte of a suspected hmac for 0x00 bytes,
    if more than 1 byte out of the 4 provided contains 0x00, the
@@ -613,21 +586,11 @@ proto_register_openvpn(void)
   openvpn_udp_handle = register_dissector("openvpn.udp", dissect_openvpn_udp, proto_openvpn);
   openvpn_tcp_handle = register_dissector("openvpn.tcp", dissect_openvpn_tcp, proto_openvpn);
 
-  register_init_routine(&openvpn_reassemble_init);
-  register_cleanup_routine(&openvpn_reassemble_cleanup);
+  reassembly_table_register(&msg_reassembly_table,
+                        &addresses_reassembly_table_functions);
 
-  openvpn_module = prefs_register_protocol(proto_openvpn, proto_reg_handoff_openvpn);
+  openvpn_module = prefs_register_protocol(proto_openvpn, NULL);
 
-  prefs_register_uint_preference(openvpn_module,
-                "tcp.port",
-                "OpenVPN TCP Port",
-                "TCP Port of the OpenVPN tunnel",
-                10, &pref_tcp_port);
-  prefs_register_uint_preference(openvpn_module,
-                "udp.port",
-                "OpenVPN UDP Port",
-                "UDP Port of the OpenVPN tunnel",
-                10, &pref_udp_port);
   prefs_register_bool_preference(openvpn_module,
                 "tls_auth_detection_override",
                 "override tls-auth detection",
@@ -661,27 +624,9 @@ proto_register_openvpn(void)
 void
 proto_reg_handoff_openvpn(void)
 {
-  static guint    tcp_port;
-  static guint    udp_port;
-  static gboolean initialized = FALSE;
-
-  if (! initialized) {
-    ssl_handle     = find_dissector_add_dependency("ssl", proto_openvpn);
-    initialized    = TRUE;
-  } else {
-    if (tcp_port > 0)
-      dissector_delete_uint("tcp.port", tcp_port, openvpn_tcp_handle);
-    if (udp_port > 0)
-      dissector_delete_uint("udp.port", udp_port, openvpn_udp_handle);
-  }
-
-  tcp_port = pref_tcp_port;
-  udp_port = pref_udp_port;
-
-  if (tcp_port > 0)
-    dissector_add_uint("tcp.port", tcp_port, openvpn_tcp_handle);
-  if (udp_port > 0)
-    dissector_add_uint("udp.port", udp_port, openvpn_udp_handle);
+  ssl_handle     = find_dissector_add_dependency("ssl", proto_openvpn);
+  dissector_add_uint_with_preference("tcp.port", OPENVPN_PORT, openvpn_tcp_handle);
+  dissector_add_uint_with_preference("udp.port", OPENVPN_PORT, openvpn_udp_handle);
 }
 
 /*

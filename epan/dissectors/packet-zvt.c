@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* ZVT is a manufacturer-independent protocol between payment terminals and
@@ -44,7 +32,6 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/addr_resolv.h>
 #include <epan/expert.h>
 
@@ -59,7 +46,7 @@
 #define ZVT_APDU_MIN_LEN 3
 
 
-static GHashTable *apdu_table = NULL;
+static GHashTable *apdu_table = NULL, *bitmap_table = NULL, *tlv_table = NULL;
 
 static wmem_tree_t *transactions = NULL;
 
@@ -107,37 +94,108 @@ typedef struct _apdu_info_t {
 #define CTRL_INIT          0x0693
 #define CTRL_PRINT_LINE    0x06D1
 
+static void dissect_zvt_int_status(tvbuff_t *tvb, gint offset, guint16 len,
+        packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans);
 static void dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len,
         packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans);
-static void dissect_zvt_bitmap_apdu(tvbuff_t *tvb, gint offset, guint16 len,
+static void dissect_zvt_bitmap_seq(tvbuff_t *tvb, gint offset, guint16 len,
+        packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans);
+static void dissect_zvt_init(tvbuff_t *tvb, gint offset, guint16 len,
         packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans);
 
 static const apdu_info_t apdu_info[] = {
-    { CTRL_STATUS,        0, DIRECTION_PT_TO_ECR, NULL },
-    { CTRL_INT_STATUS,    0, DIRECTION_PT_TO_ECR, NULL },
+    { CTRL_STATUS,        0, DIRECTION_PT_TO_ECR, dissect_zvt_bitmap_seq },
+    { CTRL_INT_STATUS,    0, DIRECTION_PT_TO_ECR, dissect_zvt_int_status },
     { CTRL_REGISTRATION,  4, DIRECTION_ECR_TO_PT, dissect_zvt_reg },
     /* authorisation has at least a 0x04 tag and 6 bytes for the amount */
-    { CTRL_AUTHORISATION, 7, DIRECTION_ECR_TO_PT, dissect_zvt_bitmap_apdu },
-    { CTRL_COMPLETION,    0, DIRECTION_PT_TO_ECR, dissect_zvt_bitmap_apdu },
+    { CTRL_AUTHORISATION, 7, DIRECTION_ECR_TO_PT, dissect_zvt_bitmap_seq },
+    { CTRL_COMPLETION,    0, DIRECTION_PT_TO_ECR, dissect_zvt_bitmap_seq },
     { CTRL_ABORT,         0, DIRECTION_PT_TO_ECR, NULL },
     { CTRL_END_OF_DAY,    0, DIRECTION_ECR_TO_PT, NULL },
     { CTRL_DIAG,          0,  DIRECTION_ECR_TO_PT, NULL },
-    { CTRL_INIT,          0, DIRECTION_ECR_TO_PT, NULL },
+    { CTRL_INIT,          0, DIRECTION_ECR_TO_PT, dissect_zvt_init },
     { CTRL_PRINT_LINE,    0, DIRECTION_PT_TO_ECR, NULL }
 };
 
+
+typedef struct _bitmap_info_t {
+    guint8   bmp;
+    guint16  payload_len;
+    gint (*dissect_payload)(tvbuff_t *, gint, packet_info *, proto_tree *);
+} bitmap_info_t;
+
+#define BMP_TIMEOUT       0x01
+#define BMP_MAX_STAT_INFO 0x02
+#define BMP_SVC_BYTE      0x03
+#define BMP_AMOUNT        0x04
+#define BMP_PUMP_NR       0x05
+#define BMP_TLV_CONTAINER 0x06
+#define BMP_TRACE_NUM     0x0B
+#define BMP_TIME          0x0C
+#define BMP_DATE          0x0D
+#define BMP_EXP_DATE      0x0E
+#define BMP_CARD_SEQ_NUM  0x17
+#define BMP_PAYMENT_TYPE  0x19
+#define BMP_CARD_NUM      0x22
+#define BMP_T2_DAT        0x23
+#define BMP_T3_DAT        0x24
+#define BMP_RES_CODE      0x27
+#define BMP_TID           0x29
+#define BMP_T1_DAT        0x2D
+#define BMP_CVV_CVC       0x3A
+#define BMP_ADD_DATA      0x3C
+#define BMP_CC            0x49
+#define BMP_RCPT_NUM      0x87
+#define BMP_CARD_TYPE     0x8A
+
+#define BMP_PLD_LEN_UNKNOWN 0  /* unknown/variable bitmap payload len */
+
+static gint dissect_zvt_tlv_container(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree);
+static inline gint dissect_zvt_res_code(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree);
+static inline gint dissect_zvt_cc(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree);
+static inline gint dissect_zvt_card_type(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree);
+
+static const bitmap_info_t bitmap_info[] = {
+    { BMP_TIMEOUT,                         1, NULL },
+    { BMP_MAX_STAT_INFO,                   1, NULL },
+    { BMP_SVC_BYTE,                        1, NULL },
+    { BMP_AMOUNT,                          6, NULL },
+    { BMP_PUMP_NR,                         1, NULL },
+    { BMP_TLV_CONTAINER, BMP_PLD_LEN_UNKNOWN, dissect_zvt_tlv_container },
+    { BMP_TRACE_NUM,                       3, NULL },
+    { BMP_TIME,                            3, NULL },
+    { BMP_DATE,                            2, NULL },
+    { BMP_EXP_DATE,                        2, NULL },
+    { BMP_CARD_SEQ_NUM,                    2, NULL },
+    { BMP_PAYMENT_TYPE,                    1, NULL },
+    { BMP_CARD_NUM,      BMP_PLD_LEN_UNKNOWN, NULL },
+    { BMP_T2_DAT,        BMP_PLD_LEN_UNKNOWN, NULL },
+    { BMP_T3_DAT,        BMP_PLD_LEN_UNKNOWN, NULL },
+    { BMP_RES_CODE,                        1, dissect_zvt_res_code },
+    { BMP_TID,                             4, NULL },
+    { BMP_T1_DAT,        BMP_PLD_LEN_UNKNOWN, NULL },
+    { BMP_CVV_CVC,                         2, NULL },
+    { BMP_ADD_DATA,      BMP_PLD_LEN_UNKNOWN, NULL },
+    { BMP_CC,                              2, dissect_zvt_cc },
+    { BMP_RCPT_NUM,                        2, NULL },
+    { BMP_CARD_TYPE,                       1, dissect_zvt_card_type }
+};
+
+
 void proto_register_zvt(void);
 void proto_reg_handoff_zvt(void);
-
-/* the specification mentions tcp port 20007
-   this port is not officially registered with IANA */
-static guint pref_zvt_tcp_port = 0;
 
 static int proto_zvt = -1;
 
 static int ett_zvt = -1;
 static int ett_zvt_apdu = -1;
+static int ett_zvt_bitmap = -1;
 static int ett_zvt_tlv_dat_obj = -1;
+static int ett_zvt_tlv_subseq = -1;
 static int ett_zvt_tlv_tag = -1;
 
 static int hf_zvt_resp_in = -1;
@@ -149,16 +207,20 @@ static int hf_zvt_ccrc = -1;
 static int hf_zvt_aprc = -1;
 static int hf_zvt_len = -1;
 static int hf_zvt_data = -1;
-static int hf_zvt_reg_pwd = -1;
+static int hf_zvt_int_status = -1;
+static int hf_zvt_pwd = -1;
 static int hf_zvt_reg_cfg = -1;
+static int hf_zvt_res_code = -1;
 static int hf_zvt_cc = -1;
+static int hf_zvt_card_type = -1;
 static int hf_zvt_reg_svc_byte = -1;
-static int hf_zvt_bitmap = -1;
+static int hf_zvt_bmp = -1;
 static int hf_zvt_tlv_total_len = -1;
 static int hf_zvt_tlv_tag = -1;
 static int hf_zvt_tlv_tag_class = -1;
 static int hf_zvt_tlv_tag_type = -1;
 static int hf_zvt_tlv_len = -1;
+static int hf_zvt_text_lines_line = -1;
 
 static expert_field ei_invalid_apdu_len = EI_INIT;
 
@@ -189,44 +251,47 @@ static const value_string ctrl_field[] = {
 };
 static value_string_ext ctrl_field_ext = VALUE_STRING_EXT_INIT(ctrl_field);
 
-#define BMP_TIMEOUT       0x01
-#define BMP_MAX_STAT_INFO 0x02
-#define BMP_AMOUNT        0x04
-#define BMP_PUMP_NR       0x05
-#define BMP_TLV_CONTAINER 0x06
-#define BMP_EXP_DATE      0x0E
-#define BMP_PAYMENT_TYPE  0x19
-#define BMP_CARD_NUM      0x22
-#define BMP_T2_DAT        0x23
-#define BMP_T3_DAT        0x24
-#define BMP_T1_DAT        0x2D
-#define BMP_CVV_CVC       0x3A
-#define BMP_ADD_DATA      0x3C
-#define BMP_CC            0x49
+static const value_string zvt_cc[] = {
+    { 0x0978, "EUR" },
+    { 0, NULL }
+};
+
+static const value_string card_type[] = {
+    {  2, "ec-card" },
+    {  5, "girocard" },
+    {  6, "Mastercard" },
+    { 10, "VISA" },
+    {  0, NULL }
+};
+static value_string_ext card_type_ext = VALUE_STRING_EXT_INIT(card_type);
 
 static const value_string bitmap[] = {
     { BMP_TIMEOUT,       "Timeout" },
     { BMP_MAX_STAT_INFO, "max. status info" },
+    { BMP_SVC_BYTE,      "Service byte" },
     { BMP_AMOUNT,        "Amount" },
     { BMP_PUMP_NR,       "Pump number" },
     { BMP_TLV_CONTAINER, "TLV container" },
+    { BMP_TRACE_NUM,     "Trace number" },
+    { BMP_TIME,          "Time" },
+    { BMP_DATE,          "Date" },
     { BMP_EXP_DATE,      "Exipry date" },
+    { BMP_CARD_SEQ_NUM,  "Card sequence number" },
     { BMP_PAYMENT_TYPE,  "Payment type" },
     { BMP_CARD_NUM,      "Card number" },
     { BMP_T2_DAT,        "Track 2 data" },
     { BMP_T3_DAT,        "Track 3 data" },
+    { BMP_RES_CODE,      "Result code" },
+    { BMP_TID,           "Transaction ID" },
     { BMP_T1_DAT,        "Track 1 data" },
     { BMP_CVV_CVC,       "CVV / CVC" },
     { BMP_ADD_DATA,      "Additional data" },
     { BMP_CC,            "Currency code (CC)" },
+    { BMP_RCPT_NUM,      "Receipt number" },
+    { BMP_CARD_TYPE,     "Card type" },
     { 0, NULL }
 };
 static value_string_ext bitmap_ext = VALUE_STRING_EXT_INIT(bitmap);
-
-static const value_string tlv_tags[] = {
-    { 0, NULL }
-};
-static value_string_ext tlv_tags_ext = VALUE_STRING_EXT_INIT(tlv_tags);
 
 static const value_string tlv_tag_class[] = {
     { 0x00, "Universal" },
@@ -237,7 +302,88 @@ static const value_string tlv_tag_class[] = {
 };
 static value_string_ext tlv_tag_class_ext = VALUE_STRING_EXT_INIT(tlv_tag_class);
 
+#define TLV_TAG_TEXT_LINES          0x07
+#define TLV_TAG_CHARS_PER_LINE      0x12
+#define TLV_TAG_DISPLAY_TEXTS       0x24
+#define TLV_TAG_PERMITTED_ZVT_CMDS  0x26
+#define TLV_TAG_SUPPORTED_CHARSETS  0x27
+#define TLV_TAG_PAYMENT_TYPE        0x2F
+#define TLV_TAG_EMV_CFG_PARAM       0x40
+#define TLV_TAG_RECEIPT_PARAM       0x1F04
+#define TLV_TAG_CARDHOLDER_AUTH     0x1F10
+#define TLV_TAG_ONLINE_FLAG         0x1F11
+#define TLV_TAG_CARD_TYPE           0x1F12
 
+
+typedef struct _tlv_seq_info_t {
+    guint txt_enc;
+} tlv_seq_info_t;
+
+
+static gint
+dissect_zvt_tlv_seq(tvbuff_t *tvb, gint offset, guint16 seq_max_len,
+        packet_info *pinfo _U_, proto_tree *tree, tlv_seq_info_t *seq_info);
+
+typedef struct _tlv_info_t {
+    guint32 tag;
+    gint (*dissect_payload)(tvbuff_t *, gint, gint,
+            packet_info *, proto_tree *, tlv_seq_info_t *);
+} tlv_info_t;
+
+static inline gint dissect_zvt_tlv_text_lines(
+        tvbuff_t *tvb, gint offset, gint len,
+        packet_info *pinfo, proto_tree *tree, tlv_seq_info_t *seq_info);
+
+static inline gint dissect_zvt_tlv_subseq(
+        tvbuff_t *tvb, gint offset, gint len,
+        packet_info *pinfo, proto_tree *tree, tlv_seq_info_t *seq_info);
+
+static const tlv_info_t tlv_info[] = {
+    { TLV_TAG_TEXT_LINES, dissect_zvt_tlv_text_lines },
+    { TLV_TAG_DISPLAY_TEXTS, dissect_zvt_tlv_subseq },
+    { TLV_TAG_PAYMENT_TYPE, dissect_zvt_tlv_subseq }
+};
+
+static const value_string tlv_tags[] = {
+    { TLV_TAG_TEXT_LINES,         "Text lines" },
+    { TLV_TAG_CHARS_PER_LINE,
+        "Number of characters per line of the printer" },
+    { TLV_TAG_DISPLAY_TEXTS, "Display texts" },
+    { TLV_TAG_PERMITTED_ZVT_CMDS, "List of permitted ZVT commands" },
+    { TLV_TAG_SUPPORTED_CHARSETS, "List of supported character sets" },
+    { TLV_TAG_PAYMENT_TYPE,       "Payment type" },
+    { TLV_TAG_EMV_CFG_PARAM,      "EMV config parameter" },
+    { TLV_TAG_RECEIPT_PARAM,      "Receipt parameter" },
+    { TLV_TAG_CARDHOLDER_AUTH,    "Cardholder authentication" },
+    { TLV_TAG_ONLINE_FLAG,        "Online flag" },
+    { TLV_TAG_CARD_TYPE,          "Card type" },
+    { 0, NULL }
+};
+static value_string_ext tlv_tags_ext = VALUE_STRING_EXT_INIT(tlv_tags);
+
+
+static inline gint dissect_zvt_tlv_text_lines(
+        tvbuff_t *tvb, gint offset, gint len,
+        packet_info *pinfo _U_, proto_tree *tree, tlv_seq_info_t *seq_info)
+{
+    proto_tree_add_item(tree, hf_zvt_text_lines_line,
+            tvb, offset, len, seq_info->txt_enc | ENC_NA);
+    return len;
+}
+
+
+static inline gint dissect_zvt_tlv_subseq(
+        tvbuff_t *tvb, gint offset, gint len,
+        packet_info *pinfo, proto_tree *tree, tlv_seq_info_t *seq_info)
+{
+    proto_tree *subseq_tree;
+
+    subseq_tree = proto_tree_add_subtree(tree,
+            tvb, offset, len, ett_zvt_tlv_subseq, NULL,
+            "Subsequence");
+
+    return dissect_zvt_tlv_seq(tvb, offset, len, pinfo, subseq_tree, seq_info);
+}
 
 
 static gint
@@ -269,7 +415,9 @@ dissect_zvt_tlv_tag(tvbuff_t *tvb, gint offset,
     }
 
     tag_ti = proto_tree_add_uint_format(tree, hf_zvt_tlv_tag,
-            tvb, offset_start, offset-offset_start, _tag, "Tag: 0x%x", _tag);
+            tvb, offset_start, offset-offset_start, _tag,
+            "Tag: %s (0x%x)",
+            val_to_str_ext(_tag, &tlv_tags_ext, "unknown"), _tag);
 
     tag_tree = proto_item_add_subtree(tag_ti, ett_zvt_tlv_tag);
     proto_tree_add_item(tag_tree, hf_zvt_tlv_tag_class,
@@ -313,27 +461,34 @@ dissect_zvt_tlv_len(tvbuff_t *tvb, gint offset,
     return len_bytes;
 }
 
- 
+
 static gint
-dissect_zvt_tlv_container(tvbuff_t *tvb, gint offset,
-        packet_info *pinfo, proto_tree *tree)
+dissect_zvt_tlv_seq(tvbuff_t *tvb, gint offset, guint16 seq_max_len,
+        packet_info *pinfo, proto_tree *tree, tlv_seq_info_t *seq_info)
 {
-    gint        offset_start;
-    proto_item *dat_obj_it;
-    proto_tree *dat_obj_tree;
-    gint        tag_len;
-    guint32     tag;
-    gint        total_len_bytes, data_len_bytes;
-    guint16     data_len = 0;
+    gint            offset_start;
+    proto_item     *dat_obj_it;
+    proto_tree     *dat_obj_tree;
+    gint            tag_len;
+    guint32         tag;
+    gint            data_len_bytes;
+    guint16         data_len = 0;
+    tlv_info_t     *ti;
+    gint            ret;
+
+    if (!seq_info) {
+        seq_info = (tlv_seq_info_t *)wmem_alloc(
+                wmem_packet_scope(), sizeof(tlv_seq_info_t));
+
+        /* by default, text lines are using the CP437 charset
+           there's an object to change the encoding
+           (XXX - does this change apply only to the current message?) */
+        seq_info->txt_enc = ENC_CP437;
+    }
 
     offset_start = offset;
 
-    total_len_bytes = dissect_zvt_tlv_len(tvb, offset, pinfo,
-                tree, hf_zvt_tlv_total_len, NULL);
-    if (total_len_bytes > 0)
-        offset += total_len_bytes;
-
-    while (tvb_captured_length_remaining(tvb, offset) > 0) {
+    while (offset-offset_start < seq_max_len) {
         dat_obj_tree = proto_tree_add_subtree(tree,
             tvb, offset, -1, ett_zvt_tlv_dat_obj, &dat_obj_it,
             "TLV data object");
@@ -344,17 +499,79 @@ dissect_zvt_tlv_container(tvbuff_t *tvb, gint offset,
         offset += tag_len;
 
         data_len_bytes = dissect_zvt_tlv_len(tvb, offset, pinfo,
-                dat_obj_tree,hf_zvt_tlv_len, &data_len); 
+                dat_obj_tree,hf_zvt_tlv_len, &data_len);
         if (data_len_bytes > 0)
             offset += data_len_bytes;
 
-        /* XXX - dissect the data-element */
-        offset += data_len;
-
+        /* set the sequence length now that we know it
+           this way, we don't have to put the whole switch statement
+           under if (data_len > 0) */
         proto_item_set_len(dat_obj_it, tag_len + data_len_bytes + data_len);
+        if (data_len == 0)
+            continue;
+
+        ti = (tlv_info_t *)g_hash_table_lookup(
+            tlv_table, GUINT_TO_POINTER((guint)tag));
+        if (ti && ti->dissect_payload) {
+            ret = ti->dissect_payload(
+                    tvb, offset, (gint)data_len, pinfo, dat_obj_tree, seq_info);
+            if (ret <= 0) {
+                /* XXX - expert info */
+            }
+        }
+
+        offset += data_len;
     }
 
     return offset - offset_start;
+}
+
+
+static gint
+dissect_zvt_tlv_container(tvbuff_t *tvb, gint offset,
+        packet_info *pinfo, proto_tree *tree)
+{
+    gint     offset_start;
+    gint     total_len_bytes, seq_len;
+    guint16  seq_max_len = 0;
+
+    offset_start = offset;
+
+    total_len_bytes = dissect_zvt_tlv_len(tvb, offset, pinfo,
+                tree, hf_zvt_tlv_total_len, &seq_max_len);
+    if (total_len_bytes > 0)
+        offset += total_len_bytes;
+
+    seq_len = dissect_zvt_tlv_seq(
+            tvb, offset, seq_max_len, pinfo, tree, NULL);
+    if (seq_len  > 0)
+        offset += seq_len;
+
+    return offset - offset_start;
+}
+
+
+static inline gint dissect_zvt_res_code(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo _U_, proto_tree *tree)
+{
+    proto_tree_add_item(tree, hf_zvt_res_code, tvb, offset, 1, ENC_BIG_ENDIAN);
+    return 1;
+}
+
+
+static inline gint dissect_zvt_cc(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo _U_, proto_tree *tree)
+{
+    proto_tree_add_item(tree, hf_zvt_cc, tvb, offset, 2, ENC_BIG_ENDIAN);
+    return 2;
+}
+
+
+static inline gint dissect_zvt_card_type(
+        tvbuff_t *tvb, gint offset, packet_info *pinfo _U_, proto_tree *tree)
+{
+    proto_tree_add_item(tree, hf_zvt_card_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    return 1;
 }
 
 
@@ -363,9 +580,12 @@ static gint
 dissect_zvt_bitmap(tvbuff_t *tvb, gint offset,
         packet_info *pinfo, proto_tree *tree)
 {
-    gint    offset_start;
-    guint8  bmp;
-    gint    ret;
+    gint           offset_start;
+    guint8         bmp;
+    proto_item    *bitmap_it;
+    proto_tree    *bitmap_tree;
+    bitmap_info_t *bi;
+    gint           ret;
 
     offset_start = offset;
 
@@ -373,66 +593,52 @@ dissect_zvt_bitmap(tvbuff_t *tvb, gint offset,
     if (try_val_to_str(bmp, bitmap) == NULL)
         return -1;
 
-    proto_tree_add_item(tree, hf_zvt_bitmap, tvb, offset, 1, ENC_BIG_ENDIAN);
+    bitmap_tree = proto_tree_add_subtree(tree,
+            tvb, offset, -1, ett_zvt_bitmap, &bitmap_it, "Bitmap");
+
+    proto_tree_add_item(bitmap_tree, hf_zvt_bmp,
+            tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_item_append_text(bitmap_it, ": %s",
+            val_to_str(bmp, bitmap, "unknown"));
     offset++;
 
-    switch (bmp) {
-        case BMP_TIMEOUT:
-            offset++;
-            break;
-        case BMP_MAX_STAT_INFO:
-            offset++;
-            break;
-        case BMP_AMOUNT:
-            offset += 6;
-            break;
-        case BMP_PUMP_NR:
-            offset++;
-            break;
-        case BMP_EXP_DATE:
-            offset += 2;
-            break;
-        case BMP_PAYMENT_TYPE:
-            offset++;
-            break;
-        case BMP_CVV_CVC:
-            offset += 2;
-            break;
-        case BMP_CC:
-            offset += 2;
-            break;
-        case BMP_TLV_CONTAINER:
-            ret = dissect_zvt_tlv_container(tvb, offset, pinfo, tree);
-            if (ret<0)
-                return -1;
+    bi = (bitmap_info_t *)g_hash_table_lookup(
+            bitmap_table, GUINT_TO_POINTER((guint)bmp));
+    if (bi) {
+        if (bi->dissect_payload) {
+            ret = bi->dissect_payload(tvb, offset, pinfo, bitmap_tree);
+            if (ret >= 0)
+                offset += ret;
+        }
+        else if (bi->payload_len != BMP_PLD_LEN_UNKNOWN)
+            offset += bi->payload_len;
+    }
 
-            offset += ret;
-            break;
-
-        case BMP_CARD_NUM:
-        case BMP_T2_DAT:
-        case BMP_T3_DAT:
-        case BMP_T1_DAT:
-        case BMP_ADD_DATA:
-            /* the bitmaps are not TLV but only TV, there's no length field
-               the tags listed above have variable length
-               -> if we see one of those tags, we have to stop the
-               dissection and report an error to the caller */
-            return -1;
-
-        default:
-            g_assert_not_reached();
-            break;
-    };
-
+    proto_item_set_len(bitmap_it, offset - offset_start);
     return offset - offset_start;
 }
+
+
+static void dissect_zvt_int_status(tvbuff_t *tvb, gint offset, guint16 len,
+        packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans)
+{
+    proto_tree_add_item(tree, hf_zvt_int_status,
+            tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+
+    if (len > 1)
+        offset++; /* skip "timeout" */
+
+    if (len > 2)
+        dissect_zvt_bitmap_seq(tvb, offset, len-2, pinfo, tree, zvt_trans);
+}
+
 
 static void
 dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len _U_,
         packet_info *pinfo, proto_tree *tree, zvt_transaction_t *zvt_trans)
 {
-    proto_tree_add_item(tree, hf_zvt_reg_pwd, tvb, offset, 3, ENC_NA);
+    proto_tree_add_item(tree, hf_zvt_pwd, tvb, offset, 3, ENC_NA);
     offset += 3;
 
     proto_tree_add_item(tree, hf_zvt_reg_cfg,
@@ -443,9 +649,7 @@ dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len _U_,
     if (tvb_captured_length_remaining(tvb, offset)>=4 &&
             tvb_get_guint8(tvb, offset+2)==0x03) {
 
-        proto_tree_add_item(tree, hf_zvt_cc,
-            tvb, offset, 2, ENC_BIG_ENDIAN);
-        offset += 2;
+        offset += dissect_zvt_cc(tvb, offset, pinfo, tree);
 
         offset++; /* 0x03 */
 
@@ -455,15 +659,24 @@ dissect_zvt_reg(tvbuff_t *tvb, gint offset, guint16 len _U_,
     }
 
     /* it's ok if the remaining len is 0 */
-    dissect_zvt_bitmap_apdu(tvb, offset,
+    dissect_zvt_bitmap_seq(tvb, offset,
             tvb_captured_length_remaining(tvb, offset),
             pinfo, tree, zvt_trans);
 }
 
 
-/* dissect an APDU that contains a sequence of bitmaps */
+static void dissect_zvt_init(
+        tvbuff_t *tvb, gint offset, guint16 len _U_, packet_info *pinfo _U_,
+        proto_tree *tree, zvt_transaction_t *zvt_trans _U_)
+{
+    proto_tree_add_item(tree, hf_zvt_pwd, tvb, offset, 3, ENC_NA);
+}
+
+
+/* dissect a sequence of bitmaps
+   (which may be the complete APDU payload or a part of it) */
 static void
-dissect_zvt_bitmap_apdu(tvbuff_t *tvb, gint offset, guint16 len,
+dissect_zvt_bitmap_seq(tvbuff_t *tvb, gint offset, guint16 len,
         packet_info *pinfo _U_, proto_tree *tree, zvt_transaction_t *zvt_trans _U_)
 {
     gint offset_start, ret;
@@ -543,7 +756,7 @@ dissect_zvt_apdu(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tre
     len = tvb_get_guint8(tvb, offset+2);
     if (len == 0xFF) {
         len_bytes = 3;
-        len = tvb_get_ntohs(tvb, offset+3);
+        len = tvb_get_letohs(tvb, offset+3);
     }
 
     /* ZVT_APDU_MIN_LEN already includes one length byte */
@@ -558,7 +771,7 @@ dissect_zvt_apdu(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tre
     byte = tvb_get_guint8(tvb, offset);
     if (byte == CCRC_POS || byte == CCRC_NEG) {
         proto_tree_add_item(apdu_tree, hf_zvt_ccrc, tvb, offset, 1, ENC_BIG_ENDIAN);
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+        col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                 byte == CCRC_POS ? "Positive completion" : "Negative completion");
         offset++;
         proto_tree_add_item(apdu_tree, hf_zvt_aprc, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -580,7 +793,7 @@ dissect_zvt_apdu(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tre
     else {
         ctrl = tvb_get_ntohs(tvb, offset);
         proto_tree_add_item(apdu_tree, hf_zvt_ctrl, tvb, offset, 2, ENC_BIG_ENDIAN);
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+        col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                 val_to_str_const(ctrl, ctrl_field, "Unknown 0x%x"));
         offset += 2;
 
@@ -747,6 +960,7 @@ dissect_zvt_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
         if (pinfo->can_desegment) {
             pinfo->desegment_offset = offset;
             pinfo->desegment_len = DESEGMENT_ONE_MORE_SEGMENT;
+            return -1;
         }
         return zvt_len;
     }
@@ -789,18 +1003,26 @@ dissect_zvt_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data 
     return zvt_len;
 }
 
+static void
+zvt_shutdown(void)
+{
+    g_hash_table_destroy(tlv_table);
+    g_hash_table_destroy(apdu_table);
+    g_hash_table_destroy(bitmap_table);
+}
 
 void
 proto_register_zvt(void)
 {
     guint     i;
-    module_t *zvt_module;
     expert_module_t* expert_zvt;
 
     static gint *ett[] = {
         &ett_zvt,
         &ett_zvt_apdu,
+        &ett_zvt_bitmap,
         &ett_zvt_tlv_dat_obj,
+        &ett_zvt_tlv_subseq,
         &ett_zvt_tlv_tag
     };
     static hf_register_info hf[] = {
@@ -831,22 +1053,31 @@ proto_register_zvt(void)
         { &hf_zvt_data,
           { "APDU data", "zvt.data",
             FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL } },
-        { &hf_zvt_reg_pwd,
-            { "Password", "zvt.reg.password",
+        { &hf_zvt_int_status,
+            { "Intermediate status", "zvt.int_status",
+                FT_UINT8, BASE_HEX, NULL, 0, NULL, HFILL } },
+        { &hf_zvt_pwd,
+            { "Password", "zvt.password",
                 FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL } },
         { &hf_zvt_reg_cfg,
             { "Config byte", "zvt.reg.config_byte",
                 FT_UINT8, BASE_HEX, NULL, 0, NULL, HFILL } },
+        { &hf_zvt_res_code,
+            { "Result Code", "zvt.result_code",
+                FT_UINT8, BASE_HEX, NULL, 0, NULL, HFILL } },
         /* we don't call the filter zvt.reg.cc, the currency code
            appears in several apdus */
         { &hf_zvt_cc,
-            { "Currency Code (CC)", "zvt.cc",
-                FT_UINT16, BASE_HEX, NULL, 0, NULL, HFILL } },
+            { "Currency Code", "zvt.cc",
+                FT_UINT16, BASE_HEX, VALS(zvt_cc), 0, NULL, HFILL } },
+        { &hf_zvt_card_type,
+            { "Card Type", "zvt.card_type", FT_UINT8,
+                BASE_DEC|BASE_EXT_STRING, &card_type_ext, 0, NULL, HFILL } },
         { &hf_zvt_reg_svc_byte,
             { "Service byte", "zvt.reg.service_byte",
                 FT_UINT8, BASE_HEX, NULL, 0, NULL, HFILL } },
-        { &hf_zvt_bitmap,
-            { "Bitmap", "zvt.bitmap", FT_UINT8,
+        { &hf_zvt_bmp,
+            { "BMP", "zvt.bmp", FT_UINT8,
                 BASE_HEX|BASE_EXT_STRING, &bitmap_ext, 0, NULL, HFILL } },
         { &hf_zvt_tlv_total_len,
             { "Total length", "zvt.tlv.total_len",
@@ -863,7 +1094,10 @@ proto_register_zvt(void)
                 8, TFS(&tfs_constructed_primitive), 0x20, NULL, HFILL } },
         { &hf_zvt_tlv_len,
             { "Length", "zvt.tlv.len",
-                FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL } }
+                FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL } },
+        { &hf_zvt_text_lines_line,
+            { "Text line", "zvt.tlv.text_lines.line",
+                FT_STRING, STR_UNICODE, NULL, 0, NULL, HFILL } }
     };
 
     static ei_register_info ei[] = {
@@ -880,44 +1114,44 @@ proto_register_zvt(void)
                             (gpointer)(&apdu_info[i]));
     }
 
-    proto_zvt = proto_register_protocol(
-            "ZVT Kassenschnittstelle", "ZVT", "zvt");
+    bitmap_table = g_hash_table_new(g_direct_hash, g_direct_equal);
+    for(i=0; i<array_length(bitmap_info); i++) {
+        g_hash_table_insert(bitmap_table,
+                            GUINT_TO_POINTER((guint)bitmap_info[i].bmp),
+                            (gpointer)(&bitmap_info[i]));
+    }
+
+    tlv_table = g_hash_table_new(g_direct_hash, g_direct_equal);
+    for(i=0; i<array_length(tlv_info); i++) {
+        g_hash_table_insert(tlv_table,
+                            GUINT_TO_POINTER((guint)tlv_info[i].tag),
+                            (gpointer)(&tlv_info[i]));
+    }
+
+    proto_zvt = proto_register_protocol("ZVT Kassenschnittstelle", "ZVT", "zvt");
+
     proto_register_field_array(proto_zvt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
     expert_zvt = expert_register_protocol(proto_zvt);
     expert_register_field_array(expert_zvt, ei, array_length(ei));
 
-    zvt_module = prefs_register_protocol(proto_zvt, proto_reg_handoff_zvt);
-    prefs_register_uint_preference(zvt_module, "tcp.port",
-                   "ZVT TCP Port",
-                   "Set the TCP port for ZVT messages (port 20007 according to the spec)",
-                   10,
-                   &pref_zvt_tcp_port);
-
     transactions = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
+
+    /* register by name to allow mapping to a user DLT */
+    register_dissector("zvt", dissect_zvt, proto_zvt);
+
+    register_shutdown_routine(zvt_shutdown);
 }
 
 
 void
 proto_reg_handoff_zvt(void)
 {
-    static gboolean            registered_dissector = FALSE;
-    static int                 zvt_tcp_port;
-    static dissector_handle_t  zvt_tcp_handle;
+    dissector_handle_t  zvt_tcp_handle;
 
-    if (!registered_dissector) {
-        /* register by name to allow mapping to a user DLT */
-        register_dissector("zvt", dissect_zvt, proto_zvt);
+    zvt_tcp_handle = create_dissector_handle(dissect_zvt_tcp, proto_zvt);
 
-        zvt_tcp_handle = create_dissector_handle(dissect_zvt_tcp, proto_zvt);
-
-        registered_dissector = TRUE;
-    }
-    else
-        dissector_delete_uint("tcp.port", zvt_tcp_port, zvt_tcp_handle);
-
-    zvt_tcp_port = pref_zvt_tcp_port;
-    dissector_add_uint("tcp.port", zvt_tcp_port, zvt_tcp_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", zvt_tcp_handle);
 }
 
 

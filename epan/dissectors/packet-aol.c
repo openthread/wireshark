@@ -6,19 +6,7 @@
  * More information on the P3 frame protocol can be found on page 66 of:
  * http://koin.org/files/aol.aim/aol/fdo/manuals/WAOL.doc
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -226,7 +214,7 @@ static int dissect_aol_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 
 	/* Add the first few P3 fields */
 	proto_tree_add_item(aol_tree,hf_aol_start,tvb,offset,1,ENC_NA);         offset += 1;
-	proto_tree_add_item(aol_tree,hf_aol_crc,  tvb,offset,2,ENC_BIG_ENDIAN); offset += 2;
+	proto_tree_add_checksum(aol_tree, tvb, offset, hf_aol_crc, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS); offset += 2;
 	proto_tree_add_item(aol_tree,hf_aol_len,  tvb,offset,2,ENC_BIG_ENDIAN); offset += 2;
 
 	/* Add sequence fields */
@@ -396,10 +384,10 @@ void proto_register_aol(void) {
  * Initialize the dissector.
  */
 void proto_reg_handoff_aol(void) {
-	static dissector_handle_t aol_handle;
+	dissector_handle_t aol_handle;
 
 	aol_handle = create_dissector_handle(dissect_aol,proto_aol);
-	dissector_add_uint("tcp.port",AOL_PORT,aol_handle);
+	dissector_add_uint_with_preference("tcp.port",AOL_PORT,aol_handle);
 }
 
 /* vi:set ts=4: */

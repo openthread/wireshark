@@ -7,26 +7,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Riemann (http://riemann.io) aggregates events from servers and
  * applications with a powerful stream processing language.
  *
  * Protobuf structures layout:
- * https://github.com/aphyr/riemann-java-client/blob/master/src/main/proto/riemann/proto.proto
+ * https://github.com/riemann/riemann-java-client/blob/master/riemann-java-client/src/main/proto/riemann/proto.proto
  *
  *   message State {
  *     optional int64 time = 1;
@@ -49,6 +37,7 @@
  *     optional float ttl = 8;
  *     repeated Attribute attributes = 9;
  *
+ *     optional int64 time_micros = 10;
  *     optional sint64 metric_sint64 = 13;
  *     optional double metric_d = 14;
  *     optional float metric_f = 15;
@@ -75,7 +64,6 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/expert.h>
 #include "packet-tcp.h"
 
@@ -100,6 +88,7 @@ static int hf_riemann_event_ttl = -1;
 static int hf_riemann_event_time = -1;
 static int hf_riemann_event_metric_d = -1;
 static int hf_riemann_event_metric_f = -1;
+static int hf_riemann_event_time_micros = -1;
 static int hf_riemann_event_metric_sint64 = -1;
 static int hf_riemann_state = -1;
 static int hf_riemann_state_service = -1;
@@ -110,9 +99,6 @@ static int hf_riemann_state_ttl = -1;
 static int hf_riemann_state_time = -1;
 static int hf_riemann_state_state = -1;
 static int hf_riemann_state_once = -1;
-
-static guint udp_port_pref = 0;
-static guint tcp_port_pref = 0;
 
 static gint ett_riemann = -1;
 static gint ett_query = -1;
@@ -138,6 +124,7 @@ static gint ett_state = -1;
 #define RIEMANN_FN_EVENT_TAGS 7
 #define RIEMANN_FN_EVENT_TTL 8
 #define RIEMANN_FN_EVENT_ATTRIBUTES 9
+#define RIEMANN_FN_EVENT_TIME_MICROS 10
 #define RIEMANN_FN_EVENT_METRIC_SINT64 13
 #define RIEMANN_FN_EVENT_METRIC_D 14
 #define RIEMANN_FN_EVENT_METRIC_F 15
@@ -162,9 +149,9 @@ static gint ett_state = -1;
 #define RIEMANN_WIRE_BYTES 2
 #define RIEMANN_WIRE_FLOAT 5
 
-static expert_field ef_error_unknown_wire_tag = EI_INIT;
-static expert_field ef_error_unknown_field_number = EI_INIT;
-static expert_field ef_error_insufficient_data = EI_INIT;
+static expert_field ei_error_unknown_wire_tag = EI_INIT;
+static expert_field ei_error_unknown_field_number = EI_INIT;
+static expert_field ei_error_insufficient_data = EI_INIT;
 
 static void
 riemann_verify_wire_format(guint64 field_number, const char *field_name, int expected, int actual,
@@ -190,7 +177,7 @@ riemann_verify_wire_format(guint64 field_number, const char *field_name, int exp
             wire_name = "unknown (check packet-riemann.c)";
             break;
         }
-        expert_add_info_format(pinfo, pi, &ef_error_unknown_wire_tag,
+        expert_add_info_format(pinfo, pi, &ei_error_unknown_wire_tag,
                                "Expected %s (%d) field to be an %s (%d), but it is %d",
                                field_name, (int)field_number, wire_name, expected, actual);
     }
@@ -200,13 +187,13 @@ riemann_verify_wire_format(guint64 field_number, const char *field_name, int exp
     riemann_verify_wire_format(fn, field_name, expected, wire, pinfo, pi)
 
 #define UNKNOWN_FIELD_NUMBER_FOR(message_name) \
-    expert_add_info_format(pinfo, pi, &ef_error_unknown_field_number, \
+    expert_add_info_format(pinfo, pi, &ei_error_unknown_field_number, \
                            "Unknown field number %d for " message_name " (wire format %d)", \
                            (int)fn, (int)wire);
 
 #define VERIFY_SIZE_FOR(message_name) \
     if (size < 0) { \
-       expert_add_info_format(pinfo, pi, &ef_error_insufficient_data, \
+       expert_add_info_format(pinfo, pi, &ei_error_insufficient_data, \
                               "Insufficient data for " message_name " (%d bytes needed)", \
                               (int)size * -1); \
     }
@@ -433,6 +420,10 @@ riemann_dissect_event(packet_info *pinfo, proto_tree *riemann_tree,
         case RIEMANN_FN_EVENT_ATTRIBUTES:
             VERIFY_WIRE_FORMAT("Event.attributes", RIEMANN_WIRE_BYTES);
             len = riemann_dissect_attribute(pinfo, event_tree, tvb, offset);
+            break;
+        case RIEMANN_FN_EVENT_TIME_MICROS:
+            VERIFY_WIRE_FORMAT("Event.time_micros", RIEMANN_WIRE_INTEGER);
+            len = riemann_dissect_int64(event_tree, tvb, offset, hf_riemann_event_time_micros);
             break;
         case RIEMANN_FN_EVENT_METRIC_SINT64:
             VERIFY_WIRE_FORMAT("Event.metric_sint64", RIEMANN_WIRE_INTEGER);
@@ -673,7 +664,6 @@ dissect_riemann_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
 void
 proto_register_riemann(void)
 {
-    module_t *riemann_module;
     expert_module_t *riemann_expert_module;
 
     static hf_register_info hf[] = {
@@ -745,6 +735,10 @@ proto_register_riemann(void)
           { "metric_f", "riemann.event.metric_f",
             FT_FLOAT, BASE_NONE, NULL, 0, NULL, HFILL }
         },
+        { &hf_riemann_event_time_micros,
+          { "time_micros", "riemann.event.time_micros",
+            FT_INT64, BASE_DEC, NULL, 0, NULL, HFILL }
+        },
         { &hf_riemann_event_metric_sint64,
           { "metric_sint64", "riemann.event.metric_sint64",
             FT_INT64, BASE_DEC, NULL, 0, NULL, HFILL }
@@ -788,15 +782,15 @@ proto_register_riemann(void)
     };
 
     static ei_register_info ei[] = {
-        { &ef_error_unknown_wire_tag,
+        { &ei_error_unknown_wire_tag,
           { "riemann.unknown_wire_tag", PI_MALFORMED, PI_ERROR,
-            NULL, EXPFILL }},
-        { &ef_error_unknown_field_number,
+            "Invalid format type", EXPFILL }},
+        { &ei_error_unknown_field_number,
           { "riemann.unknown_field_number", PI_MALFORMED, PI_ERROR,
-            NULL, EXPFILL }},
-        { &ef_error_insufficient_data,
+            "Unknown field number", EXPFILL }},
+        { &ei_error_insufficient_data,
           { "riemann.insufficient_data", PI_MALFORMED, PI_ERROR,
-            NULL, EXPFILL }}
+            "Insufficient data", EXPFILL }}
     };
 
     static gint *ett[] = {
@@ -813,37 +807,17 @@ proto_register_riemann(void)
 
     proto_register_field_array(proto_riemann, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-
-    riemann_module = prefs_register_protocol(proto_riemann, proto_reg_handoff_riemann);
-
-    prefs_register_uint_preference(riemann_module, "udp.port", "Riemann UDP Port",
-            " riemann UDP port if other than the default",
-            10, &udp_port_pref);
-
-    prefs_register_uint_preference(riemann_module, "tcp.port", "Riemann TCP Port",
-            " riemann TCP port if other than the default",
-            10, &tcp_port_pref);
 }
 
 void
 proto_reg_handoff_riemann(void)
 {
-    static gboolean initialized = FALSE;
-    static dissector_handle_t riemann_udp_handle, riemann_tcp_handle;
-    static int current_udp_port, current_tcp_port;
+    dissector_handle_t riemann_udp_handle, riemann_tcp_handle;
 
-    if (!initialized) {
-        riemann_udp_handle = create_dissector_handle(dissect_riemann_udp, proto_riemann);
-        riemann_tcp_handle = create_dissector_handle(dissect_riemann_tcp, proto_riemann);
-        initialized = TRUE;
-    } else {
-        dissector_delete_uint("udp.port", current_udp_port, riemann_udp_handle);
-        dissector_delete_uint("tcp.port", current_tcp_port, riemann_tcp_handle);
-    }
-    current_udp_port = udp_port_pref;
-    dissector_add_uint("udp.port", current_udp_port, riemann_udp_handle);
-    current_tcp_port = tcp_port_pref;
-    dissector_add_uint("tcp.port", current_tcp_port, riemann_tcp_handle);
+    riemann_udp_handle = create_dissector_handle(dissect_riemann_udp, proto_riemann);
+    riemann_tcp_handle = create_dissector_handle(dissect_riemann_tcp, proto_riemann);
+    dissector_add_for_decode_as_with_preference("tcp.port", riemann_tcp_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", riemann_udp_handle);
 }
 
 /*

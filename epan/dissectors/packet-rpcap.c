@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -226,10 +214,6 @@ static int global_linktype = -1;
 static int linktype = -1;
 static gboolean info_added = FALSE;
 
-static const true_false_string open_closed = {
-  "Open", "Closed"
-};
-
 static const value_string message_type[] = {
   { RPCAP_MSG_ERROR,              "Error"                       },
   { RPCAP_MSG_FINDALLIF_REQ,      "Find all interfaces request" },
@@ -382,11 +366,11 @@ dissect_rpcap_error (tvbuff_t *tvb, packet_info *pinfo,
     return;
 
   col_append_fstr (pinfo->cinfo, COL_INFO, ": %s",
-                   tvb_format_text_wsp (tvb, offset, len));
+                   tvb_format_text_wsp (wmem_packet_scope(), tvb, offset, len));
 
   ti = proto_tree_add_item (parent_tree, hf_error, tvb, offset, len, ENC_ASCII|ENC_NA);
   expert_add_info_format(pinfo, ti, &ei_error,
-                         "Error: %s", tvb_format_text_wsp (tvb, offset, len));
+                         "Error: %s", tvb_format_text_wsp (wmem_packet_scope(), tvb, offset, len));
 }
 
 
@@ -489,8 +473,9 @@ dissect_rpcap_findalldevs_if (tvbuff_t *tvb, packet_info *pinfo _U_,
   offset += 2;
 
   if (namelen) {
-    proto_item_append_text (ti, ": %s", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, namelen, ENC_ASCII));
-    proto_tree_add_item (tree, hf_if_name, tvb, offset, namelen, ENC_ASCII|ENC_NA);
+    const guint8* name;
+    proto_tree_add_item_ret_string(tree, hf_if_name, tvb, offset, namelen, ENC_ASCII|ENC_NA, wmem_packet_scope(), &name);
+    proto_item_append_text (ti, ": %s", name);
     offset += namelen;
   }
 
@@ -654,14 +639,12 @@ dissect_rpcap_auth_request (tvbuff_t *tvb, packet_info *pinfo _U_,
   if (type == RPCAP_RMTAUTH_NULL) {
     proto_item_append_text (ti, " (none)");
   } else if (type == RPCAP_RMTAUTH_PWD) {
-    guint8 *username, *password;
+    const guint8 *username, *password;
 
-    username = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, slen1, ENC_ASCII);
-    proto_tree_add_item (tree, hf_auth_username, tvb, offset, slen1, ENC_ASCII|ENC_NA);
+    proto_tree_add_item_ret_string(tree, hf_auth_username, tvb, offset, slen1, ENC_ASCII|ENC_NA, wmem_packet_scope(), &username);
     offset += slen1;
 
-    password = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, slen2, ENC_ASCII);
-    proto_tree_add_item (tree, hf_auth_password, tvb, offset, slen2, ENC_ASCII|ENC_NA);
+    proto_tree_add_item_ret_string(tree, hf_auth_password, tvb, offset, slen2, ENC_ASCII|ENC_NA, wmem_packet_scope(), &password);
     offset += slen2;
 
     proto_item_append_text (ti, " (%s/%s)", username, password);
@@ -837,7 +820,6 @@ dissect_rpcap_packet (tvbuff_t *tvb, packet_info *pinfo, proto_tree *top_tree,
 {
   proto_tree *tree;
   proto_item *ti;
-  nstime_t ts;
   tvbuff_t *new_tvb;
   guint caplen, len, frame_no;
   gint reported_length_remaining;
@@ -845,9 +827,7 @@ dissect_rpcap_packet (tvbuff_t *tvb, packet_info *pinfo, proto_tree *top_tree,
   ti = proto_tree_add_item (parent_tree, hf_packet, tvb, offset, 20, ENC_NA);
   tree = proto_item_add_subtree (ti, ett_packet);
 
-  ts.secs = tvb_get_ntohl (tvb, offset);
-  ts.nsecs = tvb_get_ntohl (tvb, offset + 4) * 1000;
-  proto_tree_add_time(tree, hf_timestamp, tvb, offset, 8, &ts);
+  proto_tree_add_item(tree, hf_timestamp, tvb, offset, 8, ENC_TIME_SECS_USECS|ENC_BIG_ENDIAN);
   offset += 8;
 
   caplen = tvb_get_ntohl (tvb, offset);
@@ -875,7 +855,7 @@ dissect_rpcap_packet (tvbuff_t *tvb, packet_info *pinfo, proto_tree *top_tree,
     return;
   }
 
-  new_tvb = tvb_new_subset (tvb, offset, caplen, len);
+  new_tvb = tvb_new_subset_length_caplen (tvb, offset, caplen, len);
   if (decode_content && linktype != -1) {
     TRY {
       call_dissector_with_data(pcap_pktdata_handle, new_tvb, pinfo, top_tree, &linktype);
@@ -928,7 +908,7 @@ dissect_rpcap (tvbuff_t *tvb, packet_info *pinfo, proto_tree *top_tree, void* da
   proto_tree_add_item (tree, hf_type, tvb, offset, 1, ENC_BIG_ENDIAN);
   offset++;
 
-  col_append_fstr (pinfo->cinfo, COL_INFO, "%s",
+  col_append_str (pinfo->cinfo, COL_INFO,
                      val_to_str (msg_type, message_type, "Unknown: %d"));
 
   proto_item_append_text (ti, ", %s", val_to_str (msg_type, message_type, "Unknown: %d"));
@@ -1243,7 +1223,7 @@ proto_register_rpcap (void)
         TFS(&tfs_yes_no), FLAG_DGRAM, NULL, HFILL } },
     { &hf_flags_serveropen,
       { "Server open", "rpcap.flags.serveropen", FT_BOOLEAN, 16,
-        TFS(&open_closed), FLAG_SERVEROPEN, NULL, HFILL } },
+        TFS(&tfs_open_closed), FLAG_SERVEROPEN, NULL, HFILL } },
     { &hf_flags_inbound,
       { "Inbound", "rpcap.flags.inbound", FT_BOOLEAN, 16,
         TFS(&tfs_yes_no), FLAG_INBOUND, NULL, HFILL } },

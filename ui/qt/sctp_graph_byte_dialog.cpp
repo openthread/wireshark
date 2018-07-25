@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "sctp_graph_byte_dialog.h"
@@ -29,7 +17,8 @@
 
 #include "ui/tap-sctp-analysis.h"
 
-#include "qcustomplot.h"
+#include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/widgets/qcustomplot.h>
 #include "sctp_graph_dialog.h"
 #include "sctp_assoc_analyse_dialog.h"
 
@@ -38,6 +27,7 @@ SCTPGraphByteDialog::SCTPGraphByteDialog(QWidget *parent, sctp_assoc_info_t *ass
     ui(new Ui::SCTPGraphByteDialog),
     selected_assoc(assoc),
     cap_file_(cf),
+    frame_num(0),
     direction(dir)
 {
     ui->setupUi(this);
@@ -49,7 +39,7 @@ SCTPGraphByteDialog::SCTPGraphByteDialog(QWidget *parent, sctp_assoc_info_t *ass
             | Qt::WindowMaximizeButtonHint
             | Qt::WindowCloseButtonHint;
     this->setWindowFlags(flags);
-    this->setWindowTitle(QString(tr("SCTP Data and Adv. Rec. Window over Time: %1 Port1 %2 Port2 %3")).arg(cf_get_display_name(cap_file_)).arg(selected_assoc->port1).arg(selected_assoc->port2));
+    this->setWindowTitle(QString(tr("SCTP Data and Adv. Rec. Window over Time: %1 Port1 %2 Port2 %3")).arg(gchar_free_to_qstring(cf_get_display_name(cap_file_))).arg(selected_assoc->port1).arg(selected_assoc->port2));
     if ((direction == 1 && selected_assoc->n_array_tsn1 == 0) || (direction == 2 && selected_assoc->n_array_tsn2 == 0)) {
         QMessageBox msgBox;
         msgBox.setText(tr("No Data Chunks sent"));

@@ -9,24 +9,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
+
+#include "packet-gsmtap.h"
 
 void proto_register_gsm_sim(void);
 void proto_reg_handoff_gsm_sim(void);
@@ -366,6 +356,7 @@ static int ett_tprof_b32 = -1;
 static int ett_tprof_b33 = -1;
 
 static dissector_handle_t sub_handle_cap;
+static dissector_handle_t sim_handle, sim_part_handle;
 
 
 static const int *tprof_b1_fields[] = {
@@ -917,16 +908,12 @@ static const value_string adf_usim_dfs[] = {
 #endif
 	{ 0x5f3a, "DF.PHONEBOOK" },
 	{ 0x5f3b, "DF.GSM-ACCESS" },
-	{ 0x5f3c, "DF.MExE" },
-	{ 0x5f40, "DF.WLAN" },
-	{ 0x5f70, "DF.SoLSA" },
 #if 0
 	{ 0, NULL }
 };
 
 static const value_string adf_usim_efs[] = {
 #endif
-	{ 0x6f05, "EF.LI" },
 	{ 0x6f06, "EF.ARR" },
 	{ 0x6f07, "EF.IMSI" },
 	{ 0x6f08, "EF.Keys" },
@@ -935,26 +922,21 @@ static const value_string adf_usim_efs[] = {
 	{ 0x6f31, "EF.HPPLMN" },
 	{ 0x6f32, "EF.CNL" },
 	{ 0x6f37, "EF.ACMax" },
-	{ 0x6f38, "EF.USI" },
 	{ 0x6f39, "EF.ACM" },
 	{ 0x6f3b, "EF.FDN" },
 	{ 0x6f3c, "EF.SMS" },
 	{ 0x6f3e, "EF.GID1" },
 	{ 0x6f3f, "EF.GID2" },
 	{ 0x6f40, "EF.MSISDN" },
-	{ 0x6f41, "EF.PUCI" },
 	{ 0x6f42, "EF.SMSP" },
 	{ 0x6f43, "EF.SMSS" },
 	{ 0x6f45, "EF.CBMI" },
 	{ 0x6f46, "EF.SPN" },
 	{ 0x6f47, "EF.SMSR" },
 	{ 0x6f48, "EF.CBMID" },
-	{ 0x6f49, "EF.SIN" },
 	{ 0x6f4b, "EF.EXT2" },
 	{ 0x6f4c, "EF.EXT3" },
 	{ 0x6f4d, "EF.BDN" },
-	{ 0x6f4e, "EF.EXT5" },
-	{ 0x6f4f, "EF.CCP2" },
 	{ 0x6f50, "EF.CBMIR" },
 	{ 0x6f55, "EF.EXT4" },
 	{ 0x6f56, "EF.EST" },
@@ -1517,6 +1499,17 @@ dissect_gsm_sim_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, vo
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "GSM SIM");
 	dissect_rsp_apdu_tvb(tvb, 0, pinfo, tree, NULL);
 	return tvb_captured_length(tvb);
+}
+
+static int
+dissect_gsm_sim_part(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
+{
+	if (pinfo->p2p_dir == P2P_DIR_SENT)
+		return dissect_gsm_sim_command(tvb, pinfo, tree, data);
+	else if (pinfo->p2p_dir == P2P_DIR_RECV)
+		return dissect_gsm_sim_response(tvb, pinfo, tree, data);
+
+	return 0;
 }
 
 void
@@ -2924,18 +2917,19 @@ proto_register_gsm_sim(void)
 
 	proto_register_subtree_array(ett, array_length(ett));
 
-	register_dissector("gsm_sim", dissect_gsm_sim, proto_gsm_sim);
+	sim_handle = register_dissector("gsm_sim", dissect_gsm_sim, proto_gsm_sim);
 	register_dissector("gsm_sim.command", dissect_gsm_sim_command, proto_gsm_sim);
 	register_dissector("gsm_sim.response", dissect_gsm_sim_response, proto_gsm_sim);
 	register_dissector("gsm_sim.bertlv", dissect_bertlv, proto_gsm_sim);
+	sim_part_handle = register_dissector("gsm_sim.part", dissect_gsm_sim_part, proto_gsm_sim);
 }
 
 void
 proto_reg_handoff_gsm_sim(void)
 {
-	dissector_handle_t sim_handle;
-	sim_handle = find_dissector("gsm_sim");
-	dissector_add_uint("gsmtap.type", 4, sim_handle);
+	dissector_add_uint("gsmtap.type", GSMTAP_TYPE_SIM, sim_handle);
+
+	dissector_add_for_decode_as("usbccid.subdissector", sim_part_handle);
 
 	sub_handle_cap = find_dissector_add_dependency("etsi_cat", proto_gsm_sim);
 }

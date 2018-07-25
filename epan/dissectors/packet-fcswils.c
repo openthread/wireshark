@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -444,7 +432,7 @@ typedef struct _fcswils_conv_data {
     guint32 opcode;
 } fcswils_conv_data_t;
 
-static GHashTable *fcswils_req_hash = NULL;
+static wmem_map_t *fcswils_req_hash = NULL;
 
 /* list of commands for each commandset */
 typedef void (*fcswils_dissector_t)(tvbuff_t *tvb, packet_info* pinfo, proto_tree *tree, guint8 isreq);
@@ -478,21 +466,6 @@ fcswils_hash(gconstpointer v)
     val = key->conv_idx;
 
     return val;
-}
-
-/*
- * Protocol initialization
- */
-static void
-fcswils_init_protocol(void)
-{
-    fcswils_req_hash = g_hash_table_new(fcswils_hash, fcswils_equal);
-}
-
-static void
-fcswils_cleanup_protocol(void)
-{
-    g_hash_table_destroy(fcswils_req_hash);
 }
 
 static guint8 *
@@ -730,8 +703,6 @@ dissect_swils_elp(tvbuff_t *tvb, packet_info* pinfo _U_, proto_tree *elp_tree, g
     /* We skip the initial 4 bytes as we don't care about the opcode */
     int          offset = 4;
     const gchar *flags;
-    guint32 r_a_tov;
-    guint32 e_d_tov;
     guint16 isl_flwctrl_mode;
     guint8  clsf_svcparm[6], cls1_svcparm[2], cls2_svcparm[2], cls3_svcparm[2];
 
@@ -740,13 +711,9 @@ dissect_swils_elp(tvbuff_t *tvb, packet_info* pinfo _U_, proto_tree *elp_tree, g
         proto_tree_add_item(elp_tree, hf_swils_elp_rev, tvb, offset++, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(elp_tree, hf_swils_elp_flags, tvb, offset, 2, ENC_NA);
         offset += 3;
-        r_a_tov = tvb_get_ntohl(tvb, offset);
-        proto_tree_add_uint_format_value(elp_tree, hf_swils_elp_r_a_tov, tvb, offset, 4,
-                                   r_a_tov, "%d msecs", r_a_tov);
+        proto_tree_add_item(elp_tree, hf_swils_elp_r_a_tov, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
-        e_d_tov = tvb_get_ntohl(tvb, offset);
-        proto_tree_add_uint_format_value(elp_tree, hf_swils_elp_e_d_tov, tvb, offset, 4,
-                                   e_d_tov, "%d msecs", e_d_tov);
+        proto_tree_add_item(elp_tree, hf_swils_elp_e_d_tov, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
         proto_tree_add_item(elp_tree, hf_swils_elp_req_epn, tvb, offset, 8, ENC_NA);
         offset += 8;
@@ -1009,13 +976,12 @@ static void
 dissect_swils_fspf_lsrechdr(tvbuff_t *tvb, proto_tree *tree, int offset)
 {
     proto_tree_add_item(tree, hf_swils_lsrh_lsr_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_uint_format_value(tree, hf_swils_lsrh_lsr_age, tvb, offset+2, 2,
-                        tvb_get_ntohs(tvb, offset+2), "%d secs", tvb_get_ntohs(tvb, offset+2));
+    proto_tree_add_item(tree, hf_swils_lsrh_lsr_age, tvb, offset+2, 2, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_swils_lsrh_options, tvb, offset+4, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_swils_lsrh_lsid, tvb, offset+11, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_swils_lsrh_adv_domid, tvb, offset+15, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_swils_lsrh_ls_incid, tvb, offset+16, 4, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tree, hf_swils_lsrh_checksum, tvb, offset+20, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_checksum(tree, tvb, offset+20, hf_swils_lsrh_checksum, -1, NULL, NULL, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     proto_tree_add_item(tree, hf_swils_lsrh_lsr_length, tvb, offset+22, 2, ENC_BIG_ENDIAN);
 }
 
@@ -1401,7 +1367,7 @@ dissect_swils_rca(tvbuff_t *tvb, packet_info* pinfo _U_, proto_tree *rca_tree, g
 }
 
 static void
-dissect_swils_sfc(tvbuff_t *tvb, packet_info* pinfo _U_, proto_tree *sfc_tree, guint8 isreq)
+dissect_swils_sfc(tvbuff_t *tvb, packet_info* pinfo, proto_tree *sfc_tree, guint8 isreq)
 {
     /* Set up structures needed to add the protocol subtree and manage it */
     int         offset = 0;
@@ -1714,17 +1680,17 @@ dissect_fcswils(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     /* Register conversation if this is not a response */
     if ((opcode != FC_SWILS_SWACC) && (opcode != FC_SWILS_SWRJT)) {
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                         pinfo->ptype, fchdr->oxid,
+                                         conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                          fchdr->rxid, NO_PORT2);
         if (!conversation) {
             conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                                            pinfo->ptype, fchdr->oxid,
+                                            conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                             fchdr->rxid, NO_PORT2);
         }
 
-        ckey.conv_idx = conversation->index;
+        ckey.conv_idx = conversation->conv_index;
 
-        cdata = (fcswils_conv_data_t *)g_hash_table_lookup(fcswils_req_hash,
+        cdata = (fcswils_conv_data_t *)wmem_map_lookup(fcswils_req_hash,
                                                            &ckey);
         if (cdata) {
             /* Since we never free the memory used by an exchange, this maybe a
@@ -1735,18 +1701,18 @@ dissect_fcswils(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         }
         else {
             req_key = wmem_new(wmem_file_scope(), fcswils_conv_key_t);
-            req_key->conv_idx = conversation->index;
+            req_key->conv_idx = conversation->conv_index;
 
             cdata = wmem_new(wmem_file_scope(), fcswils_conv_data_t);
             cdata->opcode = opcode;
 
-            g_hash_table_insert(fcswils_req_hash, req_key, cdata);
+            wmem_map_insert(fcswils_req_hash, req_key, cdata);
         }
     }
     else {
         /* Opcode is ACC or RJT */
         conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                         pinfo->ptype, fchdr->oxid,
+                                         conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                          fchdr->rxid, NO_PORT2);
         isreq = FC_SWILS_RPLY;
         if (!conversation) {
@@ -1757,9 +1723,9 @@ dissect_fcswils(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             }
         }
         else {
-            ckey.conv_idx = conversation->index;
+            ckey.conv_idx = conversation->conv_index;
 
-            cdata = (fcswils_conv_data_t *)g_hash_table_lookup(fcswils_req_hash, &ckey);
+            cdata = (fcswils_conv_data_t *)wmem_map_lookup(fcswils_req_hash, &ckey);
 
             if (cdata != NULL) {
                 if (opcode == FC_SWILS_SWACC)
@@ -1831,12 +1797,12 @@ proto_register_fcswils(void)
 
         { &hf_swils_elp_r_a_tov,
           {"R_A_TOV", "swils.elp.ratov",
-           FT_UINT32, BASE_DEC, NULL, 0x0,
+           FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
            NULL, HFILL}},
 
         { &hf_swils_elp_e_d_tov,
           {"E_D_TOV", "swils.elp.edtov",
-           FT_UINT32, BASE_DEC, NULL, 0x0,
+           FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0,
            NULL, HFILL}},
 
         { &hf_swils_elp_req_epn,
@@ -2461,7 +2427,7 @@ proto_register_fcswils(void)
       /* Generated from convert_proto_tree_add_text.pl */
       { &hf_swils_requested_domain_id, { "Requested Domain ID", "swils.requested_domain_id", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_swils_granted_domain_id, { "Granted Domain ID", "swils.granted_domain_id", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_swils_lsrh_lsr_age, { "LSR Age", "swils.lsr.age", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_swils_lsrh_lsr_age, { "LSR Age", "swils.lsr.age", FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0x0, NULL, HFILL }},
       { &hf_swils_lsrh_options, { "Options", "swils.lsr.options", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_swils_lsrh_checksum, { "Checksum", "swils.lsr.checksum", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_swils_lsrh_lsr_length, { "LSR Length", "swils.lsr.length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -2532,8 +2498,8 @@ proto_register_fcswils(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_fcswils = expert_register_protocol(proto_fcswils);
     expert_register_field_array(expert_fcswils, ei, array_length(ei));
-    register_init_routine(&fcswils_init_protocol);
-    register_cleanup_routine(&fcswils_cleanup_protocol);
+
+    fcswils_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), fcswils_hash, fcswils_equal);
 }
 
 void

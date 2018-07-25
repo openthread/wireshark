@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,6 +16,15 @@
 #include <epan/expert.h>
 #include "packet-isis-clv.h"
 #include <epan/nlpid.h>
+
+static const value_string algorithm_vals[] = {
+    { 20, "hmac-sha1" },
+    { 28, "hmac-sha224" },
+    { 32, "hmac-sha256" },
+    { 48, "hmac-sha384" },
+    { 64, "hmac-sha512" },
+    { 0,  NULL }
+};
 
 /*
  * Name: isis_dissect_area_address_clv()
@@ -138,8 +135,9 @@ isis_dissect_instance_identifier_clv(proto_tree *tree, packet_info* pinfo, tvbuf
  *    Take apart the CLV that hold authentication information.  This
  *    is currently 1 octet auth type.
  *      the two defined authentication types
- *      are 1 for a clear text password and
- *           54 for a HMAC-MD5 digest
+ *      are 1 for a clear text password,
+ *           54 for a HMAC-MD5 digest and
+ *           3 for CRYPTO_AUTH (rfc5310)
  *
  * Input:
  *    tvbuff_t * : tvbuffer for packet data
@@ -152,10 +150,11 @@ isis_dissect_instance_identifier_clv(proto_tree *tree, packet_info* pinfo, tvbuf
  */
 void
 isis_dissect_authentication_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *tvb,
-        int hf_auth_bytes, expert_field* auth_expert, int offset, int length)
+        int hf_auth_bytes, int hf_key_id, expert_field* auth_expert, int offset, int length)
 {
     guchar pw_type;
     int auth_unsupported;
+    const gchar *algorithm = NULL;
 
     if ( length <= 0 ) {
         return;
@@ -179,10 +178,24 @@ isis_dissect_authentication_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *
     case 54:
         if ( length == 16 ) {
             proto_tree_add_bytes_format( tree, hf_auth_bytes, tvb, offset, length,
-                NULL, "hmac-md5 (54), password (length %d) = %s", length, tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, length));
+                NULL, "hmac-md5 (54), message digest (length %d) = %s", length, tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, length));
         } else {
             proto_tree_add_bytes_format( tree, hf_auth_bytes, tvb, offset, length,
                 NULL, "hmac-md5 (54), illegal hmac-md5 digest format (must be 16 bytes)");
+        }
+        break;
+    case 3:
+        proto_tree_add_item(tree, hf_key_id, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+        length -= 2;
+        algorithm = try_val_to_str(length, algorithm_vals);
+        if ( algorithm ) {
+            proto_tree_add_bytes_format( tree, hf_auth_bytes, tvb, offset, length,
+                NULL, "CRYPTO_AUTH %s (3), message digest (length %d) = %s", algorithm,
+                length, tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, length));
+        } else {
+            proto_tree_add_bytes_format( tree, hf_auth_bytes, tvb, offset, length,
+                NULL, "CRYPTO_AUTH (3) illegal message digest format");
         }
         break;
     default:
@@ -346,7 +359,7 @@ void
 isis_dissect_ipv6_int_clv(proto_tree *tree, packet_info* pinfo, tvbuff_t *tvb, expert_field* expert,
     int offset, int length, int tree_id)
 {
-    struct e_in6_addr addr;
+    ws_in6_addr addr;
 
     if ( length <= 0 ) {
         return;
@@ -429,7 +442,7 @@ isis_dissect_nlpid_clv(tvbuff_t *tvb, proto_tree *tree, int hf_nlpid, int offset
     if ( !tree ) return;        /* nothing to do! */
 
     if (length <= 0) {
-        proto_tree_add_bytes_format_value(tree, hf_nlpid, tvb, offset, length, NULL, "--none--");
+        proto_tree_add_item(tree, hf_nlpid, tvb, offset, length, ENC_NA);
     } else {
         first = TRUE;
         ti = proto_tree_add_bytes_format(tree, hf_nlpid, tvb, offset, length, NULL, "NLPID(s): ");

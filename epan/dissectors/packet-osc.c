@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -45,7 +33,6 @@
 
 #include <string.h>
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include <epan/exceptions.h>
 #include "packet-tcp.h"
 
@@ -307,9 +294,6 @@ static const char *immediate_fmt = "%s";
 static const char *immediate_str = "Immediate";
 static const char *bundle_str = "#bundle";
 
-/* Preference */
-static guint global_osc_tcp_port = 0;
-
 /* Initialize the protocol and registered fields */
 static dissector_handle_t osc_udp_handle = NULL;
 
@@ -479,7 +463,7 @@ dissect_osc_message(tvbuff_t *tvb, proto_item *ti, proto_tree *osc_tree, gint of
                 bi = proto_tree_add_none_format(message_tree, hf_osc_message_blob_type, tvb, offset, 4+slen, "Blob: %i bytes", blen);
                 blob_tree = proto_item_add_subtree(bi, ett_osc_blob);
 
-                proto_tree_add_int_format_value(blob_tree, hf_osc_message_blob_size_type, tvb, offset, 4, blen, "%i bytes", blen);
+                proto_tree_add_int(blob_tree, hf_osc_message_blob_size_type, tvb, offset, 4, blen);
                 offset += 4;
 
                 /* check for zero length blob */
@@ -772,10 +756,10 @@ dissect_osc_bundle(tvbuff_t *tvb, proto_item *ti, proto_tree *osc_tree, gint off
     while(offset < end)
     {
         /* peek bundle element size */
-        gint32 size = tvb_get_ntohl(tvb, offset);
+        gint32 size;
 
         /* read bundle element size */
-        proto_tree_add_int_format_value(bundle_tree, hf_osc_bundle_element_size_type, tvb, offset, 4, size, "%i bytes", size);
+        proto_tree_add_item_ret_int(bundle_tree, hf_osc_bundle_element_size_type, tvb, offset, 4, ENC_BIG_ENDIAN, &size);
         offset += 4;
 
         /* check for zero size bundle element */
@@ -979,21 +963,14 @@ dissect_osc_tcp_1_1(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *d
             decoded_len = slip_decoded_len(encoded_buf, encoded_len);
             if(decoded_len != -1) /* is a valid SLIP'd stream */
             {
-                decoded_buf = (guint8 *)g_malloc(decoded_len);
-                if(decoded_buf)
-                {
-                    slip_decode(decoded_buf, encoded_buf, encoded_len);
+                decoded_buf = (guint8 *)wmem_alloc(pinfo->pool, decoded_len);
 
-                    next_tvb = tvb_new_child_real_data(tvb, decoded_buf, decoded_len, decoded_len);
-                    tvb_set_free_cb(next_tvb, g_free);
+                slip_decode(decoded_buf, encoded_buf, encoded_len);
 
-                    add_new_data_source(pinfo, next_tvb, "SLIP-decoded Data");
-                    dissect_osc_pdu_common(next_tvb, pinfo, tree, data, 0, decoded_len);
-                }
-                else
-                {
-                    return 0; /* failed to allocate new buffer */
-                }
+                next_tvb = tvb_new_child_real_data(tvb, decoded_buf, decoded_len, decoded_len);
+
+                add_new_data_source(pinfo, next_tvb, "SLIP-decoded Data");
+                dissect_osc_pdu_common(next_tvb, pinfo, tree, data, 0, decoded_len);
             }
             else
             {
@@ -1123,8 +1100,8 @@ proto_register_osc(void)
                 "Scheduled bundle execution time", HFILL } },
 
         { &hf_osc_bundle_element_size_type, { "Size", "osc.bundle.element.size",
-                FT_INT32, BASE_DEC,
-                NULL, 0x0,
+                FT_INT32, BASE_DEC|BASE_UNIT_STRING,
+                &units_byte_bytes, 0x0,
                 "Bundle element size", HFILL } },
 
         { &hf_osc_message_type, { "Message", "osc.message",
@@ -1162,8 +1139,8 @@ proto_register_osc(void)
                 NULL, 0x0,
                 "Binary blob value", HFILL } },
         { &hf_osc_message_blob_size_type, { "Size", "osc.message.blob.size",
-                FT_INT32, BASE_DEC,
-                NULL, 0x0,
+                FT_INT32, BASE_DEC|BASE_UNIT_STRING,
+                &units_byte_bytes, 0x0,
                 "Binary blob size", HFILL } },
         { &hf_osc_message_blob_data_type, { "Data", "osc.message.blob.data",
                 FT_BYTES, BASE_NONE,
@@ -1291,51 +1268,26 @@ proto_register_osc(void)
         &ett_osc_midi
     };
 
-    module_t *osc_module;
-
     proto_osc = proto_register_protocol("Open Sound Control Encoding", "OSC", "osc");
 
     proto_register_field_array(proto_osc, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-
-    osc_module = prefs_register_protocol(proto_osc, proto_reg_handoff_osc);
-
-    prefs_register_uint_preference(osc_module, "tcp.port",
-                                   "OSC TCP Port",
-                                   "Set the TCP port for OSC",
-                                   10, &global_osc_tcp_port);
 }
 
 void
 proto_reg_handoff_osc(void)
 {
-    static dissector_handle_t osc_tcp_handle;
-    static guint              osc_tcp_port;
-    static gboolean           initialized = FALSE;
+    dissector_handle_t osc_tcp_handle;
 
-    if(! initialized)
-    {
-        osc_tcp_handle = create_dissector_handle(dissect_osc_tcp, proto_osc);
-        /* register for "decode as" for TCP connections */
-        dissector_add_for_decode_as("tcp.port", osc_tcp_handle);
+    osc_tcp_handle = create_dissector_handle(dissect_osc_tcp, proto_osc);
 
-        /* XXX: Add port pref and  "decode as" for UDP ? */
-        /*      (The UDP heuristic is a bit expensive    */
-        osc_udp_handle = create_dissector_handle(dissect_osc_udp, proto_osc);
-        /* register as heuristic dissector for UDP connections */
-        heur_dissector_add("udp", dissect_osc_heur_udp, "Open Sound Control over UDP", "osc_udp", proto_osc, HEURISTIC_ENABLE);
+    /* XXX: Add port pref and  "decode as" for UDP ? */
+    /*      (The UDP heuristic is a bit expensive    */
+    osc_udp_handle = create_dissector_handle(dissect_osc_udp, proto_osc);
+    /* register as heuristic dissector for UDP connections */
+    heur_dissector_add("udp", dissect_osc_heur_udp, "Open Sound Control over UDP", "osc_udp", proto_osc, HEURISTIC_ENABLE);
 
-        initialized = TRUE;
-    }
-    else
-    {
-        if(osc_tcp_port != 0)
-            dissector_delete_uint("tcp.port", osc_tcp_port, osc_tcp_handle);
-    }
-
-    osc_tcp_port = global_osc_tcp_port;
-    if(osc_tcp_port != 0)
-        dissector_add_uint("tcp.port", osc_tcp_port, osc_tcp_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", osc_tcp_handle);
 }
 
 /*

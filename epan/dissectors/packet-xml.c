@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -39,7 +27,7 @@
 #include <epan/expert.h>
 #include <epan/garrayfix.h>
 #include <wsutil/str_util.h>
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 
 #include "packet-xml.h"
 
@@ -60,6 +48,7 @@ static int hf_comment = -1;
 static int hf_xmlpi = -1;
 static int hf_dtd_tag = -1;
 static int hf_doctype = -1;
+static int hf_cdatasection = -1;
 
 static expert_field ei_xml_closing_unopened_tag = EI_INIT;
 static expert_field ei_xml_closing_unopened_xmpli_tag = EI_INIT;
@@ -73,17 +62,14 @@ static tvbparse_wanted_t *want;
 static tvbparse_wanted_t *want_ignore;
 static tvbparse_wanted_t *want_heur;
 
-static GHashTable *xmpli_names;
-static GHashTable *media_types;
+static wmem_map_t *xmpli_names;
+static wmem_map_t *media_types;
 
 static xml_ns_t xml_ns     = {"xml",     "/", -1, -1, -1, NULL, NULL, NULL};
 static xml_ns_t unknown_ns = {"unknown", "?", -1, -1, -1, NULL, NULL, NULL};
 static xml_ns_t *root_ns;
 
 static gboolean pref_heuristic_unicode    = FALSE;
-
-static range_t *global_xml_tcp_range = NULL;
-static range_t *xml_tcp_range        = NULL;
 
 
 #define XML_CDATA       -1000
@@ -100,12 +86,16 @@ static const gchar *default_media_types[] = {
     "text/vnd.wap.sl",
     "text/vnd.wap.co",
     "text/vnd.wap.emn",
+    "application/3gpp-ims+xml",
     "application/atom+xml",
     "application/auth-policy+xml",
     "application/ccmp+xml",
+    "application/conference-info+xml",          /*RFC4575*/
     "application/cpim-pidf+xml",
     "application/cpl+xml",
     "application/dds-web+xml",
+    "application/im-iscomposing+xml",           /*RFC3994*/
+    "application/load-control+xml",             /*RFC7200*/
     "application/mathml+xml",
     "application/media_control+xml",
     "application/note+xml",
@@ -118,8 +108,10 @@ static const gchar *default_media_types[] = {
     "application/rlmi+xml",
     "application/rls-services+xml",
     "application/rss+xml",
+    "application/rs-metadata+xml",
     "application/smil",
     "application/simple-filter+xml",
+    "application/simple-message-summary+xml",   /*RFC3842*/
     "application/simservs+xml",
     "application/soap+xml",
     "application/vnd.etsi.aoc+xml",
@@ -130,14 +122,67 @@ static const gchar *default_media_types[] = {
     "application/vnd.etsi.iptvsad-bc+xml",
     "application/vnd.etsi.iptvsad-cod+xml",
     "application/vnd.etsi.iptvsad-npvr+xml",
+    "application/vnd.etsi.iptvservice+xml",
+    "application/vnd.etsi.iptvsync+xml",
     "application/vnd.etsi.iptvueprofile+xml",
     "application/vnd.etsi.mcid+xml",
+    "application/vnd.etsi.overload-control-policy-dataset+xml",
+    "application/vnd.etsi.pstn+xml",
     "application/vnd.etsi.sci+xml",
     "application/vnd.etsi.simservs+xml",
+    "application/vnd.etsi.tsl+xml",
     "application/vnd.oma.xdm-apd+xml",
+    "application/vnd.oma.fnl+xml",
+    "application/vnd.oma.access-permissions-list+xml",
+    "application/vnd.oma.alias-principals-list+xml",
+    "application/upp-directory+xml",            /*OMA-ERELD-XDM-V2_2_1-20170124-A*/
+    "application/vnd.oma.xdm-hi+xml",
+    "application/vnd.oma.xdm-rhi+xml",
+    "application/vnd.oma.xdm-prefs+xml",
+    "application/vnd.oma.xdcp+xml",
+    "application/vnd.oma.bcast.associated-procedure-parameter+xml",
+    "application/vnd.oma.bcast.drm-trigger+xml",
+    "application/vnd.oma.bcast.imd+xml",
+    "application/vnd.oma.bcast.notification+xml",
+    "application/vnd.oma.bcast.sgdd+xml",
+    "application/vnd.oma.bcast.smartcard-trigger+xml",
+    "application/vnd.oma.bcast.sprov+xml",
+    "application/vnd.oma.cab-address-book+xml",
+    "application/vnd.oma.cab-feature-handler+xml",
+    "application/vnd.oma.cab-pcc+xml",
+    "application/vnd.oma.cab-subs-invite+xml",
+    "application/vnd.oma.cab-user-prefs+xml",
+    "application/vnd.oma.dd2+xml",
+    "application/vnd.oma.drm.risd+xml",
+    "application/vnd.oma.group-usage-list+xml",
+    "application/vnd.oma.pal+xml",
+    "application/vnd.oma.poc.detailed-progress-report+xml",
+    "application/vnd.oma.poc.final-report+xml",
+    "application/vnd.oma.poc.groups+xml",
+    "application/vnd.oma.poc.invocation-descriptor+xml",
+    "application/vnd.oma.poc.optimized-progress-report+xml",
+    "application/vnd.oma.scidm.messages+xml",
+    "application/vnd.oma.suppnot+xml",          /*OMA-ERELD-Presence_SIMPLE-V2_0-20120710-A*/
+    "application/vnd.oma.xcap-directory+xml",
+    "application/vnd.omads-email+xml",
+    "application/vnd.omads-file+xml",
+    "application/vnd.omads-folder+xml",
+    "application/vnd.3gpp.access-transfer-events+xml",
+    "application/vnd.3gpp.bsf+xml",
+    "application/vnd.3gpp.comm-div-info+xml",   /*3GPP TS 24.504  version 8.19.0*/
     "application/vnd.3gpp.cw+xml",
+    "application/vnd.3gpp.iut+xml",             /*3GPP TS 24.337*/
+    "application/vnc.3gpp.iut-config+xml",      /*3GPP TS 24.337*/
+    "application/vnd.3gpp.mid-call+xml",
+    "application/vnd.3gpp-prose-pc3ch+xml",
+    "application/vnd.3gpp-prose+xml",
+    "application/vnd.3gpp.replication+xml",     /*3GPP TS 24.337*/
     "application/vnd.3gpp.sms+xml",
-    "application/vnd.3gpp.SRVCC-info+xml",
+    "application/vnd.3gpp.srvcc-info+xml",
+    "application/vnd.3gpp.srvcc-ext+xml",
+    "application/vnd.3gpp.state-and-event-info+xml",
+    "application/vnd.3gpp.ussd+xml",
+    "application/vnd.3gpp2.bcmcsinfo+xml",
     "application/vnd.wv.csp+xml",
     "application/vnd.wv.csp.xml",
     "application/watcherinfo+xml",
@@ -151,10 +196,12 @@ static const gchar *default_media_types[] = {
     "application/xml-dtd",
     "application/xpidf+xml",
     "application/xslt+xml",
+    "application/x-crd+xml",
     "application/x-wms-logconnectstats",
     "application/x-wms-logplaystats",
     "application/x-wms-sendevent",
     "image/svg+xml",
+    "message/imdn+xml",                         /*RFC5438*/
 };
 
 static void insert_xml_frame(xml_frame_t *parent, xml_frame_t *new_child)
@@ -188,7 +235,7 @@ dissect_xml(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
         g_ptr_array_free(stack, TRUE);
 
     stack = g_ptr_array_new();
-    current_frame                 = (xml_frame_t *)wmem_alloc(wmem_packet_scope(), sizeof(xml_frame_t));
+    current_frame                 = wmem_new(wmem_packet_scope(), xml_frame_t);
     current_frame->type           = XML_FRAME_ROOT;
     current_frame->name           = NULL;
     current_frame->name_orig_case = NULL;
@@ -199,18 +246,19 @@ dissect_xml(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 
     tt = tvbparse_init(tvb, 0, -1, stack, want_ignore);
     current_frame->start_offset = 0;
+    current_frame->length = tvb_captured_length(tvb);
 
     root_ns = NULL;
 
     if (pinfo->match_string)
-        root_ns = (xml_ns_t *)g_hash_table_lookup(media_types, pinfo->match_string);
+        root_ns = (xml_ns_t *)wmem_map_lookup(media_types, pinfo->match_string);
 
     if (! root_ns ) {
         root_ns = &xml_ns;
         colinfo_str = "/XML";
     } else {
         char *colinfo_str_buf;
-        colinfo_str_buf = wmem_strdup_printf(wmem_packet_scope(), "/%s", root_ns->name);
+        colinfo_str_buf = wmem_strconcat(wmem_packet_scope(), "/", root_ns->name, NULL);
         ascii_strup_inplace(colinfo_str_buf);
         colinfo_str = colinfo_str_buf;
     }
@@ -238,9 +286,8 @@ static gboolean dissect_xml_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
         return TRUE;
     } else if (pref_heuristic_unicode) {
         /* XXX - UCS-2, or UTF-16? */
-        const guint8 *data_str    = tvb_get_string_enc(NULL, tvb, 0, tvb_captured_length(tvb), ENC_UCS_2|ENC_LITTLE_ENDIAN);
+        const guint8 *data_str    = tvb_get_string_enc(pinfo->pool, tvb, 0, tvb_captured_length(tvb), ENC_UCS_2|ENC_LITTLE_ENDIAN);
         tvbuff_t     *unicode_tvb = tvb_new_child_real_data(tvb, data_str, tvb_captured_length(tvb)/2, tvb_captured_length(tvb)/2);
-        tvb_set_free_cb(unicode_tvb, g_free);
         if (tvbparse_peek(tvbparse_init(unicode_tvb, 0, -1, NULL, want_ignore), want_heur)) {
             add_new_data_source(pinfo, unicode_tvb, "UTF8");
             dissect_xml(unicode_tvb, pinfo, tree, data);
@@ -328,7 +375,7 @@ static void after_token(void *tvbparse_data, const void *wanted_data _U_, tvbpar
                         tvb_format_text(tok->tvb, tok->offset, tok->len));
 
     if (is_cdata) {
-        new_frame                 = (xml_frame_t *)wmem_alloc(wmem_packet_scope(), sizeof(xml_frame_t));
+        new_frame                 = wmem_new(wmem_packet_scope(), xml_frame_t);
         new_frame->type           = XML_FRAME_CDATA;
         new_frame->name           = NULL;
         new_frame->name_orig_case = NULL;
@@ -338,6 +385,7 @@ static void after_token(void *tvbparse_data, const void *wanted_data _U_, tvbpar
         new_frame->last_item      = pi;
         new_frame->tree           = NULL;
         new_frame->start_offset   = tok->offset;
+        new_frame->length         = tok->len;
         new_frame->ns             = NULL;
         new_frame->pinfo          = current_frame->pinfo;
     }
@@ -351,7 +399,7 @@ static void before_xmpli(void *tvbparse_data, const void *wanted_data _U_, tvbpa
     proto_tree      *pt;
     tvbparse_elem_t *name_tok      = tok->sub->next;
     gchar           *name          = tvb_get_string_enc(wmem_packet_scope(), name_tok->tvb, name_tok->offset, name_tok->len, ENC_ASCII);
-    xml_ns_t        *ns            = (xml_ns_t *)g_hash_table_lookup(xmpli_names, name);
+    xml_ns_t        *ns            = (xml_ns_t *)wmem_map_lookup(xmpli_names, name);
     xml_frame_t     *new_frame;
 
     int  hf_tag;
@@ -372,7 +420,7 @@ static void before_xmpli(void *tvbparse_data, const void *wanted_data _U_, tvbpa
 
     pt = proto_item_add_subtree(pi, ett);
 
-    new_frame                 = (xml_frame_t *)wmem_alloc(wmem_packet_scope(), sizeof(xml_frame_t));
+    new_frame                 = wmem_new(wmem_packet_scope(), xml_frame_t);
     new_frame->type           = XML_FRAME_XMPLI;
     new_frame->name           = name;
     new_frame->name_orig_case = name;
@@ -382,6 +430,7 @@ static void before_xmpli(void *tvbparse_data, const void *wanted_data _U_, tvbpa
     new_frame->last_item      = pi;
     new_frame->tree           = pt;
     new_frame->start_offset   = tok->offset;
+    new_frame->length         = tok->len;
     new_frame->ns             = ns;
     new_frame->pinfo          = current_frame->pinfo;
 
@@ -425,10 +474,10 @@ static void before_tag(void *tvbparse_data, const void *wanted_data _U_, tvbpars
         name           = (gchar *)tvb_get_string_enc(wmem_packet_scope(), leaf_tok->tvb, leaf_tok->offset, leaf_tok->len, ENC_ASCII);
         name_orig_case = name;
 
-        nameroot_ns = (xml_ns_t *)g_hash_table_lookup(xml_ns.elements, root_name);
+        nameroot_ns = (xml_ns_t *)wmem_map_lookup(xml_ns.elements, root_name);
 
         if(nameroot_ns) {
-            ns = (xml_ns_t *)g_hash_table_lookup(nameroot_ns->elements, name);
+            ns = (xml_ns_t *)wmem_map_lookup(nameroot_ns->elements, name);
             if (!ns) {
                 ns = &unknown_ns;
             }
@@ -442,10 +491,10 @@ static void before_tag(void *tvbparse_data, const void *wanted_data _U_, tvbpars
         ascii_strdown_inplace(name);
 
         if(current_frame->ns) {
-            ns = (xml_ns_t *)g_hash_table_lookup(current_frame->ns->elements, name);
+            ns = (xml_ns_t *)wmem_map_lookup(current_frame->ns->elements, name);
 
             if (!ns) {
-                if (! ( ns = (xml_ns_t *)g_hash_table_lookup(root_ns->elements, name) ) ) {
+                if (! ( ns = (xml_ns_t *)wmem_map_lookup(root_ns->elements, name) ) ) {
                     ns = &unknown_ns;
                 }
             }
@@ -461,7 +510,7 @@ static void before_tag(void *tvbparse_data, const void *wanted_data _U_, tvbpars
 
     pt = proto_item_add_subtree(pi, ns->ett);
 
-    new_frame = (xml_frame_t *)wmem_alloc(wmem_packet_scope(), sizeof(xml_frame_t));
+    new_frame = wmem_new(wmem_packet_scope(), xml_frame_t);
     new_frame->type           = XML_FRAME_TAG;
     new_frame->name           = name;
     new_frame->name_orig_case = name_orig_case;
@@ -471,6 +520,7 @@ static void before_tag(void *tvbparse_data, const void *wanted_data _U_, tvbpars
     new_frame->last_item      = pi;
     new_frame->tree           = pt;
     new_frame->start_offset   = tok->offset;
+    new_frame->length         = tok->len;
     new_frame->ns             = ns;
     new_frame->pinfo          = current_frame->pinfo;
 
@@ -507,6 +557,7 @@ static void after_untag(void *tvbparse_data, const void *wanted_data _U_, tvbpar
     xml_frame_t *current_frame = (xml_frame_t *)g_ptr_array_index(stack, stack->len - 1);
 
     proto_item_set_len(current_frame->item, (tok->offset - current_frame->start_offset) + tok->len);
+    current_frame->length = (tok->offset - current_frame->start_offset) + tok->len;
 
     proto_tree_add_format_text(current_frame->tree, tok->tvb, tok->offset, tok->len);
 
@@ -530,7 +581,7 @@ static void before_dtd_doctype(void *tvbparse_data, const void *wanted_data _U_,
 
     proto_item_set_text(dtd_item, "%s", tvb_format_text(tok->tvb, tok->offset, tok->len));
 
-    new_frame = (xml_frame_t *)wmem_alloc(wmem_packet_scope(), sizeof(xml_frame_t));
+    new_frame = wmem_new(wmem_packet_scope(), xml_frame_t);
     new_frame->type           = XML_FRAME_DTD_DOCTYPE;
     new_frame->name           = (gchar *)tvb_get_string_enc(wmem_packet_scope(), name_tok->tvb,
                                                                   name_tok->offset,
@@ -542,6 +593,7 @@ static void before_dtd_doctype(void *tvbparse_data, const void *wanted_data _U_,
     new_frame->last_item      = dtd_item;
     new_frame->tree           = proto_item_add_subtree(dtd_item, ett_dtd);
     new_frame->start_offset   = tok->offset;
+    new_frame->length         = tok->len;
     new_frame->ns             = NULL;
     new_frame->pinfo          = current_frame->pinfo;
 
@@ -596,7 +648,7 @@ static void after_attrib(void *tvbparse_data, const void *wanted_data _U_, tvbpa
     name_orig_case = wmem_strdup(wmem_packet_scope(), name);
     ascii_strdown_inplace(name);
 
-    if(current_frame->ns && (hfidp = (int *)g_hash_table_lookup(current_frame->ns->attributes, name) )) {
+    if(current_frame->ns && (hfidp = (int *)wmem_map_lookup(current_frame->ns->attributes, name) )) {
         hfid  = *hfidp;
         value = value_part;
     } else {
@@ -609,7 +661,7 @@ static void after_attrib(void *tvbparse_data, const void *wanted_data _U_, tvbpa
 
     current_frame->last_item = pi;
 
-    new_frame = (xml_frame_t *)wmem_alloc(wmem_packet_scope(), sizeof(xml_frame_t));
+    new_frame = wmem_new(wmem_packet_scope(), xml_frame_t);
     new_frame->type           = XML_FRAME_ATTRIB;
     new_frame->name           = name;
     new_frame->name_orig_case = name_orig_case;
@@ -620,6 +672,7 @@ static void after_attrib(void *tvbparse_data, const void *wanted_data _U_, tvbpa
     new_frame->last_item      = pi;
     new_frame->tree           = NULL;
     new_frame->start_offset   = tok->offset;
+    new_frame->length         = tok->len;
     new_frame->ns             = NULL;
     new_frame->pinfo          = current_frame->pinfo;
 
@@ -686,6 +739,13 @@ static void init_xml_parser(void)
                                       tvbparse_string(-1, "-->", NULL, NULL, NULL),
                                       TP_UNTIL_INCLUDE),
                                NULL);
+
+    tvbparse_wanted_t *want_cdatasection = tvbparse_set_seq(hf_cdatasection, NULL, NULL, after_token,
+                               tvbparse_string(-1, "<![CDATA[", NULL, NULL, NULL),
+                               tvbparse_until(-1, NULL, NULL, NULL,
+                                       tvbparse_string(-1, "]]>", NULL, NULL, NULL),
+                                       TP_UNTIL_INCLUDE),
+                                NULL);
 
     tvbparse_wanted_t *want_xmlpi = tvbparse_set_seq(hf_xmlpi, NULL, before_xmpli, NULL,
                              tvbparse_string(-1, "<?", NULL, NULL, NULL),
@@ -758,6 +818,7 @@ static void init_xml_parser(void)
 
     want = tvbparse_set_oneof(-1, NULL, NULL, NULL,
                   want_comment,
+                  want_cdatasection,
                   want_xmlpi,
                   want_closing_tag,
                   want_doctype_start,
@@ -770,6 +831,7 @@ static void init_xml_parser(void)
 
     want_heur = tvbparse_set_oneof(-1, NULL, NULL, NULL,
                        want_comment,
+                       want_cdatasection,
                        want_xmlpi,
                        want_doctype_start,
                        want_dtd_tag,
@@ -779,30 +841,30 @@ static void init_xml_parser(void)
 }
 
 
-static xml_ns_t *xml_new_namespace(GHashTable *hash, const gchar *name, ...)
+static xml_ns_t *xml_new_namespace(wmem_map_t *hash, const gchar *name, ...)
 {
-    xml_ns_t *ns = (xml_ns_t *)g_malloc(sizeof(xml_ns_t));
+    xml_ns_t *ns = wmem_new(wmem_epan_scope(), xml_ns_t);
     va_list   ap;
     gchar    *attr_name;
 
-    ns->name       = g_strdup(name);
+    ns->name       = wmem_strdup(wmem_epan_scope(), name);
     ns->hf_tag     = -1;
     ns->hf_cdata   = -1;
     ns->ett        = -1;
-    ns->attributes = g_hash_table_new(g_str_hash, g_str_equal);
-    ns->elements   = g_hash_table_new(g_str_hash, g_str_equal);
+    ns->attributes = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
+    ns->elements   = NULL;
 
     va_start(ap, name);
 
     while(( attr_name = va_arg(ap, gchar *) )) {
-        int *hfp = (int *)g_malloc(sizeof(int));
+        int *hfp = wmem_new(wmem_epan_scope(), int);
         *hfp = -1;
-        g_hash_table_insert(ns->attributes, g_strdup(attr_name), hfp);
+        wmem_map_insert(ns->attributes, wmem_strdup(wmem_epan_scope(), attr_name), hfp);
     };
 
     va_end(ap);
 
-    g_hash_table_insert(hash, ns->name, ns);
+    wmem_map_insert(hash, ns->name, ns);
 
     return ns;
 }
@@ -820,11 +882,7 @@ static void add_xml_field(wmem_array_t *hfs, int *p_id, const gchar *name, const
     hfri.hfinfo.strings        = NULL;
     hfri.hfinfo.bitmask        = 0x0;
     hfri.hfinfo.blurb          = NULL;
-    hfri.hfinfo.id             = 0;
-    hfri.hfinfo.parent         = 0;
-    hfri.hfinfo.ref_type       = HF_REF_TYPE_NONE;
-    hfri.hfinfo.same_name_next = NULL;
-    hfri.hfinfo.same_name_prev_id = -1;
+    HFILL_INIT(hfri);
 
     wmem_array_append_one(hfs, hfri);
 }
@@ -832,7 +890,7 @@ static void add_xml_field(wmem_array_t *hfs, int *p_id, const gchar *name, const
 static void add_xml_attribute_names(gpointer k, gpointer v, gpointer p)
 {
     struct _attr_reg_data *d = (struct _attr_reg_data *)p;
-    const gchar *basename = wmem_strdup_printf(wmem_epan_scope(), "%s.%s", d->basename, (gchar *)k);
+    const gchar *basename = wmem_strconcat(wmem_epan_scope(), d->basename, ".", (gchar *)k, NULL);
 
     add_xml_field(d->hf, (int*) v, (gchar *)k, basename);
 }
@@ -841,7 +899,7 @@ static void add_xml_attribute_names(gpointer k, gpointer v, gpointer p)
 static void add_xmlpi_namespace(gpointer k _U_, gpointer v, gpointer p)
 {
     xml_ns_t *ns       = (xml_ns_t *)v;
-    const gchar *basename = wmem_strdup_printf(wmem_epan_scope(), "%s.%s", (gchar *)p, ns->name);
+    const gchar *basename = wmem_strconcat(wmem_epan_scope(), (gchar *)p, ".", ns->name, NULL);
     gint     *ett_p    = &(ns->ett);
     struct _attr_reg_data d;
 
@@ -852,7 +910,7 @@ static void add_xmlpi_namespace(gpointer k _U_, gpointer v, gpointer p)
     d.basename = basename;
     d.hf = hf_arr;
 
-    g_hash_table_foreach(ns->attributes, add_xml_attribute_names, &d);
+    wmem_map_foreach(ns->attributes, add_xml_attribute_names, &d);
 
 }
 
@@ -868,6 +926,7 @@ static void destroy_dtd_data(dtd_build_data_t *dtd_data)
     while(dtd_data->elements->len) {
         dtd_named_list_t *nl = (dtd_named_list_t *)g_ptr_array_remove_index_fast(dtd_data->elements, 0);
         g_ptr_array_free(nl->list, TRUE);
+        g_free(nl->name);
         g_free(nl);
     }
 
@@ -876,6 +935,7 @@ static void destroy_dtd_data(dtd_build_data_t *dtd_data)
     while(dtd_data->attributes->len) {
         dtd_named_list_t *nl = (dtd_named_list_t *)g_ptr_array_remove_index_fast(dtd_data->attributes, 0);
         g_ptr_array_free(nl->list, TRUE);
+        g_free(nl->name);
         g_free(nl);
     }
 
@@ -886,35 +946,35 @@ static void destroy_dtd_data(dtd_build_data_t *dtd_data)
 
 static void copy_attrib_item(gpointer k, gpointer v _U_, gpointer p)
 {
-    gchar      *key   = (gchar *)g_strdup((const gchar *)k);
-    int        *value = (int *)g_malloc(sizeof(int));
-    GHashTable *dst   = (GHashTable *)p;
+    gchar      *key   = (gchar *)wmem_strdup(wmem_epan_scope(), (const gchar *)k);
+    int        *value = wmem_new(wmem_epan_scope(), int);
+    wmem_map_t *dst   = (wmem_map_t *)p;
 
     *value = -1;
-    g_hash_table_insert(dst, key, value);
+    wmem_map_insert(dst, key, value);
 
 }
 
-static GHashTable *copy_attributes_hash(GHashTable *src)
+static wmem_map_t *copy_attributes_hash(wmem_map_t *src)
 {
-    GHashTable *dst = g_hash_table_new(g_str_hash, g_str_equal);
+    wmem_map_t *dst = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
 
-    g_hash_table_foreach(src, copy_attrib_item, dst);
+    wmem_map_foreach(src, copy_attrib_item, dst);
 
     return dst;
 }
 
 static xml_ns_t *duplicate_element(xml_ns_t *orig)
 {
-    xml_ns_t *new_item = (xml_ns_t *)g_malloc(sizeof(xml_ns_t));
+    xml_ns_t *new_item = wmem_new(wmem_epan_scope(), xml_ns_t);
     guint     i;
 
-    new_item->name          = g_strdup(orig->name);
+    new_item->name          = wmem_strdup(wmem_epan_scope(), orig->name);
     new_item->hf_tag        = -1;
     new_item->hf_cdata      = -1;
     new_item->ett           = -1;
     new_item->attributes    = copy_attributes_hash(orig->attributes);
-    new_item->elements      = g_hash_table_new(g_str_hash, g_str_equal);
+    new_item->elements      = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
     new_item->element_names = g_ptr_array_new();
 
     for(i=0; i < orig->element_names->len; i++) {
@@ -928,23 +988,23 @@ static xml_ns_t *duplicate_element(xml_ns_t *orig)
 static gchar *fully_qualified_name(GPtrArray *hier, gchar *name, gchar *proto_name)
 {
     guint    i;
-    GString *s = g_string_new(proto_name);
+    wmem_strbuf_t *s = wmem_strbuf_new(wmem_epan_scope(), proto_name);
 
-    g_string_append(s, ".");
+    wmem_strbuf_append(s, ".");
 
     for (i = 1; i < hier->len; i++) {
-        g_string_append_printf(s, "%s.", (gchar *)g_ptr_array_index(hier, i));
+        wmem_strbuf_append_printf(s, "%s.", (gchar *)g_ptr_array_index(hier, i));
     }
 
-    g_string_append(s, name);
+    wmem_strbuf_append(s, name);
 
-    return g_string_free(s, FALSE);
+    return wmem_strbuf_finalize(s);;
 }
 
 
 static xml_ns_t *make_xml_hier(gchar      *elem_name,
                                xml_ns_t   *root,
-                               GHashTable *elements,
+                               wmem_map_t *elements,
                                GPtrArray  *hier,
                                GString    *error,
                                wmem_array_t *hfs,
@@ -963,7 +1023,7 @@ static xml_ns_t *make_xml_hier(gchar      *elem_name,
         return NULL;
     }
 
-    if (! ( orig = (xml_ns_t *)g_hash_table_lookup(elements, elem_name) )) {
+    if (! ( orig = (xml_ns_t *)wmem_map_lookup(elements, elem_name) )) {
         g_string_append_printf(error, "element '%s' is not defined\n", elem_name);
         return NULL;
     }
@@ -992,7 +1052,7 @@ static xml_ns_t *make_xml_hier(gchar      *elem_name,
     d.basename = fqn;
     d.hf = hfs;
 
-    g_hash_table_foreach(fresh->attributes, add_xml_attribute_names, &d);
+    wmem_map_foreach(fresh->attributes, add_xml_attribute_names, &d);
 
     while(fresh->element_names->len) {
         gchar *child_name = (gchar *)g_ptr_array_remove_index(fresh->element_names, 0);
@@ -1003,7 +1063,7 @@ static xml_ns_t *make_xml_hier(gchar      *elem_name,
         g_ptr_array_remove_index_fast(hier, hier->len - 1);
 
         if (child_element) {
-            g_hash_table_insert(fresh->elements, child_element->name, child_element);
+            wmem_map_insert(fresh->elements, child_element->name, child_element);
         }
     }
 
@@ -1012,35 +1072,20 @@ static xml_ns_t *make_xml_hier(gchar      *elem_name,
     return fresh;
 }
 
-static gboolean free_both(gpointer k, gpointer v, gpointer p _U_)
-{
-    g_free(k);
-    g_free(v);
-    return TRUE;
-}
-
-static gboolean free_elements(gpointer k _U_, gpointer v, gpointer p _U_)
+static void free_elements(gpointer k _U_, gpointer v, gpointer p _U_)
 {
     xml_ns_t *e = (xml_ns_t *)v;
-
-    g_free(e->name);
-    g_hash_table_foreach_remove(e->attributes, free_both, NULL);
-    g_hash_table_destroy(e->attributes);
-    g_hash_table_destroy(e->elements);
 
     while (e->element_names->len) {
         g_free(g_ptr_array_remove_index(e->element_names, 0));
     }
 
     g_ptr_array_free(e->element_names, TRUE);
-    g_free(e);
-
-    return TRUE;
 }
 
 static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
 {
-    GHashTable *elements      = g_hash_table_new(g_str_hash, g_str_equal);
+    wmem_map_t *elements      = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
     gchar      *root_name     = NULL;
     xml_ns_t   *root_element  = NULL;
     wmem_array_t *hfs;
@@ -1052,44 +1097,45 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
     /* we first populate elements with the those coming from the parser */
     while(dtd_data->elements->len) {
         dtd_named_list_t *nl      = (dtd_named_list_t *)g_ptr_array_remove_index(dtd_data->elements, 0);
-        xml_ns_t         *element = (xml_ns_t *)g_malloc(sizeof(xml_ns_t));
+        xml_ns_t         *element = wmem_new(wmem_epan_scope(), xml_ns_t);
 
         /* we will use the first element found as root in case no other one was given. */
         if (root_name == NULL)
-            root_name = g_strdup(nl->name);
+            root_name = wmem_strdup(wmem_epan_scope(), nl->name);
 
-        element->name          = nl->name;
+        element->name          = wmem_strdup(wmem_epan_scope(), nl->name);
         element->element_names = nl->list;
         element->hf_tag        = -1;
         element->hf_cdata      = -1;
         element->ett           = -1;
-        element->attributes    = g_hash_table_new(g_str_hash, g_str_equal);
-        element->elements      = g_hash_table_new(g_str_hash, g_str_equal);
+        element->attributes    = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
+        element->elements      = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
 
-        if( g_hash_table_lookup(elements, element->name) ) {
+        if( wmem_map_lookup(elements, element->name) ) {
             g_string_append_printf(errors, "element %s defined more than once\n", element->name);
             free_elements(NULL, element, NULL);
         } else {
-            g_hash_table_insert(elements, (gpointer)element->name, element);
-            g_ptr_array_add(element_names, g_strdup(element->name));
+            wmem_map_insert(elements, element->name, element);
+            g_ptr_array_add(element_names, wmem_strdup(wmem_epan_scope(), element->name));
         }
 
+        g_free(nl->name);
         g_free(nl);
     }
 
     /* then we add the attributes to its relative elements */
     while(dtd_data->attributes->len) {
         dtd_named_list_t *nl      = (dtd_named_list_t *)g_ptr_array_remove_index(dtd_data->attributes, 0);
-        xml_ns_t         *element = (xml_ns_t *)g_hash_table_lookup(elements, nl->name);
+        xml_ns_t         *element = (xml_ns_t *)wmem_map_lookup(elements, nl->name);
 
         if (element) {
             while(nl->list->len) {
                 gchar *name = (gchar *)g_ptr_array_remove_index(nl->list, 0);
-                int   *id_p = (int *)g_malloc(sizeof(int));
+                int   *id_p = wmem_new(wmem_epan_scope(), int);
 
                 *id_p = -1;
-                g_hash_table_insert(element->attributes, name, id_p);
-            }
+                wmem_map_insert(element->attributes, wmem_strdup(wmem_epan_scope(), name), id_p);
+                g_free(name);            }
         }
         else {
             g_string_append_printf(errors, "element %s is not defined\n", nl->name);
@@ -1102,8 +1148,8 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
 
     /* if a proto_root is defined in the dtd we'll use that as root */
     if( dtd_data->proto_root ) {
-        g_free(root_name);
-        root_name = g_strdup(dtd_data->proto_root);
+        wmem_free(wmem_epan_scope(), root_name);
+        root_name = wmem_strdup(wmem_epan_scope(), dtd_data->proto_root);
     }
 
     /* we use a stack with the names to avoid recurring infinitelly */
@@ -1116,7 +1162,7 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
     if( ! dtd_data->proto_name ) {
         hfs  = hf_arr;
         etts = ett_arr;
-        g_ptr_array_add(hier, g_strdup("xml"));
+        g_ptr_array_add(hier, wmem_strdup(wmem_epan_scope(), "xml"));
     } else {
         /*
          * if we were given a proto_name the namespace will be registered
@@ -1127,13 +1173,13 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
     }
 
     /* the root element of the dtd's namespace */
-    root_element = (xml_ns_t *)g_malloc(sizeof(xml_ns_t));
-    root_element->name          = g_strdup(root_name);
-    root_element->fqn           = dtd_data->proto_name ? g_strdup(dtd_data->proto_name) : root_element->name;
+    root_element = wmem_new(wmem_epan_scope(), xml_ns_t);
+    root_element->name          = wmem_strdup(wmem_epan_scope(), root_name);
+    root_element->fqn           = dtd_data->proto_name ? wmem_strdup(wmem_epan_scope(), dtd_data->proto_name) : root_element->name;
     root_element->hf_tag        = -1;
     root_element->hf_cdata      = -1;
     root_element->ett           = -1;
-    root_element->elements      = g_hash_table_new(g_str_hash, g_str_equal);
+    root_element->elements      = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
     root_element->element_names = element_names;
 
     /*
@@ -1146,9 +1192,9 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
 
         make_xml_hier(root_name, root_element, elements, hier, errors, hfs, etts, dtd_data->proto_name);
 
-        g_hash_table_insert(root_element->elements, (gpointer)root_element->name, root_element);
+        wmem_map_insert(root_element->elements, (gpointer)root_element->name, root_element);
 
-        orig_root = (xml_ns_t *)g_hash_table_lookup(elements, root_name);
+        orig_root = (xml_ns_t *)wmem_map_lookup(elements, root_name);
 
         /* if the root element was defined copy its attrlist to the child */
         if(orig_root) {
@@ -1158,9 +1204,9 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
             d.hf = hfs;
 
             root_element->attributes = copy_attributes_hash(orig_root->attributes);
-            g_hash_table_foreach(root_element->attributes, add_xml_attribute_names, &d);
+            wmem_map_foreach(root_element->attributes, add_xml_attribute_names, &d);
         } else {
-            root_element->attributes = g_hash_table_new(g_str_hash, g_str_equal);
+            root_element->attributes = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
         }
 
         /* we then create all the sub hierarchies to catch the recurred cases */
@@ -1169,20 +1215,18 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
         while(root_element->element_names->len) {
             curr_name = (gchar *)g_ptr_array_remove_index(root_element->element_names, 0);
 
-            if( ! g_hash_table_lookup(root_element->elements, curr_name) ) {
+            if( ! wmem_map_lookup(root_element->elements, curr_name) ) {
                 xml_ns_t *fresh = make_xml_hier(curr_name, root_element, elements, hier, errors,
                                               hfs, etts, dtd_data->proto_name);
-                g_hash_table_insert(root_element->elements, (gpointer)fresh->name, fresh);
+                wmem_map_insert(root_element->elements, (gpointer)fresh->name, fresh);
             }
-
-            g_free(curr_name);
         }
 
     } else {
         /* a flat namespace */
         g_ptr_array_add(hier, root_name);
 
-        root_element->attributes = g_hash_table_new(g_str_hash, g_str_equal);
+        root_element->attributes = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
 
         while(root_element->element_names->len) {
             xml_ns_t *fresh;
@@ -1190,7 +1234,7 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
             struct _attr_reg_data d;
 
             curr_name = (gchar *)g_ptr_array_remove_index(root_element->element_names, 0);
-            fresh       = duplicate_element((xml_ns_t *)g_hash_table_lookup(elements, curr_name));
+            fresh       = duplicate_element((xml_ns_t *)wmem_map_lookup(elements, curr_name));
             fresh->fqn  = fully_qualified_name(hier, curr_name, root_name);
 
             add_xml_field(hfs, &(fresh->hf_tag), curr_name, fresh->fqn);
@@ -1199,14 +1243,14 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
             d.basename = fresh->fqn;
             d.hf = hfs;
 
-            g_hash_table_foreach(fresh->attributes, add_xml_attribute_names, &d);
+            wmem_map_foreach(fresh->attributes, add_xml_attribute_names, &d);
 
             ett_p = &fresh->ett;
             g_array_append_val(etts, ett_p);
 
             g_ptr_array_free(fresh->element_names, TRUE);
 
-            g_hash_table_insert(root_element->elements, (gpointer)fresh->name, fresh);
+            wmem_map_insert(root_element->elements, (gpointer)fresh->name, fresh);
         }
     }
 
@@ -1220,39 +1264,37 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
      */
     if( dtd_data->proto_name ) {
         gint *ett_p;
+        gchar *full_name, *short_name;
 
-        if ( ! dtd_data->description) {
-            dtd_data->description = wmem_strdup(wmem_epan_scope(), root_name);
+        if (dtd_data->description) {
+            full_name = wmem_strdup(wmem_epan_scope(), dtd_data->description);
+        } else {
+            full_name = wmem_strdup(wmem_epan_scope(), root_name);
         }
+        short_name = wmem_strdup(wmem_epan_scope(), dtd_data->proto_name);
 
         ett_p = &root_element->ett;
         g_array_append_val(etts, ett_p);
 
         add_xml_field(hfs, &root_element->hf_cdata, root_element->name, root_element->fqn);
 
-        root_element->hf_tag = proto_register_protocol(dtd_data->description,
-                                                       dtd_data->proto_name,
-                                                       dtd_data->proto_name);
+        root_element->hf_tag = proto_register_protocol(full_name, short_name, short_name);
         proto_register_field_array(root_element->hf_tag, (hf_register_info*)wmem_array_get_raw(hfs), wmem_array_get_count(hfs));
         proto_register_subtree_array((gint **)g_array_data(etts), etts->len);
 
         if (dtd_data->media_type) {
-            g_hash_table_insert(media_types, dtd_data->media_type, root_element);
-            dtd_data->media_type = NULL;
+            gchar* media_type = wmem_strdup(wmem_epan_scope(), dtd_data->media_type);
+            wmem_map_insert(media_types, media_type, root_element);
         }
 
-        dtd_data->description = NULL;
-        dtd_data->proto_name  = NULL;
         g_array_free(etts, TRUE);
     }
 
-    g_hash_table_insert(xml_ns.elements, (gpointer)root_element->name, root_element);
-
-    g_hash_table_foreach_remove(elements, free_elements, NULL);
-    g_hash_table_destroy(elements);
+    wmem_map_insert(xml_ns.elements, root_element->name, root_element);
+    wmem_map_foreach(elements, free_elements, NULL);
 
     destroy_dtd_data(dtd_data);
-    g_free(root_name);
+    wmem_free(wmem_epan_scope(), root_name);
 }
 
 #  define DIRECTORY_T GDir
@@ -1264,27 +1306,22 @@ static void register_dtd(dtd_build_data_t *dtd_data, GString *errors)
 
 static void init_xml_names(void)
 {
-    xml_ns_t     *xmlpi_xml_ns;
     guint         i;
     DIRECTORY_T  *dir;
     const FILE_T *file;
     const gchar  *filename;
     gchar        *dirname;
 
-    GError **dummy = (GError **)g_malloc(sizeof(GError *));
+    GError **dummy = wmem_new(wmem_epan_scope(), GError *);
     *dummy = NULL;
 
-    xmpli_names = g_hash_table_new(g_str_hash, g_str_equal);
-    media_types = g_hash_table_new(g_str_hash, g_str_equal);
+    xmpli_names = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
+    media_types = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
 
-    unknown_ns.elements = xml_ns.elements = g_hash_table_new(g_str_hash, g_str_equal);
-    unknown_ns.attributes = xml_ns.attributes = g_hash_table_new(g_str_hash, g_str_equal);
+    unknown_ns.elements = xml_ns.elements = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
+    unknown_ns.attributes = xml_ns.attributes = wmem_map_new(wmem_epan_scope(), g_str_hash, g_str_equal);
 
-    xmlpi_xml_ns = xml_new_namespace(xmpli_names, "xml", "version", "encoding", "standalone", NULL);
-
-    g_hash_table_destroy(xmlpi_xml_ns->elements);
-    xmlpi_xml_ns->elements = NULL;
-
+    xml_new_namespace(xmpli_names, "xml", "version", "encoding", "standalone", NULL);
 
     dirname = get_persconffile_path("dtds", FALSE);
 
@@ -1345,22 +1382,14 @@ static void init_xml_names(void)
     g_free(dirname);
 
     for(i=0;i<array_length(default_media_types);i++) {
-        if( ! g_hash_table_lookup(media_types, default_media_types[i]) ) {
-            g_hash_table_insert(media_types, (gpointer)default_media_types[i], &xml_ns);
+        if( ! wmem_map_lookup(media_types, default_media_types[i]) ) {
+            wmem_map_insert(media_types, (gpointer)default_media_types[i], &xml_ns);
         }
     }
 
-    g_hash_table_foreach(xmpli_names, add_xmlpi_namespace, (gpointer)"xml.xmlpi");
+    wmem_map_foreach(xmpli_names, add_xmlpi_namespace, (gpointer)"xml.xmlpi");
 
-    g_free(dummy);
-}
-
-static void apply_prefs(void)
-{
-    dissector_delete_uint_range("tcp.port", xml_tcp_range, xml_handle);
-    g_free(xml_tcp_range);
-    xml_tcp_range = range_copy(global_xml_tcp_range);
-    dissector_add_uint_range("tcp.port", xml_tcp_range, xml_handle);
+    wmem_free(wmem_epan_scope(), dummy);
 }
 
 void
@@ -1376,6 +1405,11 @@ proto_register_xml(void)
     static hf_register_info hf_base[] = {
         { &hf_xmlpi,
           {"XMLPI", "xml.xmlpi",
+           FT_STRING, BASE_NONE, NULL, 0,
+           NULL, HFILL }
+        },
+        { &hf_cdatasection,
+          {"CDATASection", "xml.cdatasection",
            FT_STRING, BASE_NONE, NULL, 0,
            NULL, HFILL }
         },
@@ -1440,12 +1474,9 @@ proto_register_xml(void)
     expert_xml = expert_register_protocol(xml_ns.hf_tag);
     expert_register_field_array(expert_xml, ei, array_length(ei));
 
-    xml_module = prefs_register_protocol(xml_ns.hf_tag, apply_prefs);
+    xml_module = prefs_register_protocol(xml_ns.hf_tag, NULL);
     prefs_register_obsolete_preference(xml_module, "heuristic");
     prefs_register_obsolete_preference(xml_module, "heuristic_tcp");
-    prefs_register_range_preference(xml_module, "tcp.port", "TCP Ports",
-                                    "TCP Ports range",
-                                    &global_xml_tcp_range, 65535);
     prefs_register_obsolete_preference(xml_module, "heuristic_udp");
     /* XXX - UCS-2, or UTF-16? */
     prefs_register_bool_preference(xml_module, "heuristic_unicode", "Use Unicode in heuristics",
@@ -1454,13 +1485,9 @@ proto_register_xml(void)
 
     g_array_free(ett_arr, TRUE);
 
-    register_dissector("xml", dissect_xml, xml_ns.hf_tag);
+    xml_handle = register_dissector("xml", dissect_xml, xml_ns.hf_tag);
 
     init_xml_parser();
-
-    xml_tcp_range = range_empty();
-
-
 }
 
 static void
@@ -1472,9 +1499,8 @@ add_dissector_media(gpointer k, gpointer v _U_, gpointer p _U_)
 void
 proto_reg_handoff_xml(void)
 {
-    xml_handle = find_dissector("xml");
-
-    g_hash_table_foreach(media_types, add_dissector_media, NULL);
+    wmem_map_foreach(media_types, add_dissector_media, NULL);
+    dissector_add_uint_range_with_preference("tcp.port", "", xml_handle);
 
     heur_dissector_add("http",  dissect_xml_heur, "XML in HTTP", "xml_http", xml_ns.hf_tag, HEURISTIC_DISABLE);
     heur_dissector_add("sip",   dissect_xml_heur, "XML in SIP", "xml_sip", xml_ns.hf_tag, HEURISTIC_DISABLE);

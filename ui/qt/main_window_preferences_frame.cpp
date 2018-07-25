@@ -4,32 +4,21 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wireshark_application.h"
 #include "main_window_preferences_frame.h"
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 
 #include <ui_main_window_preferences_frame.h>
 #include "ui/language.h"
 
 #include <epan/prefs-int.h>
+#include <ui/qt/models/pref_models.h>
 #include <wsutil/filesystem.h>
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 
-#include <QFileDialog>
 #include <QDebug>
 
 MainWindowPreferencesFrame::MainWindowPreferencesFrame(QWidget *parent) :
@@ -46,8 +35,6 @@ MainWindowPreferencesFrame::MainWindowPreferencesFrame(QWidget *parent) :
     pref_recent_df_entries_max_ = prefFromPrefPtr(&prefs.gui_recent_df_entries_max);
     pref_recent_files_count_max_ = prefFromPrefPtr(&prefs.gui_recent_files_count_max);
     pref_ask_unsaved_ = prefFromPrefPtr(&prefs.gui_ask_unsaved);
-    pref_auto_scroll_on_expand_ = prefFromPrefPtr(&prefs.gui_auto_scroll_on_expand);
-    pref_auto_scroll_percentage_ = prefFromPrefPtr(&prefs.gui_auto_scroll_percentage);
     pref_toolbar_main_style_ = prefFromPrefPtr(&prefs.gui_toolbar_main_style);
     pref_toolbar_filter_style_ = prefFromPrefPtr(&prefs.gui_toolbar_filter_style);
 
@@ -62,12 +49,9 @@ MainWindowPreferencesFrame::MainWindowPreferencesFrame(QWidget *parent) :
     ui->maxFilterLineEdit->setStyleSheet(indent_ss);
     ui->maxRecentLineEdit->setStyleSheet(indent_ss);
 
-    ui->autoScrollPercentageLabel->setStyleSheet(indent_ss);
-
     int num_entry_width = ui->maxFilterLineEdit->fontMetrics().height() * 3;
     ui->maxFilterLineEdit->setMaximumWidth(num_entry_width);
     ui->maxRecentLineEdit->setMaximumWidth(num_entry_width);
-    ui->autoScrollPercentageLineEdit->setMaximumWidth(num_entry_width);
 
     QString globalLanguagesPath(QString(get_datafile_dir()) + "/languages/");
     QString userLanguagesPath(gchar_free_to_qstring(get_persconffile_path("languages/", FALSE)));
@@ -96,7 +80,7 @@ MainWindowPreferencesFrame::MainWindowPreferencesFrame(QWidget *parent) :
         ui->languageComboBox->addItem(ico, lang, locale);
     }
 
-    ui->languageComboBox->setItemData(0, "system");
+    ui->languageComboBox->setItemData(0, USE_SYSTEM_LANGUAGE);
     ui->languageComboBox->model()->sort(0);
 
     for (int i = 0; i < ui->languageComboBox->count(); i += 1) {
@@ -121,28 +105,26 @@ void MainWindowPreferencesFrame::showEvent(QShowEvent *)
 void MainWindowPreferencesFrame::updateWidgets()
 {
     // Yes, this means we're potentially clobbering two prefs in favor of one.
-    if (pref_geometry_save_position_->stashed_val.boolval || pref_geometry_save_size_->stashed_val.boolval || pref_geometry_save_maximized_->stashed_val.boolval) {
+    if (prefs_get_bool_value(pref_geometry_save_position_, pref_stashed) || prefs_get_bool_value(pref_geometry_save_size_, pref_stashed) || prefs_get_bool_value(pref_geometry_save_maximized_, pref_stashed)) {
         ui->geometryCheckBox->setChecked(true);
     } else {
         ui->geometryCheckBox->setChecked(false);
     }
 
-    if (pref_fileopen_style_->stashed_val.enumval == FO_STYLE_LAST_OPENED) {
+    if (prefs_get_enum_value(pref_fileopen_style_, pref_stashed) == FO_STYLE_LAST_OPENED) {
         ui->foStyleLastOpenedRadioButton->setChecked(true);
     } else {
         ui->foStyleSpecifiedRadioButton->setChecked(true);
     }
 
-    ui->foStyleSpecifiedLineEdit->setText(pref_fileopen_dir_->stashed_val.string);
+    ui->foStyleSpecifiedLineEdit->setText(prefs_get_string_value(pref_fileopen_dir_, pref_stashed));
 
-    ui->maxFilterLineEdit->setText(QString::number(pref_recent_df_entries_max_->stashed_val.uint));
-    ui->maxRecentLineEdit->setText(QString::number(pref_recent_files_count_max_->stashed_val.uint));
+    ui->maxFilterLineEdit->setText(QString::number(prefs_get_uint_value_real(pref_recent_df_entries_max_, pref_stashed)));
+    ui->maxRecentLineEdit->setText(QString::number(prefs_get_uint_value_real(pref_recent_files_count_max_, pref_stashed)));
 
-    ui->confirmUnsavedCheckBox->setChecked(pref_ask_unsaved_->stashed_val.boolval);
-    ui->autoScrollCheckBox->setChecked(pref_auto_scroll_on_expand_->stashed_val.boolval);
-    ui->autoScrollPercentageLineEdit->setText(QString::number(pref_auto_scroll_on_expand_->stashed_val.uint));
+    ui->confirmUnsavedCheckBox->setChecked(prefs_get_bool_value(pref_ask_unsaved_, pref_stashed));
 
-    ui->mainToolbarComboBox->setCurrentIndex(pref_toolbar_main_style_->stashed_val.enumval);
+    ui->mainToolbarComboBox->setCurrentIndex(prefs_get_enum_value(pref_toolbar_main_style_, pref_stashed));
 
     for (int i = 0; i < ui->languageComboBox->count(); i += 1) {
         if (QString(language) == ui->languageComboBox->itemData(i).toString()) {
@@ -154,82 +136,67 @@ void MainWindowPreferencesFrame::updateWidgets()
 
 void MainWindowPreferencesFrame::on_geometryCheckBox_toggled(bool checked)
 {
-    pref_geometry_save_position_->stashed_val.boolval = checked;
-    pref_geometry_save_size_->stashed_val.boolval = checked;
-    pref_geometry_save_maximized_->stashed_val.boolval = checked;
+    prefs_set_bool_value(pref_geometry_save_position_, checked, pref_stashed);
+    prefs_set_bool_value(pref_geometry_save_size_, checked, pref_stashed);
+    prefs_set_bool_value(pref_geometry_save_maximized_, checked, pref_stashed);
 }
 
 void MainWindowPreferencesFrame::on_foStyleLastOpenedRadioButton_toggled(bool checked)
 {
     if (checked) {
-        pref_fileopen_style_->stashed_val.enumval = FO_STYLE_LAST_OPENED;
+        prefs_set_enum_value(pref_fileopen_style_, FO_STYLE_LAST_OPENED, pref_stashed);
     }
 }
 
 void MainWindowPreferencesFrame::on_foStyleSpecifiedRadioButton_toggled(bool checked)
 {
     if (checked) {
-        pref_fileopen_style_->stashed_val.enumval = FO_STYLE_SPECIFIED;
+        prefs_set_enum_value(pref_fileopen_style_, FO_STYLE_SPECIFIED, pref_stashed);
     }
 }
 
 void MainWindowPreferencesFrame::on_foStyleSpecifiedLineEdit_textEdited(const QString &new_dir)
 {
-    g_free(pref_fileopen_dir_->stashed_val.string);
-    pref_fileopen_dir_->stashed_val.string = qstring_strdup(new_dir);
-    pref_fileopen_style_->stashed_val.enumval = FO_STYLE_SPECIFIED;
+    prefs_set_string_value(pref_fileopen_dir_, new_dir.toStdString().c_str(), pref_stashed);
+    prefs_set_enum_value(pref_fileopen_style_, FO_STYLE_SPECIFIED, pref_stashed);
     updateWidgets();
 }
 
 void MainWindowPreferencesFrame::on_foStyleSpecifiedPushButton_clicked()
 {
-    QString specified_dir = QFileDialog::getExistingDirectory(this, tr("Open Files In"));
+    QString specified_dir = WiresharkFileDialog::getExistingDirectory(this, tr("Open Files In"));
 
     if (specified_dir.isEmpty()) return;
 
     ui->foStyleSpecifiedLineEdit->setText(specified_dir);
-    g_free(pref_fileopen_dir_->stashed_val.string);
-    pref_fileopen_dir_->stashed_val.string = qstring_strdup(specified_dir);
-    pref_fileopen_style_->stashed_val.enumval = FO_STYLE_SPECIFIED;
+    prefs_set_string_value(pref_fileopen_dir_, specified_dir.toStdString().c_str(), pref_stashed);
+    prefs_set_enum_value(pref_fileopen_style_, FO_STYLE_SPECIFIED, pref_stashed);
     updateWidgets();
 }
 
 void MainWindowPreferencesFrame::on_maxFilterLineEdit_textEdited(const QString &new_max)
 {
-    pref_recent_df_entries_max_->stashed_val.uint = new_max.toUInt();
+    prefs_set_uint_value(pref_recent_df_entries_max_, new_max.toUInt(), pref_stashed);
 }
 
 void MainWindowPreferencesFrame::on_maxRecentLineEdit_textEdited(const QString &new_max)
 {
-    pref_recent_files_count_max_->stashed_val.uint = new_max.toUInt();
+    prefs_set_uint_value(pref_recent_files_count_max_, new_max.toUInt(), pref_stashed);
 }
 
 void MainWindowPreferencesFrame::on_confirmUnsavedCheckBox_toggled(bool checked)
 {
-    pref_ask_unsaved_->stashed_val.boolval = checked;
-}
-
-void MainWindowPreferencesFrame::on_autoScrollCheckBox_toggled(bool checked)
-{
-    pref_auto_scroll_on_expand_->stashed_val.boolval = checked;
-}
-
-void MainWindowPreferencesFrame::on_autoScrollPercentageLineEdit_textEdited(const QString &new_pct)
-{
-    pref_auto_scroll_percentage_->stashed_val.uint = new_pct.toUInt();
-    pref_auto_scroll_on_expand_->stashed_val.boolval = TRUE;
-    ui->autoScrollCheckBox->setChecked(true);
+    prefs_set_bool_value(pref_ask_unsaved_, checked, pref_stashed);
 }
 
 void MainWindowPreferencesFrame::on_mainToolbarComboBox_currentIndexChanged(int index)
 {
-    pref_toolbar_main_style_->stashed_val.enumval = index;
+    prefs_set_enum_value(pref_toolbar_main_style_, index, pref_stashed);
 }
 
 void MainWindowPreferencesFrame::on_languageComboBox_currentIndexChanged(int index)
 {
-    if (language)
-        g_free(language);
+    g_free(language);
 
     language = g_strdup(ui->languageComboBox->itemData(index).toString().toStdString().c_str());
 }

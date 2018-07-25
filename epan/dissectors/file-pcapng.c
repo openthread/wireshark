@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -133,6 +121,14 @@ static int hf_pcapng_record_ipv6 = -1;
 static int hf_pcapng_record_name = -1;
 static int hf_pcapng_record_padding = -1;
 
+static int hf_pcapng_darwin_process_id = -1;
+static int hf_pcapng_option_code_darwin_process_info = -1;
+static int hf_pcapng_option_darwin_process_name = -1;
+static int hf_pcapng_option_darwin_process_uuid = -1;
+static int hf_pcapng_option_data_packet_darwin_dpeb_id = -1;
+static int hf_pcapng_option_data_packet_darwin_svc_class = -1;
+static int hf_pcapng_option_data_packet_darwin_edpeb_id = -1;
+
 static expert_field ei_invalid_option_length = EI_INIT;
 static expert_field ei_invalid_record_length = EI_INIT;
 
@@ -181,16 +177,21 @@ static const int *hfx_pcapng_block_type[] = {
 struct info {
     guint32        file_number;
     guint32        interface_number;
+    guint32        darwin_process_event_number;
     guint32        frame_number;
     wmem_array_t  *interfaces;
+    wmem_array_t  *darwin_process_events;
 };
 
 struct interface_description {
     guint32  link_type;
-    guint8   timestamp_resolution;
+    guint64  timestamp_resolution;
     guint64  timestamp_offset;
 };
 
+struct darwin_process_event_description {
+    guint32  process_id;
+};
 
 static gboolean pref_dissect_next_layer = FALSE;
 
@@ -203,6 +204,7 @@ static gboolean pref_dissect_next_layer = FALSE;
 #define BLOCK_IRIG_TIMESTAMP         0x00000007
 #define BLOCK_ARINC_429              0x00000008
 #define BLOCK_SECTION_HEADER         0x0A0D0D0A
+#define BLOCK_DARWIN_PROCESS         0x80000001
 
 static const value_string block_type_vals[] = {
     { 0x00000001,  "Interface Description Block" },
@@ -214,8 +216,177 @@ static const value_string block_type_vals[] = {
     { 0x00000007,  "IRIG Timestamp Block" },
     { 0x00000008,  "Arinc 429 in AFDX Encapsulation Information Block " },
     { 0x0A0D0D0A,  "Section Header Block" },
+    { 0x80000001,  "Darwin Process Event Block" },
     { 0, NULL }
 };
+
+/*
+ * Apple's Pcapng Darwin Process Event Block
+ *
+ *    A Darwin Process Event Block (DPEB) is an Apple defined container
+ *    for information describing a Darwin process.
+ *
+ *    Tools that write / read the capture file associate an incrementing
+ *    32-bit number (starting from '0') to each Darwin Process Event Block,
+ *    called the DPEB ID for the process in question.  This number is
+ *    unique within each Section and identifies a specific DPEB; a DPEB ID
+ *    is only unique inside the current section. Two Sections can have different
+ *    processes identified by the same DPEB ID values.  DPEB ID are referenced
+ *    by Enhanced Packet Blocks that include options to indicate the Darwin
+ *    process to which the EPB refers.
+ *
+ *
+ *         0                   1                   2                   3
+ *         0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *         +---------------------------------------------------------------+
+ *       0 |                   Block Type = 0x80000001                     |
+ *         +---------------------------------------------------------------+
+ *       4 |                     Block Total Length                        |
+ *         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *       8 |                          Process ID                           |
+ *         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *      12 /                                                               /
+ *         /                      Options (variable)                       /
+ *         /                                                               /
+ *         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *         |                     Block Total Length                        |
+ *         +---------------------------------------------------------------+
+ *
+ *                   Figure XXX.1: Darwin Process Event Block
+ *
+ *    The meaning of the fields are:
+ *
+ *    o  Block Type: The block type of a Darwin Process Event Block is 2147483649.
+ *
+ *       Note: This specific block type number falls into the range defined
+ *       for "local use" but has in fact been available publically since Darwin
+ *       13.0 for pcapng files generated by Apple's tcpdump when using the PKTAP
+ *       enhanced interface.
+ *
+ *    o  Block Total Length: Total size of this block, as described in
+ *       Pcapng Section 3.1 (General Block Structure).
+ *
+ *    o  Process ID: The process ID (PID) of the process.
+ *
+ *       Note: It is not known if this field is officially defined as a 32 bits
+ *       (4 octets) or something smaller since Darwin PIDs currently appear to
+ *       be limited to maximum value of 100000.
+ *
+ *    o  Options: A list of options (formatted according to the rules defined
+ *       in Section 3.5) can be present.
+ *
+ *    In addition to the options defined in Section 3.5, the following
+ *    Apple defined Darwin options are valid within this block:
+ *
+ *           +------------------+------+----------+-------------------+
+ *           | Name             | Code | Length   | Multiple allowed? |
+ *           +------------------+------+----------+-------------------+
+ *           | darwin_proc_name | 2    | variable | no                |
+ *           | darwin_proc_uuid | 4    | 16       | no                |
+ *           +------------------+------+----------+-------------------+
+ *
+ *              Table XXX.1: Darwin Process Description Block Options
+ *
+ *    darwin_proc_name:
+ *            The darwin_proc_name option is a UTF-8 string containing the
+ *            name of a process producing or consuming an EPB.
+ *
+ *            Examples: "mDNSResponder", "GoogleSoftwareU".
+ *
+ *            Note: It appears that Apple's tcpdump currently truncates process
+ *            names to a maximum of 15 octets followed by a NUL character.
+ *            Multi-byte UTF-8 sequences in process names might be truncated
+ *            resulting in an invalid final UTF-8 character.
+ *
+ *            This is probably because the process name comes from the
+ *            p_comm field in a proc structure in the kernel; that field
+ *            is MAXCOMLEN+1 bytes long, with the +1 being for the NUL
+ *            terminator.  That would give 16 characters, but the
+ *            proc_info kernel interface has a structure with a
+ *            process name field of only MAXCOMLEN bytes.
+ *
+ *            This all ultimately dates back to the "kernel accounting"
+ *            mechanism that appeared in V7 UNIX, with an "accounting
+ *            file" with entries appended whenever a process exits; not
+ *            surprisingly, that code thinks a file name is just a bunch
+ *            of "char"s, with no multi-byte encodings (1979 called, they
+ *            want their character encoding back), so, yes, this can
+ *            mangle UTF-8 file names containing non-ASCII characters.
+ *
+ *    darwin_proc_uuid:
+ *            The darwin_proc_uuid option is a set of 16 octets representing
+ *            the process UUID.
+ *
+ * Enhanced Packet Block (EPB) options for supporting Darwin process information
+ *
+ *    Enhanced Packet Blocks may be augmented with an Apple defined Darwin
+ *    process event block id option (dpeb_id) and / or an effective Darwin
+ *    process event block id option (edpeb_id) that refer to particular
+ *    Darwin processes via the supplied DPEB ID option payload value.  There
+ *    must be a Darwin Process Event Block for each Darwin process to which an
+ *    augmented EPB references.  If the file does not contain any EPBs that
+ *    contain any Darwin dpeb_id or edpeb_id options then the file does not need
+ *    to have any DPEBs.
+ *
+ *    A Darwin Process Event Block is valid only inside the section to which
+ *    it belongs.  The structure of a Darwin Process Event Block is shown in
+ *    Figure XXX.1 below.
+ *
+ *    An Enhanced Packet Block (EPB) may be augmented with any or all of the
+ *    following block options for Darwin process information:
+ *
+ *          +------------------+-------+--------+-------------------+
+ *          | Name             | Code  | Length | Multiple allowed? |
+ *          +------------------+-------+--------+-------------------+
+ *          | darwin_dpeb_id   | 32769 | 4      | no?               |
+ *          | darwin_svc_class | 32770 | 4      | no?               |
+ *          | darwin_edpeb_id  | 32771 | 4      | no?               |
+ *          +------------------+------+---------+-------------------+
+ *
+ *           Table XXX.2: Darwin options for Enhanced Packet Blocks
+ *
+ *    darwin_dpeb_id:
+ *            The darwin_dpeb_id option specifies the Darwin Process Event
+ *            Block ID for the process (proc) this packet is associated with;
+ *            the correct DPEB will be the one whose DPEB ID (within the
+ *            current Section of the file) is identified by the same number
+ *            (see Section XXX.X) of this field.  The DPEB ID MUST be valid,
+ *            which means that a matching Darwin Process Event Block MUST
+ *            exist.
+ *
+ *    darwin_srv_class:
+ *            The darwin_svc_class option is a number that maps to a
+ *            specific Darwin Service Class mnemonic that the packet is
+ *            associated with.
+ *
+ *    The following Darwin Service Class values are defined:
+ *
+ *              +---------------------+------------------------+
+ *              | Service Class Value | Service Class Mnemonic |
+ *              +---------------------+------------------------+
+ *              | 0                   | BE                     |
+ *              | 100                 | BK_SYS                 |
+ *              | 200                 | BK                     |
+ *              | 300                 | RD                     |
+ *              | 400                 | OAM                    |
+ *              | 500                 | AV                     |
+ *              | 600                 | RV                     |
+ *              | 700                 | VI                     |
+ *              | 800                 | VO                     |
+ *              | 900                 | CTL                    |
+ *              +---------------------+------------------------+
+ *
+ *              Table XXX.3: Darwin Service Class Option Values
+ *
+ *    darwin_edpeb_id:
+ *            The darwin_edpeb_id option specifies the Darwin Process Event
+ *            Block ID for the effective process (eproc) this packet is
+ *            associated with; the correct DPEB will be the one whose DPEB
+ *            ID (within the current Section of the file) is identified by
+ *            the same number (see Section XXX.X) of this field.  The DPEB
+ *            ID MUST be valid, which means that a matching Darwin Process
+ *            Event Block MUST exist.
+ */
 
 static const value_string option_code_section_header_vals[] = {
     { 0x0000,  "End of Options" },
@@ -254,6 +425,9 @@ static const value_string option_code_enhanced_packet_vals[] = {
     { 0x0002,  "Flags" },
     { 0x0003,  "Hash" },
     { 0x0004,  "Drop Count" },
+    { 32769,   "Darwin DPEB ID" },
+    { 32770,   "Darwin Service Class" },
+    { 32771,   "Darwin Effective DPEB ID" },
     { 0, NULL }
 };
 
@@ -266,7 +440,6 @@ static const value_string option_code_packet_vals[] = {
     { 0, NULL }
 };
 
-
 static const value_string option_code_name_resolution_vals[] = {
     { 0x0000,  "End of Options" },
     { 0x0001,  "Comment" },
@@ -277,18 +450,40 @@ static const value_string option_code_name_resolution_vals[] = {
     { 0, NULL }
 };
 
-
 static const value_string option_code_interface_statistics_vals[] = {
     { 0x0000,  "End of Options" },
     { 0x0001,  "Comment" },
 
     { 0x0002,  "Start Time" },
     { 0x0003,  "End Time" },
-    { 0x0004,  "Number of Rx Packets" },
+    { 0x0004,  "Number of Received Packets" },
     { 0x0005,  "Number of Dropped Packets" },
     { 0x0006,  "Number of Accepted Packets" },
     { 0x0007,  "Number of Packets Dropped by OS" },
     { 0x0008,  "Number of Packets Delivered to the User" },
+    { 0, NULL }
+};
+
+static const value_string option_code_darwin_process_info_vals[] = {
+    { 0x0000,  "End of Options" },
+    { 0x0001,  "Comment" },
+
+    { 0x0002,  "Darwin Process Name" },
+    { 0x0004,  "Darwin Process UUID" },
+    { 0, NULL }
+};
+
+static const value_string option_code_darwin_svc_class_vals[] = {
+    { 0x0000,  "BE" },
+    { 0x0064,  "BK_SYS" },
+    { 0x00C8,  "BK" },
+    { 0x012C,  "RD" },
+    { 0x0190,  "OAM" },
+    { 0x01F4,  "AV" },
+    { 0x0258,  "RV" },
+    { 0x02BC,  "VI" },
+    { 0x0320,  "VO" },
+    { 0x0384,  "CTL" },
     { 0, NULL }
 };
 
@@ -298,7 +493,6 @@ static const value_string record_code_vals[] = {
     { 0x0002,  "IPv6 Record" },
     { 0, NULL }
 };
-
 
 static const value_string timestamp_resolution_base_vals[] = {
     { 0x0000,  "Power of 10" },
@@ -337,24 +531,27 @@ void proto_reg_handoff_pcapng(void);
 static gint dissect_options(proto_tree *tree, packet_info *pinfo,
         guint32 block_type, tvbuff_t *tvb, guint encoding, void *user_data)
 {
-    proto_tree  *options_tree;
-    proto_item  *options_item;
-    proto_tree  *option_tree;
-    proto_item  *option_item;
-    proto_item  *p_item;
-    gint         offset = 0;
-    guint16      option_code;
-    gint         option_length;
-    gint         hfj_pcapng_option_code;
-    const gchar *str = NULL;
-    address      addr;
+    proto_tree   *options_tree;
+    proto_item   *options_item;
+    proto_tree   *option_tree;
+    proto_item   *option_item;
+    proto_item   *p_item;
+    gint          offset = 0;
+    guint16       option_code;
+    gint          option_length;
+    gint          hfj_pcapng_option_code;
+    const guint8 *str = NULL;
+    wmem_strbuf_t *strbuf;
+    address       addr;
     address      addr_mask;
     const value_string  *vals = NULL;
     union       value {
             guint32 u32;
             guint64 u64;
+            guint16 u16;
             guint8  u8;
     } value;
+    e_guid_t uuid;
 
     if (tvb_reported_length(tvb) <= 0)
         return 0;
@@ -395,6 +592,10 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
             hfj_pcapng_option_code = hf_pcapng_option_code_interface_statistics;
             vals = option_code_interface_statistics_vals;
             break;
+        case BLOCK_DARWIN_PROCESS:
+            hfj_pcapng_option_code = hf_pcapng_option_code_darwin_process_info;
+            vals = option_code_darwin_process_info_vals;
+            break;
         default:
             hfj_pcapng_option_code = hf_pcapng_option_code;
         }
@@ -411,25 +612,21 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
         if (option_code == 0 && option_length == 0) {
             break;
         } else if (option_code == 1) {
-            proto_tree_add_item(option_tree, hf_pcapng_option_data_comment, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-            str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+            proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_comment, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
             offset += option_length;
         } else switch (block_type) {
         case BLOCK_SECTION_HEADER:
             switch (option_code) {
             case 0x0002:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_section_header_hardware, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_section_header_hardware, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
                 break;
             case 0x0003:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_section_header_os, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_section_header_os, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
                 break;
             case 0x0004:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_section_header_user_application, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_section_header_user_application, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
                 break;
             default:
@@ -442,16 +639,12 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
 
             switch (option_code) {
             case 0x0002:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_interface_description_name, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_interface_description_name, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
-
                 break;
             case 0x0003:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_interface_description_description, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_interface_description_description, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
-
                 break;
             case 0x0004:
                 if (option_length != 8) {
@@ -540,6 +733,12 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
 
                 break;
             case 0x0009:
+            {
+                guint32     base;
+                guint32     exponent;
+                guint32     i;
+                guint64     resolution;
+
                 if (option_length != 1) {
                     proto_tree_add_expert(option_tree, pinfo, &ei_invalid_option_length, tvb, offset, option_length);
                     offset += option_length;
@@ -550,16 +749,91 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 value.u8 = tvb_get_guint8(tvb, offset);
                 offset += 1;
 
-                if (interface_description) {
-                    interface_description->timestamp_resolution = value.u8;
+                if (value.u8 & 0x80) {
+                    base = 2;
+                } else {
+                    base = 10;
                 }
+                exponent = value.u8 & 0x7F;
 
-                str = wmem_strdup_printf(wmem_packet_scope(), "%s^-%u%s",
-                        (value.u8 & 0x80) ? "2" : "10",
-                        (guint32) (value.u8 & 0x7F),
-                        (!(value.u8 & 0x80) && value.u8 == 6) ? " (microseconds)" : ((!(value.u8 & 0x80) && value.u8 == 9) ? " (nanoseconds)" : ""));
+                strbuf = wmem_strbuf_new(wmem_packet_scope(), "");
+                wmem_strbuf_append_printf(strbuf, "%u^-%u", base, exponent);
+                resolution = 1;
+                for (i = 0; i < exponent; i += 1)
+                    resolution *= base;
+                if (interface_description) {
+                    interface_description->timestamp_resolution = resolution;
+                }
+                switch (resolution) {
 
+                case 0:
+                    /* Overflow */
+                    wmem_strbuf_append(strbuf, " (overflow)");
+                    break;
+
+                case 1:
+                    wmem_strbuf_append(strbuf, " (seconds)");
+                    break;
+
+                case 10:
+                    wmem_strbuf_append(strbuf, " (.1 seconds)");
+                    break;
+
+                case 100:
+                    wmem_strbuf_append(strbuf, " (.01 seconds)");
+                    break;
+
+                case 1000:
+                    wmem_strbuf_append(strbuf, " (milliseconds)");
+                    break;
+
+                case 10000:
+                    wmem_strbuf_append(strbuf, " (.1 milliseconds)");
+                    break;
+
+                case 100000:
+                    wmem_strbuf_append(strbuf, " (.01 milliseconds)");
+                    break;
+
+                case 1000000:
+                    wmem_strbuf_append(strbuf, " (microseconds)");
+                    break;
+
+                case 10000000:
+                    wmem_strbuf_append(strbuf, " (.1 microseconds)");
+                    break;
+
+                case 100000000:
+                    wmem_strbuf_append(strbuf, " (.01 microseconds)");
+                    break;
+
+                case 1000000000:
+                    wmem_strbuf_append(strbuf, " (nanoseconds)");
+                    break;
+
+                case 10000000000:
+                    wmem_strbuf_append(strbuf, " (.1 nanoseconds)");
+                    break;
+
+                case 100000000000:
+                    wmem_strbuf_append(strbuf, " (.01 nanoseconds)");
+                    break;
+
+                case 1000000000000:
+                    wmem_strbuf_append(strbuf, " (picoseconds)");
+                    break;
+
+                case 10000000000000:
+                    wmem_strbuf_append(strbuf, " (.1 picoseconds)");
+                    break;
+
+                case 100000000000000:
+                    wmem_strbuf_append(strbuf, " (.01 picoseconds)");
+                    break;
+                }
+                str = wmem_strbuf_finalize(strbuf);
                 break;
+            }
             case 0x000A:
                 if (option_length != 4) {
                     proto_tree_add_expert(option_tree, pinfo, &ei_invalid_option_length, tvb, offset, option_length);
@@ -576,14 +850,19 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
 
                 break;
             case 0x000B:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_interface_filter, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
-                offset += option_length;
+                if (option_length == 0) {
+                    proto_tree_add_expert(option_tree, pinfo, &ei_invalid_option_length, tvb, offset, option_length);
+                    break;
+                }
+
+                /* Skip over filter type (0 is libpcap, others are unspecified.) */
+                offset++;
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_interface_filter, tvb, offset, option_length - 1, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
+                offset += option_length - 1;
 
                 break;
             case 0x000C:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_interface_os, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_interface_os, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
 
                 break;
@@ -664,8 +943,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
         case BLOCK_NAME_RESOLUTION:
             switch (option_code) {
             case 0x0002:
-                proto_tree_add_item(option_tree, hf_pcapng_option_data_dns_name, tvb, offset, option_length, ENC_NA | ENC_UTF_8);
-                str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, option_length, ENC_UTF_8);
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_data_dns_name, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
                 offset += option_length;
 
                 break;
@@ -680,8 +958,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 set_address_tvb(&addr, AT_IPv4, 4, tvb, offset);
                 offset += 4;
 
-                str = wmem_strdup_printf(wmem_packet_scope(), "%s",
-                        address_to_display(wmem_packet_scope(),  &addr));
+                str = address_to_display(wmem_packet_scope(), &addr);
 
                 break;
             case 0x0004:
@@ -695,8 +972,7 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 set_address_tvb(&addr, AT_IPv6, 16, tvb, offset);
                 offset += 16;
 
-                str = wmem_strdup_printf(wmem_packet_scope(), "%s",
-                        address_to_display(wmem_packet_scope(),  &addr));
+                str = address_to_display(wmem_packet_scope(),  &addr);
 
                 break;
             default:
@@ -845,9 +1121,55 @@ static gint dissect_options(proto_tree *tree, packet_info *pinfo,
                 offset += 8;
 
                 break;
+            case 32769: /* Darwin DPEB ID */
+                proto_tree_add_item(option_tree, hf_pcapng_option_data_packet_darwin_dpeb_id, tvb, offset, option_length, encoding);
+                value.u32 = tvb_get_guint32(tvb, offset, encoding);
+                offset += option_length;
+
+                str = wmem_strdup_printf(wmem_packet_scope(), "%u", value.u32);
+
+                break;
+            case 32770: /* Darwin Service Type */
+                proto_tree_add_item(option_tree, hf_pcapng_option_data_packet_darwin_svc_class, tvb, offset, option_length, encoding);
+                value.u32 = tvb_get_guint32(tvb, offset, encoding);
+                offset += option_length;
+
+                str = wmem_strdup_printf(wmem_packet_scope(), "%s", val_to_str_const(value.u32, option_code_darwin_svc_class_vals, "Unknown"));
+
+                break;
+            case 32771: /* Darwin Effective DPEB ID */
+                proto_tree_add_item(option_tree, hf_pcapng_option_data_packet_darwin_edpeb_id, tvb, offset, option_length, encoding);
+                value.u32 = tvb_get_guint32(tvb, offset, encoding);
+                offset += option_length;
+
+                str = wmem_strdup_printf(wmem_packet_scope(), "%u", value.u32);
+
+                break;
             default:
                 proto_tree_add_item(option_tree, hf_pcapng_option_data, tvb, offset, option_length, ENC_NA);
                 offset += option_length;
+            }
+
+            break;
+        case BLOCK_DARWIN_PROCESS:
+            switch (option_code) {
+            case 0x0002: /* Darwin Process Name */
+                proto_tree_add_item_ret_string(option_tree, hf_pcapng_option_darwin_process_name, tvb, offset, option_length, ENC_NA | ENC_UTF_8, wmem_packet_scope(), &str);
+                offset += option_length;
+                break;
+
+            case 0x0004: /* Darwin Process UUID */
+                proto_tree_add_item(option_tree, hf_pcapng_option_darwin_process_uuid, tvb, offset, option_length, ENC_BIG_ENDIAN);
+                tvb_get_guid(tvb, offset, &uuid, ENC_BIG_ENDIAN);
+                offset += option_length;
+
+                str = guid_to_str(wmem_packet_scope(), &uuid);
+
+                break;
+            default:
+                proto_tree_add_item(option_tree, hf_pcapng_option_data, tvb, offset, option_length, ENC_NA);
+                offset += option_length;
+                break;
             }
 
             break;
@@ -882,9 +1204,6 @@ pcapng_add_timestamp(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         struct interface_description  *interface_description;
         nstime_t    timestamp;
         guint64     ts;
-        guint32     base;
-        guint32     i_resolution;
-        guint64     resolution = 1;
         proto_item *ti;
 
         interface_description = (struct interface_description *) wmem_array_index(info->interfaces, interface_id);
@@ -892,24 +1211,19 @@ pcapng_add_timestamp(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                         tvb_get_guint32(tvb, offset + 4, encoding);
 
         ts += interface_description->timestamp_offset;
-        if (interface_description->timestamp_resolution == 0)
-            interface_description->timestamp_resolution = 6;
 
-        if (interface_description->timestamp_resolution & 0x80) {
-            base = 2;
+        if (interface_description->timestamp_resolution == 0) {
+            /* This overflowed, so we can't calculate the time stamp */
+            pinfo->presence_flags &= ~PINFO_HAS_TS;
         } else {
-            base = 10;
+            timestamp.secs  = (time_t)(ts / interface_description->timestamp_resolution);
+            timestamp.nsecs = (int)(ts - (ts / interface_description->timestamp_resolution) * interface_description->timestamp_resolution);
+
+            ti = proto_tree_add_time(tree, hf_pcapng_timestamp, tvb, offset, 8, &timestamp);
+            PROTO_ITEM_SET_GENERATED(ti);
+
+            pinfo->abs_ts = timestamp;
         }
-
-        for (i_resolution = 0; i_resolution < (guint32)(interface_description->timestamp_resolution & 0x7F); i_resolution += 1)
-            resolution *= base;
-        timestamp.secs  = (time_t)(ts / resolution);
-        timestamp.nsecs = (int)(ts - (ts / resolution) * resolution);
-
-        ti = proto_tree_add_time(tree, hf_pcapng_timestamp, tvb, offset, 8, &timestamp);
-        PROTO_ITEM_SET_GENERATED(ti);
-
-        pinfo->abs_ts = timestamp;
     }
 }
 
@@ -953,6 +1267,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         proto_item_append_text(block_item, " %u", info->file_number);
         info->file_number += 1;
         info->interface_number = 0;
+        info->darwin_process_event_number = 0;
         info->frame_number = 1;
 
         byte_order_magic_item = proto_tree_add_item(block_data_tree, hf_pcapng_section_header_byte_order_magic, tvb, offset, 4, ENC_NA);
@@ -979,6 +1294,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         struct interface_description  interface_description;
 
         memset(&interface_description, 0, sizeof(struct interface_description));
+        interface_description.timestamp_resolution = 1000000; /* 1 microsecond resolution is the default */
 
         proto_item_append_text(block_item, " %u", info->interface_number);
         info->interface_number += 1;
@@ -1028,7 +1344,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
 
             interface_description = (struct interface_description *) wmem_array_index(info->interfaces, interface_id);
             TRY {
-                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset(tvb, offset, captured_length, reported_length),
+                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset_length_caplen(tvb, offset, captured_length, reported_length),
                                          pinfo, packet_data_tree, &interface_description->link_type);
             }
             CATCH_BOUNDS_ERRORS {
@@ -1040,11 +1356,11 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         offset += captured_length;
 
         if (captured_length % 4) {
-            proto_tree_add_item(block_data_tree, hf_pcapng_packet_padding, tvb, offset, captured_length % 4?(4 - captured_length % 4):0, ENC_NA);
-            offset += captured_length % 4?(4 - captured_length % 4):0;
+            proto_tree_add_item(block_data_tree, hf_pcapng_packet_padding, tvb, offset, ((captured_length % 4) ? (4 - (captured_length % 4)) : 0), ENC_NA);
+            offset += ((captured_length % 4) ?(4 - (captured_length % 4)):0);
         }
 
-        next_tvb = tvb_new_subset_length(tvb, offset, block_data_length - 2 - 2 - 8 - 4 - 4 - captured_length - (captured_length % 4?(4 - captured_length % 4):0));
+        next_tvb = tvb_new_subset_length(tvb, offset, block_data_length - 2 - 2 - 8 - 4 - 4 - captured_length - ((captured_length % 4)?(4 - (captured_length % 4)):0));
         offset += dissect_options(block_data_tree, pinfo, block_type, next_tvb, encoding, NULL);
 
         break;
@@ -1078,8 +1394,8 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         offset += captured_length;
 
         if (captured_length % 4) {
-            proto_tree_add_item(block_data_tree, hf_pcapng_packet_padding, tvb, offset, captured_length % 4?(4 - captured_length % 4):0, ENC_NA);
-            offset += captured_length % 4?(4 - captured_length % 4):0;
+            proto_tree_add_item(block_data_tree, hf_pcapng_packet_padding, tvb, offset, ((captured_length % 4)?(4 - (captured_length % 4)):0), ENC_NA);
+            offset += ((captured_length % 4) ? (4 - (captured_length % 4)):0);
         }
 
         break;
@@ -1142,8 +1458,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     }
                 }
 
-                str = wmem_strdup_printf(wmem_packet_scope(), "%s",
-                        address_to_display(wmem_packet_scope(),  &addr));
+                str = address_to_display(wmem_packet_scope(), &addr);
                 break;
             case 0x0002: /* IPv6 Record */
                 if (record_length < 17) {
@@ -1168,8 +1483,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
                     }
                 }
 
-                str = wmem_strdup_printf(wmem_packet_scope(), "%s",
-                        address_to_display(wmem_packet_scope(),  &addr));
+                str = address_to_display(wmem_packet_scope(), &addr);
 
                 break;
             default:
@@ -1231,7 +1545,7 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
 
             interface_description = (struct interface_description *) wmem_array_index(info->interfaces, interface_id);
             TRY {
-                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset(tvb, offset, captured_length, reported_length),
+                call_dissector_with_data(pcap_pktdata_handle, tvb_new_subset_length_caplen(tvb, offset, captured_length, reported_length),
                                          pinfo, packet_data_tree, &interface_description->link_type);
             }
             CATCH_BOUNDS_ERRORS {
@@ -1243,11 +1557,22 @@ static gint dissect_block(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
         offset += captured_length;
 
         if (captured_length % 4) {
-            proto_tree_add_item(block_data_tree, hf_pcapng_packet_padding, tvb, offset, captured_length % 4?(4 - captured_length % 4):0, ENC_NA);
-            offset += captured_length % 4?(4 - captured_length % 4):0;
+            proto_tree_add_item(block_data_tree, hf_pcapng_packet_padding, tvb, offset, ((captured_length % 4)? (4 - (captured_length % 4)):0), ENC_NA);
+            offset += ((captured_length % 4) ?(4 - (captured_length % 4)):0);
         }
 
-        next_tvb = tvb_new_subset_length(tvb, offset, block_data_length - 4 - 8 - 4 - 4 - captured_length - (captured_length % 4?(4 - captured_length % 4):0));
+        next_tvb = tvb_new_subset_length(tvb, offset, block_data_length - 4 - 8 - 4 - 4 - captured_length - ((captured_length % 4)?(4 - (captured_length % 4)):0));
+        offset += dissect_options(block_data_tree, pinfo, block_type, next_tvb, encoding, NULL);
+
+        break;
+    case BLOCK_DARWIN_PROCESS:
+        proto_item_append_text(block_item, " %u", info->darwin_process_event_number);
+        info->darwin_process_event_number += 1;
+
+        proto_tree_add_item(block_data_tree, hf_pcapng_darwin_process_id, tvb, offset, 4, encoding);
+        offset += 4;
+
+        next_tvb = tvb_new_subset_length(tvb, offset, block_data_length - 4);
         offset += dissect_options(block_data_tree, pinfo, block_type, next_tvb, encoding, NULL);
 
         break;
@@ -1298,8 +1623,10 @@ dissect_pcapng(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
     info.file_number = 1;
     info.interface_number = 0;
+    info.darwin_process_event_number = 0;
     info.frame_number = 1;
     info.interfaces = wmem_array_new(wmem_packet_scope(), sizeof(struct interface_description));
+    info.darwin_process_events = wmem_array_new(wmem_packet_scope(), sizeof(struct darwin_process_event_description));
 
     main_item = proto_tree_add_item(tree, proto_pcapng, tvb, offset, -1, ENC_NA);
     main_tree = proto_item_add_subtree(main_item, ett_pcapng);
@@ -1392,6 +1719,11 @@ proto_register_pcapng(void)
         { &hf_pcapng_option_code_interface_statistics,
             { "Code",                                      "pcapng.options.option.code",
             FT_UINT16, BASE_DEC, VALS(option_code_interface_statistics_vals), 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_option_code_darwin_process_info,
+            { "Code",                                      "pcapng.options.option.code",
+            FT_UINT16, BASE_DEC, VALS(option_code_darwin_process_info_vals), 0x00,
             NULL, HFILL }
         },
         { &hf_pcapng_option_code,
@@ -1564,7 +1896,6 @@ proto_register_pcapng(void)
             FT_UINT16, BASE_HEX, NULL, 0x00,
             NULL, HFILL }
         },
-
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_symbol,
             { "Symbol Error",                              "pcapng.options.option.data.packet.flags.link_layer_errors.symbol",
             FT_BOOLEAN, 16, NULL, 0x8000,
@@ -1572,42 +1903,42 @@ proto_register_pcapng(void)
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_preamble,
             { "Preamble Error",                            "pcapng.options.option.data.packet.flags.link_layer_errors.preamble",
-            FT_BOOLEAN, 16, NULL, 0x8000,
+            FT_BOOLEAN, 16, NULL, 0x4000,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_start_frame_delimiter,
-            { "Preamble Error",                            "pcapng.options.option.data.packet.flags.link_layer_errors.preamble",
-            FT_BOOLEAN, 16, NULL, 0x8000,
+            { "Start Frame Delimiter Error",               "pcapng.options.option.data.packet.flags.link_layer_errors.start_frame_delimiter",
+            FT_BOOLEAN, 16, NULL, 0x2000,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_unaligned_frame,
-            { "Preamble Error",                            "pcapng.options.option.data.packet.flags.link_layer_errors.preamble",
-            FT_BOOLEAN, 16, NULL, 0x4000,
+            { "Unaligned Frame Error",                     "pcapng.options.option.data.packet.flags.link_layer_errors.unaligned_frame",
+            FT_BOOLEAN, 16, NULL, 0x1000,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_wrong_inter_frame_gap,
             { "Wrong Inter Frame Gap",                     "pcapng.options.option.data.packet.flags.link_layer_errors.wrong_inter_frame_gap",
-            FT_BOOLEAN, 16, NULL, 0x2000,
+            FT_BOOLEAN, 16, NULL, 0x0800,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_packet_too_short,
             { "Packet Too Short",                          "pcapng.options.option.data.packet.flags.link_layer_errors.packet_too_short",
-            FT_BOOLEAN, 16, NULL, 0x1000,
+            FT_BOOLEAN, 16, NULL, 0x0400,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_packet_too_long,
             { "Packet Too Long",                           "pcapng.options.option.data.packet.flags.link_layer_errors.packet_too_long",
-            FT_BOOLEAN, 16, NULL, 0x0800,
+            FT_BOOLEAN, 16, NULL, 0x0200,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_crc_error,
             { "CRC Error",                                 "pcapng.options.option.data.packet.flags.link_layer_errors.crc",
-            FT_BOOLEAN, 16, NULL, 0x0400,
+            FT_BOOLEAN, 16, NULL, 0x0100,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags_link_layer_errors_reserved,
             { "Reserved",                                  "pcapng.options.option.data.packet.flags.link_layer_errors.reserved",
-            FT_UINT16, BASE_HEX, NULL, 0x03FF,
+            FT_UINT16, BASE_HEX, NULL, 0x00FF,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_packet_flags,
@@ -1633,6 +1964,21 @@ proto_register_pcapng(void)
         { &hf_pcapng_option_data_packet_flags_direction,
             { "Direction",                                 "pcapng.options.option.data.packet.flags.direction",
             FT_UINT16, BASE_HEX, VALS(packet_flags_direction_vals), 0x0003,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_option_data_packet_darwin_dpeb_id,
+            { "DPEB ID",                                   "pcapng.options.option.data.packet.darwin.dpeb_id",
+            FT_UINT32, BASE_DEC, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_option_data_packet_darwin_svc_class,
+            { "Darwin svc",                                "pcapng.options.option.data.packet.darwin.svc_class",
+            FT_UINT32, BASE_DEC, VALS(option_code_darwin_svc_class_vals), 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_option_data_packet_darwin_edpeb_id,
+            { "Effective DPED ID",                         "pcapng.options.option.data.packet.darwin.edpeb_id",
+            FT_UINT32, BASE_DEC, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_pcapng_option_data_dns_name,
@@ -1783,6 +2129,21 @@ proto_register_pcapng(void)
         { &hf_pcapng_record_name,
             { "Name",                                      "pcapng.records.record.data.name",
             FT_STRINGZ, STR_ASCII, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_darwin_process_id,
+            { "Darwin Process ID",                         "pcapng.darwin.process_id",
+            FT_UINT32, BASE_DEC_HEX, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_option_darwin_process_name,
+            { "Darwin Process Name",                       "pcapng.darwin.process_name",
+            FT_STRING, STR_ASCII, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_pcapng_option_darwin_process_uuid,
+            { "Darwin Process UUID",                       "pcapng.darwin.process_uuid",
+            FT_GUID, BASE_NONE, NULL, 0x00,
             NULL, HFILL }
         },
     };

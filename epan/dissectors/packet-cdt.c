@@ -16,19 +16,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref: STANAG 4406 Annex E
  */
@@ -79,7 +67,7 @@ static int hf_cdt_contentType_OID = -1;           /* T_contentType_OID */
 static int hf_cdt_compressedContent = -1;         /* CompressedContent */
 
 /*--- End of included file: packet-cdt-hf.c ---*/
-#line 61 "./asn1/cdt/packet-cdt-template.c"
+#line 49 "./asn1/cdt/packet-cdt-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -91,7 +79,7 @@ static gint ett_cdt_CompressedContentInfo = -1;
 static gint ett_cdt_T_contentType = -1;
 
 /*--- End of included file: packet-cdt-ett.c ---*/
-#line 64 "./asn1/cdt/packet-cdt-template.c"
+#line 52 "./asn1/cdt/packet-cdt-template.c"
 
 static expert_field ei_cdt_unable_compress_content = EI_INIT;
 static expert_field ei_cdt_unable_uncompress_content = EI_INIT;
@@ -336,7 +324,7 @@ static int dissect_CompressedData_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
 
 
 /*--- End of included file: packet-cdt-fn.c ---*/
-#line 69 "./asn1/cdt/packet-cdt-template.c"
+#line 57 "./asn1/cdt/packet-cdt-template.c"
 
 
 /*--- proto_register_cdt -------------------------------------------*/
@@ -409,7 +397,7 @@ void proto_register_cdt (void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-cdt-hfarr.c ---*/
-#line 101 "./asn1/cdt/packet-cdt-template.c"
+#line 89 "./asn1/cdt/packet-cdt-template.c"
   };
 
   /* List of subtrees */
@@ -423,7 +411,7 @@ void proto_register_cdt (void) {
     &ett_cdt_T_contentType,
 
 /*--- End of included file: packet-cdt-ettarr.c ---*/
-#line 106 "./asn1/cdt/packet-cdt-template.c"
+#line 94 "./asn1/cdt/packet-cdt-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -453,5 +441,5 @@ void proto_reg_handoff_cdt (void) {
 
 
 /*--- End of included file: packet-cdt-dis-tab.c ---*/
-#line 129 "./asn1/cdt/packet-cdt-template.c"
+#line 117 "./asn1/cdt/packet-cdt-template.c"
 }

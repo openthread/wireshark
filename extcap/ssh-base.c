@@ -7,20 +7,10 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
+
+#include "config.h"
 
 #include "ssh-base.h"
 
@@ -28,9 +18,7 @@
 #include <log.h>
 #include <string.h>
 
-#define verbose_print(...) { if (verbose) printf(__VA_ARGS__); }
-
-ssh_session create_ssh_connection(const char* hostname, const unsigned int port, const char* username,
+ssh_session create_ssh_connection(const char* hostname, const guint16 port, const char* username,
 	const char* password, const char* sshkey_path, const char* sshkey_passphrase, char** err_info)
 {
 	ssh_session sshs;
@@ -38,12 +26,12 @@ ssh_session create_ssh_connection(const char* hostname, const unsigned int port,
 	/* Open session and set options */
 	sshs = ssh_new();
 	if (sshs == NULL) {
-		*err_info = g_strdup_printf("Can't create ssh session");
+		*err_info = g_strdup("Can't create ssh session");
 		return NULL;
 	}
 
 	if (!hostname) {
-		*err_info = g_strdup_printf("Hostname needed");
+		*err_info = g_strdup("Hostname needed");
 		goto failure;
 	}
 
@@ -77,13 +65,13 @@ ssh_session create_ssh_connection(const char* hostname, const unsigned int port,
 	}
 
 #ifdef HAVE_LIBSSH_USERAUTH_AGENT
-	g_log(LOG_DOMAIN_CAPTURE_CHILD, G_LOG_LEVEL_INFO, ("Connecting using ssh-agent...");
+	g_log(LOG_DOMAIN_CAPTURE_CHILD, G_LOG_LEVEL_INFO, "Connecting using ssh-agent...");
 	/* Try to authenticate using ssh agent */
 	if (ssh_userauth_agent(sshs, NULL) == SSH_AUTH_SUCCESS) {
 		g_log(LOG_DOMAIN_CAPTURE_CHILD, G_LOG_LEVEL_INFO, "done");
 		return sshs;
 	}
-	g_log(LOG_DOMAIN_CAPTURE_CHILD, G_LOG_LEVEL_INFO, ("failed");
+	g_log(LOG_DOMAIN_CAPTURE_CHILD, G_LOG_LEVEL_INFO, "failed");
 #endif
 
 	/* If a public key path has been provided, try to authenticate using it */

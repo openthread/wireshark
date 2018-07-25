@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /************
@@ -45,6 +33,7 @@ void create_wth_priv(lua_State* L, wtap *wth) {
     file_priv_t *priv = (file_priv_t*)g_malloc(sizeof(file_priv_t));
 
     if (wth->priv != NULL) {
+        g_free(priv);
         luaL_error(L, "Cannot create wtap private data because there already is private data");
         return;
     }
@@ -121,6 +110,7 @@ void create_wdh_priv(lua_State* L, wtap_dumper *wdh) {
     file_priv_t *priv = (file_priv_t*)g_malloc(sizeof(file_priv_t));
 
     if (wdh->priv != NULL) {
+        g_free(priv);
         luaL_error(L, "Cannot create wtap_dumper private data because there already is private data");
         return;
     }

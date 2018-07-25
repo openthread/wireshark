@@ -1,27 +1,15 @@
 /* packet-ses.c
-*
-* Routine to dissect ITU-T Rec. X.225 (1995 E)/ISO 8327-1 OSI Session Protocol packets
-*
-* Yuriy Sidelnikov <YSidelnikov@hotmail.com>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998 Gerald Combs
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ *
+ * Routine to dissect ITU-T Rec. X.225 (1995 E)/ISO 8327-1 OSI Session Protocol packets
+ *
+ * Yuriy Sidelnikov <YSidelnikov@hotmail.com>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
 #include "config.h"
 
@@ -1003,11 +991,9 @@ dissect_spdu(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 		guint32 ses_id = 0;
 
 		/* Use conversation index as segment id */
-		conversation  = find_conversation (pinfo->num,
-						   &pinfo->src, &pinfo->dst, pinfo->ptype,
-						   pinfo->srcport, pinfo->destport, 0);
+		conversation  = find_conversation_pinfo(pinfo, 0);
 		if (conversation != NULL) {
-			ses_id = conversation->index;
+			ses_id = conversation->conv_index;
 		}
 		fragment_len = tvb_reported_length_remaining (tvb, offset);
 		ti = proto_tree_add_item (ses_tree, hf_ses_segment_data, tvb, offset,
@@ -1081,17 +1067,6 @@ dissect_ses(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 	while (tvb_reported_length_remaining(tvb, offset) > 0)
 		offset = dissect_spdu(tvb, offset, pinfo, tree, NON_TOKENS_SPDU, is_clsp);
 	return tvb_captured_length(tvb);
-}
-
-static void ses_reassemble_init (void)
-{
-	reassembly_table_init (&ses_reassembly_table,
-		&addresses_reassembly_table_functions);
-}
-
-static void ses_reassemble_cleanup (void)
-{
-	reassembly_table_destroy(&ses_reassembly_table);
 }
 
 static gboolean
@@ -1357,7 +1332,7 @@ proto_register_ses(void)
 			&hf_session_exception_report,
 			{
 				"Session exception report",
-				"ses.exception_report.",
+				"ses.exception_report",
 				FT_BOOLEAN, 16,
 				NULL,
 				SES_EXCEPTION_REPORT,
@@ -1887,8 +1862,8 @@ proto_register_ses(void)
 	expert_ses = expert_register_protocol(proto_ses);
 	expert_register_field_array(expert_ses, ei, array_length(ei));
 
-	register_init_routine (&ses_reassemble_init);
-	register_cleanup_routine (&ses_reassemble_cleanup);
+	reassembly_table_register (&ses_reassembly_table,
+		&addresses_reassembly_table_functions);
 
 	ses_module = prefs_register_protocol(proto_ses, NULL);
 

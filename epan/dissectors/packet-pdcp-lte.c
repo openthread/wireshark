@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -47,7 +35,7 @@ void proto_reg_handoff_pdcp_lte(void);
 
 /* Described in:
  * 3GPP TS 36.323 Evolved Universal Terrestrial Radio Access (E-UTRA)
- *                Packet Data Convergence Protocol (PDCP) specification v13.0.0
+ *                Packet Data Convergence Protocol (PDCP) specification v14.3.0
  */
 
 
@@ -55,9 +43,12 @@ void proto_reg_handoff_pdcp_lte(void);
    - Decipher even if sequence analysis isn't 'OK'?
       - know SN, but might be unsure about HFN.
    - Speed up AES decryption by keeping the crypt handle around for the channel
-     (like ESP decryption in IPSEC dissector)
+     (like ESP decryption in IPSEC dissector).  N.B. do lazily when it needs to be used.
+     CTR will need to be applied before each frame.
    - Add Relay Node user plane data PDU dissection
    - Add SLRB user data plane data PDU dissection
+   - Break out security and sequence analysis into a separate common file to be
+     shared with pdcp-nr
 */
 
 
@@ -92,6 +83,7 @@ static int hf_pdcp_lte_seq_num_7 = -1;
 static int hf_pdcp_lte_reserved3 = -1;
 static int hf_pdcp_lte_seq_num_12 = -1;
 static int hf_pdcp_lte_seq_num_15 = -1;
+static int hf_pdcp_lte_polling = -1;
 static int hf_pdcp_lte_reserved5 = -1;
 static int hf_pdcp_lte_seq_num_18 = -1;
 static int hf_pdcp_lte_signalling_data = -1;
@@ -106,7 +98,17 @@ static int hf_pdcp_lte_reserved6 = -1;
 static int hf_pdcp_lte_fms3 = -1;
 static int hf_pdcp_lte_bitmap = -1;
 static int hf_pdcp_lte_bitmap_byte = -1;
-
+static int hf_pdcp_lte_hrw = -1;
+static int hf_pdcp_lte_nmp = -1;
+static int hf_pdcp_lte_reserved7 = -1;
+static int hf_pdcp_lte_hrw2 = -1;
+static int hf_pdcp_lte_nmp2 = -1;
+static int hf_pdcp_lte_hrw3 = -1;
+static int hf_pdcp_lte_reserved8 = -1;
+static int hf_pdcp_lte_nmp3 = -1;
+static int hf_pdcp_lte_lsn = -1;
+static int hf_pdcp_lte_lsn2 = -1;
+static int hf_pdcp_lte_lsn3 = -1;
 
 /* Sequence Analysis */
 static int hf_pdcp_lte_sequence_analysis = -1;
@@ -145,6 +147,9 @@ static expert_field ei_pdcp_lte_reserved_bits_not_zero = EI_INIT;
 static expert_field ei_pdcp_lte_sequence_analysis_sn_repeated = EI_INIT;
 static expert_field ei_pdcp_lte_sequence_analysis_sn_missing = EI_INIT;
 static expert_field ei_pdcp_lte_digest_wrong = EI_INIT;
+static expert_field ei_pdcp_lte_unknown_udp_framing_tag = EI_INIT;
+static expert_field ei_pdcp_lte_missing_udp_framing_tag = EI_INIT;
+
 
 /*-------------------------------------
  * UAT for UE Keys
@@ -165,6 +170,7 @@ typedef struct {
    gboolean rrcIntegrityKeyOK;
 } uat_ue_keys_record_t;
 
+/* N.B. this is an array/table of the struct above, where ueid is the key */
 static uat_ue_keys_record_t *uat_ue_keys_records = NULL;
 
 /* Entries added by UAT */
@@ -193,9 +199,9 @@ static void* uat_ue_keys_record_copy_cb(void* n, const void* o, size_t siz _U_) 
     const uat_ue_keys_record_t* old_rec = (const uat_ue_keys_record_t *)o;
 
     new_rec->ueid = old_rec->ueid;
-    new_rec->rrcCipherKeyString = (old_rec->rrcCipherKeyString) ? g_strdup(old_rec->rrcCipherKeyString) : NULL;
-    new_rec->upCipherKeyString = (old_rec->upCipherKeyString) ? g_strdup(old_rec->upCipherKeyString) : NULL;
-    new_rec->rrcIntegrityKeyString = (old_rec->rrcIntegrityKeyString) ? g_strdup(old_rec->rrcIntegrityKeyString) : NULL;
+    new_rec->rrcCipherKeyString = g_strdup(old_rec->rrcCipherKeyString);
+    new_rec->upCipherKeyString = g_strdup(old_rec->upCipherKeyString);
+    new_rec->rrcIntegrityKeyString = g_strdup(old_rec->rrcIntegrityKeyString);
 
     return new_rec;
 }
@@ -235,6 +241,7 @@ static gboolean check_valid_key_sring(const char* raw_string, char* checked_stri
     return (written == 32);
 }
 
+/* Write binary key by converting each nibble from the string version */
 static void update_key_from_string(const char *stringKey, guint8 *binaryKey, gboolean *pKeyOK)
 {
     int  n;
@@ -265,6 +272,7 @@ static gboolean uat_ue_keys_record_update_cb(void* record, char** error _U_) {
     /* Check and convert Integrity key */
     update_key_from_string(rec->rrcIntegrityKeyString, rec->rrcIntegrityBinaryKey, &rec->rrcIntegrityKeyOK);
 
+    /* Return TRUE regardless, as user might only specify one, or get it wrong and want to edit it later */
     return TRUE;
 }
 
@@ -286,19 +294,19 @@ UAT_CSTRING_CB_DEF(uat_ue_keys_records, rrcIntegrityKeyString,  uat_ue_keys_reco
 /* Also supporting a hash table with entries from these functions */
 
 /* Table from ueid -> uat_ue_keys_record_t* */
-static GHashTable *pdcp_security_key_hash = NULL;
+static wmem_map_t *pdcp_security_key_hash = NULL;
 
 
 void set_pdcp_lte_rrc_ciphering_key(guint16 ueid, const char *key)
 {
     /* Get or create struct for this UE */
-    uat_ue_keys_record_t *key_record = (uat_ue_keys_record_t*)g_hash_table_lookup(pdcp_security_key_hash,
+    uat_ue_keys_record_t *key_record = (uat_ue_keys_record_t*)wmem_map_lookup(pdcp_security_key_hash,
                                                                                   GUINT_TO_POINTER((guint)ueid));
     if (key_record == NULL) {
         /* Create and add to table */
         key_record = wmem_new0(wmem_file_scope(), uat_ue_keys_record_t);
         key_record->ueid = ueid;
-        g_hash_table_insert(pdcp_security_key_hash, GUINT_TO_POINTER((guint)ueid), key_record);
+        wmem_map_insert(pdcp_security_key_hash, GUINT_TO_POINTER((guint)ueid), key_record);
     }
 
     /* Check and convert RRC key */
@@ -308,13 +316,13 @@ void set_pdcp_lte_rrc_ciphering_key(guint16 ueid, const char *key)
 void set_pdcp_lte_rrc_integrity_key(guint16 ueid, const char *key)
 {
     /* Get or create struct for this UE */
-    uat_ue_keys_record_t *key_record = (uat_ue_keys_record_t*)g_hash_table_lookup(pdcp_security_key_hash,
-                                                                                  GUINT_TO_POINTER((guint)ueid));
+    uat_ue_keys_record_t *key_record = (uat_ue_keys_record_t*)wmem_map_lookup(pdcp_security_key_hash,
+                                                                              GUINT_TO_POINTER((guint)ueid));
     if (key_record == NULL) {
         /* Create and add to table */
         key_record = wmem_new0(wmem_file_scope(), uat_ue_keys_record_t);
         key_record->ueid = ueid;
-        g_hash_table_insert(pdcp_security_key_hash, GUINT_TO_POINTER((guint)ueid), key_record);
+        wmem_map_insert(pdcp_security_key_hash, GUINT_TO_POINTER((guint)ueid), key_record);
     }
 
     /* Check and convert RRC integrity key */
@@ -325,13 +333,13 @@ void set_pdcp_lte_rrc_integrity_key(guint16 ueid, const char *key)
 void set_pdcp_lte_up_ciphering_key(guint16 ueid, const char *key)
 {
     /* Get or create struct for this UE */
-    uat_ue_keys_record_t *key_record = (uat_ue_keys_record_t*)g_hash_table_lookup(pdcp_security_key_hash,
-                                                                                  GUINT_TO_POINTER((guint)ueid));
+    uat_ue_keys_record_t *key_record = (uat_ue_keys_record_t*)wmem_map_lookup(pdcp_security_key_hash,
+                                                                              GUINT_TO_POINTER((guint)ueid));
     if (key_record == NULL) {
         /* Create and add to table */
         key_record = wmem_new0(wmem_file_scope(), uat_ue_keys_record_t);
         key_record->ueid = ueid;
-        g_hash_table_insert(pdcp_security_key_hash, GUINT_TO_POINTER((guint)ueid), key_record);
+        wmem_map_insert(pdcp_security_key_hash, GUINT_TO_POINTER((guint)ueid), key_record);
     }
 
     /* Check and convert UP key */
@@ -344,6 +352,7 @@ void set_pdcp_lte_up_ciphering_key(guint16 ueid, const char *key)
 static gboolean global_pdcp_decipher_signalling = TRUE;
 static gboolean global_pdcp_decipher_userplane = FALSE;  /* Can be slow, so default to FALSE */
 static gboolean global_pdcp_check_integrity = TRUE;
+static gboolean global_pdcp_ignore_sec = FALSE;  /* ignore Set Security Algo calls */
 
 /* Use these values where we know the keys but may have missed the algorithm,
    e.g. when handing over and RRCReconfigurationRequest goes to target cell only */
@@ -386,32 +395,27 @@ static const value_string rohc_mode_vals[] = {
 static const value_string rohc_profile_vals[] = {
     { 0x0000,   "ROHC uncompressed" },      /* [RFC5795] */
     { 0x0001,   "ROHC RTP" },               /* [RFC3095] */
-    { 0x0101,   "ROHCv2 RTP" },             /* [RFC5225] */
     { 0x0002,   "ROHC UDP" },               /* [RFC3095] */
-    { 0x0102,   "ROHCv2 UDP" },             /* [RFC5225] */
     { 0x0003,   "ROHC ESP" },               /* [RFC3095] */
-    { 0x0103,   "ROHCv2 ESP" },             /* [RFC5225] */
     { 0x0004,   "ROHC IP" },                /* [RFC3843] */
-    { 0x0104,   "ROHCv2 IP" },              /* [RFC5225] */
-    { 0x0005,   "ROHC LLA" },               /* [RFC4362] */
-    { 0x0105,   "ROHC LLA with R-mode" },   /* [RFC3408] */
     { 0x0006,   "ROHC TCP" },               /* [RFC4996] */
-    { 0x0007,   "ROHC RTP/UDP-Lite" },      /* [RFC4019] */
-    { 0x0107,   "ROHCv2 RTP/UDP-Lite" },    /* [RFC5225] */
-    { 0x0008,   "ROHC UDP-Lite" },          /* [RFC4019] */
-    { 0x0108,   "ROHCv2 UDP-Lite" },        /* [RFC5225] */
+    { 0x0101,   "ROHCv2 RTP" },             /* [RFC5225] */
+    { 0x0102,   "ROHCv2 UDP" },             /* [RFC5225] */
+    { 0x0103,   "ROHCv2 ESP" },             /* [RFC5225] */
+    { 0x0104,   "ROHCv2 IP" },              /* [RFC5225] */
     { 0,   NULL }
 };
 
-static const value_string pdu_type_vals[] = {
-    { 0,   "Control PDU" },
-    { 1,   "Data PDU" },
-    { 0,   NULL }
+static const true_false_string pdu_type_bit = {
+    "Data PDU",
+    "Control PDU"
 };
 
 static const value_string control_pdu_type_vals[] = {
-    { 0,   "PDCP Status report" },
-    { 1,   "Header Compression Feedback Information" },
+    { 0,   "PDCP status report" },
+    { 1,   "Interspersed ROHC feedback packet" },
+    { 2,   "LWA status report" },
+    { 3,   "LWA end-marker packet"},
     { 0,   NULL }
 };
 
@@ -435,6 +439,20 @@ static const value_string ciphering_algorithm_vals[] = {
 static dissector_handle_t ip_handle;
 static dissector_handle_t ipv6_handle;
 static dissector_handle_t rohc_handle;
+static dissector_handle_t lte_rrc_ul_ccch;
+static dissector_handle_t lte_rrc_dl_ccch;
+static dissector_handle_t lte_rrc_pcch;
+static dissector_handle_t lte_rrc_bcch_bch;
+static dissector_handle_t lte_rrc_bcch_dl_sch;
+static dissector_handle_t lte_rrc_ul_dcch;
+static dissector_handle_t lte_rrc_dl_dcch;
+static dissector_handle_t lte_rrc_ul_ccch_nb;
+static dissector_handle_t lte_rrc_dl_ccch_nb;
+static dissector_handle_t lte_rrc_pcch_nb;
+static dissector_handle_t lte_rrc_bcch_bch_nb;
+static dissector_handle_t lte_rrc_bcch_dl_sch_nb;
+static dissector_handle_t lte_rrc_ul_dcch_nb;
+static dissector_handle_t lte_rrc_dl_dcch_nb;
 
 
 #define SEQUENCE_ANALYSIS_RLC_ONLY  1
@@ -479,7 +497,7 @@ typedef struct
 
 /* The sequence analysis channel hash table.
    Maps key -> status */
-static GHashTable *pdcp_sequence_analysis_channel_hash = NULL;
+static wmem_map_t *pdcp_sequence_analysis_channel_hash = NULL;
 
 
 /* Hash table types & functions for frame reports */
@@ -574,7 +592,7 @@ typedef struct
 
 /* The sequence analysis frame report hash table.
    Maps pdcp_result_hash_key* -> pdcp_sequence_report_in_frame* */
-static GHashTable *pdcp_lte_sequence_analysis_report_hash = NULL;
+static wmem_map_t *pdcp_lte_sequence_analysis_report_hash = NULL;
 
 /* Gather together security settings in order to be able to do deciphering */
 typedef struct pdu_security_settings_t
@@ -594,14 +612,15 @@ typedef struct pdu_security_settings_t
 static uat_ue_keys_record_t* look_up_keys_record(guint16 ueid)
 {
     unsigned int record_id;
-    /* Try hash table first */
-    uat_ue_keys_record_t* key_record = (uat_ue_keys_record_t*)g_hash_table_lookup(pdcp_security_key_hash,
-                                                                                  GUINT_TO_POINTER((guint)ueid));
+
+    /* Try hash table first (among entries added by set_pdcp_lte_xxx_key() functions) */
+    uat_ue_keys_record_t* key_record = (uat_ue_keys_record_t*)wmem_map_lookup(pdcp_security_key_hash,
+                                                                              GUINT_TO_POINTER((guint)ueid));
     if (key_record != NULL) {
         return key_record;
     }
 
-    /* Else look up UAT entries */
+    /* Else look up UAT entries. N.B. linear search... */
     for (record_id=0; record_id < num_ue_keys_uat; record_id++) {
         if (uat_ue_keys_records[record_id].ueid == ueid) {
             return &uat_ue_keys_records[record_id];
@@ -844,10 +863,10 @@ static void checkChannelSequenceInfo(packet_info *pinfo, tvbuff_t *tvb,
     /* If find stat_report_in_frame already, use that and get out */
     if (pinfo->fd->flags.visited) {
         p_report_in_frame =
-            (pdcp_sequence_report_in_frame*)g_hash_table_lookup(pdcp_lte_sequence_analysis_report_hash,
-                                                                get_report_hash_key(sequenceNumber,
-                                                                                    pinfo->num,
-                                                                                    p_pdcp_lte_info, FALSE));
+            (pdcp_sequence_report_in_frame*)wmem_map_lookup(pdcp_lte_sequence_analysis_report_hash,
+                                                            get_report_hash_key(sequenceNumber,
+                                                                                pinfo->num,
+                                                                                p_pdcp_lte_info, FALSE));
         if (p_report_in_frame != NULL) {
             addChannelSequenceInfo(p_report_in_frame, p_pdcp_lte_info,
                                    sequenceNumber,
@@ -870,8 +889,8 @@ static void checkChannelSequenceInfo(packet_info *pinfo, tvbuff_t *tvb,
     channel_key.notUsed = 0;
 
     /* Do the table lookup */
-    p_channel_status = (pdcp_channel_status*)g_hash_table_lookup(pdcp_sequence_analysis_channel_hash,
-                                                                 get_channel_hash_key(&channel_key));
+    p_channel_status = (pdcp_channel_status*)wmem_map_lookup(pdcp_sequence_analysis_channel_hash,
+                                                             get_channel_hash_key(&channel_key));
 
     /* Create table entry if necessary */
     if (p_channel_status == NULL) {
@@ -881,8 +900,8 @@ static void checkChannelSequenceInfo(packet_info *pinfo, tvbuff_t *tvb,
         p_channel_status = wmem_new0(wmem_file_scope(), pdcp_channel_status);
 
         /* Add entry */
-        g_hash_table_insert(pdcp_sequence_analysis_channel_hash,
-                            get_channel_hash_key(&channel_key), p_channel_status);
+        wmem_map_insert(pdcp_sequence_analysis_channel_hash,
+                        get_channel_hash_key(&channel_key), p_channel_status);
     }
 
     /* Create space for frame state_report */
@@ -967,11 +986,11 @@ static void checkChannelSequenceInfo(packet_info *pinfo, tvbuff_t *tvb,
         if (p_report_in_frame->previousFrameNum != 0) {
             /* Get report for previous frame */
             pdcp_sequence_report_in_frame *p_previous_report;
-            p_previous_report = (pdcp_sequence_report_in_frame*)g_hash_table_lookup(pdcp_lte_sequence_analysis_report_hash,
-                                                                                    get_report_hash_key((sequenceNumber+262144) % 262144,
-                                                                                                        p_report_in_frame->previousFrameNum,
-                                                                                                        p_pdcp_lte_info,
-                                                                                                        FALSE));
+            p_previous_report = (pdcp_sequence_report_in_frame*)wmem_map_lookup(pdcp_lte_sequence_analysis_report_hash,
+                                                                                get_report_hash_key((sequenceNumber+262144) % 262144,
+                                                                                                    p_report_in_frame->previousFrameNum,
+                                                                                                    p_pdcp_lte_info,
+                                                                                                    FALSE));
             /* It really shouldn't be NULL... */
             if (p_previous_report != NULL) {
                 /* Point it forward to this one */
@@ -981,10 +1000,10 @@ static void checkChannelSequenceInfo(packet_info *pinfo, tvbuff_t *tvb,
     }
 
     /* Associate with this frame number */
-    g_hash_table_insert(pdcp_lte_sequence_analysis_report_hash,
-                        get_report_hash_key(sequenceNumber, pinfo->num,
-                                            p_pdcp_lte_info, TRUE),
-                        p_report_in_frame);
+    wmem_map_insert(pdcp_lte_sequence_analysis_report_hash,
+                    get_report_hash_key(sequenceNumber, pinfo->num,
+                                        p_pdcp_lte_info, TRUE),
+                    p_report_in_frame);
 
     /* Add state report for this frame into tree */
     addChannelSequenceInfo(p_report_in_frame, p_pdcp_lte_info, sequenceNumber,
@@ -1003,7 +1022,7 @@ static guint pdcp_lte_ueid_hash_func(gconstpointer v)
 {
     return GPOINTER_TO_UINT(v);
 }
-static GHashTable *pdcp_security_hash = NULL;
+static wmem_map_t *pdcp_security_hash = NULL;
 
 /* Result is (ueid, framenum) -> pdcp_security_info_t*  */
 typedef struct  ueid_frame_t {
@@ -1023,6 +1042,7 @@ static gpointer get_ueid_frame_hash_key(guint16 ueid, guint32 frameNumber,
         p_key = wmem_new(wmem_file_scope(), ueid_frame_t);
     }
     else {
+        /* Only looking up, so just use static */
         memset(&key, 0, sizeof(ueid_frame_t));
         p_key = &key;
     }
@@ -1038,14 +1058,15 @@ static gint pdcp_lte_ueid_frame_hash_equal(gconstpointer v, gconstpointer v2)
 {
     const ueid_frame_t *ueid_frame_1 = (const ueid_frame_t *)v;
     const ueid_frame_t *ueid_frame_2 = (const ueid_frame_t *)v2;
-    return ((ueid_frame_1->framenum == ueid_frame_2->framenum) && (ueid_frame_1->ueid == ueid_frame_2->ueid));
+    return ((ueid_frame_1->framenum == ueid_frame_2->framenum) &&
+            (ueid_frame_1->ueid == ueid_frame_2->ueid));
 }
 static guint pdcp_lte_ueid_frame_hash_func(gconstpointer v)
 {
     const ueid_frame_t *ueid_frame = (const ueid_frame_t *)v;
     return ueid_frame->framenum + 100*ueid_frame->ueid;
 }
-static GHashTable *pdcp_security_result_hash = NULL;
+static wmem_map_t *pdcp_security_result_hash = NULL;
 
 
 
@@ -1067,6 +1088,7 @@ static void write_pdu_label_and_info(proto_item *pdu_ti,
 
     /* Add to indicated places */
     col_append_str(pinfo->cinfo, COL_INFO, info_buffer);
+    /* TODO: gets called a lot, so a shame there isn't a proto_item_append_string() */
     proto_item_append_text(pdu_ti, "%s", info_buffer);
 }
 
@@ -1202,31 +1224,60 @@ static dissector_handle_t lookup_rrc_dissector_handle(struct pdcp_lte_info  *p_p
     {
         case Channel_CCCH:
             if (p_pdcp_info->direction == DIRECTION_UPLINK) {
-                rrc_handle = find_dissector("lte_rrc.ul_ccch");
+                rrc_handle = lte_rrc_ul_ccch;
             }
             else {
-                rrc_handle = find_dissector("lte_rrc.dl_ccch");
+                rrc_handle = lte_rrc_dl_ccch;
             }
             break;
         case Channel_PCCH:
-            rrc_handle = find_dissector("lte_rrc.pcch");
+            rrc_handle = lte_rrc_pcch;
             break;
         case Channel_BCCH:
             switch (p_pdcp_info->BCCHTransport) {
                 case BCH_TRANSPORT:
-                    rrc_handle = find_dissector("lte_rrc.bcch_bch");
+                    rrc_handle = lte_rrc_bcch_bch;
                     break;
                 case DLSCH_TRANSPORT:
-                    rrc_handle = find_dissector("lte_rrc.bcch_dl_sch");
+                    rrc_handle = lte_rrc_bcch_dl_sch;
                     break;
             }
             break;
         case Channel_DCCH:
             if (p_pdcp_info->direction == DIRECTION_UPLINK) {
-                rrc_handle = find_dissector("lte_rrc.ul_dcch");
+                rrc_handle = lte_rrc_ul_dcch;
             }
             else {
-                rrc_handle = find_dissector("lte_rrc.dl_dcch");
+                rrc_handle = lte_rrc_dl_dcch;
+            }
+            break;
+        case Channel_CCCH_NB:
+            if (p_pdcp_info->direction == DIRECTION_UPLINK) {
+                rrc_handle = lte_rrc_ul_ccch_nb;
+            }
+            else {
+                rrc_handle = lte_rrc_dl_ccch_nb;
+            }
+            break;
+        case Channel_PCCH_NB:
+            rrc_handle = lte_rrc_pcch_nb;
+            break;
+        case Channel_BCCH_NB:
+            switch (p_pdcp_info->BCCHTransport) {
+                case BCH_TRANSPORT:
+                    rrc_handle = lte_rrc_bcch_bch_nb;
+                    break;
+                case DLSCH_TRANSPORT:
+                    rrc_handle = lte_rrc_bcch_dl_sch_nb;
+                    break;
+            }
+            break;
+        case Channel_DCCH_NB:
+            if (p_pdcp_info->direction == DIRECTION_UPLINK) {
+                rrc_handle = lte_rrc_ul_dcch_nb;
+            }
+            else {
+                rrc_handle = lte_rrc_dl_dcch_nb;
             }
             break;
 
@@ -1242,6 +1293,19 @@ static dissector_handle_t lookup_rrc_dissector_handle(struct pdcp_lte_info  *p_p
 /* Forwad declarations */
 static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data);
 
+static void report_heur_error(proto_tree *tree, packet_info *pinfo, expert_field *eiindex,
+                              tvbuff_t *tvb, gint start, gint length)
+{
+    proto_item *ti;
+    proto_tree *subtree;
+
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "PDCP-LTE");
+    col_clear(pinfo->cinfo, COL_INFO);
+    ti = proto_tree_add_item(tree, proto_pdcp_lte, tvb, 0, -1, ENC_NA);
+    subtree = proto_item_add_subtree(ti, ett_pdcp);
+    proto_tree_add_expert(subtree, pinfo, eiindex, tvb, start, length);
+}
+
 /* Heuristic dissector looks for supported framing protocol (see wiki page)  */
 static gboolean dissect_pdcp_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
                                      proto_tree *tree, void *data _U_)
@@ -1250,10 +1314,7 @@ static gboolean dissect_pdcp_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
     struct pdcp_lte_info *p_pdcp_lte_info;
     tvbuff_t             *pdcp_tvb;
     guint8                tag                    = 0;
-    gboolean              infoAlreadySet         = FALSE;
     gboolean              seqnumLengthTagPresent = FALSE;
-
-    /* Do this again on re-dissection to re-discover offset of actual PDU */
 
     /* Needs to be at least as long as:
        - the signature string
@@ -1276,99 +1337,103 @@ static gboolean dissect_pdcp_lte_heur(tvbuff_t *tvb, packet_info *pinfo,
     if (p_pdcp_lte_info == NULL) {
         /* Allocate new info struct for this frame */
         p_pdcp_lte_info = wmem_new0(wmem_file_scope(), pdcp_lte_info);
-        infoAlreadySet = FALSE;
-    }
-    else {
-        infoAlreadySet = TRUE;
-    }
 
-
-    /* Read fixed fields */
-    p_pdcp_lte_info->no_header_pdu = (gboolean)tvb_get_guint8(tvb, offset++);
-    p_pdcp_lte_info->plane = (enum pdcp_plane)tvb_get_guint8(tvb, offset++);
-    if (p_pdcp_lte_info->plane == SIGNALING_PLANE) {
-        p_pdcp_lte_info->seqnum_length = PDCP_SN_LENGTH_5_BITS;
-    }
-    p_pdcp_lte_info->rohc.rohc_compression = (gboolean)tvb_get_guint8(tvb, offset++);
-
-    /* Read optional fields */
-    while (tag != PDCP_LTE_PAYLOAD_TAG) {
-        /* Process next tag */
-        tag = tvb_get_guint8(tvb, offset++);
-        switch (tag) {
-            case PDCP_LTE_SEQNUM_LENGTH_TAG:
-                p_pdcp_lte_info->seqnum_length = tvb_get_guint8(tvb, offset);
-                offset++;
-                seqnumLengthTagPresent = TRUE;
-                break;
-            case PDCP_LTE_DIRECTION_TAG:
-                p_pdcp_lte_info->direction = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_LOG_CHAN_TYPE_TAG:
-                p_pdcp_lte_info->channelType = (LogicalChannelType)tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_BCCH_TRANSPORT_TYPE_TAG:
-                p_pdcp_lte_info->BCCHTransport = (BCCHTransportType)tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_ROHC_IP_VERSION_TAG:
-                p_pdcp_lte_info->rohc.rohc_ip_version = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-            case PDCP_LTE_ROHC_CID_INC_INFO_TAG:
-                p_pdcp_lte_info->rohc.cid_inclusion_info = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_ROHC_LARGE_CID_PRES_TAG:
-                p_pdcp_lte_info->rohc.large_cid_present = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_ROHC_MODE_TAG:
-                p_pdcp_lte_info->rohc.mode = (enum rohc_mode)tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_ROHC_RND_TAG:
-                p_pdcp_lte_info->rohc.rnd = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_ROHC_UDP_CHECKSUM_PRES_TAG:
-                p_pdcp_lte_info->rohc.udp_checksum_present = tvb_get_guint8(tvb, offset);
-                offset++;
-                break;
-            case PDCP_LTE_ROHC_PROFILE_TAG:
-                p_pdcp_lte_info->rohc.profile = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-            case PDCP_LTE_CHANNEL_ID_TAG:
-                p_pdcp_lte_info->channelId = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-            case PDCP_LTE_UEID_TAG:
-                p_pdcp_lte_info->ueid = tvb_get_ntohs(tvb, offset);
-                offset += 2;
-                break;
-
-            case PDCP_LTE_PAYLOAD_TAG:
-                /* Have reached data, so get out of loop */
-                continue;
-
-            default:
-                /* It must be a recognised tag */
-                return FALSE;
+        /* Read fixed fields */
+        p_pdcp_lte_info->no_header_pdu = (gboolean)tvb_get_guint8(tvb, offset++);
+        p_pdcp_lte_info->plane = (enum pdcp_plane)tvb_get_guint8(tvb, offset++);
+        if (p_pdcp_lte_info->plane == SIGNALING_PLANE) {
+            p_pdcp_lte_info->seqnum_length = PDCP_SN_LENGTH_5_BITS;
         }
-    }
+        p_pdcp_lte_info->rohc.rohc_compression = (gboolean)tvb_get_guint8(tvb, offset++);
 
-    if ((p_pdcp_lte_info->plane == USER_PLANE) && (seqnumLengthTagPresent == FALSE)) {
-        /* Conditional field is not present */
-        return FALSE;
-    }
+        /* Read optional fields */
+        while (tag != PDCP_LTE_PAYLOAD_TAG) {
+            /* Process next tag */
+            tag = tvb_get_guint8(tvb, offset++);
+            switch (tag) {
+                case PDCP_LTE_SEQNUM_LENGTH_TAG:
+                    p_pdcp_lte_info->seqnum_length = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    seqnumLengthTagPresent = TRUE;
+                    break;
+                case PDCP_LTE_DIRECTION_TAG:
+                    p_pdcp_lte_info->direction = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_LOG_CHAN_TYPE_TAG:
+                    p_pdcp_lte_info->channelType = (LogicalChannelType)tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_BCCH_TRANSPORT_TYPE_TAG:
+                    p_pdcp_lte_info->BCCHTransport = (BCCHTransportType)tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_ROHC_IP_VERSION_TAG:
+                    /* RoHC IP version field is now 1 byte only; let's skip most significant byte
+                       to keep backward compatibility with existing UDP framing protocol */
+                    p_pdcp_lte_info->rohc.rohc_ip_version = tvb_get_guint8(tvb, offset+1);
+                    offset += 2;
+                    break;
+                case PDCP_LTE_ROHC_CID_INC_INFO_TAG:
+                    p_pdcp_lte_info->rohc.cid_inclusion_info = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_ROHC_LARGE_CID_PRES_TAG:
+                    p_pdcp_lte_info->rohc.large_cid_present = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_ROHC_MODE_TAG:
+                    p_pdcp_lte_info->rohc.mode = (enum rohc_mode)tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_ROHC_RND_TAG:
+                    p_pdcp_lte_info->rohc.rnd = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_ROHC_UDP_CHECKSUM_PRES_TAG:
+                    p_pdcp_lte_info->rohc.udp_checksum_present = tvb_get_guint8(tvb, offset);
+                    offset++;
+                    break;
+                case PDCP_LTE_ROHC_PROFILE_TAG:
+                    p_pdcp_lte_info->rohc.profile = tvb_get_ntohs(tvb, offset);
+                    offset += 2;
+                    break;
+                case PDCP_LTE_CHANNEL_ID_TAG:
+                    p_pdcp_lte_info->channelId = tvb_get_ntohs(tvb, offset);
+                    offset += 2;
+                    break;
+                case PDCP_LTE_UEID_TAG:
+                    p_pdcp_lte_info->ueid = tvb_get_ntohs(tvb, offset);
+                    offset += 2;
+                    break;
 
-    if (!infoAlreadySet) {
+                case PDCP_LTE_PAYLOAD_TAG:
+                    /* Have reached data, so get out of loop */
+                    p_pdcp_lte_info->pdu_length = tvb_reported_length_remaining(tvb, offset);
+                    continue;
+
+                default:
+                    /* It must be a recognised tag */
+                    report_heur_error(tree, pinfo, &ei_pdcp_lte_unknown_udp_framing_tag, tvb, offset-1, 1);
+                    wmem_free(wmem_file_scope(), p_pdcp_lte_info);
+                    return TRUE;
+            }
+        }
+
+        if ((p_pdcp_lte_info->plane == USER_PLANE) && (seqnumLengthTagPresent == FALSE)) {
+            /* Conditional field is not present */
+            report_heur_error(tree, pinfo, &ei_pdcp_lte_missing_udp_framing_tag, tvb, 0, offset);
+            wmem_free(wmem_file_scope(), p_pdcp_lte_info);
+            return TRUE;
+        }
+
         /* Store info in packet */
         p_add_proto_data(wmem_file_scope(), pinfo, proto_pdcp_lte, 0, p_pdcp_lte_info);
     }
+    else {
+        offset = tvb_reported_length(tvb) - p_pdcp_lte_info->pdu_length;
+    }
+
 
     /**************************************/
     /* OK, now dissect as PDCP LTE        */
@@ -1386,17 +1451,23 @@ void set_pdcp_lte_security_algorithms(guint16 ueid, pdcp_security_info_t *securi
     /* N.B. won't work for internal, non-RRC signalling methods... */
     pdcp_security_info_t *p_frame_security;
 
+    /* Disable this entire sub-routine with the Preference */
+    /* Used when the capture is already deciphered */
+    if (global_pdcp_ignore_sec) {
+        return;
+    }
+
     /* Create or update current settings, by UEID */
     pdcp_security_info_t* ue_security =
-        (pdcp_security_info_t*)g_hash_table_lookup(pdcp_security_hash,
-                                                   GUINT_TO_POINTER((guint)ueid));
+        (pdcp_security_info_t*)wmem_map_lookup(pdcp_security_hash,
+                                               GUINT_TO_POINTER((guint)ueid));
     if (ue_security == NULL) {
         /* Copy whole security struct */
         ue_security = wmem_new(wmem_file_scope(), pdcp_security_info_t);
         *ue_security = *security_info;
 
         /* And add into security table */
-        g_hash_table_insert(pdcp_security_hash, GUINT_TO_POINTER((guint)ueid), ue_security);
+        wmem_map_insert(pdcp_security_hash, GUINT_TO_POINTER((guint)ueid), ue_security);
     }
     else {
         /* Just update existing entry already in table */
@@ -1414,9 +1485,9 @@ void set_pdcp_lte_security_algorithms(guint16 ueid, pdcp_security_info_t *securi
        when we query it on the first pass. */
     p_frame_security = wmem_new(wmem_file_scope(), pdcp_security_info_t);
     *p_frame_security = *ue_security;
-    g_hash_table_insert(pdcp_security_result_hash,
-                        get_ueid_frame_hash_key(ueid, ue_security->configuration_frame, TRUE),
-                        p_frame_security);
+    wmem_map_insert(pdcp_security_result_hash,
+                    get_ueid_frame_hash_key(ueid, ue_security->configuration_frame, TRUE),
+                    p_frame_security);
 }
 
 /* UE failed to process SecurityModeCommand so go back to previous security settings */
@@ -1424,8 +1495,8 @@ void set_pdcp_lte_security_algorithms_failed(guint16 ueid)
 {
     /* Look up current state by UEID */
     pdcp_security_info_t* ue_security =
-        (pdcp_security_info_t*)g_hash_table_lookup(pdcp_security_hash,
-                                                   GUINT_TO_POINTER((guint)ueid));
+        (pdcp_security_info_t*)wmem_map_lookup(pdcp_security_hash,
+                                               GUINT_TO_POINTER((guint)ueid));
     if (ue_security != NULL) {
         /* TODO: could remove from table if previous_configuration_frame is 0 */
         /* Go back to previous state */
@@ -1462,12 +1533,7 @@ static tvbuff_t *decipher_payload(tvbuff_t *tvb, packet_info *pinfo, int *offset
 #endif
     }
     else
-    if (pdu_security_settings->ciphering == eea2) {
-#ifndef HAVE_LIBGCRYPT
-        return tvb;
-#endif
-    }
-    else {
+    if (pdu_security_settings->ciphering != eea2) {
         /* An algorithm we don't support at all! */
         return tvb;
     }
@@ -1493,7 +1559,6 @@ static tvbuff_t *decipher_payload(tvbuff_t *tvb, packet_info *pinfo, int *offset
         return tvb;
     }
 
-#ifdef HAVE_LIBGCRYPT
     /* AES */
     if (pdu_security_settings->ciphering == eea2) {
         unsigned char ctr_block[16];
@@ -1531,8 +1596,7 @@ static tvbuff_t *decipher_payload(tvbuff_t *tvb, packet_info *pinfo, int *offset
 
         /* Extract the encrypted data into a buffer */
         payload_length = tvb_captured_length_remaining(tvb, *offset);
-        decrypted_data = (guint8 *)g_malloc0(payload_length);
-        tvb_memcpy(tvb, decrypted_data, *offset, payload_length);
+        decrypted_data = (guint8 *)tvb_memdup(pinfo->pool, tvb, *offset, payload_length);
 
         /* Decrypt the actual data */
         gcrypt_err = gcry_cipher_decrypt(cypher_hd,
@@ -1540,22 +1604,19 @@ static tvbuff_t *decipher_payload(tvbuff_t *tvb, packet_info *pinfo, int *offset
                                          NULL, 0);
         if (gcrypt_err != 0) {
             gcry_cipher_close(cypher_hd);
-            g_free(decrypted_data);
             return tvb;
         }
 
         /* Close gcrypt handle */
         gcry_cipher_close(cypher_hd);
     }
-#endif
 
 #ifdef HAVE_SNOW3G
     /* SNOW-3G */
     if (pdu_security_settings->ciphering == eea1) {
         /* Extract the encrypted data into a buffer */
         payload_length = tvb_captured_length_remaining(tvb, *offset);
-        decrypted_data = (guint8 *)g_malloc0(payload_length+4);
-        tvb_memcpy(tvb, decrypted_data, *offset, payload_length);
+        decrypted_data = (guint8 *)tvb_memdup(pinfo->pool, tvb, *offset, payload_length);
 
         /* Do the algorithm */
         snow3g_f8(pdu_security_settings->cipherKey,
@@ -1568,7 +1629,6 @@ static tvbuff_t *decipher_payload(tvbuff_t *tvb, packet_info *pinfo, int *offset
 
     /* Create tvb for resulting deciphered sdu */
     decrypted_tvb = tvb_new_child_real_data(tvb, decrypted_data, payload_length, payload_length);
-    tvb_set_free_cb(decrypted_tvb, g_free);
     add_new_data_source(pinfo, decrypted_tvb, "Deciphered Payload");
 
     /* Return deciphered data, i.e. beginning of new tvb */
@@ -1607,8 +1667,10 @@ static guint32 calculate_digest(pdu_security_settings_t *pdu_security_settings, 
             {
                 guint8  *mac;
                 gint message_length = tvb_captured_length_remaining(tvb, offset) - 4;
-                guint8 *message_data = (guint8 *)g_malloc0(message_length+5);
+                guint8 *message_data = (guint8 *)wmem_alloc0(wmem_packet_scope(), message_length+5);
+                /* Data is header byte */
                 message_data[0] = header;
+                /* Followed by the decrypted message (but not the digest bytes) */
                 tvb_memcpy(tvb, message_data+1, offset, message_length);
 
                 mac = (u8*)snow3g_f9(pdu_security_settings->integrityKey,
@@ -1620,12 +1682,11 @@ static guint32 calculate_digest(pdu_security_settings_t *pdu_security_settings, 
                                      (message_length+1)*8);
 
                 *calculated = TRUE;
-                g_free(message_data);
                 return ((mac[0] << 24) | (mac[1] << 16) | (mac[2] << 8) | mac[3]);
             }
 #endif
 
-#if (defined GCRYPT_VERSION_NUMBER) && (GCRYPT_VERSION_NUMBER >= 0x010600)
+#if GCRYPT_VERSION_NUMBER >= 0x010600 /* 1.6.0 */
         case eia2:
             {
                 gcry_mac_hd_t mac_hd;
@@ -1650,21 +1711,22 @@ static guint32 calculate_digest(pdu_security_settings_t *pdu_security_settings, 
 
                 /* Extract the encrypted data into a buffer */
                 message_length = tvb_captured_length_remaining(tvb, offset) - 4;
-                message_data = (guint8 *)g_malloc0(message_length+9);
+                message_data = (guint8 *)wmem_alloc0(wmem_packet_scope(), message_length+9);
                 message_data[0] = (pdu_security_settings->count & 0xff000000) >> 24;
                 message_data[1] = (pdu_security_settings->count & 0x00ff0000) >> 16;
                 message_data[2] = (pdu_security_settings->count & 0x0000ff00) >> 8;
                 message_data[3] = (pdu_security_settings->count & 0x000000ff);
                 message_data[4] = (pdu_security_settings->bearer << 3) + (pdu_security_settings->direction << 2);
                 /* rest of first 8 bytes are left as zeroes... */
+                /* Now the header byte */
                 message_data[8] = header;
+                /* Followed by the decrypted message (but not the digest bytes) */
                 tvb_memcpy(tvb, message_data+9, offset, message_length);
 
                 /* Pass in the message */
                 gcrypt_err = gcry_mac_write(mac_hd, message_data, message_length+9);
                 if (gcrypt_err != 0) {
                     gcry_mac_close(mac_hd);
-                    g_free(message_data);
                     return 0;
                 }
 
@@ -1672,14 +1734,11 @@ static guint32 calculate_digest(pdu_security_settings_t *pdu_security_settings, 
                 gcrypt_err = gcry_mac_read(mac_hd, mac, &read_digest_length);
                 if (gcrypt_err != 0) {
                     gcry_mac_close(mac_hd);
-                    g_free(message_data);
                     return 0;
                 }
 
                 /* Now close the mac handle */
                 gcry_mac_close(mac_hd);
-
-                g_free(message_data);
 
                 *calculated = TRUE;
                 return ((mac[0] << 24) | (mac[1] << 16) | (mac[2] << 8) | mac[3]);
@@ -1702,9 +1761,12 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     const char           *mode;
     proto_tree           *pdcp_tree           = NULL;
     proto_item           *root_ti             = NULL;
+    proto_item           *ti                  = NULL;
     gint                  offset              = 0;
     struct pdcp_lte_info *p_pdcp_info;
     tvbuff_t             *rohc_tvb            = NULL;
+    guint32               reserved_value;
+    guint32               seqnum = 0;
 
     pdcp_security_info_t *current_security = NULL;   /* current security for this UE */
     pdcp_security_info_t *pdu_security;              /* security in place for this PDU */
@@ -1731,12 +1793,12 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     if ((global_pdcp_lte_layer_to_show == ShowRLCLayer) &&
         (p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc_lte, 0) != NULL)) {
 
-        col_set_writable(pinfo->cinfo, FALSE);
+        col_set_writable(pinfo->cinfo, COL_INFO, FALSE);
     }
     else {
         /* TODO: won't help with multiple PDCP-or-traffic PDUs / frame... */
         col_clear(pinfo->cinfo, COL_INFO);
-        col_set_writable(pinfo->cinfo, TRUE);
+        col_set_writable(pinfo->cinfo, COL_INFO, TRUE);
     }
 
     /* Create pdcp tree. */
@@ -1763,16 +1825,16 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     /* UE security algorithms              */
     if (!pinfo->fd->flags.visited) {
         /* Look up current state by UEID */
-        current_security = (pdcp_security_info_t*)g_hash_table_lookup(pdcp_security_hash,
-                                                                      GUINT_TO_POINTER((guint)p_pdcp_info->ueid));
+        current_security = (pdcp_security_info_t*)wmem_map_lookup(pdcp_security_hash,
+                                                                  GUINT_TO_POINTER((guint)p_pdcp_info->ueid));
         if (current_security != NULL) {
             /* Store any result for this frame in the result table */
             pdcp_security_info_t *security_to_store = wmem_new(wmem_file_scope(), pdcp_security_info_t);
             /* Take a deep copy of the settings */
             *security_to_store = *current_security;
-            g_hash_table_insert(pdcp_security_result_hash,
-                                get_ueid_frame_hash_key(p_pdcp_info->ueid, pinfo->num, TRUE),
-                                security_to_store);
+            wmem_map_insert(pdcp_security_result_hash,
+                            get_ueid_frame_hash_key(p_pdcp_info->ueid, pinfo->num, TRUE),
+                            security_to_store);
         }
         else {
             /* No entry added from RRC, but still use configured defaults */
@@ -1783,18 +1845,17 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 security_to_store->ciphering = global_default_ciphering_algorithm;
                 security_to_store->integrity = global_default_integrity_algorithm;
                 security_to_store->seen_next_ul_pdu = TRUE;
-                g_hash_table_insert(pdcp_security_result_hash,
-                                    get_ueid_frame_hash_key(p_pdcp_info->ueid, pinfo->num, TRUE),
-                                    security_to_store);
+                wmem_map_insert(pdcp_security_result_hash,
+                                get_ueid_frame_hash_key(p_pdcp_info->ueid, pinfo->num, TRUE),
+                                security_to_store);
             }
         }
     }
 
     /* Show security settings for this PDU */
-    pdu_security = (pdcp_security_info_t*)g_hash_table_lookup(pdcp_security_result_hash, get_ueid_frame_hash_key(p_pdcp_info->ueid, pinfo->num, FALSE));
+    pdu_security = (pdcp_security_info_t*)wmem_map_lookup(pdcp_security_result_hash,
+                                                          get_ueid_frame_hash_key(p_pdcp_info->ueid, pinfo->num, FALSE));
     if (pdu_security != NULL) {
-        proto_item *ti;
-
         /* Create subtree */
         security_ti = proto_tree_add_string_format(pdcp_tree,
                                                    hf_pdcp_lte_security,
@@ -1804,9 +1865,11 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         PROTO_ITEM_SET_GENERATED(security_ti);
 
         /* Setup frame */
-        ti = proto_tree_add_uint(security_tree, hf_pdcp_lte_security_setup_frame,
-                                 tvb, 0, 0, pdu_security->configuration_frame);
-        PROTO_ITEM_SET_GENERATED(ti);
+        if (pinfo->num > pdu_security->configuration_frame) {
+            ti = proto_tree_add_uint(security_tree, hf_pdcp_lte_security_setup_frame,
+                                     tvb, 0, 0, pdu_security->configuration_frame);
+            PROTO_ITEM_SET_GENERATED(ti);
+        }
 
         /* Ciphering */
         ti = proto_tree_add_uint(security_tree, hf_pdcp_lte_security_ciphering_algorithm,
@@ -1831,8 +1894,7 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     /* Handle PDCP header (if present) */
     if (!p_pdcp_info->no_header_pdu) {
 
-        /* TODO: shouldn't need to initialise this one!! */
-        guint32  seqnum = 0;
+        seqnum = 0;
         gboolean seqnum_set = FALSE;
 
         guint8  first_byte = tvb_get_guint8(tvb, offset);
@@ -1842,17 +1904,16 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         if (p_pdcp_info->plane == SIGNALING_PLANE) {
             /* Verify 3 reserved bits are 0 */
             guint8 reserved = (first_byte & 0xe0) >> 5;
-            proto_item *ti = proto_tree_add_item(pdcp_tree, hf_pdcp_lte_control_plane_reserved,
-                                                 tvb, offset, 1, ENC_BIG_ENDIAN);
+            ti = proto_tree_add_item(pdcp_tree, hf_pdcp_lte_control_plane_reserved,
+                                     tvb, offset, 1, ENC_BIG_ENDIAN);
             if (reserved != 0) {
                 expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
                                        "PDCP signalling header reserved bits not zero");
             }
 
             /* 5-bit sequence number */
-            seqnum = first_byte & 0x1f;
+            proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_seq_num_5, tvb, offset, 1, ENC_BIG_ENDIAN, &seqnum);
             seqnum_set = TRUE;
-            proto_tree_add_item(pdcp_tree, hf_pdcp_lte_seq_num_5, tvb, offset, 1, ENC_BIG_ENDIAN);
             write_pdu_label_and_info(root_ti, pinfo, " sn=%-2u ", seqnum);
             offset++;
 
@@ -1872,67 +1933,54 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
             if (pdu_type == 1) {
                 /*****************************/
-                /* Use-plane Data            */
+                /* User-plane Data            */
 
                 /* Number of sequence number bits depends upon config */
                 switch (p_pdcp_info->seqnum_length) {
                     case PDCP_SN_LENGTH_7_BITS:
-                        seqnum = first_byte & 0x7f;
+                        proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_seq_num_7, tvb, offset, 1, ENC_BIG_ENDIAN, &seqnum);
                         seqnum_set = TRUE;
-                        proto_tree_add_item(pdcp_tree, hf_pdcp_lte_seq_num_7, tvb, offset, 1, ENC_BIG_ENDIAN);
                         offset++;
                         break;
                     case PDCP_SN_LENGTH_12_BITS:
-                        {
-                            proto_item *ti;
-                            guint8 reserved_value;
+                        /* 3 reserved bits */
+                        ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved3, tvb, offset, 1, ENC_BIG_ENDIAN, &reserved_value);
 
-                            /* 3 reserved bits */
-                            ti = proto_tree_add_item(pdcp_tree, hf_pdcp_lte_reserved3, tvb, offset, 1, ENC_BIG_ENDIAN);
-                            reserved_value = (first_byte & 0x70) >> 4;
-
-                            /* Complain if not 0 */
-                            if (reserved_value != 0) {
-                                expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
-                                                       "Reserved bits have value 0x%x - should be 0x0",
-                                                       reserved_value);
-                            }
-
-                            /* 12-bit sequence number */
-                            seqnum = tvb_get_ntohs(tvb, offset) & 0x0fff;
-                            seqnum_set = TRUE;
-                            proto_tree_add_item(pdcp_tree, hf_pdcp_lte_seq_num_12, tvb, offset, 2, ENC_BIG_ENDIAN);
-                            offset += 2;
+                        /* Complain if not 0 */
+                        if (reserved_value != 0) {
+                            expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                   "Reserved bits have value 0x%x - should be 0x0",
+                                                   reserved_value);
                         }
+
+                        /* 12-bit sequence number */
+                        proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_seq_num_12, tvb, offset, 2, ENC_BIG_ENDIAN, &seqnum);
+                        seqnum_set = TRUE;
+                        offset += 2;
                         break;
                     case PDCP_SN_LENGTH_15_BITS:
-                        seqnum = tvb_get_ntohs(tvb, offset) & 0x7fff;
+                        proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_seq_num_15, tvb, offset, 2, ENC_BIG_ENDIAN, &seqnum);
                         seqnum_set = TRUE;
-                        proto_tree_add_item(pdcp_tree, hf_pdcp_lte_seq_num_15, tvb, offset, 2, ENC_BIG_ENDIAN);
                         offset += 2;
                         break;
                     case PDCP_SN_LENGTH_18_BITS:
-                        {
-                            proto_item *ti;
-                            guint8 reserved_value;
+                        /* Polling bit */
+                        proto_tree_add_item(pdcp_tree, hf_pdcp_lte_polling, tvb, offset, 1, ENC_BIG_ENDIAN);
 
-                            /* 5 reserved bits */
-                            ti = proto_tree_add_item(pdcp_tree, hf_pdcp_lte_reserved5, tvb, offset, 1, ENC_BIG_ENDIAN);
-                            reserved_value = (first_byte & 0x7c) >> 2;
+                        /* 4 reserved bits */
+                        ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved5, tvb, offset, 1, ENC_BIG_ENDIAN, &reserved_value);
 
-                            /* Complain if not 0 */
-                            if (reserved_value != 0) {
-                                expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
-                                                       "Reserved bits have value 0x%x - should be 0x0",
-                                                       reserved_value);
-                            }
-
-                            /* 18-bit sequence number */
-                            seqnum = tvb_get_ntoh24(tvb, offset) & 0x03ffff;
-                            seqnum_set = TRUE;
-                            proto_tree_add_item(pdcp_tree, hf_pdcp_lte_seq_num_18, tvb, offset, 3, ENC_BIG_ENDIAN);
-                            offset += 3;
+                        /* Complain if not 0 */
+                        if (reserved_value != 0) {
+                            expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                   "Reserved bits have value 0x%x - should be 0x0",
+                                                   reserved_value);
                         }
+
+                        /* 18-bit sequence number */
+                        proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_seq_num_18, tvb, offset, 3, ENC_BIG_ENDIAN, &seqnum);
+                        seqnum_set = TRUE;
+                        offset += 3;
                         break;
                     default:
                         /* Not a recognised data format!!!!! */
@@ -1944,13 +1992,13 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             else {
                 /*******************************/
                 /* User-plane Control messages */
-                guint8 control_pdu_type = (first_byte & 0x70) >> 4;
-                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_control_pdu_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+                guint32 control_pdu_type;
+                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_control_pdu_type, tvb,
+                                             offset, 1, ENC_BIG_ENDIAN, &control_pdu_type);
 
                 switch (control_pdu_type) {
                     case 0:    /* PDCP status report */
                         {
-                            guint8  bits;
                             guint32 fms;
                             guint32 modulo;
                             guint   not_received = 0;
@@ -1963,19 +2011,15 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
                             if (p_pdcp_info->seqnum_length == PDCP_SN_LENGTH_12_BITS) {
                                 /* First-Missing-Sequence SN */
-                                fms = tvb_get_ntohs(tvb, offset) & 0x0fff;
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_fms, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &fms);
                                 sn = (fms + 1) % 4096;
-                                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_fms, tvb,
-                                                    offset, 2, ENC_BIG_ENDIAN);
                                 offset += 2;
                                 modulo = 4096;
                             } else if (p_pdcp_info->seqnum_length == PDCP_SN_LENGTH_15_BITS) {
-                                proto_item *ti;
-                                guint8 reserved_value;
 
                                 /* 5 reserved bits */
-                                ti = proto_tree_add_item(pdcp_tree, hf_pdcp_lte_reserved4, tvb, offset, 2, ENC_BIG_ENDIAN);
-                                reserved_value = (tvb_get_ntohs(tvb, offset) & 0x0f80)>>7;
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved4, tvb, offset, 2, ENC_BIG_ENDIAN, &reserved_value);
                                 offset++;
 
                                 /* Complain if not 0 */
@@ -1986,19 +2030,14 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                 }
 
                                 /* First-Missing-Sequence SN */
-                                fms = tvb_get_ntohs(tvb, offset) & 0x7fff;
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_fms2, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &fms);
                                 sn = (fms + 1) % 32768;
-                                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_fms2, tvb,
-                                                    offset, 2, ENC_BIG_ENDIAN);
                                 offset += 2;
                                 modulo = 32768;
                             } else {
-                                proto_item *ti;
-                                guint8 reserved_value;
-
                                 /* 2 reserved bits */
-                                ti = proto_tree_add_item(pdcp_tree, hf_pdcp_lte_reserved6, tvb, offset, 1, ENC_BIG_ENDIAN);
-                                reserved_value = (tvb_get_guint8(tvb, offset) & 0x0c)>>2;
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved6, tvb, offset, 1, ENC_BIG_ENDIAN, &reserved_value);
 
                                 /* Complain if not 0 */
                                 if (reserved_value != 0) {
@@ -2008,10 +2047,9 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                 }
 
                                 /* First-Missing-Sequence SN */
-                                fms = tvb_get_ntoh24(tvb, offset) & 0x3ffff;
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_fms3, tvb,
+                                                             offset, 3, ENC_BIG_ENDIAN, &fms);
                                 sn = (fms + 1) % 262144;
-                                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_fms3, tvb,
-                                                    offset, 3, ENC_BIG_ENDIAN);
                                 offset += 3;
                                 modulo = 262144;
                             }
@@ -2022,21 +2060,28 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                                 offset, -1, ENC_NA);
                                 bitmap_tree = proto_item_add_subtree(bitmap_ti, ett_pdcp_report_bitmap);
 
-                                 buff = (gchar *)wmem_alloc(wmem_packet_scope(), BUFF_SIZE);
-                                 len = tvb_reported_length_remaining(tvb, offset);
-                                 bit_offset = offset<<3;
+                                buff = (gchar *)wmem_alloc(wmem_packet_scope(), BUFF_SIZE);
+                                len = tvb_reported_length_remaining(tvb, offset);
+                                bit_offset = offset<<3;
+
                                 /* For each byte... */
                                 for (i=0; i<len; i++) {
-                                    bits = tvb_get_bits8(tvb, bit_offset, 8);
+                                    guint8 bits = tvb_get_bits8(tvb, bit_offset, 8);
                                     for (l=0, j=0; l<8; l++) {
                                         if ((bits << l) & 0x80) {
-                                            j += g_snprintf(&buff[j], BUFF_SIZE-j, "%6u,", (unsigned)(sn+(8*i)+l)%modulo);
+                                            if (bitmap_tree) {
+                                                j += g_snprintf(&buff[j], BUFF_SIZE-j, "%6u,", (unsigned)(sn+(8*i)+l)%modulo);
+                                            }
                                         } else {
-                                            j += g_snprintf(&buff[j], BUFF_SIZE-j, "      ,");
+                                            if (bitmap_tree) {
+                                                j += (guint)g_strlcpy(&buff[j], "      ,", BUFF_SIZE-j);
+                                            }
                                             not_received++;
                                         }
                                     }
-                                    proto_tree_add_uint_format(bitmap_tree, hf_pdcp_lte_bitmap_byte, tvb, bit_offset/8, 1, bits, "%s", buff);
+                                    if (bitmap_tree) {
+                                        proto_tree_add_uint_format(bitmap_tree, hf_pdcp_lte_bitmap_byte, tvb, bit_offset/8, 1, bits, "%s", buff);
+                                    }
                                     bit_offset += 8;
                                 }
                             }
@@ -2053,6 +2098,155 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                         offset++;
                         break;  /* Drop-through to dissect feedback */
 
+
+                    case 2:     /* LWA status report */
+                        {
+                            guint32 fms;
+                            guint32 nmp;
+
+                            if (p_pdcp_info->seqnum_length == PDCP_SN_LENGTH_12_BITS) {
+                                /* First-Missing-Sequence SN */
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_fms, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &fms);
+                                offset += 2;
+
+                                /* HRW */
+                                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_hrw, tvb,
+                                                    offset, 2, ENC_BIG_ENDIAN);
+                                offset += 1;
+
+                                /* NMP */
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_nmp, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &nmp);
+                                offset += 2;
+                            } else if (p_pdcp_info->seqnum_length == PDCP_SN_LENGTH_15_BITS) {
+                                /* 5 reserved bits */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved4, tvb,
+                                                                  offset, 2, ENC_BIG_ENDIAN, &reserved_value);
+                                offset++;
+                                /* Complain if not 0 */
+                                if (reserved_value != 0) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x%x - should be 0x0",
+                                                           reserved_value);
+                                }
+
+                                /* First-Missing-Sequence SN */
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_fms2, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &fms);
+                                offset += 2;
+
+                                /* 1 reserved bit */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved7, tvb,
+                                                                  offset, 1, ENC_BIG_ENDIAN, &reserved_value);
+                                /* Complain if not 0 */
+                                if (reserved_value) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x1 - should be 0x0");
+                                }
+
+                                /* HRW */
+                                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_hrw2, tvb,
+                                                    offset, 2, ENC_BIG_ENDIAN);
+                                offset += 2;
+
+                                /* 1 reserved bit */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved7, tvb,
+                                                                  offset, 1, ENC_BIG_ENDIAN, &reserved_value);
+                                /* Complain if not 0 */
+                                if (reserved_value) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x1 - should be 0x0");
+                                }
+
+                                /* NMP */
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_nmp2, tvb,
+                                                    offset, 2, ENC_BIG_ENDIAN, &nmp);
+                                offset += 2;
+                            } else {
+                                /* 2 reserved bits */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved6,
+                                                                  tvb, offset, 1, ENC_BIG_ENDIAN, &reserved_value);
+                                /* Complain if not 0 */
+                                if (reserved_value != 0) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x%x - should be 0x0",
+                                                           reserved_value);
+                                }
+
+                                /* First-Missing-Sequence SN */
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_fms3, tvb,
+                                                             offset, 3, ENC_BIG_ENDIAN, &fms);
+                                offset += 3;
+
+                                /* HRW */
+                                proto_tree_add_item(pdcp_tree, hf_pdcp_lte_hrw3, tvb,
+                                                    offset, 3, ENC_BIG_ENDIAN);
+                                offset += 2;
+
+                                /* 4 reserved bits */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved8,
+                                                                  tvb, offset, 1, ENC_BIG_ENDIAN, &reserved_value);
+                                /* Complain if not 0 */
+                                if (reserved_value != 0) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x%x - should be 0x0",
+                                                           reserved_value);
+                                }
+
+                                /* NMP */
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_nmp3, tvb,
+                                                    offset, 3, ENC_BIG_ENDIAN, &nmp);
+                                offset += 3;
+                            }
+
+                            write_pdu_label_and_info(root_ti, pinfo, " LWA Status Report (fms=%u) not-received=%u",
+                                                     fms, nmp);
+                        }
+                        return 1;
+
+                    case 3:     /* LWA end-marker packet */
+                        {
+                            guint32 lsn;
+
+                            if (p_pdcp_info->seqnum_length == PDCP_SN_LENGTH_12_BITS) {
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_lsn, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &lsn);
+                                offset += 2;
+                            } else if (p_pdcp_info->seqnum_length == PDCP_SN_LENGTH_15_BITS) {
+                                /* 5 reserved bits */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved4, tvb,
+                                                                  offset, 2, ENC_BIG_ENDIAN, &reserved_value);
+                                offset++;
+                                /* Complain if not 0 */
+                                if (reserved_value != 0) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x%x - should be 0x0",
+                                                           reserved_value);
+                                }
+
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_lsn2, tvb,
+                                                             offset, 2, ENC_BIG_ENDIAN, &lsn);
+                                offset += 2;
+                            } else {
+                                /* 2 reserved bits */
+                                ti = proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_reserved6,
+                                                                  tvb, offset, 1, ENC_BIG_ENDIAN, &reserved_value);
+                                /* Complain if not 0 */
+                                if (reserved_value != 0) {
+                                    expert_add_info_format(pinfo, ti, &ei_pdcp_lte_reserved_bits_not_zero,
+                                                           "Reserved bits have value 0x%x - should be 0x0",
+                                                           reserved_value);
+                                }
+
+                                proto_tree_add_item_ret_uint(pdcp_tree, hf_pdcp_lte_lsn3, tvb,
+                                                             offset, 3, ENC_BIG_ENDIAN, &lsn);
+                                offset += 3;
+                            }
+
+                            write_pdu_label_and_info(root_ti, pinfo, " LWA End-Marker Packet (lsn=%u)", lsn);
+                        }
+                        return 1;
                     default:    /* Reserved */
                         return 1;
                 }
@@ -2132,15 +2326,15 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             if (rrc_handle != 0) {
                 /* Call RRC dissector if have one */
                 tvbuff_t *rrc_payload_tvb = tvb_new_subset_length(payload_tvb, offset, data_length);
-                gboolean was_writable = col_get_writable(pinfo->cinfo);
+                gboolean was_writable = col_get_writable(pinfo->cinfo, COL_INFO);
 
                 /* We always want to see this in the info column */
-                col_set_writable(pinfo->cinfo, TRUE);
+                col_set_writable(pinfo->cinfo, COL_INFO, TRUE);
 
                 call_dissector_only(rrc_handle, rrc_payload_tvb, pinfo, pdcp_tree, NULL);
 
                 /* Restore to whatever it was */
-                col_set_writable(pinfo->cinfo, was_writable);
+                col_set_writable(pinfo->cinfo, COL_INFO, was_writable);
             }
             else {
                  /* Just show data */
@@ -2175,8 +2369,9 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 /* Compare what was found with calculated value! */
                 if (mac != calculated_digest) {
                     expert_add_info_format(pinfo, mac_ti, &ei_pdcp_lte_digest_wrong,
-                                           "MAC-I Digest wrong expected %08x but found %08x",
+                                           "MAC-I Digest wrong - calculated %08x but found %08x",
                                            calculated_digest, mac);
+                    proto_item_append_text(mac_ti, " (but calculated %08x !)", calculated_digest);
                 }
                 else {
                     proto_item_append_text(mac_ti, " [Matches calculated result]");
@@ -2186,7 +2381,7 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             col_append_fstr(pinfo->cinfo, COL_INFO, " MAC=0x%08x (%u bytes data)",
                             mac, data_length);
         } else {
-            col_append_fstr(pinfo->cinfo, COL_INFO, "(%u bytes data)", data_length);
+            col_append_fstr(pinfo->cinfo, COL_INFO, " (%u bytes data)", data_length);
         }
     }
     else if (tvb_captured_length_remaining(payload_tvb, offset)) {
@@ -2207,7 +2402,7 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
                         /* Don't update info column for ROHC unless configured to */
                         if (global_pdcp_lte_layer_to_show != ShowTrafficLayer) {
-                            col_set_writable(pinfo->cinfo, FALSE);
+                            col_set_writable(pinfo->cinfo, COL_INFO, FALSE);
                         }
 
                         switch (tvb_get_guint8(ip_payload_tvb, 0) & 0xf0) {
@@ -2224,7 +2419,7 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
                         /* Freeze the columns again because we don't want other layers writing to info */
                         if (global_pdcp_lte_layer_to_show == ShowTrafficLayer) {
-                            col_set_writable(pinfo->cinfo, FALSE);
+                            col_set_writable(pinfo->cinfo, COL_INFO, FALSE);
                         }
 
                     }
@@ -2240,7 +2435,7 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             /* (there will be no signalling data left at this point) */
 
             /* Let RLC write to columns again */
-            col_set_writable(pinfo->cinfo, global_pdcp_lte_layer_to_show == ShowRLCLayer);
+            col_set_writable(pinfo->cinfo, COL_INFO, global_pdcp_lte_layer_to_show == ShowRLCLayer);
 
             /* DROPPING OUT HERE IF NOT DOING ROHC! */
             return tvb_captured_length(tvb);
@@ -2261,7 +2456,7 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
             /* Only enable writing to column if configured to show ROHC */
             if (global_pdcp_lte_layer_to_show != ShowTrafficLayer) {
-                col_set_writable(pinfo->cinfo, FALSE);
+                col_set_writable(pinfo->cinfo, COL_INFO, FALSE);
             }
             else {
                 col_clear(pinfo->cinfo, COL_INFO);
@@ -2271,32 +2466,11 @@ static int dissect_pdcp_lte(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             call_dissector_with_data(rohc_handle, rohc_tvb, pinfo, tree, &p_pdcp_info->rohc);
 
             /* Let RLC write to columns again */
-            col_set_writable(pinfo->cinfo, global_pdcp_lte_layer_to_show == ShowRLCLayer);
+            col_set_writable(pinfo->cinfo, COL_INFO, global_pdcp_lte_layer_to_show == ShowRLCLayer);
         }
     }
     return tvb_captured_length(tvb);
 }
-
-/* Initializes the hash tables each time a new
- * file is loaded or re-loaded in wireshark */
-static void pdcp_lte_init_protocol(void)
-{
-    pdcp_sequence_analysis_channel_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
-    pdcp_lte_sequence_analysis_report_hash = g_hash_table_new(pdcp_result_hash_func, pdcp_result_hash_equal);
-    pdcp_security_hash = g_hash_table_new(pdcp_lte_ueid_hash_func, pdcp_lte_ueid_hash_equal);
-    pdcp_security_result_hash = g_hash_table_new(pdcp_lte_ueid_frame_hash_func, pdcp_lte_ueid_frame_hash_equal);
-    pdcp_security_key_hash = g_hash_table_new(pdcp_lte_ueid_hash_func, pdcp_lte_ueid_hash_equal);
-}
-
-static void pdcp_lte_cleanup_protocol(void)
-{
-    g_hash_table_destroy(pdcp_sequence_analysis_channel_hash);
-    g_hash_table_destroy(pdcp_lte_sequence_analysis_report_hash);
-    g_hash_table_destroy(pdcp_security_hash);
-    g_hash_table_destroy(pdcp_security_result_hash);
-    g_hash_table_destroy(pdcp_security_key_hash);
-}
-
 
 
 void proto_register_pdcp(void)
@@ -2433,10 +2607,16 @@ void proto_register_pdcp(void)
               "PDCP Seq num", HFILL
             }
         },
+        { &hf_pdcp_lte_polling,
+            { "Polling",
+              "pdcp-lte.polling", FT_BOOLEAN, 8, NULL, 0x40,
+              NULL, HFILL
+            }
+        },
         { &hf_pdcp_lte_reserved5,
             { "Reserved",
-              "pdcp-lte.reserved5", FT_UINT8, BASE_HEX, NULL, 0x7c,
-              "5 reserved bits", HFILL
+              "pdcp-lte.reserved5", FT_UINT8, BASE_HEX, NULL, 0x3c,
+              "4 reserved bits", HFILL
             }
         },
         { &hf_pdcp_lte_seq_num_18,
@@ -2459,7 +2639,7 @@ void proto_register_pdcp(void)
         },
         { &hf_pdcp_lte_data_control,
             { "PDU Type",
-              "pdcp-lte.pdu-type", FT_UINT8, BASE_HEX, VALS(pdu_type_vals), 0x80,
+              "pdcp-lte.pdu-type", FT_BOOLEAN, 8, TFS(& pdu_type_bit), 0x80,
               NULL, HFILL
             }
         },
@@ -2517,6 +2697,72 @@ void proto_register_pdcp(void)
               NULL, HFILL
             }
         },
+        { &hf_pdcp_lte_hrw,
+            { "Highest Received Sequence Number on WLAN",
+              "pdcp-lte.hwr", FT_UINT16, BASE_DEC, NULL, 0xfff0,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_nmp,
+            { "Number of Missing PDCP SDUs",
+              "pdcp-lte.nmp", FT_UINT16, BASE_DEC, NULL, 0x0fff,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_reserved7,
+            { "Reserved",
+              "pdcp-lte.reserved7", FT_UINT8, BASE_HEX, NULL, 0x80,
+              "1 reserved bit", HFILL
+            }
+        },
+        { &hf_pdcp_lte_hrw2,
+            { "Highest Received Sequence Number on WLAN",
+              "pdcp-lte.hwr", FT_UINT16, BASE_DEC, NULL, 0x7fff,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_nmp2,
+            { "Number of Missing PDCP SDUs",
+              "pdcp-lte.nmp", FT_UINT16, BASE_DEC, NULL, 0x7fff,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_hrw3,
+            { "Highest Received Sequence Number on WLAN",
+              "pdcp-lte.hwr", FT_UINT24, BASE_DEC, NULL, 0xffffc0,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_reserved8,
+            { "Reserved",
+              "pdcp-lte.reserved8", FT_UINT8, BASE_HEX, NULL, 0x3c,
+              "4 reserved bits", HFILL
+            }
+        },
+        { &hf_pdcp_lte_nmp3,
+            { "Number of Missing PDCP SDUs",
+              "pdcp-lte.nmp", FT_UINT24, BASE_DEC, NULL, 0x03ffff,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_lsn,
+            { "Last PDCP PDU SN ciphered with previous key",
+              "pdcp-lte.lsn", FT_UINT16, BASE_DEC, NULL, 0x0fff,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_lsn2,
+            { "Last PDCP PDU SN ciphered with previous key",
+              "pdcp-lte.lsn", FT_UINT16, BASE_DEC, NULL, 0x7fff,
+              NULL, HFILL
+            }
+        },
+        { &hf_pdcp_lte_lsn3,
+            { "Last PDCP PDU SN ciphered with previous key",
+              "pdcp-lte.lsn", FT_UINT24, BASE_DEC, NULL, 0x03ffff,
+              NULL, HFILL
+            }
+        },
 
         { &hf_pdcp_lte_sequence_analysis,
             { "Sequence Analysis",
@@ -2569,7 +2815,7 @@ void proto_register_pdcp(void)
         },
         { &hf_pdcp_lte_security_setup_frame,
             { "Configuration frame",
-              "pdcp-lte.security-config.setup-frame", FT_FRAMENUM, BASE_NONE, 0, 0x0,
+              "pdcp-lte.security-config.setup-frame", FT_FRAMENUM, BASE_NONE, NULL, 0x0,
               NULL, HFILL
             }
         },
@@ -2632,7 +2878,9 @@ void proto_register_pdcp(void)
         { &ei_pdcp_lte_sequence_analysis_sn_repeated, { "pdcp-lte.sequence-analysis.sn-repeated", PI_SEQUENCE, PI_WARN, "PDCP SN repeated", EXPFILL }},
         { &ei_pdcp_lte_sequence_analysis_wrong_sequence_number, { "pdcp-lte.sequence-analysis.wrong-sequence-number", PI_SEQUENCE, PI_WARN, "Wrong Sequence Number", EXPFILL }},
         { &ei_pdcp_lte_reserved_bits_not_zero, { "pdcp-lte.reserved-bits-not-zero", PI_MALFORMED, PI_ERROR, "Reserved bits not zero", EXPFILL }},
-        { &ei_pdcp_lte_digest_wrong, { "pdcp-lte.maci-wrong", PI_SEQUENCE, PI_ERROR, "MAC-I doesn't match expected value", EXPFILL }}
+        { &ei_pdcp_lte_digest_wrong, { "pdcp-lte.maci-wrong", PI_SEQUENCE, PI_ERROR, "MAC-I doesn't match expected value", EXPFILL }},
+        { &ei_pdcp_lte_unknown_udp_framing_tag, { "pdcp-lte.unknown-udp-framing-tag", PI_UNDECODED, PI_WARN, "Unknown UDP framing tag, aborting dissection", EXPFILL }},
+        { &ei_pdcp_lte_missing_udp_framing_tag, { "pdcp-lte.missing-udp-framing-tag", PI_UNDECODED, PI_WARN, "Missing UDP framing conditional tag, aborting dissection", EXPFILL }}
     };
 
     static const enum_val_t sequence_analysis_vals[] = {
@@ -2669,7 +2917,7 @@ void proto_register_pdcp(void)
       UAT_FLD_DEC(uat_ue_keys_records, ueid, "UEId", "UE Identifier of UE associated with keys"),
       UAT_FLD_CSTRING(uat_ue_keys_records, rrcCipherKeyString, "RRC Cipher Key",        "Key for deciphering signalling messages"),
       UAT_FLD_CSTRING(uat_ue_keys_records, upCipherKeyString,  "User-Plane Cipher Key", "Key for deciphering user-plane messages"),
-      UAT_FLD_CSTRING(uat_ue_keys_records, rrcIntegrityKeyString,  "RRC Integrity Key", "Key for deciphering user-plane messages"),
+      UAT_FLD_CSTRING(uat_ue_keys_records, rrcIntegrityKeyString,  "RRC Integrity Key", "Key for calculating integrity MAC"),
       UAT_END_FIELDS
     };
 
@@ -2690,7 +2938,6 @@ void proto_register_pdcp(void)
 
     /* Obsolete preferences */
     prefs_register_obsolete_preference(pdcp_lte_module, "show_feedback_option_tag_length");
-
 
     /* Dissect uncompressed user-plane data as IP */
     prefs_register_bool_preference(pdcp_lte_module, "show_user_plane_as_ip",
@@ -2735,6 +2982,7 @@ void proto_register_pdcp(void)
               uat_ue_keys_record_update_cb,    /* update callback */
               uat_ue_keys_record_free_cb,      /* free callback */
               NULL,                            /* post update callback */
+              NULL,                            /* reset callback */
               ue_keys_uat_flds);               /* UAT field definitions */
 
     prefs_register_uat_preference(pdcp_lte_module,
@@ -2771,8 +3019,16 @@ void proto_register_pdcp(void)
         "N.B. only possible if build with algorithm support, and have key available and configured",
         &global_pdcp_check_integrity);
 
-    register_init_routine(&pdcp_lte_init_protocol);
-    register_cleanup_routine(&pdcp_lte_cleanup_protocol);
+    prefs_register_bool_preference(pdcp_lte_module, "ignore_rrc_sec_params",
+        "Ignore RRC security parameters",
+        "Ignore the LTE RRC security algorithm configuration, to be used when PDCP is already deciphered in the capture",
+        &global_pdcp_ignore_sec);
+
+    pdcp_sequence_analysis_channel_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal);
+    pdcp_lte_sequence_analysis_report_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), pdcp_result_hash_func, pdcp_result_hash_equal);
+    pdcp_security_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), pdcp_lte_ueid_hash_func, pdcp_lte_ueid_hash_equal);
+    pdcp_security_result_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), pdcp_lte_ueid_frame_hash_func, pdcp_lte_ueid_frame_hash_equal);
+    pdcp_security_key_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), pdcp_lte_ueid_hash_func, pdcp_lte_ueid_hash_equal);
 }
 
 void proto_reg_handoff_pdcp_lte(void)
@@ -2780,9 +3036,23 @@ void proto_reg_handoff_pdcp_lte(void)
     /* Add as a heuristic UDP dissector */
     heur_dissector_add("udp", dissect_pdcp_lte_heur, "PDCP-LTE over UDP", "pdcp_lte_udp", proto_pdcp_lte, HEURISTIC_DISABLE);
 
-    ip_handle   = find_dissector_add_dependency("ip", proto_pdcp_lte);
-    ipv6_handle = find_dissector_add_dependency("ipv6", proto_pdcp_lte);
-    rohc_handle = find_dissector_add_dependency("rohc", proto_pdcp_lte);
+    ip_handle              = find_dissector_add_dependency("ip", proto_pdcp_lte);
+    ipv6_handle            = find_dissector_add_dependency("ipv6", proto_pdcp_lte);
+    rohc_handle            = find_dissector_add_dependency("rohc", proto_pdcp_lte);
+    lte_rrc_ul_ccch        = find_dissector_add_dependency("lte_rrc.ul_ccch", proto_pdcp_lte);
+    lte_rrc_dl_ccch        = find_dissector_add_dependency("lte_rrc.dl_ccch", proto_pdcp_lte);
+    lte_rrc_pcch           = find_dissector_add_dependency("lte_rrc.pcch", proto_pdcp_lte);
+    lte_rrc_bcch_bch       = find_dissector_add_dependency("lte_rrc.bcch_bch", proto_pdcp_lte);
+    lte_rrc_bcch_dl_sch    = find_dissector_add_dependency("lte_rrc.bcch_dl_sch", proto_pdcp_lte);
+    lte_rrc_ul_dcch        = find_dissector_add_dependency("lte_rrc.ul_dcch", proto_pdcp_lte);
+    lte_rrc_dl_dcch        = find_dissector_add_dependency("lte_rrc.dl_dcch", proto_pdcp_lte);
+    lte_rrc_ul_ccch_nb     = find_dissector_add_dependency("lte_rrc.ul_ccch.nb", proto_pdcp_lte);
+    lte_rrc_dl_ccch_nb     = find_dissector_add_dependency("lte_rrc.dl_ccch.nb", proto_pdcp_lte);
+    lte_rrc_pcch_nb        = find_dissector_add_dependency("lte_rrc.pcch.nb", proto_pdcp_lte);
+    lte_rrc_bcch_bch_nb    = find_dissector_add_dependency("lte_rrc.bcch_bch.nb", proto_pdcp_lte);
+    lte_rrc_bcch_dl_sch_nb = find_dissector_add_dependency("lte_rrc.bcch_dl_sch.nb", proto_pdcp_lte);
+    lte_rrc_ul_dcch_nb     = find_dissector_add_dependency("lte_rrc.ul_dcch.nb", proto_pdcp_lte);
+    lte_rrc_dl_dcch_nb     = find_dissector_add_dependency("lte_rrc.dl_dcch.nb", proto_pdcp_lte);
 }
 
 /*

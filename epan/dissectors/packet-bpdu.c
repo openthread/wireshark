@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -197,6 +185,9 @@ static gboolean bpdu_use_system_id_extensions = TRUE;
 static dissector_handle_t gvrp_handle;
 static dissector_handle_t gmrp_handle;
 
+static dissector_handle_t bpdu_handle = NULL;
+static dissector_handle_t bpdu_cisco_handle = NULL;
+
 static const value_string protocol_id_vals[] = {
   { 0, "Spanning Tree Protocol" },
   { 0, NULL }
@@ -334,7 +325,6 @@ dissect_bpdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean is_bp
   guint16 msti_bridge_identifier_priority, msti_port_identifier_priority;
   int   total_msti_length, offset, msti, msti_format;
   int   msti_length_remaining;
-  guint8 agree_num = 0, dagree_num = 0;
 
   int spt_offset = 0;
 
@@ -933,6 +923,14 @@ dissect_bpdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean is_bp
         /* version 4 length is 55 or more.
          */
         if (version_4_length >= 53) {
+          static const int * agreements[] = {
+              &hf_bpdu_flags_agree_num,
+              &hf_bpdu_flags_dagree_num,
+              &hf_bpdu_flags_agree_valid,
+              &hf_bpdu_flags_restricted_role,
+              NULL
+          };
+
           spt_tree = proto_tree_add_subtree(bpdu_tree, tvb, bpdu_version_4_length, -1,
               ett_spt, NULL, "SPT Extension");
 
@@ -963,27 +961,12 @@ dissect_bpdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean is_bp
           spt_agree_data = tvb_get_guint8(tvb, spt_offset);
 
           sep = initial_sep;
-          if (agreement_item) {
-            agree_num = (spt_agree_data & 0x03);
-            proto_item_append_text(agreement_item, "%sAN: %d", sep, agree_num );
-          }
+          proto_item_append_text(agreement_item, "%sAN: %d", sep, (spt_agree_data & 0x03));
 
-          proto_tree_add_uint(agreement_tree, hf_bpdu_flags_agree_num,
-                              tvb, spt_offset, 1, spt_agree_data);
+          proto_tree_add_bitmask_list_value(agreement_tree, tvb, spt_offset, 1, agreements, spt_agree_data);
           sep = cont_sep;
 
-          if (agreement_item) {
-            dagree_num = ((spt_agree_data & 0x0C) >> 2);
-            proto_item_append_text(agreement_item, "%sDAN: %d", sep, dagree_num);
-          }
-          proto_tree_add_uint(agreement_tree, hf_bpdu_flags_dagree_num,
-                              tvb, spt_offset, 1, spt_agree_data);
-
-          proto_tree_add_boolean(agreement_tree, hf_bpdu_flags_agree_valid,
-                                 tvb, spt_offset, 1, spt_agree_data);
-
-          proto_tree_add_boolean(agreement_tree, hf_bpdu_flags_restricted_role,
-                                 tvb, spt_offset, 1, spt_agree_data);
+          proto_item_append_text(agreement_item, "%sDAN: %d", sep, ((spt_agree_data & 0x0C) >> 2));
 
           if (sep != initial_sep) {
             proto_item_append_text(agreement_item, ")");
@@ -1351,8 +1334,8 @@ proto_register_bpdu(void)
   proto_register_field_array(proto_bpdu, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  register_dissector("bpdu", dissect_bpdu_generic, proto_bpdu);
-  register_dissector("bpdu_cisco", dissect_bpdu_cisco, proto_bpdu);
+  bpdu_handle = register_dissector("bpdu", dissect_bpdu_generic, proto_bpdu);
+  bpdu_cisco_handle = register_dissector("bpdu_cisco", dissect_bpdu_cisco, proto_bpdu);
 
   expert_bpdu = expert_register_protocol(proto_bpdu);
   expert_register_field_array(expert_bpdu, ei, array_length(ei));
@@ -1367,8 +1350,6 @@ proto_register_bpdu(void)
 void
 proto_reg_handoff_bpdu(void)
 {
-  dissector_handle_t bpdu_handle;
-
   /*
    * Get handle for the GVRP dissector.
    */
@@ -1379,14 +1360,14 @@ proto_reg_handoff_bpdu(void)
    */
   gmrp_handle = find_dissector_add_dependency("gmrp", proto_bpdu);
 
-  bpdu_handle = find_dissector_add_dependency("bpdu", proto_bpdu);
   dissector_add_uint("llc.dsap", SAP_BPDU, bpdu_handle);
   dissector_add_uint("chdlc.protocol", CHDLCTYPE_BPDU, bpdu_handle);
   dissector_add_uint("ethertype", ETHERTYPE_STP, bpdu_handle);
+  dissector_add_uint("llc.cisco_pid", 0x0108, bpdu_handle); /* Cisco's RLQ is just plain STP */
+  dissector_add_uint("llc.cisco_pid", 0x0109, bpdu_handle); /* Cisco's RLQ is just plain STP */
   dissector_add_uint("llc.cisco_pid", 0x010c, bpdu_handle); /* Cisco's VLAN-bridge STP is just plain STP */
 
-  bpdu_handle = find_dissector("bpdu_cisco");
-  dissector_add_uint("llc.cisco_pid", 0x010b, bpdu_handle); /* Handle Cisco's (R)PVST+ TLV extensions */
+  dissector_add_uint("llc.cisco_pid", 0x010b, bpdu_cisco_handle); /* Handle Cisco's (R)PVST+ TLV extensions */
 }
 
 /*

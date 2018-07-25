@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  * References: ETSI 300 374
  * ITU Q.1218
  */
@@ -78,9 +66,25 @@ static int hf_inap_cause_indicator = -1;
 /* Initialize the subtree pointers */
 static gint ett_inap = -1;
 static gint ett_inapisup_parameter = -1;
+static gint ett_inap_RedirectionInformation = -1;
 static gint ett_inap_HighLayerCompatibility = -1;
 static gint ett_inap_extension_data = -1;
 static gint ett_inap_cause = -1;
+static gint ett_inap_calledAddressValue = -1;
+static gint ett_inap_callingAddressValue = -1;
+static gint ett_inap_additionalCallingPartyNumber = -1;
+static gint ett_inap_assistingSSPIPRoutingAddress = -1;
+static gint ett_inap_correlationID = -1;
+static gint ett_inap_number = -1;
+static gint ett_inap_dialledNumber = -1;
+static gint ett_inap_callingLineID = -1;
+static gint ett_inap_iNServiceControlCode = -1;
+static gint ett_inap_iNServiceControlCodeLow = -1;
+static gint ett_inap_iNServiceControlCodeHigh = -1;
+static gint ett_inap_lineID = -1;
+static gint ett_inap_prefix = -1;
+static gint ett_inap_iPAddressValue = -1;
+static gint ett_inap_digitsResponse = -1;
 
 #include "packet-inap-ett.c"
 
@@ -156,14 +160,14 @@ dissect_inap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void *d
 }
 
 /*--- proto_reg_handoff_inap ---------------------------------------*/
-static void range_delete_callback(guint32 ssn)
+static void range_delete_callback(guint32 ssn, gpointer ptr _U_)
 {
   if (ssn) {
     delete_itu_tcap_subdissector(ssn, inap_handle);
   }
 }
 
-static void range_add_callback(guint32 ssn)
+static void range_add_callback(guint32 ssn, gpointer ptr _U_)
 {
   if (ssn) {
   add_itu_tcap_subdissector(ssn, inap_handle);
@@ -177,7 +181,6 @@ void proto_reg_handoff_inap(void) {
 
   if (!inap_prefs_initialized) {
     inap_prefs_initialized = TRUE;
-    inap_handle = find_dissector("inap");
     oid_add_from_string("Core-INAP-CS1-Codes","0.4.0.1.1.0.3.0");
     oid_add_from_string("iso(1) identified-organization(3) icd-ecma(12) member-company(2) 1107 oen(3) inap(3) extensions(2)","1.3.12.2.1107.3.3.2");
     oid_add_from_string("alcatel(1006)","1.3.12.2.1006.64");
@@ -185,13 +188,13 @@ void proto_reg_handoff_inap(void) {
     oid_add_from_string("iso(1) member-body(2) gb(826) national(0) ericsson(1249) inDomain(51) inNetwork(1) inNetworkcapabilitySet1plus(1) ","1.2.826.0.1249.51.1.1");
   }
   else {
-    range_foreach(ssn_range, range_delete_callback);
-    g_free(ssn_range);
+    range_foreach(ssn_range, range_delete_callback, NULL);
+    wmem_free(wmem_epan_scope(), ssn_range);
   }
 
-  ssn_range = range_copy(global_ssn_range);
+  ssn_range = range_copy(wmem_epan_scope(), global_ssn_range);
 
-  range_foreach(ssn_range, range_add_callback);
+  range_foreach(ssn_range, range_add_callback, NULL);
 
 }
 
@@ -219,9 +222,25 @@ void proto_register_inap(void) {
   static gint *ett[] = {
     &ett_inap,
     &ett_inapisup_parameter,
+    &ett_inap_RedirectionInformation,
     &ett_inap_HighLayerCompatibility,
     &ett_inap_extension_data,
     &ett_inap_cause,
+    &ett_inap_calledAddressValue,
+    &ett_inap_callingAddressValue,
+    &ett_inap_additionalCallingPartyNumber,
+    &ett_inap_assistingSSPIPRoutingAddress,
+    &ett_inap_correlationID,
+    &ett_inap_number,
+    &ett_inap_dialledNumber,
+    &ett_inap_callingLineID,
+    &ett_inap_iNServiceControlCode,
+    &ett_inap_iNServiceControlCodeLow,
+    &ett_inap_iNServiceControlCodeHigh,
+    &ett_inap_lineID,
+    &ett_inap_prefix,
+    &ett_inap_iPAddressValue,
+    &ett_inap_digitsResponse,
 #include "packet-inap-ettarr.c"
   };
 
@@ -235,7 +254,7 @@ void proto_register_inap(void) {
 
   /* Register protocol */
   proto_inap = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  register_dissector("inap", dissect_inap, proto_inap);
+  inap_handle = register_dissector("inap", dissect_inap, proto_inap);
   /* Register fields and subtrees */
   proto_register_field_array(proto_inap, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -245,7 +264,7 @@ void proto_register_inap(void) {
   register_ber_oid_dissector("0.4.0.1.1.1.0.0", dissect_inap, proto_inap, "cs1-ssp-to-scp");
 
   /* Set default SSNs */
-  range_convert_str(&global_ssn_range, "106,241", MAX_SSN);
+  range_convert_str(wmem_epan_scope(), &global_ssn_range, "106,241", MAX_SSN);
 
   inap_module = prefs_register_protocol(proto_inap, proto_reg_handoff_inap);
 

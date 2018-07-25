@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,7 +17,7 @@
 #include <epan/proto_data.h>
 #include "packet-umts_fp.h"
 #include "packet-umts_mac.h"
-#include "packet-rlc.h"
+#include "packet-umts_rlc.h"
 
 void proto_register_fp_hint(void);
 void proto_reg_handoff_fp_hint(void);
@@ -37,7 +25,7 @@ void proto_reg_handoff_fp_hint(void);
 static int proto_fp_hint = -1;
 extern int proto_fp;
 extern int proto_umts_mac;
-extern int proto_rlc;
+extern int proto_umts_rlc;
 
 static int ett_fph = -1;
 static int ett_fph_rb = -1;
@@ -154,14 +142,14 @@ static guint16 assign_rb_info(tvbuff_t *tvb, packet_info *pinfo, guint16 offset,
     struct rlc_info *rlcinf;
 
     macinf = (umts_mac_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0);
-    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0);
+    rlcinf = (rlc_info *)p_get_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0);
     if (!macinf) {
         macinf = wmem_new0(wmem_file_scope(), struct umts_mac_info);
         p_add_proto_data(wmem_file_scope(), pinfo, proto_umts_mac, 0, macinf);
     }
     if (!rlcinf) {
         rlcinf = wmem_new0(wmem_file_scope(), struct rlc_info);
-        p_add_proto_data(wmem_file_scope(), pinfo, proto_rlc, 0, rlcinf);
+        p_add_proto_data(wmem_file_scope(), pinfo, proto_umts_rlc, 0, rlcinf);
     }
 
     while (i < rbcnt) {
@@ -191,7 +179,7 @@ static guint16 assign_rb_info(tvbuff_t *tvb, packet_info *pinfo, guint16 offset,
 
         rlcinf->mode[i] = rlc_mode;
         rlcinf->rbid[i] = rb_id;
-        rlcinf->urnti[i] = urnti;
+        rlcinf->ueid[i] = urnti;
         rlcinf->ciphered[i] = ciphered;
         rlcinf->deciphered[i] = deciphered;
         rlcinf->li_size[i] = RLC_LI_VARIABLE;
@@ -267,7 +255,7 @@ static void assign_fph_pch(tvbuff_t *tvb, packet_info *pinfo _U_, guint16 offset
     fpi->chan_num_tbs[0] = blkcnt;
 }
 
-static void assign_fph_rach(tvbuff_t *tvb, packet_info *pinfo _U_, guint16 offset, fp_info *fpi, proto_tree *tree)
+static void assign_fph_rach(tvbuff_t *tvb, packet_info *pinfo, guint16 offset, fp_info *fpi, proto_tree *tree)
 {
     const guint8 *hdr;
     guint8 rbcnt;

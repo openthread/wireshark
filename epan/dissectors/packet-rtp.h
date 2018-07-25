@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "epan/packet.h"
@@ -30,11 +18,16 @@
 
 #include "packet-btavdtp.h"
 
+
+#define RTP_MEDIA_AUDIO 1
+#define RTP_MEDIA_VIDEO 2
+#define RTP_MEDIA_OTHER 4
+
 struct _rtp_info {
 	unsigned int  info_version;
 	gboolean      info_padding_set;
 	gboolean      info_marker_set;
-	gboolean      info_is_video;
+	guint32       info_media_types;
 	unsigned int  info_payload_type;
 	unsigned int  info_padding_count;
 	guint16       info_seq_num;
@@ -42,13 +35,15 @@ struct _rtp_info {
 	guint32       info_sync_src;
 	guint         info_data_len;       /* length of raw rtp data as reported */
 	gboolean      info_all_data_present; /* FALSE if data is cut off */
-	size_t        info_payload_offset; /* start of payload relative to info_data */
-	size_t        info_payload_len;    /* length of payload (incl padding) */
+	guint         info_payload_offset; /* start of payload relative to info_data */
+	guint         info_payload_len;    /* length of payload (incl padding) */
 	gboolean      info_is_srtp;
 	guint32       info_setup_frame_num; /* the frame num of the packet that set this RTP connection */
 	const guint8* info_data;           /* pointer to raw rtp data */
 	const gchar   *info_payload_type_str;
 	gint          info_payload_rate;
+	gboolean      info_is_ed137;
+	const gchar   *info_ed137_info;    /* pointer to static string, no freeing is required */
 	/*
 	* info_data: pointer to raw rtp data = header + payload incl. padding.
 	* That should be safe because the "epan_dissect_t" constructed for the packet
@@ -120,6 +115,9 @@ typedef struct _rtp_dyn_payload_t rtp_dyn_payload_t;
 WS_DLL_PUBLIC
 rtp_dyn_payload_t* rtp_dyn_payload_new(void);
 
+/* Creates a copy of the given dynamic payload information. */
+rtp_dyn_payload_t* rtp_dyn_payload_dup(rtp_dyn_payload_t *rtp_dyn_payload);
+
 /* Inserts the given payload type key, for the encoding name and sample rate, into the hash table.
    This makes copies of the encoding name, scoped to the life of the capture file or sooner if
    rtp_dyn_payload_free is called. */
@@ -172,7 +170,7 @@ struct _rtp_conversation_info
 {
 	gchar   method[MAX_RTP_SETUP_METHOD_SIZE + 1];
 	guint32 frame_number;			/* the frame where this conversation is started */
-	gboolean is_video;
+	guint32 media_types;
 	rtp_dyn_payload_t *rtp_dyn_payload;	/* the dynamic RTP payload info - see comments above */
 
 	guint32 extended_seqno;			/* the sequence number, extended to a 32-bit
@@ -190,21 +188,23 @@ struct _rtp_conversation_info
 /* Add an RTP conversation with the given details */
 WS_DLL_PUBLIC
 void rtp_add_address(packet_info *pinfo,
+                     const port_type ptype,
                      address *addr, int port,
                      int other_port,
                      const gchar *setup_method,
                      guint32 setup_frame_number,
-					 gboolean is_video,
+                     guint32 media_types,
                      rtp_dyn_payload_t *rtp_dyn_payload);
 
 /* Add an SRTP conversation with the given details */
 WS_DLL_PUBLIC
 void srtp_add_address(packet_info *pinfo,
+                     const port_type ptype,
                      address *addr, int port,
                      int other_port,
                      const gchar *setup_method,
                      guint32 setup_frame_number,
-					 gboolean is_video,
+                     guint32 media_types,
                      rtp_dyn_payload_t *rtp_dyn_payload,
                      struct srtp_info *srtp_info);
 
@@ -212,4 +212,4 @@ void srtp_add_address(packet_info *pinfo,
 void
 bluetooth_add_address(packet_info *pinfo, address *addr, guint32 stream_number,
          const gchar *setup_method, guint32 setup_frame_number,
-         gboolean is_video, void *data);
+         guint32 media_types, void *data);

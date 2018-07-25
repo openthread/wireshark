@@ -10,19 +10,7 @@
  * 2001 Ronnie Sahlberg <See AUTHORS for email>
  *   Added all remaining dissectors for this protocol
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -183,7 +171,7 @@ dissect_match_call(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void
 
 	/*key*/
 	offset = dissect_rpc_string(tvb, tree, hf_ypserv_key, offset, &str);
-	col_append_fstr(pinfo->cinfo, COL_INFO,"%s", str);
+	col_append_str(pinfo->cinfo, COL_INFO, str);
 	proto_item_append_text(tree, "%s", str);
 
 	return offset;

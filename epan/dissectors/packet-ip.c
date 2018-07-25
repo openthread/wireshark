@@ -10,19 +10,7 @@
  * (http://sourceforge.net/docman/display_doc.php?docid=34650&group_id=174379)
  * by   Paul Moore <paul.moore@hp.com>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -30,6 +18,7 @@
 #include <epan/packet.h>
 #include <epan/capture_dissectors.h>
 #include <epan/addr_resolv.h>
+#include <epan/maxmind_db.h>
 #include <epan/ipproto.h>
 #include <epan/expert.h>
 #include <epan/ip_opts.h>
@@ -56,11 +45,9 @@
 #include "packet-sflow.h"
 #include "packet-gre.h"
 #include "packet-l2tp.h"
-
-#ifdef HAVE_GEOIP
-#include <GeoIP.h>
-#include <epan/geoip_db.h>
-#endif /* HAVE_GEOIP */
+#include "packet-vxlan.h"
+#include "packet-mpls.h"
+#include "packet-nsh.h"
 
 void proto_register_ip(void);
 void proto_reg_handoff_ip(void);
@@ -85,15 +72,30 @@ static gboolean ip_tso_supported = TRUE;
 /* Use heuristics to determine subdissector */
 static gboolean try_heuristic_first = FALSE;
 
-#ifdef HAVE_GEOIP
-/* Look up addresses in GeoIP */
+/* Look up addresses via mmdbresolve */
 static gboolean ip_use_geoip = TRUE;
-#endif /* HAVE_GEOIP */
 
 /* Interpret the reserved flag as security flag (RFC 3514) */
 static gboolean ip_security_flag = FALSE;
 
-int proto_ip = -1;
+static int proto_ip = -1;
+
+static int proto_ip_option_eol = -1;
+static int proto_ip_option_nop = -1;
+static int proto_ip_option_security = -1;
+static int proto_ip_option_route = -1;
+static int proto_ip_option_timestamp = -1;
+static int proto_ip_option_ext_security = -1;
+static int proto_ip_option_cipso = -1;
+static int proto_ip_option_record_route = -1;
+static int proto_ip_option_sid = -1;
+static int proto_ip_option_source_route = -1;
+static int proto_ip_option_mtu_probe = -1;
+static int proto_ip_option_mtu_reply = -1;
+static int proto_ip_option_traceroute = -1;
+static int proto_ip_option_routeralert = -1;
+static int proto_ip_option_sdb = -1;
+static int proto_ip_option_qs = -1;
 static int hf_ip_version = -1;
 static int hf_ip_hdr_len = -1;
 static int hf_ip_dsfield = -1;
@@ -123,8 +125,7 @@ static int hf_ip_ttl = -1;
 static int hf_ip_proto = -1;
 static int hf_ip_checksum = -1;
 static int hf_ip_checksum_calculated = -1;
-static int hf_ip_checksum_good = -1;
-static int hf_ip_checksum_bad = -1;
+static int hf_ip_checksum_status = -1;
 
 /* IP option fields */
 static int hf_ip_opt_type = -1;
@@ -197,29 +198,29 @@ static int hf_ip_cipso_doi = -1;
 static int hf_ip_opt_time_stamp = -1;
 static int hf_ip_opt_time_stamp_addr = -1;
 
-#ifdef HAVE_GEOIP
 static int hf_geoip_country = -1;
+static int hf_geoip_country_iso = -1;
 static int hf_geoip_city = -1;
-static int hf_geoip_org = -1;
-static int hf_geoip_isp = -1;
-static int hf_geoip_asnum = -1;
-static int hf_geoip_lat = -1;
-static int hf_geoip_lon = -1;
+static int hf_geoip_as_number = -1;
+static int hf_geoip_as_org = -1;
+static int hf_geoip_latitude = -1;
+static int hf_geoip_longitude = -1;
+static int hf_geoip_src_summary = -1;
 static int hf_geoip_src_country = -1;
+static int hf_geoip_src_country_iso = -1;
 static int hf_geoip_src_city = -1;
-static int hf_geoip_src_org = -1;
-static int hf_geoip_src_isp = -1;
-static int hf_geoip_src_asnum = -1;
-static int hf_geoip_src_lat = -1;
-static int hf_geoip_src_lon = -1;
+static int hf_geoip_src_as_number = -1;
+static int hf_geoip_src_as_org = -1;
+static int hf_geoip_src_latitude = -1;
+static int hf_geoip_src_longitude = -1;
+static int hf_geoip_dst_summary = -1;
 static int hf_geoip_dst_country = -1;
+static int hf_geoip_dst_country_iso = -1;
 static int hf_geoip_dst_city = -1;
-static int hf_geoip_dst_org = -1;
-static int hf_geoip_dst_isp = -1;
-static int hf_geoip_dst_asnum = -1;
-static int hf_geoip_dst_lat = -1;
-static int hf_geoip_dst_lon = -1;
-#endif /* HAVE_GEOIP */
+static int hf_geoip_dst_as_number = -1;
+static int hf_geoip_dst_as_org = -1;
+static int hf_geoip_dst_latitude = -1;
+static int hf_geoip_dst_longitude = -1;
 
 static gint ett_ip = -1;
 static gint ett_ip_dsfield = -1;
@@ -242,10 +243,9 @@ static gint ett_ip_option_qs = -1;
 static gint ett_ip_option_other = -1;
 static gint ett_ip_fragments = -1;
 static gint ett_ip_fragment  = -1;
-static gint ett_ip_checksum = -1;
 static gint ett_ip_opt_type = -1;
 static gint ett_ip_opt_sec_prot_auth_flags = -1;
-static gint ett_unknown_ip_tcp_opt = -1;
+static gint ett_ip_unknown_opt = -1;
 
 static expert_field ei_ip_opt_len_invalid = EI_INIT;
 static expert_field ei_ip_opt_sec_prot_auth_fti = EI_INIT;
@@ -262,10 +262,10 @@ static expert_field ei_ip_ttl_too_small = EI_INIT;
 static expert_field ei_ip_cipso_tag = EI_INIT;
 static expert_field ei_ip_bogus_ip_version = EI_INIT;
 
+static dissector_handle_t ip_handle;
+static dissector_table_t ip_option_table;
 
-#ifdef HAVE_GEOIP
 static gint ett_geoip_info = -1;
-#endif /* HAVE_GEOIP */
 
 static const fragment_items ip_frag_items = {
   &ett_ip_fragment,
@@ -289,9 +289,21 @@ static heur_dissector_list_t heur_subdissector_list;
 static dissector_table_t ip_dissector_table;
 
 static dissector_handle_t ipv6_handle;
+static capture_dissector_handle_t ip_cap_handle;
 
 
 /* IP structs and definitions */
+
+const value_string ip_version_vals[] = {
+  { IP_VERSION_NUM_RESERVED,       "Reserved" },
+  { IP_VERSION_NUM_INET,           "IPv4" },
+  { IP_VERSION_NUM_ST,             "ST Datagram" },
+  { IP_VERSION_NUM_INET6,          "IPv6" },
+  { IP_VERSION_NUM_TPIX,           "TP/IX" },
+  { IP_VERSION_NUM_PIP,            "PIP" },
+  { IP_VERSION_NUM_TUBA,           "TUBA" },
+  { 0, NULL },
+};
 
 /* Offsets of fields within an IP header. */
 #define IPH_V_HL                0
@@ -466,14 +478,6 @@ static dissector_handle_t ipv6_handle;
 #define IPLOCAL_NETWRK_CTRL_BLK_ANY_TTL         0x1000 /* larger than max ttl */
 #define IPLOCAL_NETWRK_CTRL_BLK_DEFAULT_TTL     0X01
 
-/* Return true if the address is in the 224.0.0.0/24 network block */
-#define is_a_local_network_control_block_addr(addr) \
-  ((addr & 0xffffff00) == 0xe0000000)
-
-/* Return true if the address is in the 224.0.0.0/4 network block */
-#define is_a_multicast_addr(addr) \
-  ((addr & 0xf0000000) == 0xe0000000)
-
 static void ip_prompt(packet_info *pinfo, gchar* result)
 {
     g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "IP protocol %u as",
@@ -505,9 +509,9 @@ static int
 ip_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, const void *vip)
 {
     conv_hash_t *hash = (conv_hash_t*) pct;
-    const ws_ip *iph=(const ws_ip *)vip;
+    const ws_ip4 *iph=(const ws_ip4 *)vip;
 
-    add_conversation_table_data(hash, &iph->ip_src, &iph->ip_dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &ip_ct_dissector_info, PT_NONE);
+    add_conversation_table_data(hash, &iph->ip_src, &iph->ip_dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &ip_ct_dissector_info, ENDPOINT_NONE);
 
     return 1;
 }
@@ -526,13 +530,13 @@ static int
 ip_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const void *vip)
 {
     conv_hash_t *hash = (conv_hash_t*) pit;
-    const ws_ip *iph=(const ws_ip *)vip;
+    const ws_ip4 *iph=(const ws_ip4 *)vip;
 
     /* Take two "add" passes per packet, adding for each direction, ensures that all
     packets are counted properly (even if address is sending to itself)
     XXX - this could probably be done more efficiently inside hostlist_table */
-    add_hostlist_table_data(hash, &iph->ip_src, 0, TRUE, 1, pinfo->fd->pkt_len, &ip_host_dissector_info, PT_NONE);
-    add_hostlist_table_data(hash, &iph->ip_dst, 0, FALSE, 1, pinfo->fd->pkt_len, &ip_host_dissector_info, PT_NONE);
+    add_hostlist_table_data(hash, &iph->ip_src, 0, TRUE, 1, pinfo->fd->pkt_len, &ip_host_dissector_info, ENDPOINT_NONE);
+    add_hostlist_table_data(hash, &iph->ip_dst, 0, FALSE, 1, pinfo->fd->pkt_len, &ip_host_dissector_info, ENDPOINT_NONE);
     return 1;
 }
 
@@ -555,20 +559,7 @@ ip_build_filter(packet_info *pinfo)
  */
 static reassembly_table ip_reassembly_table;
 
-static void
-ip_defragment_init(void)
-{
-  reassembly_table_init(&ip_reassembly_table,
-                        &addresses_reassembly_table_functions);
-}
-
-static void
-ip_defragment_cleanup(void)
-{
-  reassembly_table_destroy(&ip_reassembly_table);
-}
-
-gboolean
+static gboolean
 capture_ip(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_) {
   if (!BYTES_ARE_IN_FRAME(offset, len, IPH_MIN_LEN))
     return FALSE;
@@ -577,110 +568,104 @@ capture_ip(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo,
   return try_capture_dissector("ip.proto", pd[offset + 9], pd, offset+IPH_MIN_LEN, len, cpinfo, pseudo_header);
 }
 
-#ifdef HAVE_GEOIP
 static void
-add_geoip_info_entry(proto_tree *geoip_info_tree, proto_item *geoip_info_item, tvbuff_t *tvb, gint offset, guint32 ip, int isdst)
+add_geoip_info_entry(proto_tree *tree, tvbuff_t *tvb, gint offset, guint32 ip, int isdst)
 {
-  guint num_dbs = geoip_db_num_dbs();
-  guint item_cnt = 0;
-  guint dbnum;
+  const mmdb_lookup_t *lookup = maxmind_db_lookup_ipv4(ip);
+  if (!lookup->found) return;
 
-  for (dbnum = 0; dbnum < num_dbs; dbnum++) {
-    char *geoip_str = geoip_db_lookup_ipv4(dbnum, ip, NULL);
-    int db_type = geoip_db_type(dbnum);
-
-    int geoip_hf, geoip_local_hf;
-
-    switch (db_type) {
-      case GEOIP_COUNTRY_EDITION:
-        geoip_hf = hf_geoip_country;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_country : hf_geoip_src_country;
-        break;
-      case GEOIP_CITY_EDITION_REV0:
-        geoip_hf = hf_geoip_city;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_city : hf_geoip_src_city;
-        break;
-      case GEOIP_CITY_EDITION_REV1:
-        geoip_hf = hf_geoip_city;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_city : hf_geoip_src_city;
-        break;
-      case GEOIP_ORG_EDITION:
-        geoip_hf = hf_geoip_org;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_org : hf_geoip_src_org;
-        break;
-      case GEOIP_ISP_EDITION:
-        geoip_hf = hf_geoip_isp;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_isp : hf_geoip_src_isp;
-        break;
-      case GEOIP_ASNUM_EDITION:
-        geoip_hf = hf_geoip_asnum;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_asnum : hf_geoip_src_asnum;
-        break;
-      case WS_LAT_FAKE_EDITION:
-        geoip_hf = hf_geoip_lat;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_lat : hf_geoip_src_lat;
-        break;
-      case WS_LON_FAKE_EDITION:
-        geoip_hf = hf_geoip_lon;
-        geoip_local_hf = (isdst) ? hf_geoip_dst_lon : hf_geoip_src_lon;
-        break;
-      default:
-        continue;
-    }
-
-    if (geoip_str) {
-      proto_item *item;
-      if (db_type == WS_LAT_FAKE_EDITION || db_type == WS_LON_FAKE_EDITION) {
-        /* Convert latitude, longitude to double. Fix bug #5077 */
-        item = proto_tree_add_double_format_value(geoip_info_tree, geoip_local_hf,
-          tvb, offset, 4, g_ascii_strtod(geoip_str, NULL), "%s", geoip_str);
-        PROTO_ITEM_SET_GENERATED(item);
-        item = proto_tree_add_double_format_value(geoip_info_tree, geoip_hf,
-          tvb, offset, 4, g_ascii_strtod(geoip_str, NULL), "%s", geoip_str);
-        PROTO_ITEM_SET_GENERATED(item);
-        PROTO_ITEM_SET_HIDDEN(item);
-      } else {
-        item = proto_tree_add_string(geoip_info_tree, geoip_local_hf,
-          tvb, offset, 4, geoip_str);
-        PROTO_ITEM_SET_GENERATED(item);
-        item = proto_tree_add_string(geoip_info_tree, geoip_hf,
-          tvb, offset, 4, geoip_str);
-        PROTO_ITEM_SET_GENERATED(item);
-        PROTO_ITEM_SET_HIDDEN(item);
-      }
-
-      item_cnt++;
-      proto_item_append_text(geoip_info_item, "%s%s",
-                             plurality(item_cnt, "", ", "), geoip_str);
-      wmem_free(NULL, geoip_str);
-    }
+  wmem_strbuf_t *summary = wmem_strbuf_new(wmem_packet_scope(), "");
+  if (lookup->city) {
+    wmem_strbuf_append(summary, lookup->city);
+  }
+  if (lookup->country_iso) {
+    if (wmem_strbuf_get_len(summary) > 0) wmem_strbuf_append(summary, ", ");
+    wmem_strbuf_append(summary, lookup->country_iso);
+  } else if (lookup->country) {
+    if (wmem_strbuf_get_len(summary) > 0) wmem_strbuf_append(summary, ", ");
+    wmem_strbuf_append(summary, lookup->country);
+  }
+  if (lookup->as_number > 0) {
+    if (wmem_strbuf_get_len(summary) > 0) wmem_strbuf_append(summary, ", ");
+    wmem_strbuf_append_printf(summary, "ASN %u", lookup->as_number);
+  }
+  if (lookup->as_org) {
+    if (wmem_strbuf_get_len(summary) > 0) wmem_strbuf_append(summary, ", ");
+    wmem_strbuf_append(summary, lookup->as_org);
   }
 
-  if (item_cnt == 0)
-    proto_item_append_text(geoip_info_item, "Unknown");
+  int addr_offset = offset + isdst ? IPH_DST : IPH_SRC;
+  int dir_hf = isdst ? hf_geoip_dst_summary : hf_geoip_src_summary;
+  proto_item *geoip_info_item = proto_tree_add_string(tree, dir_hf, tvb, addr_offset, 4, wmem_strbuf_finalize(summary));
+  PROTO_ITEM_SET_GENERATED(geoip_info_item);
+  proto_tree *geoip_info_tree = proto_item_add_subtree(geoip_info_item, ett_geoip_info);
+
+  proto_item *item;
+
+  if (lookup->city) {
+    dir_hf = isdst ? hf_geoip_dst_city : hf_geoip_src_city;
+    item = proto_tree_add_string(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->city);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_string(geoip_info_tree, hf_geoip_city, tvb, addr_offset, 4, lookup->city);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
+
+  if (lookup->country) {
+    dir_hf = isdst ? hf_geoip_dst_country : hf_geoip_src_country;
+    item = proto_tree_add_string(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->country);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_string(geoip_info_tree, hf_geoip_country, tvb, addr_offset, 4, lookup->country);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
+
+  if (lookup->country_iso) {
+    dir_hf = isdst ? hf_geoip_dst_country_iso : hf_geoip_src_country_iso;
+    item = proto_tree_add_string(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->country_iso);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_string(geoip_info_tree, hf_geoip_country_iso, tvb, addr_offset, 4, lookup->country_iso);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
+
+  if (lookup->as_number > 0) {
+    dir_hf = isdst ? hf_geoip_dst_as_number : hf_geoip_src_as_number;
+    item = proto_tree_add_uint(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->as_number);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_uint(geoip_info_tree, hf_geoip_as_number, tvb, addr_offset, 4, lookup->as_number);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
+
+  if (lookup->as_org) {
+    dir_hf = isdst ? hf_geoip_dst_as_org : hf_geoip_src_as_org;
+    item = proto_tree_add_string(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->as_org);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_string(geoip_info_tree, hf_geoip_as_org, tvb, addr_offset, 4, lookup->as_org);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
+
+  if (lookup->latitude >= -90.0 && lookup->latitude <= 90.0) {
+    dir_hf = isdst ? hf_geoip_dst_latitude : hf_geoip_src_latitude;
+    item = proto_tree_add_double(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->latitude);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_double(geoip_info_tree, hf_geoip_latitude, tvb, addr_offset, 4, lookup->latitude);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
+
+  if (lookup->longitude >= -180.0 && lookup->longitude <= 180.0) {
+    dir_hf = isdst ? hf_geoip_dst_longitude : hf_geoip_src_longitude;
+    item = proto_tree_add_double(geoip_info_tree, dir_hf, tvb, addr_offset, 4, lookup->longitude);
+    PROTO_ITEM_SET_GENERATED(item);
+    item = proto_tree_add_double(geoip_info_tree, hf_geoip_longitude, tvb, addr_offset, 4, lookup->longitude);
+    PROTO_ITEM_SET_GENERATED(item);
+  }
 }
 
 static void
 add_geoip_info(proto_tree *tree, tvbuff_t *tvb, gint offset, guint32 src32,
                guint32 dst32)
 {
-  guint num_dbs;
-  proto_item *geoip_info_item;
-  proto_tree *geoip_info_tree;
-
-  num_dbs = geoip_db_num_dbs();
-  if (num_dbs < 1)
-    return;
-
-  geoip_info_tree = proto_tree_add_subtree(tree, tvb, offset + IPH_SRC, 4, ett_geoip_info, &geoip_info_item, "Source GeoIP: ");
-  PROTO_ITEM_SET_GENERATED(geoip_info_item);
-  add_geoip_info_entry(geoip_info_tree, geoip_info_item, tvb, offset + IPH_SRC, src32, 0);
-
-  geoip_info_tree = proto_tree_add_subtree(tree, tvb, offset + IPH_DST, 4, ett_geoip_info, &geoip_info_item, "Destination GeoIP: ");
-  PROTO_ITEM_SET_GENERATED(geoip_info_item);
-  add_geoip_info_entry(geoip_info_tree, geoip_info_item, tvb, offset + IPH_DST, dst32, 1);
+  add_geoip_info_entry(tree, tvb, offset, g_htonl(src32), FALSE);
+  add_geoip_info_entry(tree, tvb, offset, g_htonl(dst32), TRUE);
 }
-#endif /* HAVE_GEOIP */
 
 const value_string ipopt_type_class_vals[] = {
   {(IPOPT_CONTROL & IPOPT_CLASS_MASK) >> 5, "Control"},
@@ -721,36 +706,62 @@ const value_string ipopt_type_number_vals[] = {
   {0, NULL}
 };
 
-static ip_tcp_opt_type IP_OPT_TYPES = {&hf_ip_opt_type, &ett_ip_opt_type,
-    &hf_ip_opt_type_copy, &hf_ip_opt_type_class, &hf_ip_opt_type_number};
-
 static void
-dissect_ipopt_type(tvbuff_t *tvb, int offset, proto_tree *tree, ip_tcp_opt_type* opttypes)
+dissect_ipopt_type(tvbuff_t *tvb, int offset, proto_tree *tree)
 {
   proto_tree *type_tree;
   proto_item *ti;
 
-  ti = proto_tree_add_item(tree, *opttypes->phf_opt_type, tvb, offset, 1, ENC_NA);
-  type_tree = proto_item_add_subtree(ti, *opttypes->pett_opt_type);
-  proto_tree_add_item(type_tree, *opttypes->phf_opt_type_copy, tvb, offset, 1, ENC_NA);
-  proto_tree_add_item(type_tree, *opttypes->phf_opt_type_class, tvb, offset, 1, ENC_NA);
-  proto_tree_add_item(type_tree, *opttypes->phf_opt_type_number, tvb, offset, 1, ENC_NA);
+  ti = proto_tree_add_item(tree, hf_ip_opt_type, tvb, offset, 1, ENC_NA);
+  type_tree = proto_item_add_subtree(ti, ett_ip_opt_type);
+  proto_tree_add_item(type_tree, hf_ip_opt_type_copy, tvb, offset, 1, ENC_NA);
+  proto_tree_add_item(type_tree, hf_ip_opt_type_class, tvb, offset, 1, ENC_NA);
+  proto_tree_add_item(type_tree, hf_ip_opt_type_number, tvb, offset, 1, ENC_NA);
 }
 
-static void
-dissect_ipopt_eool(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                   guint optlen _U_, packet_info *pinfo _U_,
-                   proto_tree *opt_tree, void * data _U_)
+static proto_tree*
+ip_fixed_option_header(proto_tree* tree, packet_info *pinfo, tvbuff_t *tvb, int proto, int ett, proto_item** ti, guint len, guint optlen)
 {
   proto_tree *field_tree;
+  proto_item *tf;
 
-  field_tree = proto_tree_add_subtree(opt_tree, tvb, offset,  1, *optp->subtree_index, NULL, optp->name);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
+  *ti = proto_tree_add_item(tree, proto, tvb, 0, optlen, ENC_NA);
+  field_tree = proto_item_add_subtree(*ti, ett);
+  proto_item_append_text(*ti, " (%u bytes)", len);
+
+  dissect_ipopt_type(tvb, 0, field_tree);
+  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, 1, 1, ENC_NA);
+
+  if (len != optlen) {
+    /* Bogus - option length isn't what it's supposed to be for this option. */
+    expert_add_info_format(pinfo, tf, &ei_ip_opt_len_invalid,
+                            "%s (with option length = %u byte%s; should be %u)",
+                            proto_get_protocol_short_name(find_protocol_by_id(proto)),
+                            len, plurality(len, "", "s"), optlen);
+  }
+
+  return field_tree;
 }
 
-#define dissect_ipopt_nop   dissect_ipopt_eool
+static proto_tree*
+ip_var_option_header(proto_tree* tree, packet_info *pinfo, tvbuff_t *tvb, int proto, int ett, proto_item** ti, guint optlen)
+{
+  proto_tree *field_tree;
+  proto_item *tf;
 
-  static const value_string secl_rfc791_vals[] = {
+  *ti = proto_tree_add_item(tree, proto, tvb, 0, optlen, ENC_NA);
+  field_tree = proto_item_add_subtree(*ti, ett);
+  proto_item_append_text(*ti, " (%u bytes)", optlen);
+
+  dissect_ipopt_type(tvb, 0, field_tree);
+  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, 1, 1, ENC_NA);
+  if (optlen > IPOLEN_MAX)
+    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
+
+  return field_tree;
+}
+
+static const value_string secl_rfc791_vals[] = {
   {IPSEC_RFC791_UNCLASSIFIED, "Unclassified"},
   {IPSEC_RFC791_CONFIDENTIAL, "Confidential"},
   {IPSEC_RFC791_EFTO,         "EFTO"        },
@@ -808,25 +819,16 @@ static const int *ip_opt_sec_prot_auth_fields_byte_n[] = {
   &hf_ip_opt_sec_prot_auth_fti,
   NULL
 };
-static void
-dissect_ipopt_security(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                       guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                       void * data _U_)
+static int
+dissect_ipopt_security(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf;
-  proto_item *tf_sub;
   guint      val;
-  guint      curr_offset = offset;
+  guint      curr_offset = 2;
+  guint      optlen = tvb_reported_length(tvb);
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, curr_offset, optlen, *optp->subtree_index, &tf,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, curr_offset, field_tree, &IP_OPT_TYPES);
-  curr_offset++;
-  tf_sub = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, curr_offset, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf_sub, &ei_ip_opt_len_invalid);
-  curr_offset++;
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_security, ett_ip_option_sec, &tf, optlen);
 
   if (optlen == 11) {
   /* Analyze payload start to decide whether it should be dissected
@@ -845,15 +847,15 @@ dissect_ipopt_security(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       curr_offset += 2;
       proto_tree_add_item(field_tree, hf_ip_opt_sec_rfc791_tcc,
                           tvb, curr_offset, 3, ENC_ASCII|ENC_NA);
-      return;
+      return curr_offset;
     }
   }
 
   /* Dissect as RFC 108 */
   proto_tree_add_item(field_tree, hf_ip_opt_sec_cl, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
   curr_offset++;
-  if ((curr_offset - offset) >= optlen) {
-    return;
+  if (curr_offset >= optlen) {
+    return curr_offset;
   }
   val = tvb_get_guint8(tvb, curr_offset);
   proto_tree_add_bitmask(field_tree, tvb, curr_offset, hf_ip_opt_sec_prot_auth_flags,
@@ -861,8 +863,8 @@ dissect_ipopt_security(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
                          ENC_BIG_ENDIAN);
   curr_offset++;
   while (val & 0x01) {
-    if ((val & 0x01) && ((curr_offset - offset) == optlen)) {
-      expert_add_info(pinfo, tf_sub, &ei_ip_opt_sec_prot_auth_fti);
+    if ((val & 0x01) && (curr_offset == optlen)) {
+      expert_add_info(pinfo, tf, &ei_ip_opt_sec_prot_auth_fti);
       break;
     }
     val = tvb_get_guint8(tvb, curr_offset);
@@ -871,35 +873,32 @@ dissect_ipopt_security(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
                            ENC_BIG_ENDIAN);
     curr_offset++;
   }
-  if ((curr_offset - offset) < optlen) {
+  if (curr_offset < optlen) {
     expert_add_info(pinfo, tf, &ei_ip_extraneous_data);
   }
+
+  return curr_offset;
 }
 
-static void
-dissect_ipopt_ext_security(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                           guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                           void * data _U_)
+static int
+dissect_ipopt_ext_security(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
-  proto_item *tf_sub;
-  guint      curr_offset = offset;
+  proto_item *tf;
+  guint      curr_offset = 2;
   gint      remaining;
+  gint      optlen = tvb_reported_length(tvb);
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, curr_offset, optlen,
-                           *optp->subtree_index, NULL, "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, curr_offset, field_tree, &IP_OPT_TYPES);
-  curr_offset++;
-  tf_sub = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, curr_offset, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf_sub, &ei_ip_opt_len_invalid);
-  curr_offset++;
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_ext_security, ett_ip_option_ext_security, &tf, optlen);
+
   proto_tree_add_item(field_tree, hf_ip_opt_ext_sec_add_sec_info_format_code, tvb, curr_offset, 1, ENC_BIG_ENDIAN);
   curr_offset++;
-  remaining = optlen - (curr_offset - offset);
+  remaining = optlen - curr_offset;
   if (remaining > 0) {
     proto_tree_add_item(field_tree, hf_ip_opt_ext_sec_add_sec_info, tvb, curr_offset, remaining, ENC_NA);
   }
+
+  return tvb_captured_length(tvb);
 }
 
 /* USHRT_MAX can hold at most 5 (base 10) digits (6 for the NULL byte) */
@@ -924,24 +923,17 @@ static const value_string cipso_tag_type_vals[] = {
    { 0,                          NULL }
 };
 
-static void
-dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                    guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                    void * data _U_)
+static int
+dissect_ipopt_cipso(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf, *tag_item;
   guint      tagtype, taglen;
-  int        offset_max = offset + optlen;
+  gint       offset = 2,
+             optlen = tvb_reported_length(tvb);
+  int        offset_max = optlen;
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, &tf,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
-
-  offset += 2;
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_cipso, ett_ip_option_cipso, &tf, optlen);
 
   proto_tree_add_item(field_tree, hf_ip_cipso_doi, tvb, offset, 4, ENC_BIG_ENDIAN);
   offset += 4;
@@ -966,7 +958,7 @@ dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       if ((taglen < 4) || (taglen > CIPSO_TAG_LEN_MAX) ||
          ((offset + (int)taglen - 1) > offset_max)) {
         expert_add_info(pinfo, tag_item, &ei_ip_cipso_tag);
-        return;
+        return offset;
       }
 
       /* skip past alignment octet */
@@ -1030,7 +1022,7 @@ dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       if ((taglen < 4) || (taglen > CIPSO_TAG_LEN_MAX) ||
          ((offset + (int)taglen - 1) > offset_max)) {
         expert_add_info(pinfo, tag_item, &ei_ip_cipso_tag);
-        return;
+        return offset;
       }
 
       /* skip past alignment octet */
@@ -1062,7 +1054,7 @@ dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       if ((taglen < 4) || (taglen > CIPSO_TAG_LEN_MAX) ||
          ((offset + (int)taglen - 1) > offset_max)) {
         expert_add_info(pinfo, tag_item, &ei_ip_cipso_tag);
-        return;
+        return offset;
       }
 
       /* skip past alignment octet */
@@ -1106,7 +1098,7 @@ dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       if ((taglen < 4) || (taglen > CIPSO_TAG_LEN_MAX) ||
          ((offset + (int)taglen - 1) > offset_max)) {
         expert_add_info(pinfo, tag_item, &ei_ip_cipso_tag);
-        return;
+        return offset;
       }
 
       proto_tree_add_item(field_tree, hf_ip_cipso_tag_data, tvb, offset + 2, taglen - 2, ENC_NA);
@@ -1117,7 +1109,7 @@ dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       if ((taglen < 2) || (taglen > CIPSO_TAG_LEN_MAX) ||
          ((offset + (int)taglen - 1) > offset_max)) {
         expert_add_info(pinfo, tag_item, &ei_ip_cipso_tag);
-        return;
+        return offset;
       }
 
       proto_tree_add_item(field_tree, hf_ip_cipso_tag_data, tvb, offset + 2, taglen - 2, ENC_NA);
@@ -1128,11 +1120,13 @@ dissect_ipopt_cipso(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
       if ((offset + 1) <= offset_max) {
         taglen = tvb_get_guint8(tvb, offset + 1);
         proto_item_append_text(tag_item, " (%u bytes)", taglen);
-        return;
+        return offset;
       }
-      return;
+      return offset;
     }
   }
+
+  return offset;
 }
 
 static void
@@ -1154,32 +1148,28 @@ dissect_option_route(proto_tree *tree, tvbuff_t *tvb, int offset, int hf,
   PROTO_ITEM_SET_HIDDEN(ti);
 }
 
-static void
-dissect_ipopt_route(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                    guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                    void * data _U_)
+static int
+dissect_ipopt_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int proto, int optlen_min)
 {
   proto_tree *field_tree;
   proto_item *tf;
   guint8 len, ptr;
   int optoffset = 0;
+  gint       offset = 0,
+             optlen = tvb_reported_length(tvb);
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto, ett_ip_option_route, &tf, optlen);
+
   ptr = tvb_get_guint8(tvb, offset + 2);
   tf = proto_tree_add_item(field_tree, hf_ip_opt_ptr, tvb, offset + 2, 1, ENC_NA);
-  if ((ptr < (optp->optlen + 1)) || (ptr & 3)) {
-    if (ptr < (optp->optlen + 1)) {
+  if ((ptr < (optlen_min + 1)) || (ptr & 3)) {
+    if (ptr < (optlen_min + 1)) {
       expert_add_info(pinfo, tf, &ei_ip_opt_ptr_before_address);
     }
     else {
       expert_add_info(pinfo, tf, &ei_ip_opt_ptr_middle_address);
     }
-    return;
+    return optlen_min;
   }
 
   len = optlen;
@@ -1231,35 +1221,46 @@ dissect_ipopt_route(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
                            hf_ip_src_rt_host, FALSE);
     }
   }
+
+  return tvb_captured_length(tvb);
 }
 
-static void
-dissect_ipopt_record_route(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                           guint optlen, packet_info *pinfo,
-                           proto_tree *opt_tree, void * data _U_)
+static int
+dissect_ipopt_loose_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
+{
+  return dissect_ipopt_route(tvb, pinfo, tree, proto_ip_option_route, IPOLEN_LSR_MIN);
+}
+
+static int
+dissect_ipopt_source_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
+{
+  return dissect_ipopt_route(tvb, pinfo, tree, proto_ip_option_source_route, IPOLEN_SSR_MIN);
+
+}
+
+static int
+dissect_ipopt_record_route(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf;
   guint8 len, ptr;
   int optoffset = 0;
+  gint       offset = 0,
+             optlen = tvb_reported_length(tvb);
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_record_route, ett_ip_option_route, &tf, optlen);
+
   ptr = tvb_get_guint8(tvb, offset + 2);
   tf = proto_tree_add_item(field_tree, hf_ip_opt_ptr, tvb, offset + 2, 1, ENC_NA);
 
-  if ((ptr < (optp->optlen + 1)) || (ptr & 3)) {
-    if (ptr < (optp->optlen + 1)) {
+  if ((ptr < (IPOLEN_RR_MIN + 1)) || (ptr & 3)) {
+    if (ptr < (IPOLEN_RR_MIN + 1)) {
       expert_add_info(pinfo, tf, &ei_ip_opt_ptr_before_address);
     }
     else {
       expert_add_info(pinfo, tf, &ei_ip_opt_ptr_middle_address);
     }
-    return;
+    return IPOLEN_RR_MIN;
   }
 
   len = optlen;
@@ -1290,64 +1291,63 @@ dissect_ipopt_record_route(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
                            hf_ip_empty_rt_host, FALSE);
     }
   }
+
+  return tvb_captured_length(tvb);
 }
 
 /* Stream Identifier */
-static void
-dissect_ipopt_sid(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                  guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                  void * data _U_)
+static int
+dissect_ipopt_sid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf;
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes): %u", optp->name, optlen, tvb_get_ntohs(tvb, offset + 2));
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen != (guint)optp->optlen)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
-  proto_tree_add_item(field_tree, hf_ip_opt_sid, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
+  field_tree = ip_fixed_option_header(tree, pinfo, tvb, proto_ip_option_sid, ett_ip_option_sid, &tf, IPOLEN_SID, tvb_reported_length(tvb));
+
+  proto_tree_add_item(field_tree, hf_ip_opt_sid, tvb, 2, 2, ENC_BIG_ENDIAN);
+  return tvb_captured_length(tvb);
 }
 
 /* RFC 1063: MTU Probe and MTU Reply */
-static void
-dissect_ipopt_mtu(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                  guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                  void * data _U_)
+static int
+dissect_ipopt_mtu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int proto)
 {
   proto_tree *field_tree;
   proto_item *tf;
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes): %u", optp->name, optlen, tvb_get_ntohs(tvb, offset + 2));
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen != (guint)optp->optlen)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
-  proto_tree_add_item(field_tree, hf_ip_opt_mtu, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
+  field_tree = ip_fixed_option_header(tree, pinfo, tvb, proto, ett_ip_option_mtu, &tf, IPOLEN_MTU, tvb_reported_length(tvb));
+
+  proto_tree_add_item(field_tree, hf_ip_opt_mtu, tvb, 2, 2, ENC_BIG_ENDIAN);
+  return tvb_captured_length(tvb);
+}
+
+static int
+dissect_ipopt_mtu_probe(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
+{
+  return dissect_ipopt_mtu(tvb, pinfo, tree, proto_ip_option_mtu_probe);
+}
+
+static int
+dissect_ipopt_mtu_reply(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
+{
+  return dissect_ipopt_mtu(tvb, pinfo, tree, proto_ip_option_mtu_reply);
 }
 
 /* RFC 1393: Traceroute */
-static void
-dissect_ipopt_tr(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                  guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                  void * data _U_)
+static int
+dissect_ipopt_tr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf;
+  gint       offset = 2;
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen != (guint)optp->optlen)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
+  field_tree = ip_fixed_option_header(tree, pinfo, tvb, proto_ip_option_traceroute, ett_ip_option_tr, &tf, IPOLEN_TR, tvb_reported_length(tvb));
 
-  proto_tree_add_item(field_tree, hf_ip_opt_id_number, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
-  proto_tree_add_item(field_tree, hf_ip_opt_ohc, tvb, offset + 4, 2, ENC_BIG_ENDIAN);
-  proto_tree_add_item(field_tree, hf_ip_opt_rhc, tvb, offset + 6, 2, ENC_BIG_ENDIAN);
-  proto_tree_add_item(field_tree, hf_ip_opt_originator, tvb, offset + 8, 4, ENC_BIG_ENDIAN);
+  proto_tree_add_item(field_tree, hf_ip_opt_id_number, tvb, offset, 2, ENC_BIG_ENDIAN);
+  proto_tree_add_item(field_tree, hf_ip_opt_ohc, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
+  proto_tree_add_item(field_tree, hf_ip_opt_rhc, tvb, offset + 4, 2, ENC_BIG_ENDIAN);
+  proto_tree_add_item(field_tree, hf_ip_opt_originator, tvb, offset + 6, 4, ENC_BIG_ENDIAN);
+  return tvb_captured_length(tvb);
 }
 
 static const value_string ipopt_timestamp_flag_vals[] = {
@@ -1356,10 +1356,8 @@ static const value_string ipopt_timestamp_flag_vals[] = {
     {IPOPT_TS_PRESPEC,   "Time stamps for prespecified addresses"},
     {0,                  NULL                                    }};
 
-static void
-dissect_ipopt_timestamp(const ip_tcp_opt *optp, tvbuff_t *tvb,
-                        int offset, guint optlen, packet_info *pinfo,
-                        proto_tree *opt_tree, void * data _U_)
+static int
+dissect_ipopt_timestamp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf;
@@ -1367,13 +1365,11 @@ dissect_ipopt_timestamp(const ip_tcp_opt *optp, tvbuff_t *tvb,
   int        optoffset = 0;
   int        flg;
   guint32 addr;
+  gint       offset = 0,
+             optlen = tvb_reported_length(tvb);
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_timestamp, ett_ip_option_timestamp, &tf, optlen);
+
   optoffset += 2;   /* skip past type and length */
   optlen -= 2;      /* subtract size of type and length */
 
@@ -1418,6 +1414,8 @@ dissect_ipopt_timestamp(const ip_tcp_opt *optp, tvbuff_t *tvb,
       optlen -= 4;
     }
   }
+
+  return tvb_captured_length(tvb);
 }
 
 /* Router Alert */
@@ -1427,47 +1425,39 @@ static const range_string ra_rvals[] = {
   {0, 0, NULL}
 };
 
-static void
-dissect_ipopt_ra(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                 guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                 void * data _U_)
+static int
+dissect_ipopt_ra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   /* Router-Alert, as defined by RFC2113 */
   proto_tree *field_tree;
   proto_item *tf;
-  guint16 value = tvb_get_ntohs(tvb, offset + 2);
+  guint32 value;
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen,
-                           *optp->subtree_index, NULL, "%s (%u bytes): %s (%u)", optp->name, optlen,
-                           rval_to_str(value, ra_rvals, "Unknown (%u)"),
-                           value);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen != (guint)optp->optlen)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
-  proto_tree_add_item(field_tree, hf_ip_opt_ra, tvb, offset + 2, 2, ENC_BIG_ENDIAN);
+  field_tree = ip_fixed_option_header(tree, pinfo, tvb, proto_ip_option_routeralert, ett_ip_option_ra, &tf, IPOLEN_RA, tvb_reported_length(tvb));
+
+  proto_tree_add_item_ret_uint(field_tree, hf_ip_opt_ra, tvb, 2, 2, ENC_BIG_ENDIAN, &value);
+  proto_item_append_text(tf, ": %s (%u)", rval_to_str(value, ra_rvals, "Unknown (%u)"), value);
+  return tvb_captured_length(tvb);
 }
 
 /* RFC 1770: Selective Directed Broadcast */
-static void
-dissect_ipopt_sdb(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                 guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                 void * data _U_)
+static int
+dissect_ipopt_sdb(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data _U_)
 {
   proto_tree *field_tree;
   proto_item *tf;
+  gint       offset = 0,
+             optlen = tvb_reported_length(tvb);
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, *optp->subtree_index, NULL,
-                           "%s (%u bytes)", optp->name, optlen);
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen > IPOLEN_MAX)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
+  field_tree = ip_var_option_header(tree, pinfo, tvb, proto_ip_option_sdb, ett_ip_option_sdb, &tf, optlen);
+
   for (offset += 2, optlen -= 2; optlen >= 4; offset += 4, optlen -= 4)
     proto_tree_add_item(field_tree, hf_ip_opt_addr, tvb, offset, 4, ENC_BIG_ENDIAN);
 
   if (optlen > 0)
     proto_tree_add_item(field_tree, hf_ip_opt_padding, tvb, offset, optlen, ENC_NA);
+
+  return tvb_captured_length(tvb);
 }
 
 const value_string qs_func_vals[] = {
@@ -1497,256 +1487,148 @@ static const value_string qs_rate_vals[] = {
 };
 value_string_ext qs_rate_vals_ext = VALUE_STRING_EXT_INIT(qs_rate_vals);
 
-static void
-dissect_ipopt_qs(const ip_tcp_opt *optp, tvbuff_t *tvb, int offset,
-                 guint optlen, packet_info *pinfo, proto_tree *opt_tree,
-                 void * data)
+static int
+dissect_ipopt_qs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void * data)
 {
   proto_tree *field_tree;
   proto_item *tf;
   proto_item *ti;
-  ws_ip *iph = (ws_ip*)data;
+  ws_ip4 *iph = (ws_ip4 *)data;
+  gint       offset = 2;
 
-  guint8 command = tvb_get_guint8(tvb, offset + 2);
+  guint8 command = tvb_get_guint8(tvb, offset);
   guint8 function = command >> 4;
   guint8 rate = command & QS_RATE_MASK;
   guint8 ttl_diff;
 
-  field_tree = proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen,
-                           *optp->subtree_index, NULL, "%s (%u bytes): %s (%u)", optp->name, optlen,
-                           val_to_str(function, qs_func_vals, "Unknown (%u)"),
-                           function);
+  field_tree = ip_fixed_option_header(tree, pinfo, tvb, proto_ip_option_qs, ett_ip_option_qs, &tf, IPOLEN_QS, tvb_reported_length(tvb));
+  proto_item_append_text(tf, ": %s (%u)", val_to_str(function, qs_func_vals, "Unknown (%u)"), function);
 
-  dissect_ipopt_type(tvb, offset, field_tree, &IP_OPT_TYPES);
-  tf = proto_tree_add_item(field_tree, hf_ip_opt_len, tvb, offset + 1, 1, ENC_NA);
-  if (optlen != (guint)optp->optlen)
-    expert_add_info(pinfo, tf, &ei_ip_opt_len_invalid);
-  proto_tree_add_item(field_tree, hf_ip_opt_qs_func, tvb, offset + 2, 1, ENC_NA);
+  proto_tree_add_item(field_tree, hf_ip_opt_qs_func, tvb, offset, 1, ENC_NA);
 
   if (function == QS_RATE_REQUEST) {
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_rate, tvb, offset + 2, 1, ENC_NA);
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_ttl, tvb, offset + 3, 1, ENC_NA);
-    ttl_diff = (iph->ip_ttl - tvb_get_guint8(tvb, offset + 3) % 256);
-    ti = proto_tree_add_uint_format_value(field_tree, hf_ip_opt_qs_ttl_diff,
-                                          tvb, offset + 3, 1, ttl_diff,
-                                          "%u", ttl_diff);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_rate, tvb, offset, 1, ENC_NA);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_ttl, tvb, offset + 1, 1, ENC_NA);
+    ttl_diff = (iph->ip_ttl - tvb_get_guint8(tvb, offset + 1) % 256);
+    ti = proto_tree_add_uint(field_tree, hf_ip_opt_qs_ttl_diff,
+                                          tvb, offset + 1, 1, ttl_diff);
     PROTO_ITEM_SET_GENERATED(ti);
     proto_item_append_text(tf, ", %s, QS TTL %u, QS TTL diff %u",
                            val_to_str_ext(rate, &qs_rate_vals_ext, "Unknown (%u)"),
-                           tvb_get_guint8(tvb, offset + 3), ttl_diff);
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_nonce, tvb, offset + 4, 4, ENC_BIG_ENDIAN);
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_reserved, tvb, offset + 4, 4, ENC_BIG_ENDIAN);
+                           tvb_get_guint8(tvb, offset + 1), ttl_diff);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_nonce, tvb, offset + 2, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_reserved, tvb, offset + 2, 4, ENC_BIG_ENDIAN);
   } else if (function == QS_RATE_REPORT) {
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_rate, tvb, offset + 2, 1, ENC_NA);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_rate, tvb, offset, 1, ENC_NA);
     proto_item_append_text(tf, ", %s",
                            val_to_str_ext(rate, &qs_rate_vals_ext, "Unknown (%u)"));
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_unused, tvb, offset + 3, 1, ENC_NA);
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_nonce, tvb, offset + 4, 4, ENC_BIG_ENDIAN);
-    proto_tree_add_item(field_tree, hf_ip_opt_qs_reserved, tvb, offset + 4, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_unused, tvb, offset + 1, 1, ENC_NA);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_nonce, tvb, offset + 2, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(field_tree, hf_ip_opt_qs_reserved, tvb, offset + 2, 4, ENC_BIG_ENDIAN);
   }
+
+  return tvb_captured_length(tvb);
 }
 
-static const ip_tcp_opt ipopts[] = {
-  {IPOPT_EOOL, "End of Options List (EOL)", &ett_ip_option_eool,
-    OPT_LEN_NO_LENGTH, 0, dissect_ipopt_eool},
-  {IPOPT_NOP, "No Operation (NOP)", &ett_ip_option_nop,
-    OPT_LEN_NO_LENGTH, 0, dissect_ipopt_nop},
-  {IPOPT_SEC, "Security", &ett_ip_option_sec,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_SEC_MIN, dissect_ipopt_security},
-  {IPOPT_LSR, "Loose Source Route", &ett_ip_option_route,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_LSR_MIN, dissect_ipopt_route},
-  {IPOPT_TS, "Time Stamp", &ett_ip_option_timestamp,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_TS_MIN, dissect_ipopt_timestamp},
-  {IPOPT_ESEC, "Extended Security", &ett_ip_option_ext_security,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_ESEC_MIN, dissect_ipopt_ext_security},
-  {IPOPT_CIPSO, "Commercial Security", &ett_ip_option_cipso,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_CIPSO_MIN, dissect_ipopt_cipso},
-  {IPOPT_RR, "Record Route", &ett_ip_option_route,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_RR_MIN, dissect_ipopt_record_route},
-  {IPOPT_SID, "Stream ID", &ett_ip_option_sid,
-    OPT_LEN_FIXED_LENGTH, IPOLEN_SID, dissect_ipopt_sid},
-  {IPOPT_SSR, "Strict Source Route", &ett_ip_option_route,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_SSR_MIN, dissect_ipopt_route},
-#if 0 /* TODO */
-  {IPOPT_ZSU, "Experimental Measurement", &ett_ip_option_zsu,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_ZSU_MIN, dissect_ipopt_zsu},
-#endif
-  {IPOPT_MTUP, "MTU Probe", &ett_ip_option_mtu,
-    OPT_LEN_FIXED_LENGTH, IPOLEN_MTU, dissect_ipopt_mtu},
-  {IPOPT_MTUR, "MTU Reply", &ett_ip_option_mtu,
-    OPT_LEN_FIXED_LENGTH, IPOLEN_MTU, dissect_ipopt_mtu},
-#if 0 /* TODO */
-  {IPOPT_FINN, "Experimental Flow Control", &ett_ip_option_finn,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_FINN_MIN, dissect_ipopt_finn},
-  {IPOPT_VISA, "Experimental Access Control", &ett_ip_option_visa,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_VISA_MIN, dissect_ipopt_visa},
-  {IPOPT_ENCODE, "???", &ett_ip_option_encode,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_ENCODE_MIN, dissect_ipopt_encode},
-  {IPOPT_IMITD, "IMI Traffic Descriptor", &ett_ip_option_imitd,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_IMITD_MIN, dissect_ipopt_imitd},
-  {IPOPT_EIP, "Extended Internet Protocol", &ett_ip_option_eip,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_EIP_MIN, dissect_ipopt_eip},
-#endif
-  {IPOPT_TR, "Traceroute", &ett_ip_option_tr,
-    OPT_LEN_FIXED_LENGTH, IPOLEN_TR, dissect_ipopt_tr},
-#if 0 /* TODO */
-  {IPOPT_ADDEXT, "Address Extension", &ett_ip_option_addext,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_ADDEXT_MIN, dissect_ipopt_addext},
-#endif
-  {IPOPT_RTRALT, "Router Alert", &ett_ip_option_ra,
-    OPT_LEN_FIXED_LENGTH, IPOLEN_RA, dissect_ipopt_ra},
-  {IPOPT_SDB, "Selective Directed Broadcast", &ett_ip_option_sdb,
-    OPT_LEN_VARIABLE_LENGTH, IPOLEN_SDB_MIN, dissect_ipopt_sdb},
-#if 0 /* TODO */
-  {IPOPT_UN, "Unassigned", &ett_ip_option_un,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_UN_MIN, dissect_ipopt_un},
-  {IPOPT_DPS, "Dynamic Packet State", &ett_ip_option_dps,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_DPS_MIN, dissect_ipopt_dps},
-  {IPOPT_UMP, "Upstream Multicast Pkt.", &ett_ip_option_ump,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_UMP_MIN, dissect_ipopt_ump},
-#endif
-  {IPOPT_QS, "Quick-Start", &ett_ip_option_qs,
-    OPT_LEN_FIXED_LENGTH, IPOLEN_QS, dissect_ipopt_qs}
-#if 0 /* TODO */
-  {IPOPT_EXP, "RFC3692-style Experiment", &ett_ip_option_exp,
-    OPT_LEN_VARIABLE_LENGTH /* ? */, IPOLEN_EXP_MIN, dissect_ipopt_exp}
-#endif
-};
-
-#define N_IP_OPTS       array_length(ipopts)
-
-/* Dissect the IP, TCP or various PPP protocols (IPCP, CP, LCP, VSNCP, BAP)
- * options in a packet. */
-void
-dissect_ip_tcp_options(tvbuff_t *tvb, int offset, guint length,
-                       const ip_tcp_opt *opttab, int nopts, int eol,
-                       ip_tcp_opt_type* opttypes, expert_field* ei_bad,
+static void
+dissect_ip_options(tvbuff_t *tvb, int offset, guint length,
                        packet_info *pinfo, proto_tree *opt_tree,
                        proto_item *opt_item, void * data)
 {
   guchar            opt;
-  const ip_tcp_opt *optp;
-  opt_len_type      len_type;
   unsigned int      optlen;
+  proto_tree       *field_tree;
   const char       *name;
-  void            (*dissect)(const struct ip_tcp_opt *, tvbuff_t *,
-                             int, guint, packet_info *, proto_tree *,
-                             void *);
-  guint             len, nop_count = 0;
+  dissector_handle_t option_dissector;
+  guint             nop_count = 0;
+  tvbuff_t         *next_tvb;
 
   while (length > 0) {
     opt = tvb_get_guint8(tvb, offset);
-    for (optp = &opttab[0]; optp < &opttab[nopts]; optp++) {
-      if (optp->optcode == opt)
-        break;
-    }
-    if (optp == &opttab[nopts]) {
-      /* We assume that the only OPT_LEN_NO_LENGTH options are EOL and NOP options,
-         so that we can treat unknown options as OPT_LEN_VARIABLE_LENGTH with a
-         minimum of 2, and at least be able to move on to the next option
-         by using the length in the option. */
-      optp = NULL;  /* indicate that we don't know this option */
-      len_type = OPT_LEN_VARIABLE_LENGTH;
-      optlen = 2;
-      name = wmem_strdup_printf(wmem_packet_scope(), "Unknown (0x%02x)", opt);
-      dissect = NULL;
-      nop_count = 0;
-    } else {
-      len_type = optp->len_type;
-      optlen = optp->optlen;
-      name = optp->name;
-      dissect = optp->dissect;
-      if (opt_item && len_type == OPT_LEN_NO_LENGTH && optlen == 0 && opt == 1 &&
-         (nop_count == 0 || offset % 4)) { /* opt 1 = NOP in both IP and TCP */
-        /* Count number of NOP in a row within a uint32 */
-        nop_count++;
-      } else {
-        nop_count = 0;
-      }
-    }
     --length;      /* account for type byte */
-    if (len_type != OPT_LEN_NO_LENGTH) {
+
+    if ((opt == IPOPT_EOOL) || (opt == IPOPT_NOP)) {
+      int local_proto;
+      proto_item* field_item;
+      /* We assume that the only options with no length are EOL and NOP options,
+         so that we can treat unknown options as having a minimum length of 2,
+         and at least be able to move on to the next option by using the length in the option. */
+
+      if (opt == IPOPT_EOOL)
+      {
+        local_proto = proto_ip_option_eol;
+      } else if (opt == IPOPT_NOP) {
+        local_proto = proto_ip_option_nop;
+
+        if (opt_item && (nop_count == 0 || offset % 4)) {
+          /* Count number of NOP in a row within a uint32 */
+          nop_count++;
+
+          if (nop_count == 4) {
+            expert_add_info(pinfo, opt_item, &ei_ip_nop);
+          }
+        } else {
+          nop_count = 0;
+        }
+      } else {
+        g_assert_not_reached();
+      }
+
+
+      field_item = proto_tree_add_item(opt_tree, local_proto, tvb, offset, 1, ENC_NA);
+      field_tree = proto_item_add_subtree(field_item, ett_ip_option_other);
+
+      dissect_ipopt_type(tvb, offset, field_tree);
+      offset++;
+
+    } else {
+      option_dissector = dissector_get_uint_handle(ip_option_table, opt);
+      if (option_dissector == NULL) {
+        name = wmem_strdup_printf(wmem_packet_scope(), "Unknown (0x%02x)", opt);
+      } else {
+        name = dissector_handle_get_short_name(option_dissector);
+      }
+
       /* Option has a length. Is it in the packet? */
       if (length == 0) {
         /* Bogus - packet must at least include option code byte and
            length byte! */
-        proto_tree_add_expert_format(opt_tree, pinfo, ei_bad, tvb, offset, 1,
+        proto_tree_add_expert_format(opt_tree, pinfo, &ei_ip_opt_len_invalid, tvb, offset, 1,
                                      "%s (length byte past end of options)", name);
         return;
       }
-      len = tvb_get_guint8(tvb, offset + 1);  /* total including type, len */
+
+      optlen = tvb_get_guint8(tvb, offset + 1);  /* total including type, len */
       --length;    /* account for length byte */
-      if (len < 2) {
-        /* Bogus - option length is too short to include option code and
-           option length. */
-        proto_tree_add_expert_format(opt_tree, pinfo, ei_bad, tvb, offset, 2,
-                            "%s (with too-short option length = %u byte%s)",
-                            name, len, plurality(len, "", "s"));
+
+      if (optlen < 2) {
+        /* Bogus - option length is too short to include option code and option length. */
+        proto_tree_add_expert_format(opt_tree, pinfo, &ei_ip_opt_len_invalid, tvb, offset, 2,
+                                    "%s (with too-short option length = %u byte%s)",
+                                    name, optlen, plurality(optlen, "", "s"));
         return;
-      } else if (len - 2 > length) {
+      } else if (optlen - 2 > length) {
         /* Bogus - option goes past the end of the header. */
-        proto_tree_add_expert_format(opt_tree, pinfo, ei_bad, tvb, offset, length,
-                            "%s (option length = %u byte%s says option goes past end of options)",
-                            name, len, plurality(len, "", "s"));
+        proto_tree_add_expert_format(opt_tree, pinfo, &ei_ip_opt_len_invalid, tvb, offset, length,
+                                    "%s (option length = %u byte%s says option goes past end of options)",
+                                    name, optlen, plurality(optlen, "", "s"));
         return;
-      } else if (len_type == OPT_LEN_FIXED_LENGTH && len != optlen) {
-        /* Bogus - option length isn't what it's supposed to be for this
-           option. */
-        proto_tree_add_expert_format(opt_tree, pinfo, ei_bad, tvb, offset, len,
-                            "%s (with option length = %u byte%s; should be %u)",
-                            name, len, plurality(len, "", "s"), optlen);
-        return;
-      } else if (len_type == OPT_LEN_VARIABLE_LENGTH && len < optlen) {
-        /* Bogus - option length is less than what it's supposed to be for
-           this option. */
-        proto_tree_add_expert_format(opt_tree, pinfo, ei_bad, tvb, offset, len,
-                            "%s (with option length = %u byte%s; should be >= %u)",
-                            name, len, plurality(len, "", "s"), optlen);
-        return;
-      } else {
-        if (optp == NULL) {
-          proto_tree_add_subtree_format(opt_tree, tvb, offset, len, ett_unknown_ip_tcp_opt, NULL, "%s (%u byte%s)",
-                              name, len, plurality(len, "", "s"));
-        } else {
-          if (dissect != NULL) {
-            /* Option has a dissector. */
-            proto_item_append_text(proto_tree_get_parent(opt_tree), ", %s",
-                                   optp->name);
-            (*dissect)(optp, tvb, offset, len, pinfo, opt_tree, data);
-          } else {
-            proto_tree *field_tree;
-
-            /* Option has no data, hence no dissector. */
-            proto_item_append_text(proto_tree_get_parent(opt_tree), ", %s",
-                                   name);
-            field_tree = proto_tree_add_subtree(opt_tree, tvb, offset, len, ett_ip_option_other, NULL, name);
-            dissect_ipopt_type(tvb, offset, field_tree, opttypes);
-          }
-        }
-        len -= 2;   /* subtract size of type and length */
-        offset += 2 + len;
       }
-      length -= len;
-    } else {
-      if (dissect != NULL) {
-        proto_item_append_text(proto_tree_get_parent(opt_tree), ", %s",
-                               optp->name);
-        (*dissect)(optp, tvb, offset, 1, pinfo, opt_tree, data);
-      } else {
-        proto_tree *field_tree;
 
-        /* Option has no data, hence no dissector. */
+      if (option_dissector == NULL) {
+        proto_tree_add_subtree_format(opt_tree, tvb, offset, optlen, ett_ip_unknown_opt, NULL, "%s (%u byte%s)",
+                                              name, optlen, plurality(optlen, "", "s"));
+      } else {
+        next_tvb = tvb_new_subset_length(tvb, offset, optlen);
+        call_dissector_with_data(option_dissector, next_tvb, pinfo, opt_tree, data);
         proto_item_append_text(proto_tree_get_parent(opt_tree), ", %s", name);
-        field_tree = proto_tree_add_subtree(opt_tree, tvb, offset, 1, ett_ip_option_other, NULL, name);
-        dissect_ipopt_type(tvb, offset, field_tree, opttypes);
       }
-      offset += 1;
 
-      if (nop_count == 4 && strcmp (name, "No-Operation (NOP)") == 0) {
-        expert_add_info(pinfo, opt_item, &ei_ip_nop);
-      }
+      offset += optlen;
+      length -= (optlen-2); //already accounted for type and len bytes
     }
-    if (opt == eol)
+
+    if (opt == IPOPT_EOOL)
       break;
   }
 }
@@ -1758,36 +1640,17 @@ dissect_ip_tcp_options(tvbuff_t *tvb, int offset, guint length,
  * The guts of this function was taken from dissect_ip_tcp_options().
  */
 static int
-get_dst_offset(tvbuff_t *tvb, int offset, guint length,
-               const ip_tcp_opt *opttab, int nopts, int eol)
+get_dst_offset(tvbuff_t *tvb, int offset, guint length)
 {
   guchar            opt;
-  const ip_tcp_opt *optp;
-  opt_len_type      len_type;
-  unsigned int      optlen;
   guint             len;
   int               orig_offset = offset;
 
   while (length > 0) {
     opt = tvb_get_guint8(tvb, offset);
-    for (optp = &opttab[0]; optp < &opttab[nopts]; optp++) {
-      if (optp->optcode == opt)
-        break;
-    }
-    if (optp == &opttab[nopts]) {
-      /* We assume that the only NO_LENGTH options are EOL and NOP options,
-         so that we can treat unknown options as VARIABLE_LENGTH with a
-         minimum of 2, and at least be able to move on to the next option
-         by using the length in the option. */
-      optp = NULL;  /* indicate that we don't know this option */
-      len_type = OPT_LEN_VARIABLE_LENGTH;
-      optlen = 2;
-    } else {
-      len_type = optp->len_type;
-      optlen = optp->optlen;
-    }
     --length;      /* account for type byte */
-    if (len_type != OPT_LEN_NO_LENGTH) {
+
+    if ((opt != IPOPT_EOOL) && (opt != IPOPT_NOP)) {
       /* Option has a length. Is it in the packet? */
       if (length == 0) {
         /* Bogus - packet must at least include option code byte and
@@ -1803,37 +1666,28 @@ get_dst_offset(tvbuff_t *tvb, int offset, guint length,
       } else if (len - 2 > length) {
         /* Bogus - option goes past the end of the header. */
         return 0;
-      } else if (len_type == OPT_LEN_FIXED_LENGTH && len != optlen) {
-        /* Bogus - option length isn't what it's supposed to be for this
-           option. */
-        return 0;
-      } else if (len_type == OPT_LEN_VARIABLE_LENGTH && len < optlen) {
-        /* Bogus - option length is less than what it's supposed to be for
-           this option. */
-        return 0;
-      } else {
-        if (optp != NULL) {
-          if (opt == IPOPT_SSR || opt == IPOPT_LSR) {
-            /* Hmm, what if you have both options? */
-            guint8 ptr;
-
-            ptr = tvb_get_guint8(tvb, offset + 2);
-            if (ptr < 4 || (ptr & 3) || (ptr > len)) {
-              return 0;
-            }
-            return (offset - orig_offset) + 4 + (len - 4);
-          }
-        }
-        len -= 2;   /* subtract size of type and length */
-        offset += 2 + len;
       }
-      length -= len;
+
+      if (opt == IPOPT_SSR || opt == IPOPT_LSR) {
+        /* Hmm, what if you have both options? */
+        guint8 ptr;
+
+        ptr = tvb_get_guint8(tvb, offset + 2);
+        if (ptr < 4 || (ptr & 3) || (ptr > len)) {
+          return 0;
+        }
+        return (offset - orig_offset) + 4 + (len - 4);
+      }
+
+      offset += len;
+      length -= (len-2); /* subtract size of type and length */
     } else {
       offset += 1;
     }
-    if (opt == eol)
+    if (opt == IPOPT_EOOL)
       return 0;
   }
+
   return 0;
 }
 
@@ -1964,8 +1818,8 @@ static const true_false_string flags_sf_set_evil = {
 };
 
 gboolean
-ip_try_dissect(gboolean heur_first, tvbuff_t *tvb, packet_info *pinfo,
-               proto_tree *tree, ws_ip *iph)
+ip_try_dissect(gboolean heur_first, guint nxt, tvbuff_t *tvb, packet_info *pinfo,
+               proto_tree *tree, void *iph)
 {
   heur_dtbl_entry_t *hdtbl_entry;
 
@@ -1974,7 +1828,7 @@ ip_try_dissect(gboolean heur_first, tvbuff_t *tvb, packet_info *pinfo,
     return TRUE;
   }
 
-  if (dissector_try_uint_new(ip_dissector_table, iph->ip_p, tvb, pinfo,
+  if (dissector_try_uint_new(ip_dissector_table, nxt, tvb, pinfo,
                              tree, TRUE, iph)) {
     return TRUE;
   }
@@ -1996,40 +1850,53 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
   guint32    addr;
   int        offset = 0, dst_off;
   guint      hlen, optlen;
-  guint16    flags;
   guint16    ipsum;
-  guint16    expected_cksum;
   fragment_head *ipfd_head = NULL;
   tvbuff_t   *next_tvb;
   gboolean   update_col_info = TRUE;
   gboolean   save_fragmented;
-  ws_ip *iph;
+  ws_ip4 *iph;
   guint32    src32, dst32;
   proto_tree *tree;
   proto_item *item = NULL, *ttl_item;
-  proto_tree *checksum_tree;
   guint16 ttl;
-  int bit_offset;
+
+  static const int * ip_flags[] = {
+      &hf_ip_flags_rf,
+      &hf_ip_flags_df,
+      &hf_ip_flags_mf,
+      &hf_ip_frag_offset,
+      NULL
+  };
+  /* XXX do we realy want decoding of an april fools joke? */
+  static const int * ip_flags_evil[] = {
+      &hf_ip_flags_sf,
+      &hf_ip_flags_df,
+      &hf_ip_flags_mf,
+      &hf_ip_frag_offset,
+      NULL
+  };
+
   tree = parent_tree;
-  iph = (ws_ip *)wmem_alloc(wmem_packet_scope(), sizeof(ws_ip));
+  iph = wmem_new0(wmem_packet_scope(), ws_ip4);
 
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "IPv4");
   col_clear(pinfo->cinfo, COL_INFO);
 
-  iph->ip_v_hl = tvb_get_guint8(tvb, offset);
+  iph->ip_ver = tvb_get_bits8(tvb, 0, 4);
 
-  hlen = lo_nibble(iph->ip_v_hl) * 4;   /* IP header length, in bytes */
+  hlen = tvb_get_bits8(tvb, 4, 4) * 4;  /* IP header length, in bytes */
 
   ti = proto_tree_add_item(tree, proto_ip, tvb, offset, hlen, ENC_NA);
   ip_tree = proto_item_add_subtree(ti, ett_ip);
 
   tf = proto_tree_add_item(ip_tree, hf_ip_version, tvb, offset, 1, ENC_NA);
-  if (hi_nibble(iph->ip_v_hl) != 4) {
+  if (iph->ip_ver != 4) {
     col_add_fstr(pinfo->cinfo, COL_INFO,
-                 "Bogus IPv4 version (%u, must be 4)", hi_nibble(iph->ip_v_hl));
+                 "Bogus IPv4 version (%u, must be 4)", iph->ip_ver);
     expert_add_info_format(pinfo, tf, &ei_ip_bogus_ip_version, "Bogus IPv4 version");
     /* I have a Linux cooked capture with ethertype IPv4 containing an IPv6 packet, continnue dissection in that case*/
-    if (hi_nibble(iph->ip_v_hl) == 6) {
+    if (iph->ip_ver == 6) {
         call_dissector(ipv6_handle, tvb, pinfo, tree);
     }
 
@@ -2052,18 +1919,19 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
                  "Bogus IP header length (%u, must be at least %u)",
                  hlen, IPH_MIN_LEN);
 
-    proto_tree_add_uint_format_value(ip_tree, hf_ip_hdr_len, tvb, offset, 1, hlen/4,
+    proto_tree_add_uint_bits_format_value(ip_tree, hf_ip_hdr_len, tvb, (offset<<3)+4, 4, hlen,
                                  "%u bytes (bogus, must be at least %u)", hlen, IPH_MIN_LEN);
     return tvb_captured_length(tvb);
   }
 
-  proto_tree_add_uint_format_value(ip_tree, hf_ip_hdr_len, tvb, offset, 1, hlen/4,
-                               "%u bytes", hlen);
+  // This should be consistent with tcp.hdr_len.
+  proto_tree_add_uint_bits_format_value(ip_tree, hf_ip_hdr_len, tvb, (offset<<3)+4, 4, hlen,
+                               "%u bytes (%u)", hlen, hlen>>2);
 
   iph->ip_tos = tvb_get_guint8(tvb, offset + 1);
   if (g_ip_dscp_actif) {
-    col_add_fstr(pinfo->cinfo, COL_DSCP_VALUE, "%u",
-                 IPDSFIELD_DSCP(iph->ip_tos));
+    col_add_str(pinfo->cinfo, COL_DSCP_VALUE,
+                val_to_str_ext(IPDSFIELD_DSCP(iph->ip_tos), &dscp_short_vals_ext, "%u"));
   }
 
   if (tree) {
@@ -2155,35 +2023,19 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
     proto_tree_add_uint(ip_tree, hf_ip_id, tvb, offset + 4, 2, iph->ip_id);
 
   iph->ip_off = tvb_get_ntohs(tvb, offset + 6);
-  bit_offset = (offset + 6) * 8;
 
-  flags = (iph->ip_off & (IP_RF | IP_DF | IP_MF)) >> IP_OFFSET_WIDTH;
-  tf = proto_tree_add_uint(ip_tree, hf_ip_flags, tvb, offset + 6, 1, flags);
-  field_tree = proto_item_add_subtree(tf, ett_ip_off);
   if (ip_security_flag) {
-      proto_item *sf;
+    proto_item *sf;
 
-      sf = proto_tree_add_bits_item(field_tree, hf_ip_flags_sf, tvb,
-                                    bit_offset + 0, 1, ENC_BIG_ENDIAN);
-      if (iph->ip_off & IP_RF) {
-        proto_item_append_text(tf, " (Evil packet!)");
+    sf = proto_tree_add_bitmask_with_flags(ip_tree, tvb, offset + 6, hf_ip_flags,
+        ett_ip_off, ip_flags_evil, ENC_BIG_ENDIAN, BMT_NO_FALSE | BMT_NO_TFS | BMT_NO_INT);
+    if (iph->ip_off & IP_RF) {
         expert_add_info(pinfo, sf, &ei_ip_evil_packet);
-      }
+    }
   } else {
-      proto_tree_add_bits_item(field_tree, hf_ip_flags_rf, tvb, bit_offset + 0,
-                               1, ENC_LITTLE_ENDIAN);
+    proto_tree_add_bitmask_with_flags(ip_tree, tvb, offset + 6, hf_ip_flags,
+        ett_ip_off, ip_flags, ENC_BIG_ENDIAN, BMT_NO_FALSE | BMT_NO_TFS | BMT_NO_INT);
   }
-  if (iph->ip_off & IP_DF)
-    proto_item_append_text(tf, " (Don't Fragment)");
-
-  proto_tree_add_bits_item(field_tree, hf_ip_flags_df, tvb, bit_offset + 1,
-                             1, ENC_BIG_ENDIAN);
-  if (iph->ip_off & IP_MF)
-      proto_item_append_text(tf, " (More Fragments)");
-  proto_tree_add_bits_item(field_tree, hf_ip_flags_mf, tvb, bit_offset + 2,
-                             1, ENC_BIG_ENDIAN);
-  proto_tree_add_uint(ip_tree, hf_ip_frag_offset, tvb, offset + 6, 2,
-                        (iph->ip_off & IP_OFFSET)*8);
 
   iph->ip_ttl = tvb_get_guint8(tvb, offset + 8);
   if (tree) {
@@ -2192,7 +2044,7 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
     ttl_item = NULL;
   }
 
-  iph->ip_p = tvb_get_guint8(tvb, offset + 9);
+  iph->ip_proto = tvb_get_guint8(tvb, offset + 9);
   if (tree) {
     proto_tree_add_item(ip_tree, hf_ip_proto, tvb, offset + 9, 1, ENC_BIG_ENDIAN);
   }
@@ -2201,76 +2053,38 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 
   /*
    * If checksum checking is enabled, and we have the entire IP header
-   * available, and this isn't inside an ICMP error packet, check the
-   * checksum.
+   * available, check the checksum.
    */
-  if (ip_check_checksum && tvb_bytes_exist(tvb, offset, hlen)&&(!pinfo->flags.in_error_pkt)) {
+  if (ip_check_checksum && tvb_bytes_exist(tvb, offset, hlen)) {
     ipsum = ip_checksum_tvb(tvb, offset, hlen);
-    if (tree) {
-      if (ipsum == 0) {
-        item = proto_tree_add_uint_format_value(ip_tree, hf_ip_checksum, tvb,
-                                          offset + 10, 2, iph->ip_sum,
-                                          "0x%04x [correct]",
-                                          iph->ip_sum);
-        checksum_tree = proto_item_add_subtree(item, ett_ip_checksum);
-        item = proto_tree_add_uint(checksum_tree, hf_ip_checksum_calculated, tvb,
-                                      offset + 10, 2, iph->ip_sum);
-        PROTO_ITEM_SET_GENERATED(item);
-        item = proto_tree_add_boolean(checksum_tree, hf_ip_checksum_good, tvb,
-                                      offset + 10, 2, TRUE);
-        PROTO_ITEM_SET_GENERATED(item);
-        item = proto_tree_add_boolean(checksum_tree, hf_ip_checksum_bad, tvb,
-                                      offset + 10, 2, FALSE);
-        PROTO_ITEM_SET_GENERATED(item);
-      } else {
-        expected_cksum = in_cksum_shouldbe(iph->ip_sum, ipsum);
+    item = proto_tree_add_checksum(ip_tree, tvb, offset + 10, hf_ip_checksum, hf_ip_checksum_status, &ei_ip_checksum_bad, pinfo, ipsum,
+                                ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_IN_CKSUM);
+    if (ipsum == 0) {
+      /* XXX - Keeping hf_ip_checksum_calculated field for now.  Doesn't fit into the
+        proto_tree_add_checksum design, but IP is a popular enough dissector that somebody
+        may have a legitimate reason for wanting it filtered */
+      item = proto_tree_add_uint(ip_tree, hf_ip_checksum_calculated, tvb,
+                                    offset + 10, 2, iph->ip_sum);
+      PROTO_ITEM_SET_GENERATED(item);
+    } else {
+      proto_item_append_text(item, "(may be caused by \"IP checksum offload\"?)");
 
-        item = proto_tree_add_uint_format_value(ip_tree, hf_ip_checksum, tvb,
-                                          offset + 10, 2, iph->ip_sum,
-                                          "0x%04x "
-                                          "[incorrect, should be 0x%04x "
-                                          "(may be caused by \"IP checksum "
-                                          "offload\"?)]", iph->ip_sum,
-                                          expected_cksum);
-        checksum_tree = proto_item_add_subtree(item, ett_ip_checksum);
-        item = proto_tree_add_uint(checksum_tree, hf_ip_checksum_calculated, tvb,
-                                      offset + 10, 2, expected_cksum);
-        PROTO_ITEM_SET_GENERATED(item);
-        item = proto_tree_add_boolean(checksum_tree, hf_ip_checksum_good, tvb,
-                                      offset + 10, 2, FALSE);
-        PROTO_ITEM_SET_GENERATED(item);
-        item = proto_tree_add_boolean(checksum_tree, hf_ip_checksum_bad, tvb,
-                                      offset + 10, 2, TRUE);
-        PROTO_ITEM_SET_GENERATED(item);
-      }
-    }
-    if (ipsum != 0) {
-      /* Add expert item always (so tap gets called if present);
-         if (tree == NULL) then item will be NULL
-         else item should be from the
-         add_boolean(..., hf_ip_checksum_bad, ...) above */
-      expert_add_info(pinfo, item, &ei_ip_checksum_bad);
+      item = proto_tree_add_uint(ip_tree, hf_ip_checksum_calculated, tvb,
+                                      offset + 10, 2, in_cksum_shouldbe(iph->ip_sum, ipsum));
+      PROTO_ITEM_SET_GENERATED(item);
     }
   } else {
     ipsum = 0;
-    if (tree) {
-      item = proto_tree_add_uint_format_value(ip_tree, hf_ip_checksum, tvb,
+    proto_tree_add_uint_format_value(ip_tree, hf_ip_checksum, tvb,
                                         offset + 10, 2, iph->ip_sum,
                                         "0x%04x [%s]",
                                         iph->ip_sum,
                                         ip_check_checksum ?
-                                            (pinfo->flags.in_error_pkt ?
-                                             "in ICMP error packet" :
-                                             "not all data available") :
+                                            "not all data available" :
                                             "validation disabled");
-      checksum_tree = proto_item_add_subtree(item, ett_ip_checksum);
-      item = proto_tree_add_boolean(checksum_tree, hf_ip_checksum_good, tvb,
-                                    offset + 10, 2, FALSE);
-      PROTO_ITEM_SET_GENERATED(item);
-      item = proto_tree_add_boolean(checksum_tree, hf_ip_checksum_bad, tvb,
-                                    offset + 10, 2, FALSE);
-      PROTO_ITEM_SET_GENERATED(item);
-    }
+    item = proto_tree_add_uint(ip_tree, hf_ip_checksum_status, tvb,
+                                    offset + 10, 0, PROTO_CHECKSUM_E_UNVERIFIED);
+    PROTO_ITEM_SET_GENERATED(item);
   }
   src32 = tvb_get_ntohl(tvb, offset + IPH_SRC);
   set_address_tvb(&pinfo->net_src, AT_IPv4, 4, tvb, offset + IPH_SRC);
@@ -2308,8 +2122,7 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
      * either a strict or loose source route option and if so, return the
      * offset into the tvb to where the real destination IP address is located.
      */
-    dst_off = get_dst_offset(tvb, offset + 20, hlen - IPH_MIN_LEN, ipopts,
-                             N_IP_OPTS, IPOPT_EOOL);
+    dst_off = get_dst_offset(tvb, offset + 20, hlen - IPH_MIN_LEN);
   }
   else
     dst_off = 0;
@@ -2327,18 +2140,18 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
    * (e.g. 224.0.0.0/4) ... and the payload isn't protocol 103 (PIM).
    * (see http://tools.ietf.org/html/rfc3973#section-4.7).
    */
-  if (is_a_local_network_control_block_addr(dst32)) {
+  if (in4_addr_is_local_network_control_block(dst32)) {
     ttl = local_network_control_block_addr_valid_ttl(dst32);
     if (ttl != iph->ip_ttl && ttl != IPLOCAL_NETWRK_CTRL_BLK_ANY_TTL) {
       expert_add_info_format(pinfo, ttl_item, &ei_ip_ttl_lncb, "\"Time To Live\" != %d for a packet sent to the "
                              "Local Network Control Block (see RFC 3171)",
                              ttl);
     }
-  } else if (!is_a_multicast_addr(dst32) &&
+  } else if (!in4_addr_is_multicast(dst32) &&
 	/* At least BGP should appear here as well */
 	iph->ip_ttl < 5 &&
-        iph->ip_p != IP_PROTO_PIM &&
-        iph->ip_p != IP_PROTO_OSPF) {
+        iph->ip_proto != IP_PROTO_PIM &&
+        iph->ip_proto != IP_PROTO_OSPF) {
     expert_add_info_format(pinfo, ttl_item, &ei_ip_ttl_too_small, "\"Time To Live\" only %u", iph->ip_ttl);
   }
 
@@ -2379,13 +2192,11 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
       PROTO_ITEM_SET_GENERATED(item);
       PROTO_ITEM_SET_HIDDEN(item);
     }
-  }
 
-#ifdef HAVE_GEOIP
-  if (tree && ip_use_geoip) {
-    add_geoip_info(ip_tree, tvb, offset, src32, dst32);
+    if (ip_use_geoip) {
+      add_geoip_info(ip_tree, tvb, offset, src32, dst32);
+    }
   }
-#endif
 
   /* Decode IP options, if any. */
   if (hlen > IPH_MIN_LEN) {
@@ -2393,11 +2204,10 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
     optlen = hlen - IPH_MIN_LEN;  /* length of options, in bytes */
     field_tree = proto_tree_add_subtree_format(ip_tree, tvb, offset + 20, optlen,
                              ett_ip_options, &tf, "Options: (%u bytes)", optlen);
-    dissect_ip_tcp_options(tvb, offset + 20, optlen, ipopts, N_IP_OPTS,
-                           IPOPT_EOOL, &IP_OPT_TYPES, &ei_ip_opt_len_invalid, pinfo, field_tree, tf, iph);
+    dissect_ip_options(tvb, offset + 20, optlen, pinfo, field_tree, tf, iph);
   }
 
-  p_add_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num, GUINT_TO_POINTER((guint)iph->ip_p));
+  p_add_proto_data(pinfo->pool, pinfo, proto_ip, pinfo->curr_layer_num, GUINT_TO_POINTER((guint)iph->ip_proto));
   tap_queue_packet(ip_tap, pinfo, iph);
 
   /* Skip over header + options */
@@ -2409,11 +2219,12 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
    */
   save_fragmented = pinfo->fragmented;
   if (ip_defragment && (iph->ip_off & (IP_MF|IP_OFFSET)) &&
+      iph->ip_len > hlen &&
       tvb_bytes_exist(tvb, offset, iph->ip_len - hlen) &&
       ipsum == 0) {
     ipfd_head = fragment_add_check(&ip_reassembly_table, tvb, offset,
                                    pinfo,
-                                   iph->ip_p ^ iph->ip_id ^ src32 ^ dst32 ^ pinfo->vlan_id,
+                                   iph->ip_proto ^ iph->ip_id ^ src32 ^ dst32 ^ pinfo->vlan_id,
                                    NULL,
                                    (iph->ip_off & IP_OFFSET) * 8,
                                    iph->ip_len - hlen,
@@ -2452,10 +2263,10 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
     /* Just show this as a fragment. */
     col_add_fstr(pinfo->cinfo, COL_INFO,
                  "Fragmented IP protocol (proto=%s %u, off=%u, ID=%04x)",
-                 ipprotostr(iph->ip_p), iph->ip_p,
+                 ipprotostr(iph->ip_proto), iph->ip_proto,
                  (iph->ip_off & IP_OFFSET) * 8, iph->ip_id);
     if ( ipfd_head && ipfd_head->reassembled_in != pinfo->num ) {
-      col_append_fstr(pinfo->cinfo, COL_INFO, " [Reassembled in #%u]",
+      col_append_frame_number(pinfo, COL_INFO, " [Reassembled in #%u]",
                       ipfd_head->reassembled_in);
     }
 
@@ -2473,11 +2284,12 @@ dissect_ip_v4(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
      even be labeled as an IP frame; ideally, if a frame being dissected
      throws an exception, it'll be labeled as a mangled frame of the
      type in question. */
-    if (!ip_try_dissect(try_heuristic_first, next_tvb, pinfo, parent_tree, iph)) {
+    if (!ip_try_dissect(try_heuristic_first, iph->ip_proto, next_tvb, pinfo,
+                        parent_tree, iph)) {
       /* Unknown protocol */
       if (update_col_info) {
         col_add_fstr(pinfo->cinfo, COL_INFO, "%s (%u)",
-                   ipprotostr(iph->ip_p), iph->ip_p);
+                   ipprotostr(iph->ip_proto), iph->ip_proto);
       }
       call_data_dissector(next_tvb, pinfo, parent_tree);
     }
@@ -2624,7 +2436,7 @@ proto_register_ip(void)
 
     { &hf_ip_hdr_len,
       { "Header Length", "ip.hdr_len", FT_UINT8, BASE_DEC,
-        NULL, 0x0F, NULL, HFILL }},
+        NULL, 0x0, NULL, HFILL }},
 
     { &hf_ip_dsfield,
       { "Differentiated Services Field", "ip.dsfield", FT_UINT8, BASE_HEX,
@@ -2694,95 +2506,99 @@ proto_register_ip(void)
       { "Source or Destination Host", "ip.host", FT_STRING, BASE_NONE,
         NULL, 0x0, NULL, HFILL }},
 
-#ifdef HAVE_GEOIP
     { &hf_geoip_country,
       { "Source or Destination GeoIP Country", "ip.geoip.country",
+        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_country_iso,
+      { "Source or Destination GeoIP ISO Two Letter Country Code", "ip.geoip.country_iso",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
     { &hf_geoip_city,
       { "Source or Destination GeoIP City", "ip.geoip.city",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_org,
-      { "Source or Destination GeoIP Organization", "ip.geoip.org",
-        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_isp,
-      { "Source or Destination GeoIP ISP", "ip.geoip.isp",
-        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_asnum,
+    { &hf_geoip_as_number,
       { "Source or Destination GeoIP AS Number", "ip.geoip.asnum",
+        FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_as_org,
+      { "Source or Destination GeoIP AS Organization", "ip.geoip.org",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_lat,
+    { &hf_geoip_latitude,
       { "Source or Destination GeoIP Latitude", "ip.geoip.lat",
         FT_DOUBLE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_lon,
+    { &hf_geoip_longitude,
       { "Source or Destination GeoIP Longitude", "ip.geoip.lon",
         FT_DOUBLE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_src_summary,
+      { "Source GeoIP", "ip.geoip.src_summary",
+        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
     { &hf_geoip_src_country,
       { "Source GeoIP Country", "ip.geoip.src_country",
+        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_src_country_iso,
+      { "Source GeoIP ISO Two Letter Country Code", "ip.geoip.src_country_iso",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
     { &hf_geoip_src_city,
       { "Source GeoIP City", "ip.geoip.src_city",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_src_org,
-      { "Source GeoIP Organization", "ip.geoip.src_org",
-        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_src_isp,
-      { "Source GeoIP ISP", "ip.geoip.src_isp",
-        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_src_asnum,
+    { &hf_geoip_src_as_number,
       { "Source GeoIP AS Number", "ip.geoip.src_asnum",
+        FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_src_as_org,
+      { "Source GeoIP AS Organization", "ip.geoip.src_org",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_src_lat,
+    { &hf_geoip_src_latitude,
       { "Source GeoIP Latitude", "ip.geoip.src_lat",
         FT_DOUBLE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_src_lon,
+    { &hf_geoip_src_longitude,
       { "Source GeoIP Longitude", "ip.geoip.src_lon",
         FT_DOUBLE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_dst_summary,
+      { "Destination GeoIP", "ip.geoip.dst_summary",
+        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
     { &hf_geoip_dst_country,
       { "Destination GeoIP Country", "ip.geoip.dst_country",
+        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_dst_country_iso,
+      { "Destination GeoIP ISO Two Letter Country Code", "ip.geoip.dst_country_iso",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
     { &hf_geoip_dst_city,
       { "Destination GeoIP City", "ip.geoip.dst_city",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_dst_org,
-      { "Destination GeoIP Organization", "ip.geoip.dst_org",
-        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_dst_isp,
-      { "Destination GeoIP ISP", "ip.geoip.dst_isp",
-        FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_dst_asnum,
+    { &hf_geoip_dst_as_number,
       { "Destination GeoIP AS Number", "ip.geoip.dst_asnum",
+        FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+    { &hf_geoip_dst_as_org,
+      { "Destination GeoIP AS Organization", "ip.geoip.dst_org",
         FT_STRING, STR_UNICODE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_dst_lat,
+    { &hf_geoip_dst_latitude,
       { "Destination GeoIP Latitude", "ip.geoip.dst_lat",
         FT_DOUBLE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-    { &hf_geoip_dst_lon,
+    { &hf_geoip_dst_longitude,
       { "Destination GeoIP Longitude", "ip.geoip.dst_lon",
         FT_DOUBLE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-#endif /* HAVE_GEOIP */
 
     { &hf_ip_flags,
-      { "Flags", "ip.flags", FT_UINT8, BASE_HEX,
+      { "Flags", "ip.flags", FT_UINT16, BASE_HEX,
         NULL, 0x0, FLAGS_OFFSET_WIDTH_MSG(IP_FLAGS_WIDTH), HFILL }},
 
     { &hf_ip_flags_sf,
-      { "Security flag", "ip.flags.sf", FT_BOOLEAN, BASE_NONE,
-        TFS(&flags_sf_set_evil), 0x0, "Security flag (RFC 3514)", HFILL }},
+      { "Security flag", "ip.flags.sf", FT_BOOLEAN, 16,
+        TFS(&flags_sf_set_evil), 0x8000, "Security flag (RFC 3514)", HFILL }},
 
     { &hf_ip_flags_rf,
-      { "Reserved bit", "ip.flags.rb", FT_BOOLEAN, BASE_NONE,
-        TFS(&tfs_set_notset), 0x0, NULL, HFILL }},
+      { "Reserved bit", "ip.flags.rb", FT_BOOLEAN, 16,
+        TFS(&tfs_set_notset), 0x8000, NULL, HFILL }},
 
     { &hf_ip_flags_df,
-      { "Don't fragment", "ip.flags.df", FT_BOOLEAN, BASE_NONE,
-        TFS(&tfs_set_notset), 0x0, NULL, HFILL }},
+      { "Don't fragment", "ip.flags.df", FT_BOOLEAN, 16,
+        TFS(&tfs_set_notset), 0x4000, NULL, HFILL }},
 
     { &hf_ip_flags_mf,
-      { "More fragments", "ip.flags.mf", FT_BOOLEAN, BASE_NONE,
-        TFS(&tfs_set_notset), 0x0, NULL, HFILL }},
+      { "More fragments", "ip.flags.mf", FT_BOOLEAN, 16,
+        TFS(&tfs_set_notset), 0x2000, NULL, HFILL }},
 
     { &hf_ip_frag_offset,
       { "Fragment offset", "ip.frag_offset", FT_UINT16, BASE_DEC,
-        NULL, 0x0, FRAG_OFFSET_WIDTH_MSG(IP_OFFSET_WIDTH), HFILL }},
+        NULL, 0x1fff, FRAG_OFFSET_WIDTH_MSG(IP_OFFSET_WIDTH), HFILL }},
 
     { &hf_ip_ttl,
       { "Time to live", "ip.ttl", FT_UINT8, BASE_DEC,
@@ -2800,13 +2616,9 @@ proto_register_ip(void)
     { "Calculated Checksum", "ip.checksum_calculated", FT_UINT16, BASE_HEX, NULL, 0x0,
         "The expected IP checksum field as calculated from the IP datagram", HFILL }},
 
-    { &hf_ip_checksum_good,
-      { "Good", "ip.checksum_good", FT_BOOLEAN, BASE_NONE,  NULL, 0x0,
-        "True: checksum matches packet content; False: doesn't match content or not checked", HFILL }},
-
-    { &hf_ip_checksum_bad,
-      { "Bad", "ip.checksum_bad", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-        "True: checksum doesn't match packet content; False: matches content or not checked", HFILL }},
+    { &hf_ip_checksum_status,
+      { "Header checksum status", "ip.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+        NULL, HFILL }},
 
     /* IP options related fields */
     { &hf_ip_opt_type,
@@ -3079,13 +2891,10 @@ proto_register_ip(void)
     &ett_ip_option_other,
     &ett_ip_fragments,
     &ett_ip_fragment,
-    &ett_ip_checksum,
     &ett_ip_opt_type,
     &ett_ip_opt_sec_prot_auth_flags,
-    &ett_unknown_ip_tcp_opt,
-#ifdef HAVE_GEOIP
+    &ett_ip_unknown_opt,
     &ett_geoip_info
-#endif
   };
   static ei_register_info ei[] = {
      { &ei_ip_opt_len_invalid, { "ip.opt.len.invalid", PI_PROTOCOL, PI_WARN, "Invalid length for option", EXPFILL }},
@@ -3096,7 +2905,7 @@ proto_register_ip(void)
      { &ei_ip_subopt_too_long, { "ip.subopt_too_long", PI_PROTOCOL, PI_WARN, "Suboption would go past end of option", EXPFILL }},
      { &ei_ip_nop, { "ip.nop", PI_PROTOCOL, PI_WARN, "4 NOP in a row - a router may have removed some options", EXPFILL }},
      { &ei_ip_bogus_ip_length, { "ip.bogus_ip_length", PI_PROTOCOL, PI_ERROR, "Bogus IP length", EXPFILL }},
-     { &ei_ip_evil_packet, { "ip.evil_packet", PI_PROTOCOL, PI_WARN, "Suboption would go past end of option", EXPFILL }},
+     { &ei_ip_evil_packet, { "ip.evil_packet", PI_PROTOCOL, PI_WARN, "Packet has evil intent", EXPFILL }},
      { &ei_ip_checksum_bad, { "ip.checksum_bad.expert", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
      { &ei_ip_ttl_lncb, { "ip.ttl.lncb", PI_SEQUENCE, PI_NOTE, "Time To Live", EXPFILL }},
      { &ei_ip_ttl_too_small, { "ip.ttl.too_small", PI_SEQUENCE, PI_NOTE, "Time To Live", EXPFILL }},
@@ -3121,7 +2930,9 @@ proto_register_ip(void)
 
   /* subdissector code */
   ip_dissector_table = register_dissector_table("ip.proto", "IP protocol",
-                                                proto_ip, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                proto_ip, FT_UINT8, BASE_DEC);
+  ip_option_table = register_dissector_table("ip.option", "IP Options",
+                                                proto_ip, FT_UINT8, BASE_DEC);
   heur_subdissector_list = register_heur_dissector_list("ip", proto_ip);
   register_capture_dissector_table("ip.proto", "IP protocol");
 
@@ -3145,12 +2956,10 @@ proto_register_ip(void)
     "Support packet-capture from IP TSO-enabled hardware",
     "Whether to correct for TSO-enabled (TCP segmentation offload) hardware "
     "captures, such as spoofing the IP packet length", &ip_tso_supported);
-#ifdef HAVE_GEOIP
   prefs_register_bool_preference(ip_module, "use_geoip",
-    "Enable GeoIP lookups",
-    "Whether to look up IP addresses in each GeoIP database we have loaded",
+    "Enable IPv4 geolocation",
+    "Whether to look up IP addresses in each MaxMind database we have loaded",
     &ip_use_geoip);
-#endif /* HAVE_GEOIP */
   prefs_register_bool_preference(ip_module, "security_flag" ,
     "Interpret Reserved flag as Security flag (RFC 3514)",
     "Whether to interpret the originally reserved flag as security flag",
@@ -3160,23 +2969,43 @@ proto_register_ip(void)
     "Try to decode a packet using an heuristic sub-dissector before using a sub-dissector registered to a specific port",
     &try_heuristic_first);
 
-  register_dissector("ip", dissect_ip, proto_ip);
-  register_init_routine(ip_defragment_init);
-  register_cleanup_routine(ip_defragment_cleanup);
+  ip_handle = register_dissector("ip", dissect_ip, proto_ip);
+  reassembly_table_register(&ip_reassembly_table,
+                        &addresses_reassembly_table_functions);
   ip_tap = register_tap("ip");
 
   register_decode_as(&ip_da);
   register_conversation_table(proto_ip, TRUE, ip_conversation_packet, ip_hostlist_packet);
   register_conversation_filter("ip", "IPv4", ip_filter_valid, ip_build_filter);
+
+  ip_cap_handle = register_capture_dissector("ip", capture_ip, proto_ip);
+
+  /* Register IP options as their own protocols so we can get the name of the option */
+  proto_ip_option_eol = proto_register_protocol_in_name_only("IP Option - End of Options List (EOL)", "End of Options List (EOL)", "ip.options.eol", proto_ip, FT_BYTES);
+  proto_ip_option_nop = proto_register_protocol_in_name_only("IP Option - No-Operation (NOP)", "No Operation (NOP)", "ip.options.nop", proto_ip, FT_BYTES);
+  proto_ip_option_security = proto_register_protocol_in_name_only("IP Option - Security", "Security", "ip.options.security", proto_ip, FT_BYTES);
+  proto_ip_option_route = proto_register_protocol_in_name_only("IP Option - Loose Source Route", "Loose Source Route", "ip.options.route", proto_ip, FT_BYTES);
+  proto_ip_option_timestamp = proto_register_protocol_in_name_only("IP Option - Time Stamp", "Time Stamp", "ip.options.timestamp", proto_ip, FT_BYTES);
+  proto_ip_option_ext_security = proto_register_protocol_in_name_only("IP Option - Extended Security", "Extended Security", "ip.options.ext_security", proto_ip, FT_BYTES);
+  proto_ip_option_cipso = proto_register_protocol_in_name_only("IP Option - Commercial Security", "Commercial Security", "ip.options.cipso", proto_ip, FT_BYTES);
+  proto_ip_option_record_route = proto_register_protocol_in_name_only("IP Option - Record Route", "Record Route", "ip.options.record_route", proto_ip, FT_BYTES);
+  proto_ip_option_sid = proto_register_protocol_in_name_only("IP Option - Stream ID", "Stream ID", "ip.options.sid", proto_ip, FT_BYTES);
+  proto_ip_option_source_route = proto_register_protocol_in_name_only("IP Option - Strict Source Route", "Strict Source Route", "ip.options.source_route", proto_ip, FT_BYTES);
+  proto_ip_option_mtu_probe = proto_register_protocol_in_name_only("IP Option - MTU Probe", "MTU Probe", "ip.options.mtu_probe", proto_ip, FT_BYTES);
+  proto_ip_option_mtu_reply = proto_register_protocol_in_name_only("IP Option - MTU Reply", "MTU Reply", "ip.options.mtu_reply", proto_ip, FT_BYTES);
+  proto_ip_option_traceroute = proto_register_protocol_in_name_only("IP Option - Traceroute", "Traceroute", "ip.options.traceroute", proto_ip, FT_BYTES);
+  proto_ip_option_routeralert = proto_register_protocol_in_name_only("IP Option - Router Alert", "Router Alert", "ip.options.routeralert", proto_ip, FT_BYTES);
+  proto_ip_option_sdb = proto_register_protocol_in_name_only("IP Option - Selective Directed Broadcast", "Selective Directed Broadcast", "ip.options.sdb", proto_ip, FT_BYTES);
+  proto_ip_option_qs = proto_register_protocol_in_name_only("IP Option - Quick-Start", "Quick-Start", "ip.options.qs", proto_ip, FT_BYTES);
 }
 
 void
 proto_reg_handoff_ip(void)
 {
-  dissector_handle_t ip_handle;
   dissector_handle_t ipv4_handle;
+  capture_dissector_handle_t clip_cap_handle;
+  int proto_clip;
 
-  ip_handle = find_dissector("ip");
   ipv6_handle = find_dissector("ipv6");
   ipv4_handle = create_dissector_handle(dissect_ip_v4, proto_ip);
 
@@ -3198,20 +3027,49 @@ proto_reg_handoff_ip(void)
   dissector_add_uint("ax25.pid", AX25_P_IP, ip_handle);
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_IP, ip_handle);
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_MPLS_IP, ip_handle);
-  dissector_add_uint("pwach.channel_type", 0x21, ip_handle); /* IPv4, RFC4385 clause 6. */
+  dissector_add_uint("pwach.channel_type", PW_ACH_TYPE_IPV4, ip_handle);
   dissector_add_uint("sflow_245.header_protocol", SFLOW_245_HEADER_IPv4, ip_handle);
   dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_IP, ip_handle);
-  dissector_add_for_decode_as("udp.port", ip_handle);
+  dissector_add_for_decode_as_with_preference("udp.port", ip_handle);
   dissector_add_for_decode_as("pcli.payload", ip_handle);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_RAW_IP4, ip_handle);
   dissector_add_uint("enc", BSD_AF_INET, ip_handle);
+  dissector_add_uint("vxlan.next_proto", VXLAN_IPV4, ip_handle);
+  dissector_add_uint("nsh.next_proto", NSH_IPV4, ip_handle);
 
   heur_dissector_add("tipc", dissect_ip_heur, "IP over TIPC", "ip_tipc", proto_ip, HEURISTIC_ENABLE);
-  register_capture_dissector("ethertype", ETHERTYPE_IP, capture_ip, proto_ip);
-  register_capture_dissector("ax25.pid", AX25_P_IP, capture_ip, proto_ip);
-  register_capture_dissector("enc", BSD_AF_INET, capture_ip, proto_ip);
-  register_capture_dissector("ppp_hdlc", PPP_IP, capture_ip, proto_ip);
-  register_capture_dissector("llc.dsap", SAP_IP, capture_ip, proto_ip);
+  heur_dissector_add("zbee_zcl_se.tun", dissect_ip_heur, "IP over ZigBee SE Tunneling", "ip_zbee_zcl_se.tun", proto_ip, HEURISTIC_ENABLE);
+
+  capture_dissector_add_uint("ethertype", ETHERTYPE_IP, ip_cap_handle);
+  capture_dissector_add_uint("ax25.pid", AX25_P_IP, ip_cap_handle);
+  capture_dissector_add_uint("enc", BSD_AF_INET, ip_cap_handle);
+  capture_dissector_add_uint("ppp_hdlc", PPP_IP, ip_cap_handle);
+  capture_dissector_add_uint("llc.dsap", SAP_IP, ip_cap_handle);
+  capture_dissector_add_uint("null.bsd", BSD_AF_INET, ip_cap_handle);
+  capture_dissector_add_uint("fr.nlpid", NLPID_IP, ip_cap_handle);
+
+  /* Create dissection function handles for all IP options */
+  dissector_add_uint("ip.option", IPOPT_SEC, create_dissector_handle( dissect_ipopt_security, proto_ip_option_security ));
+  dissector_add_uint("ip.option", IPOPT_LSR, create_dissector_handle( dissect_ipopt_loose_route, proto_ip_option_route ));
+  dissector_add_uint("ip.option", IPOPT_TS, create_dissector_handle( dissect_ipopt_timestamp, proto_ip_option_timestamp ));
+  dissector_add_uint("ip.option", IPOPT_ESEC, create_dissector_handle( dissect_ipopt_ext_security, proto_ip_option_ext_security ));
+  dissector_add_uint("ip.option", IPOPT_CIPSO, create_dissector_handle( dissect_ipopt_cipso, proto_ip_option_cipso ));
+  dissector_add_uint("ip.option", IPOPT_RR, create_dissector_handle( dissect_ipopt_record_route, proto_ip_option_record_route ));
+  dissector_add_uint("ip.option", IPOPT_SID, create_dissector_handle( dissect_ipopt_sid, proto_ip_option_sid ));
+  dissector_add_uint("ip.option", IPOPT_SSR, create_dissector_handle( dissect_ipopt_source_route, proto_ip_option_source_route ));
+  dissector_add_uint("ip.option", IPOPT_MTUP, create_dissector_handle( dissect_ipopt_mtu_probe, proto_ip_option_mtu_probe ));
+  dissector_add_uint("ip.option", IPOPT_MTUR, create_dissector_handle( dissect_ipopt_mtu_reply, proto_ip_option_mtu_reply ));
+  dissector_add_uint("ip.option", IPOPT_TR, create_dissector_handle( dissect_ipopt_tr, proto_ip_option_traceroute ));
+  dissector_add_uint("ip.option", IPOPT_RTRALT, create_dissector_handle( dissect_ipopt_ra, proto_ip_option_routeralert ));
+  dissector_add_uint("ip.option", IPOPT_SDB, create_dissector_handle( dissect_ipopt_sdb, proto_ip_option_sdb ));
+  dissector_add_uint("ip.option", IPOPT_QS, create_dissector_handle( dissect_ipopt_qs, proto_ip_option_qs ));
+
+  /* Classic IP uses the same capture function, but wants its own
+     protocol associated with it.  To eliminate linking dependencies,
+     just add it here */
+  proto_clip = proto_get_id_by_filter_name( "clip" );
+  clip_cap_handle = register_capture_dissector("clip", capture_ip, proto_clip);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_LINUX_ATM_CLIP, clip_cap_handle);
 }
 
 /*

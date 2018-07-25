@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * References:
  * RFC 3267  http://www.ietf.org/rfc/rfc3267.txt?number=3267
@@ -49,6 +37,7 @@ static dissector_handle_t amr_wb_handle;
 
 /* Initialize the protocol and registered fields */
 static int proto_amr = -1;
+static int proto_amr_wb = -1;
 static int hf_amr_nb_cmr = -1;
 static int hf_amr_wb_cmr = -1;
 static int hf_amr_payload_decoded_as = -1;
@@ -89,9 +78,10 @@ static expert_field ei_amr_padding_bits_not0 = EI_INIT;
 static expert_field ei_amr_padding_bits_correct = EI_INIT;
 static expert_field ei_amr_reserved = EI_INIT;
 
-/* The dynamic payload type which will be dissected as AMR */
-
-static guint temp_dynamic_payload_type = 0;
+/* The dynamic payload types which will be dissected as AMR */
+#define AMR_DEFAULT_DYN_PT_RANGE "0"
+static range_t *global_amr_dynamic_payload_types;
+static range_t *global_amr_wb_dynamic_payload_types;
 static gint  amr_encoding_type         = 0;
 static gint  pref_amr_mode             = AMR_NB;
 
@@ -787,6 +777,7 @@ proto_register_amr(void)
 
 /* Register the protocol name and description */
     proto_amr = proto_register_protocol("Adaptive Multi-Rate","AMR", "amr");
+    proto_amr_wb = proto_register_protocol_in_name_only("Adaptive Multi-Rate WB","AMR WB", "amr_wb", proto_amr, FT_PROTOCOL);
 
 /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_amr, hf, array_length(hf));
@@ -797,12 +788,17 @@ proto_register_amr(void)
 
     amr_module = prefs_register_protocol(proto_amr, proto_reg_handoff_amr);
 
-    prefs_register_uint_preference(amr_module, "dynamic.payload.type",
-                       "AMR dynamic payload type",
-                       "The dynamic payload type which will be interpreted as AMR"
-                       "; The value must be greater than 95",
-                       10,
-                       &temp_dynamic_payload_type);
+    prefs_register_range_preference(amr_module, "dynamic.payload.type",
+                       "AMR dynamic payload types",
+                       "The dynamic payload types which will be interpreted as AMR"
+                       "(default " AMR_DEFAULT_DYN_PT_RANGE ")",
+                       &global_amr_dynamic_payload_types, 127);
+
+    prefs_register_range_preference(amr_module, "wb.dynamic.payload.type",
+        "AMR-WB dynamic payload types",
+        "The dynamic payload types which will be interpreted as AMR-WB"
+        "(default " AMR_DEFAULT_DYN_PT_RANGE ")",
+        &global_amr_wb_dynamic_payload_types, 127);
 
     prefs_register_enum_preference(amr_module, "encoding.version",
                        "Type of AMR encoding of the payload",
@@ -815,7 +811,7 @@ proto_register_amr(void)
                        &pref_amr_mode, modes, AMR_NB);
 
     amr_handle = register_dissector("amr", dissect_amr, proto_amr);
-    amr_wb_handle = register_dissector("amr-wb", dissect_amr_wb, proto_amr);
+    amr_wb_handle = register_dissector("amr-wb", dissect_amr_wb, proto_amr_wb);
     register_dissector("amr_if1_nb", dissect_amr_nb_if1, proto_amr);
     register_dissector("amr_if1_wb", dissect_amr_wb_if1, proto_amr);
     register_dissector("amr_if2_nb", dissect_amr_nb_if2, proto_amr);
@@ -828,8 +824,9 @@ proto_register_amr(void)
 void
 proto_reg_handoff_amr(void)
 {
-    static guint              dynamic_payload_type;
-    static gboolean           amr_prefs_initialized = FALSE;
+    static range_t *amr_dynamic_payload_types;
+    static range_t *amr_wb_dynamic_payload_types;
+    static gboolean amr_prefs_initialized = FALSE;
 
     if (!amr_prefs_initialized) {
         dissector_handle_t  amr_name_handle;
@@ -850,18 +847,22 @@ proto_reg_handoff_amr(void)
                              create_dissector_handle(ftr->content_pdu, proto_amr));
         }
         /*  Activate the next line for testing with the randpkt tool
-            dissector_add_uint("udp.port", 55555, amr_handle);
+            dissector_add_uint_with_preference("udp.port", 55555, amr_handle);
         */
         amr_prefs_initialized = TRUE;
     } else {
-        if ( dynamic_payload_type > 95 )
-            dissector_delete_uint("rtp.pt", dynamic_payload_type, amr_handle);
+        dissector_delete_uint_range("rtp.pt", amr_dynamic_payload_types, amr_handle);
+        dissector_delete_uint_range("rtp.pt", amr_wb_dynamic_payload_types, amr_wb_handle);
     }
 
-    dynamic_payload_type = temp_dynamic_payload_type;
+    amr_dynamic_payload_types = range_copy(wmem_epan_scope(), global_amr_dynamic_payload_types);
+    amr_wb_dynamic_payload_types = range_copy(wmem_epan_scope(), global_amr_wb_dynamic_payload_types);
 
-    if ( dynamic_payload_type > 95 ) {
-        dissector_add_uint("rtp.pt", dynamic_payload_type, amr_handle);
+    if(!value_is_in_range(amr_dynamic_payload_types, 0)){
+        dissector_add_uint_range("rtp.pt", amr_dynamic_payload_types, amr_handle);
+    }
+    if (!value_is_in_range(amr_wb_dynamic_payload_types, 0)) {
+        dissector_add_uint_range("rtp.pt", amr_wb_dynamic_payload_types, amr_wb_handle);
     }
 }
 

@@ -6,19 +6,7 @@
  * Copyright 1998 Gerald Combs
  * Copyright 2002 Richard Sharpe <rsharpe@richardsharpe.com>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -40,6 +28,8 @@ static int hf_hs_fragno = -1;
 static gint ett_hyperscsi = -1;
 static gint ett_hs_hdr = -1;
 static gint ett_hs_pdu = -1;
+
+static dissector_handle_t hs_handle;
 
 static const true_false_string tfs_lastfrag = {
   "Last Fragment",
@@ -186,7 +176,7 @@ proto_register_hyperscsi(void)
   proto_register_field_array(proto_hyperscsi, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  register_dissector("hyperscsi", dissect_hyperscsi, proto_hyperscsi);
+  hs_handle = register_dissector("hyperscsi", dissect_hyperscsi, proto_hyperscsi);
 }
 
 /* XXX <epan/etypes.h> */
@@ -195,9 +185,6 @@ proto_register_hyperscsi(void)
 void
 proto_reg_handoff_hyperscsi(void)
 {
-  dissector_handle_t hs_handle;
-
-  hs_handle = find_dissector("hyperscsi");
   dissector_add_uint("ethertype", ETHERTYPE_HYPERSCSI, hs_handle);
 
 }

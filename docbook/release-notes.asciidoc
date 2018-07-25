@@ -1,107 +1,108 @@
-= Wireshark wireshark-version:[] Release Notes
-// AsciiDoc quick reference: http://powerman.name/doc/asciidoc
+include::attributes.asciidoc[]
+:stylesheet: ws.css
+:linkcss:
 
-This is a semi-experimental release intended to test new features for Wireshark 2.2.
+= Wireshark {wireshark-version} Release Notes
+// AsciiDoc quick reference: http://powerman.name/doc/asciidoc
+// Asciidoctor Syntax Quick Reference:
+// http://asciidoctor.org/docs/asciidoc-syntax-quick-reference/
+
+This is an experimental release intended to test new features for
+Wireshark 3.0.
 
 == What is Wireshark?
 
-Wireshark is the world's most popular network protocol analyzer. It is
+Wireshark is the world’s most popular network protocol analyzer. It is
 used for troubleshooting, analysis, development and education.
 
-== What's New
+== What’s New
 
-//=== Bug Fixes
+Many user interface improvements have been made. See the “New and Updated
+Features” section below for more details.
 
-//The following bugs have been fixed:
+=== Bug Fixes
 
-//* ws-buglink:5000[]
-//* ws-buglink:6000[Wireshark bug]
-//* cve-idlink:2014-2486[]
-//* Wireshark accepted your prom invitation then cancelled at the last minute. (ws-buglink:0000[])
+The following bugs have been fixed:
 
-_Non-empty section placeholder._
+//* wsbuglink:5000[]
+//* wsbuglink:6000[Wireshark bug]
+//* cveidlink:2014-2486[]
+//* Wireshark slowly leaked water under the kitchen sink over the course of several months, causing a big mess.
+
+//_Non-empty section placeholder._
+
+Dumpcap might not quit if Wireshark or TShark crashes.
+(wsbuglink:1419[])
 
 === New and Updated Features
 
 The following features are new (or have been significantly updated)
-since version 2.0.0:
-** You can now switch between between Capture and File Format dissection of
-the current capture file via the View menu in the Qt GUI.
-** You can now show selected packet bytes as ASCII, HTML, Image, ISO 8859-1, Raw or UTF-8.
-** You can now use regular expressions in Find Packet.
+since version 2.6.0:
+
+* TShark now supports the `-G elastic-mapping` option which generates an ElasticSearch mapping file.
+* The “Capture Information” dialog has been added back (wsbuglink:12004[]).
+* The Ethernet and IEEE 802.11 dissectors no longer validate the frame check sequence (checksum) by default.
+* The TCP dissector gained a new “Reassemble out-of-order segments” preference
+  to fix dissection and decryption issues in case TCP segments are received
+  out-of-order. See the User’s Guide, chapter _TCP Reassembly_ for details.
+
+=== Removed Features and Support
+
+* The legacy (GTK+) user interface has been removed and is no longer supported.
+* Wireshark requires Qt 5.2 or later. Qt 4 is no longer supported.
+* Wireshark requires GLib 2.32 or later.
+* Building Wireshark requires CMake. Autotools is no longer supported.
 
 //=== Removed Dissectors
 
-=== New File Format Decoding Support
-
-Wireshark is able to display the format of some types of files (rather than
-displaying the contents of those files). This is useful when you're curious
-about, or debugging, a file and its format.  To open a capture file (such as
-PCAP) in this mode specify "MIME Files Format" as the file's format in the
-Open File dialog.
-
-New files that Wireshark can open in this mode include:
-
-_Non-empty section placeholder._
---sort-and-group--
---sort-and-group--
+//=== New File Format Decoding Support
 
 === New Protocol Support
-CISCO ERSPAN3 Marker
-Nokia Intelligent Service Interface (ISI)
-ISO14443
-Extensible Control & Management Protocol (eCMP)
-RTI TCP Transport Layer (RTITCP)
-ITU-T G.7041/Y.1303 Generic Framing Procedure (GFP)
-Zigbee Protocol Clusters Dissectors Added (Closures, Lighting, General, Measurement & Sensing, HVAC, Security & Safety)
-LAT protocol (DECNET)
-Ericsson IPOS Kernel Packet Header Dissector Added (IPOS)
-STANAG 5602 SIMPLE
-UserLog Protocol
-FLEXRAY Protocol dissector added (automotive bus)
-USB3 Vision Protocol (USB machine vision cameras)
-USBIP Protocol
-Open Mobile Alliance Lightweight Machine to Machine TLV payload Added (LwM2M TLV)
-Metamako trailers
-ISO 8583-1
 
-// Items in --sort-and-group-- blocks will be sorted and comma-separated.
---sort-and-group--
---sort-and-group--
+// Add one protocol per line between the -- delimiters.
+[commaize]
+--
+DoIP (ISO 13400-2 Diagnostic communication over Internet Protocol)
+GSUP (Osmocom Generic Subscriber Update Protocol)
+NGAP (5G) protocol
+NR (5G) PDCP protocol
+TPM 2.0 protocol
+PROXY (v2) protocol
+Ruby Marshal format
+Ruby Distributed protocol
+GSM-R protocol (User-to-User Information Element usage)
+S101 Lawo Emberplus transport frame
+GLOW Lawo Emberplus Data format
+STCSIG (Spirent Test Center Signature decoding for Ethernet and FibreChannel, disabled by default)
+Exablaze trailers
+Ubiquiti Discovery Protocol (UBDP)
+Cisco Meraki Discovery Protocol (MDP)
+XnAP (5G) protocol
+E1AP (5G) protocol
+MsgPack protocol
+DXL protocol
+--
 
 === Updated Protocol Support
-
-Bluetooth OBEX dissector (btobex) was renamed to Obex Dissector (obex), allow to
-DecodeAs it over USB, TCP and UDP.
 
 Too many protocols have been updated to list here.
 
 === New and Updated Capture File Support
 
-_Non-empty section placeholder._
---sort-and-group--
---sort-and-group--
+//_Non-empty section placeholder._
+// Add one file type per line between the --sort-and-group-- delimiters.
+[commaize]
 
 === New and Updated Capture Interfaces support
 
-_Non-empty section placeholder._
---sort-and-group--
---sort-and-group--
+//_Non-empty section placeholder._
+[commaize]
+--
+A new extcap has been added: dpauxmon. It allows capturing DisplayPort AUX channel
+data from linux kernel drivers.
+--
 
-=== Major API Changes
-
-The libwireshark API has undergone some major changes:
-
-* The address macros (e.g., SET_ADDRESS) have been removed.  Use the
-(lower case) functions of the same names instead.
-
-* "old style" dissector functions (that don't return number of bytes
-used) have been replaced in name with the "new style" dissector
-functions.
-
-* tvb_get_string and tvb_get_stringz have been replaced with
-tvb_get_string_enc and tvb_get_stringz_enc respectively.
-
+//=== Major API Changes
 
 == Getting Wireshark
 
@@ -125,46 +126,28 @@ locations on your system.
 
 == Known Problems
 
-Dumpcap might not quit if Wireshark or TShark crashes.
-(ws-buglink:1419[])
-
 The BER dissector might infinitely loop.
-(ws-buglink:1516[])
+(wsbuglink:1516[])
 
 Capture filters aren't applied when capturing from named pipes.
-(ws-buglink:1814[])
+(wsbuglink:1814[])
 
 Filtering tshark captures with read filters (-R) no longer works.
-(ws-buglink:2234[])
-
-Resolving (ws-buglink:9044[]) reopens (ws-buglink:3528[]) so that Wireshark
-no longer automatically decodes gzip data when following a TCP stream.
+(wsbuglink:2234[])
 
 Application crash when changing real-time option.
-(ws-buglink:4035[])
-
-Hex pane display issue after startup.
-(ws-buglink:4056[])
-
-Packet list rows are oversized.
-(ws-buglink:4357[])
+(wsbuglink:4035[])
 
 Wireshark and TShark will display incorrect delta times in some cases.
-(ws-buglink:4985[])
+(wsbuglink:4985[])
 
-The 64-bit version of Wireshark will leak memory on Windows when the display
-depth is set to 16 bits (ws-buglink:9914[])
-
-Wireshark should let you work with multiple capture files. (ws-buglink:10488[])
-
-Dell Backup and Recovery (DBAR) makes many Windows applications crash,
-including Wireshark. (ws-buglink:12036[])
+Wireshark should let you work with multiple capture files. (wsbuglink:10488[])
 
 == Getting Help
 
-Community support is available on https://ask.wireshark.org/[Wireshark's
+Community support is available on https://ask.wireshark.org/[Wireshark’s
 Q&A site] and on the wireshark-users mailing list. Subscription
-information and archives for all of Wireshark's mailing lists can be
+information and archives for all of Wireshark’s mailing lists can be
 found on https://www.wireshark.org/lists/[the web site].
 
 Official Wireshark training and certification are available from

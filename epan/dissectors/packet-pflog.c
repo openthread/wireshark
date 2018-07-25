@@ -4,26 +4,7 @@
  * Copyright 2001 Mike Frantzen
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- *    - Redistributions of source code must retain the above copyright
- *      notice, this list of conditions and the following disclaimer.
- *      with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
- * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-1-Clause
  */
 
 /* Specifications... :
@@ -166,7 +147,7 @@ dissect_pflog(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
   proto_item *ti = NULL, *ti_len;
   int length;
   guint8 af, action;
-  guint8 *ifname;
+  const guint8 *ifname;
   guint32 rulenr;
   guint8 pad_len = 3;
   gint offset = 0;
@@ -197,8 +178,7 @@ dissect_pflog(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
   proto_tree_add_item(pflog_tree, hf_pflog_reason, tvb, offset, 1, ENC_BIG_ENDIAN);
   offset += 1;
 
-  proto_tree_add_item(pflog_tree, hf_pflog_ifname, tvb, offset, 16, ENC_ASCII|ENC_NA);
-  ifname = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 16, ENC_ASCII);
+  proto_tree_add_item_ret_string(pflog_tree, hf_pflog_ifname, tvb, offset, 16, ENC_ASCII|ENC_NA, wmem_packet_scope(), &ifname);
   offset += 16;
 
   proto_tree_add_item(pflog_tree, hf_pflog_ruleset, tvb, offset, 16, ENC_ASCII|ENC_NA);
@@ -428,7 +408,7 @@ dissect_old_pflog(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
   proto_tree *pflog_tree;
   proto_item *ti;
   guint32 af;
-  guint8 *ifname;
+  const guint8 *ifname;
   guint16 rnr, action;
   gint offset = 0;
 
@@ -442,8 +422,7 @@ dissect_old_pflog(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
   af = tvb_get_ntohl(tvb, offset);
   offset +=4;
 
-  proto_tree_add_item(pflog_tree, hf_old_pflog_ifname, tvb, offset, 16, ENC_ASCII|ENC_NA);
-  ifname = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 16, ENC_ASCII);
+  proto_tree_add_item_ret_string(pflog_tree, hf_old_pflog_ifname, tvb, offset, 16, ENC_ASCII|ENC_NA, wmem_packet_scope(), &ifname);
   offset +=16;
 
   proto_tree_add_item(pflog_tree, hf_old_pflog_rnr, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -529,9 +508,6 @@ void
 proto_reg_handoff_old_pflog(void)
 {
   dissector_handle_t pflog_handle;
-
-  ip_handle = find_dissector("ip");
-  ipv6_handle = find_dissector("ipv6");
 
   pflog_handle = create_dissector_handle(dissect_old_pflog, proto_old_pflog);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_OLD_PFLOG, pflog_handle);

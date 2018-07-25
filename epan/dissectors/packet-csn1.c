@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -193,8 +181,9 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         }
         else if(pDescr->may_be_null)
         {
-            *pui8 = 0;
-            proto_tree_add_none_format(tree, hf_null_data, tvb, 0, 0, "[NULL data]: %s Not Present", proto_registrar_get_name(*(pDescr->hf_ptr)));
+          pui8  = pui8DATA(data, pDescr->offset);
+          *pui8 = 0;
+          proto_tree_add_none_format(tree, hf_null_data, tvb, 0, 0, "[NULL data]: %s Not Present", proto_registrar_get_name(*(pDescr->hf_ptr)));
         }
         else
         {
@@ -223,53 +212,53 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
           if (no_of_bits <= 8)
           {
             guint8 ui8 = tvb_get_bits8(tvb, bit_offset, no_of_bits);
-            pui8      = pui8DATA(data, pDescr->offset);
-            *pui8     = ui8;
+            pui8  = pui8DATA(data, pDescr->offset);
+            *pui8 = ui8;
             proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
           }
           else if (no_of_bits <= 16)
           {
             guint16 ui16 = tvb_get_bits16(tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
-            pui16       = pui16DATA(data, pDescr->offset);
-            *pui16      = ui16;
+            pui16  = pui16DATA(data, pDescr->offset);
+            *pui16 = ui16;
             proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
           }
           else if (no_of_bits <= 32)
           {
             guint32 ui32 = tvb_get_bits32(tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
-            pui32       = pui32DATA(data, pDescr->offset);
-            *pui32      = ui32;
+            pui32  = pui32DATA(data, pDescr->offset);
+            *pui32 = ui32;
             proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
           }
           else
           {
             return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_GENERAL, &ei_csn1_general, pDescr);
           }
-        remaining_bits_len -= no_of_bits;
-        bit_offset += no_of_bits;
+          remaining_bits_len -= no_of_bits;
+          bit_offset += no_of_bits;
         }
         else if(pDescr->may_be_null)
         {
             if (no_of_bits <= 8)
             {
-              pui8      = pui8DATA(data, pDescr->offset);
-              *pui8     = 0;
+              pui8  = pui8DATA(data, pDescr->offset);
+              *pui8 = 0;
             }
             else if (no_of_bits <= 16)
             {
-              pui16      = pui16DATA(data, pDescr->offset);
-              *pui16     = 0;
+              pui16  = pui16DATA(data, pDescr->offset);
+              *pui16 = 0;
             }
             else if (no_of_bits <= 32)
             {
-              pui32      = pui32DATA(data, pDescr->offset);
-              *pui32     = 0;
+              pui32  = pui32DATA(data, pDescr->offset);
+              *pui32 = 0;
             }
             proto_tree_add_none_format(tree, hf_null_data, tvb, 0, 0, "[NULL data]: %s Not Present", proto_registrar_get_name(*(pDescr->hf_ptr)));
         }
         else
         {
-            return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
+          return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
         }
 
         pDescr++;
@@ -386,11 +375,11 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         {
           if (remaining_bits_len >= pDescr->descr.crumb_spec[pDescr->i].crumb_bit_length)
           {
-             proto_tree_add_split_bits_crumb(tree, *pDescr->hf_ptr, tvb, bit_offset,
-                                             pDescr->descr.crumb_spec, pDescr->i);
+            proto_tree_add_split_bits_crumb(tree, *pDescr->hf_ptr, tvb, bit_offset,
+                                            pDescr->descr.crumb_spec, pDescr->i);
 
-          remaining_bits_len -= pDescr->descr.crumb_spec[pDescr->i].crumb_bit_length;
-          bit_offset += pDescr->descr.crumb_spec[pDescr->i].crumb_bit_length;
+            remaining_bits_len -= pDescr->descr.crumb_spec[pDescr->i].crumb_bit_length;
+            bit_offset += pDescr->descr.crumb_spec[pDescr->i].crumb_bit_length;
           }
           else
           {
@@ -405,7 +394,7 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
       {
         guint8  no_of_bits  = (guint8) pDescr->i;
         guint16 nCount = (guint16)pDescr->descr.value; /* nCount supplied by value i.e. M_UINT_ARRAY(...) */
-        int i =0;
+        int i = 0;
 
         if (pDescr->value != 0)
         { /* nCount specified by a reference to field holding value i.e. M_VAR_UINT_ARRAY(...) */
@@ -484,7 +473,6 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
             proto_item_set_len(ti,((arT.bit_offset-1)>>3) - (bit_offset>>3)+1);
             remaining_bits_len = arT.remaining_bits_len;
             bit_offset         = arT.bit_offset;
-
           }
           else
           {
@@ -580,16 +568,19 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
             pui8          = pui8DATA(data, pDescr->offset);
             *pui8         = i;
 
-            if (pDescr->sz) {
+            if (pDescr->sz)
+            {
               proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, no_of_bits, ENC_BIG_ENDIAN);
             }
 
-            if (!pChoice->keep_bits) {
+            if (!pChoice->keep_bits)
+            {
               bit_offset += no_of_bits;
               remaining_bits_len -= no_of_bits;
             }
 
-            if (pDescr->sz) {
+            if (pDescr->sz)
+            {
               test_tree = proto_tree_add_subtree(tree, tvb, bit_offset>>3, 1, ett_csn1, &ti, pDescr->sz);
             } else {
               test_tree = tree;
@@ -631,7 +622,8 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         proto_tree   *test_tree;
         guint8 length = 0;
 
-        if (length_len) {
+        if (length_len)
+        {
           length = tvb_get_bits8(tvb, bit_offset, length_len);
 
           proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, length_len, ENC_BIG_ENDIAN);
@@ -709,10 +701,8 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         pui8  = pui8DATA(data, pDescr->offset);
         *pui8 = t_index;
 
-
         /* script index to continue on, limited in case we do not have a power of 2 */
         pDescr += (MIN(t_index + 1, count));
-
 
         switch (pDescr->type)
         { /* get the right element of the union based on computed index */
@@ -1139,7 +1129,7 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         /*no break -
          * with a length set we have a regular variable length bitmap so we continue */
       }
-
+      /* FALL THROUGH */
       case CSN_VARIABLE_BITMAP:
       { /* {CSN_VARIABLE_BITMAP, 0, offsetof(_STRUCT, _ElementCountField), offsetof(_STRUCT, _MEMBER), #_MEMBER}
          * <N: bit (5)> <bitmap: bit(N + offset)>
@@ -1150,34 +1140,16 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
 
         no_of_bits += pDescr->i; /* adjusted by offset */
 
-        if (no_of_bits > 0)
+        while (no_of_bits > 0)
         {
           proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, 1, ENC_BIG_ENDIAN);
+          bit_offset++;
+          no_of_bits--;
+          remaining_bits_len--;
 
           if (remaining_bits_len < 0)
           {
             return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
-          }
-
-          { /* extract bits */
-            guint8* t_pui8 = pui8DATA(data, pDescr->offset);
-            gint16 nB1  = no_of_bits & 0x07;/* no_of_bits Mod 8 */
-
-            if (nB1 > 0)
-            { /* take care of the first byte - it will be right aligned */
-              *t_pui8++ = tvb_get_bits8(tvb, bit_offset, nB1);
-              no_of_bits  -= nB1;
-              bit_offset += nB1; /* (nB1 is no_of_bits Mod 8) */
-              remaining_bits_len -= nB1;
-            }
-
-            /* remaining no_of_bits is a multiple of 8 or 0 */
-            while (no_of_bits > 0)
-            {
-              *t_pui8++ = tvb_get_bits8(tvb, bit_offset, 8);
-              no_of_bits -= 8;
-              remaining_bits_len -= 8;
-            }
           }
         }
         pDescr++;
@@ -1193,7 +1165,7 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
          * with a length set we have a regular left aligned variable length bitmap so we continue
          */
       }
-
+      /* FALL THROUGH */
       case CSN_LEFT_ALIGNED_VAR_BMP:
       { /* {CSN_LEFT_ALIGNED_VAR_BMP, _OFFSET, (void*)offsetof(_STRUCT, _ElementCountField), offsetof(_STRUCT, _MEMBER), #_MEMBER}
          * <N: bit (5)> <bitmap: bit(N + offset)>
@@ -1233,37 +1205,37 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
       }
 
 
-       case CSN_PADDING_BITS:
-       { /* Padding from here and to the end of message */
+      case CSN_PADDING_BITS:
+      { /* Padding from here and to the end of message */
 
-         if (remaining_bits_len > 0)
-         {
-            proto_tree *padding_tree = proto_tree_add_subtree(tree, tvb, bit_offset>>3, -1, ett_csn1, NULL, "Padding Bits");
-            while (remaining_bits_len > 0)
+        if (remaining_bits_len > 0)
+        {
+          proto_tree *padding_tree = proto_tree_add_subtree(tree, tvb, bit_offset>>3, -1, ett_csn1, NULL, "Padding Bits");
+          while (remaining_bits_len > 0)
+          {
+            gint bits_to_handle = remaining_bits_len + (bit_offset%8);
+            if (bits_to_handle > 32)
             {
-              gint bits_to_handle = remaining_bits_len + (bit_offset%8);
-              if (bits_to_handle > 32)
-              {
-                 bits_to_handle = 32 - (bit_offset%8);
-              }
-              else
-              {
-                 bits_to_handle -= (bit_offset%8);
-              }
-              proto_tree_add_bits_item(padding_tree, *(pDescr->hf_ptr), tvb, bit_offset, bits_to_handle, ENC_BIG_ENDIAN);
-              bit_offset += bits_to_handle;
-              remaining_bits_len -= bits_to_handle;
+               bits_to_handle = 32 - (bit_offset%8);
             }
-         }
-         if (remaining_bits_len < 0)
-         {
-           return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
-         }
+            else
+            {
+               bits_to_handle -= (bit_offset%8);
+            }
+            proto_tree_add_bits_item(padding_tree, *(pDescr->hf_ptr), tvb, bit_offset, bits_to_handle, ENC_BIG_ENDIAN);
+            bit_offset += bits_to_handle;
+            remaining_bits_len -= bits_to_handle;
+          }
+        }
+        if (remaining_bits_len < 0)
+        {
+          return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
+        }
 
-         /* Padding was successfully extracted or it was empty */
-         pDescr++;
-         break;
-       }
+        /* Padding was successfully extracted or it was empty */
+        pDescr++;
+        break;
+      }
 
       case CSN_VARIABLE_ARRAY:
       { /* {int type; int i; void* descr; int offset; const char* sz; } CSN_DESCR;
@@ -1278,11 +1250,6 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
 
         if (count > 0)
         {
-          if (remaining_bits_len < 0)
-          {
-            return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
-          }
-
           pui8 = pui8DATA(data, pDescr->offset);
 
           while (count > 0)
@@ -1290,8 +1257,12 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
             proto_tree_add_bits_item(tree, *(pDescr->hf_ptr), tvb, bit_offset, 8, ENC_BIG_ENDIAN);
             *pui8++ = tvb_get_bits8(tvb, bit_offset, 8);
             bit_offset += 8;
-            remaining_bits_len -= 8;
             count--;
+            remaining_bits_len -= 8;
+            if (remaining_bits_len < 0)
+            {
+              return ProcessError(tree, ar->pinfo, tvb, bit_offset, CSN_ERROR_NEED_MORE_BITS_TO_UNPACK, &ei_csn1_more_bits_to_unpack, pDescr);
+            }
           }
         }
 
@@ -1338,7 +1309,6 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         /* existNextElement() returned FALSE, 1 bit consumed */
         bit_offset++;
         remaining_bits_len--;
-
 
         /* Store the counted number of elements of the array */
         *pui8DATA(data, (gint16)pDescr->descr.value) = ElementCount;
@@ -1414,7 +1384,7 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
          * handling is exactly the same as for CSN_RECURSIVE_TARRAY_1 so we continue
          */
       }
-
+      /* FALL THROUGH */
       case CSN_RECURSIVE_TARRAY_1:
       { /* Recursive way to specify an array of type: <lists> ::= <type> { 1 <type> } ** 0 ;
          * M_REC_TARRAY(_STRUCT, _MEMBER, _MEMBER_TYPE, _ElementCountField)
@@ -1427,7 +1397,6 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         gint16      Status;
         proto_item   *ti;
         proto_tree   *test_tree;
-
 
         do
         { /* get data element */
@@ -1510,8 +1479,9 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
         guint16  no_of_bits;
         DissectorCallbackFcn_t callback = (DissectorCallbackFcn_t)pDescr->aux_fn;
 
-        no_of_bits = callback(tree, tvb, pvDATA(data, pDescr->i), pvDATA(data, pDescr->offset), bit_offset, ett_csn1);
+        no_of_bits = callback(tree, tvb, pvDATA(data, pDescr->i), pvDATA(data, pDescr->offset), bit_offset, ett_csn1, ar->pinfo);
         bit_offset += no_of_bits;
+        remaining_bits_len -= no_of_bits;
 
         pDescr++;
         break;
@@ -1533,7 +1503,6 @@ csnStreamDissector(proto_tree *tree, csnStream_t* ar, const CSN_DESCR* pDescr, t
       {
         DISSECTOR_ASSERT(0);
       }
-
 
     }
 

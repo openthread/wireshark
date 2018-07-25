@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1092,7 +1080,7 @@ static gpointer media_type_value(packet_info *pinfo)
     return NULL;
 }
 
-static void obex_profile_prompt(packet_info *pinfo _U_, gchar* result)
+static void obex_profile_prompt(packet_info *pinfo, gchar* result)
 {
     guint8 *value_data;
 
@@ -1103,7 +1091,7 @@ static void obex_profile_prompt(packet_info *pinfo _U_, gchar* result)
         g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Unknown OBEX Profile");
 }
 
-static gpointer obex_profile_value(packet_info *pinfo _U_)
+static gpointer obex_profile_value(packet_info *pinfo)
 {
     guint8 *value_data;
 
@@ -1113,19 +1101,6 @@ static gpointer obex_profile_value(packet_info *pinfo _U_)
         return GUINT_TO_POINTER((gulong)*value_data);
 
     return NULL;
-}
-
-static void
-defragment_init(void)
-{
-    reassembly_table_init(&obex_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-defragment_cleanup(void)
-{
-    reassembly_table_destroy(&obex_reassembly_table);
 }
 
 static int
@@ -1371,8 +1346,8 @@ dissect_obex_application_parameter_bt_pbap(tvbuff_t *tvb, packet_info *pinfo, pr
                 proto_tree_add_item(parameter_tree, hf_pbap_application_parameter_data_list_start_offset, tvb, offset, 2, ENC_BIG_ENDIAN);
                 break;
             case 0x06: /* Filter */
-                proto_tree_add_bitmask(parameter_tree, tvb, offset, hf_pbap_application_parameter_data_filter, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_1, ENC_BIG_ENDIAN);
-                proto_tree_add_bitmask(parameter_tree, tvb, offset, hf_pbap_application_parameter_data_filter, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_0, ENC_BIG_ENDIAN);
+                proto_tree_add_bitmask(parameter_tree, tvb, offset + 0, hf_pbap_application_parameter_data_filter, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_1, ENC_BIG_ENDIAN);
+                proto_tree_add_bitmask(parameter_tree, tvb, offset + 4, hf_pbap_application_parameter_data_filter, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_0, ENC_BIG_ENDIAN);
                 break;
             case 0x07: /* Format */
                 proto_tree_add_item(parameter_tree, hf_pbap_application_parameter_data_format, tvb, offset, 1, ENC_NA);
@@ -1390,8 +1365,8 @@ dissect_obex_application_parameter_bt_pbap(tvbuff_t *tvb, packet_info *pinfo, pr
                 proto_tree_add_item(parameter_tree, hf_pbap_application_parameter_data_secondary_version_counter, tvb, offset, 16, ENC_NA);
                 break;
             case 0x0C: /* vCard Selector */
-                proto_tree_add_bitmask(parameter_tree, tvb, offset, hf_pbap_application_parameter_vcard_selector, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_1, ENC_BIG_ENDIAN);
-                proto_tree_add_bitmask(parameter_tree, tvb, offset, hf_pbap_application_parameter_vcard_selector, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_0, ENC_BIG_ENDIAN);
+                proto_tree_add_bitmask(parameter_tree, tvb, offset + 0, hf_pbap_application_parameter_vcard_selector, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_1, ENC_BIG_ENDIAN);
+                proto_tree_add_bitmask(parameter_tree, tvb, offset + 4, hf_pbap_application_parameter_vcard_selector, ett_obex_filter,  hfx_pbap_application_parameter_data_filter_0, ENC_BIG_ENDIAN);
                 break;
             case 0x0D: /* Database Identifier */
                 proto_tree_add_item(parameter_tree, hf_pbap_application_parameter_data_database_identifier, tvb, offset, 16, ENC_NA);
@@ -1960,11 +1935,13 @@ dissect_headers(proto_tree *tree, tvbuff_t *tvb, int offset, packet_info *pinfo,
 
                     break;
                 case 0x44: /* Time (ISO8601) */
-                    proto_tree_add_item(hdr_tree, hf_time_iso8601, tvb, offset, value_length, ENC_ASCII | ENC_NA);
-                    proto_item_append_text(hdr_tree, ": \"%s\"", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, value_length, ENC_ASCII));
+                    {
+                    const guint8* time_str;
+                    proto_tree_add_item_ret_string(hdr_tree, hf_time_iso8601, tvb, offset, value_length, ENC_ASCII | ENC_NA, wmem_packet_scope(), &time_str);
+                    proto_item_append_text(hdr_tree, ": \"%s\"", time_str);
 
                     offset += value_length;
-
+                    }
                     break;
                 case 0x48: /* Body */
                 case 0x49: /* End Of Body */
@@ -2058,11 +2035,13 @@ dissect_headers(proto_tree *tree, tvbuff_t *tvb, int offset, packet_info *pinfo,
 
                     break;
                 case 0x51: /* Object Class */
-                    proto_tree_add_item(hdr_tree, hf_object_class, tvb, offset, value_length, ENC_ASCII | ENC_NA);
-                    proto_item_append_text(hdr_tree, ": \"%s\"", tvb_get_string_enc(wmem_packet_scope(), tvb, offset, value_length, ENC_ASCII));
+                    {
+                    const guint8* obj_str;
+                    proto_tree_add_item_ret_string(hdr_tree, hf_object_class, tvb, offset, value_length, ENC_ASCII | ENC_NA, wmem_packet_scope(), &obj_str);
+                    proto_item_append_text(hdr_tree, ": \"%s\"", obj_str);
 
                     offset += value_length;
-
+                    }
                     break;
                 case 0x52: /* Session Parameter */
                     while (value_length) {
@@ -3601,7 +3580,7 @@ proto_register_obex(void)
             NULL, HFILL}
         },
         { &hf_ctn_application_parameter_data_parameter_mask_alarm_status,
-          { "Alarm Status", "obex.parameter.ctn.parameter_mask.",
+          { "Alarm Status", "obex.parameter.ctn.parameter_mask.alarm_status",
             FT_UINT32, BASE_HEX, NULL, 0x00000080,
             NULL, HFILL}
         },
@@ -3770,11 +3749,11 @@ proto_register_obex(void)
             NULL, HFILL }
         },
         { &hf_request_in_frame,
-          { "Request in Frame", "obex.request_in_frame", FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_RESPONSE), 0x0,
+          { "Request in Frame", "obex.request_in_frame", FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_REQUEST), 0x0,
             NULL, HFILL}
         },
         { &hf_response_in_frame,
-          { "Response in Frame", "obex.response_in_frame", FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_REQUEST), 0x0,
+          { "Response in Frame", "obex.response_in_frame", FT_FRAMENUM, BASE_NONE, FRAMENUM_TYPE(FT_FRAMENUM_RESPONSE), 0x0,
             NULL, HFILL}
         }
     };
@@ -3821,7 +3800,7 @@ proto_register_obex(void)
 
     obex_handle = register_dissector("obex", dissect_obex, proto_obex);
 
-    obex_profile_table = register_dissector_table("obex.profile", "OBEX Profile", proto_obex, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    obex_profile_table = register_dissector_table("obex.profile", "OBEX Profile", proto_obex, FT_UINT8, BASE_DEC);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_obex, hf, array_length(hf));
@@ -3829,8 +3808,8 @@ proto_register_obex(void)
     expert_obex = expert_register_protocol(proto_obex);
     expert_register_field_array(expert_obex, ei, array_length(ei));
 
-    register_init_routine(&defragment_init);
-    register_cleanup_routine(&defragment_cleanup);
+    reassembly_table_register(&obex_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
     register_decode_as(&obex_profile_da);
 
@@ -3955,8 +3934,8 @@ proto_reg_handoff_obex(void)
     dissector_add_for_decode_as("usb.product",  obex_handle);
     dissector_add_for_decode_as("usb.device",   obex_handle);
     dissector_add_for_decode_as("usb.protocol", obex_handle);
-    dissector_add_for_decode_as("tcp.port",     obex_handle);
-    dissector_add_for_decode_as("udp.port",     obex_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port",     obex_handle);
+    dissector_add_for_decode_as_with_preference("udp.port",     obex_handle);
 }
 
 /*

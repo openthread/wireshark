@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -48,7 +36,7 @@ void proto_reg_handoff_oicq(void);
  */
 
 /* By default, but can be completely different */
-#define UDP_PORT_OICQ	8000
+#define UDP_PORT_OICQ	8000 /* Not IANA regisrered */
 
 static int proto_oicq = -1;
 
@@ -185,8 +173,7 @@ proto_register_oicq(void)
 		&ett_oicq,
 	};
 
-	proto_oicq = proto_register_protocol("OICQ - IM software, popular in China", "OICQ",
-	    "oicq");
+	proto_oicq = proto_register_protocol("OICQ - IM software, popular in China", "OICQ", "oicq");
 	proto_register_field_array(proto_oicq, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 }
@@ -197,7 +184,7 @@ proto_reg_handoff_oicq(void)
 	dissector_handle_t oicq_handle;
 
 	oicq_handle = create_dissector_handle(dissect_oicq, proto_oicq);
-	dissector_add_uint("udp.port", UDP_PORT_OICQ, oicq_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_OICQ, oicq_handle);
 }
 
 /*

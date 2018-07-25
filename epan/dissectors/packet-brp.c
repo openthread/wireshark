@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -30,7 +18,6 @@
 
 #include <epan/packet.h>
 #include <epan/expert.h>
-#include <epan/prefs.h>
 
 /* Forward declaration we need below */
 void proto_register_brp(void);
@@ -42,8 +29,6 @@ void proto_reg_handoff_brp(void);
 static int proto_brp = -1;
 
 static dissector_handle_t brp_handle;
-
-/*static int global_brp_port = 1958; *//* The port is registered for another protocol */
 
 static const value_string brp_packettype_names[] = {
     {  0, "BRP" },
@@ -126,9 +111,6 @@ static gint ett_brp_rmttl = -1;
 static gint ett_brp_fltype = -1;
 
 static expert_field ei_brp_type_unknown = EI_INIT;
-
-/* Preferences */
-static guint global_brp_port = 0;
 
 static int
 dissect_brp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
@@ -324,7 +306,6 @@ return offset;
 /*--- proto_register_brp ----------------------------------------------*/
 void proto_register_brp (void)
 {
-    module_t *brp_module;
     expert_module_t* expert_brp;
 
     /* A data field is something you can search/filter on.
@@ -402,38 +383,13 @@ void proto_register_brp (void)
     expert_brp = expert_register_protocol(proto_brp);
     expert_register_field_array(expert_brp, ei, array_length(ei));
 
-    /* Register preferences module */
-    brp_module = prefs_register_protocol(proto_brp, proto_reg_handoff_brp);
-
-    /* Register preferences */
-    prefs_register_uint_preference(brp_module, "port",
-                                   "BRP Port",
-                                   "Set the UDP port for BRP messages",
-                                   10, &global_brp_port);
-
     brp_handle = register_dissector("brp", dissect_brp, proto_brp);
 }
 
 /*--- proto_reg_handoff_brp -------------------------------------------*/
 void proto_reg_handoff_brp(void)
 {
-    static gboolean           initialized = FALSE;
-    static guint              saved_brp_port;
-
-    if (!initialized) {
-        dissector_add_for_decode_as("udp.port", brp_handle);
-        initialized = TRUE;
-    } else {
-        if (saved_brp_port != 0) {
-            dissector_delete_uint("udp.port", saved_brp_port, brp_handle);
-        }
-    }
-
-    /* Set the port number */
-    if (global_brp_port != 0) {
-        dissector_add_uint("udp.port", global_brp_port, brp_handle);
-    }
-    saved_brp_port = global_brp_port;
+    dissector_add_for_decode_as_with_preference("udp.port", brp_handle);
 }
 
 /*

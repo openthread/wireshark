@@ -50,7 +50,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">layoyutButtonGroup</string>
+        <string notr="true">layoutButtonGroup</string>
        </attribute>
       </widget>
      </item>
@@ -73,7 +73,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">layoyutButtonGroup</string>
+        <string notr="true">layoutButtonGroup</string>
        </attribute>
       </widget>
      </item>
@@ -96,7 +96,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">layoyutButtonGroup</string>
+        <string notr="true">layoutButtonGroup</string>
        </attribute>
       </widget>
      </item>
@@ -119,7 +119,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">layoyutButtonGroup</string>
+        <string notr="true">layoutButtonGroup</string>
        </attribute>
       </widget>
      </item>
@@ -142,7 +142,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">layoyutButtonGroup</string>
+        <string notr="true">layoutButtonGroup</string>
        </attribute>
       </widget>
      </item>
@@ -165,7 +165,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">layoyutButtonGroup</string>
+        <string notr="true">layoutButtonGroup</string>
        </attribute>
       </widget>
      </item>
@@ -345,9 +345,53 @@
     </spacer>
    </item>
    <item>
+    <widget class="QLabel" name="packetListSettings">
+     <property name="text">
+      <string>Packet List settings:</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QCheckBox" name="packetListSeparatorCheckBox">
      <property name="text">
-      <string>Show packet separator on Packet List</string>
+      <string>Show packet separator</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer_3">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeType">
+      <enum>QSizePolicy::Fixed</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>10</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
+    <widget class="QLabel" name="statusBarSettings">
+     <property name="text">
+      <string>Status Bar settings:</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="statusBarShowSelectedPacketCheckBox">
+     <property name="text">
+      <string>Show selected packet number</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="statusBarShowFileLoadTimeCheckBox">
+     <property name="text">
+      <string>Show file load time</string>
      </property>
     </widget>
    </item>
@@ -378,7 +422,7 @@
  </resources>
  <connections/>
  <buttongroups>
-  <buttongroup name="layoyutButtonGroup"/>
+  <buttongroup name="layoutButtonGroup"/>
   <buttongroup name="pane2ButtonGroup"/>
   <buttongroup name="pane3ButtonGroup"/>
   <buttongroup name="pane1ButtonGroup"/>

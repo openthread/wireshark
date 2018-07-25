@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -26,11 +14,8 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#ifdef HAVE_WINDOWS_H
-#include <windows.h>
-#endif
-
 #ifdef _WIN32
+#include <windows.h>
 #include <process.h>    /* For getpid() */
 #endif
 
@@ -44,36 +29,40 @@
 #define INITIAL_PATH_SIZE   128
 #define TMP_FILE_SUFFIX     "XXXXXX"
 
-#ifndef HAVE_MKSTEMP
+#ifndef HAVE_MKSTEMPS
 /* Generate a unique temporary file name from TEMPLATE.
-   The last six characters of TEMPLATE must be TMP_FILE_SUFFIX;
-   they are replaced with a string that makes the filename unique.
+   The last six characters before the suffix length of TEMPLATE
+   must be TMP_FILE_SUFFIX; they are replaced with a string that
+   makes the filename unique.
    Returns a file descriptor open on the file for reading and writing.  */
 static int
-mkstemp (char *path_template)
+mkstemps(char *path_template, int suffixlen)
 {
   static const char letters[]
     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  char uniqueness[6];
   size_t len;
   size_t i;
 
   len = strlen (path_template);
-  if (len < 6 || strcmp (&path_template[len - 6], TMP_FILE_SUFFIX))
+  if (len < 6 || strncmp (&path_template[len - 6 - suffixlen], TMP_FILE_SUFFIX, 6))
     {
       __set_errno (EINVAL);
       return -1;
     }
 
-  if (g_snprintf (&path_template[len - 5], 6, "%.5u",
-                  (unsigned int) getpid () % 100000) != 5)
+  if (g_snprintf (uniqueness, 6, "%.5u",
+                  (unsigned int) ws_getpid () % 100000) != 5)
     /* Inconceivable lossage.  */
     return -1;
+
+  memcpy(&path_template[len - 5 - suffixlen], uniqueness, 5);
 
   for (i = 0; i < sizeof (letters); ++i)
     {
       int fd;
 
-      path_template[len - 6] = letters[i];
+      path_template[len - 6 - suffixlen] = letters[i];
 
       fd = ws_open (path_template, O_RDWR|O_BINARY|O_CREAT|O_EXCL, 0600);
       if (fd >= 0)
@@ -86,51 +75,7 @@ mkstemp (char *path_template)
   return -1;
 }
 
-#endif /* HAVE_MKSTEMP */
-
-#ifndef HAVE_MKDTEMP
-/* Generate a unique temporary directory name from TEMPLATE.
-   The last six characters of TEMPLATE must be TMP_FILE_SUFFIX;
-   they are replaced with a string that makes the filename unique.
-   Returns 0 on success or -1 on error (from mkdir(2)).  */
-char *
-mkdtemp (char *path_template)
-{
-  static const char letters[]
-    = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  size_t len;
-  size_t i;
-
-  len = strlen (path_template);
-  if (len < 6 || strcmp (&path_template[len - 6], TMP_FILE_SUFFIX))
-    {
-      __set_errno (EINVAL);
-      return NULL;
-    }
-
-  if (g_snprintf (&path_template[len - 5], 6, "%.5u",
-                  (unsigned int) getpid () % 100000) != 5)
-    /* Inconceivable lossage.  */
-    return NULL;
-
-  for (i = 0; i < sizeof (letters); ++i)
-    {
-      int ret;
-
-      path_template[len - 6] = letters[i];
-
-      ret = ws_mkdir(path_template, 0700);
-      if (ret >= 0)
-        return path_template;
-    }
-
-  /* We return the null string if we can't find a unique file name.  */
-
-  path_template[0] = '\0';
-  return NULL;
-}
-
-#endif /* HAVE_MKDTEMP */
+#endif /* HAVE_MKSTEMPS */
 
 /*
  * Construct and return the path name of a file in the
@@ -149,13 +94,12 @@ char *get_tempfile_path(const char *filename)
  * @param namebuf If not NULL, receives the full path of the temp file.
  *                Should NOT be freed.
  * @param pfx A prefix for the temporary file.
- * @return The file descriptor of the new tempfile, from mkstemp().
- * @todo Switch from mkstemp() to something like mkstemps(), so the caller
- *       can optionally indicate that part of the pfx is actually a suffix,
- *       such as "pcap" or "pcapng".
+ * @param sfx [in] A file extension for the temporary file. NULL can be passed
+ *                 if no file extension is needed
+ * @return The file descriptor of the new tempfile, from mkstemps().
  */
 int
-create_tempfile(char **namebuf, const char *pfx)
+create_tempfile(char **namebuf, const char *pfx, const char *sfx)
 {
   static struct _tf {
     char *path;
@@ -167,6 +111,7 @@ create_tempfile(char **namebuf, const char *pfx)
   int old_umask;
   int fd;
   time_t current_time;
+  struct tm *tm;
   char timestr[14 + 1];
   gchar *tmp_file;
   gchar *safe_pfx;
@@ -201,9 +146,13 @@ create_tempfile(char **namebuf, const char *pfx)
   _tzset();
 #endif
   current_time = time(NULL);
-  strftime(timestr, sizeof(timestr), "%Y%m%d%H%M%S", localtime(&current_time));
+  tm = localtime(&current_time);
+  if (tm != NULL)
+    strftime(timestr, sizeof(timestr), "%Y%m%d%H%M%S", tm);
+  else
+    g_strlcpy(timestr, "196912312359", sizeof(timestr)); /* second before the Epoch */
   sep[0] = G_DIR_SEPARATOR;
-  tmp_file = g_strconcat(tmp_dir, sep, safe_pfx, "_", timestr, "_", TMP_FILE_SUFFIX, NULL);
+  tmp_file = g_strconcat(tmp_dir, sep, safe_pfx, "_", timestr, "_", TMP_FILE_SUFFIX, sfx, NULL);
   g_free(safe_pfx);
   if (strlen(tmp_file) > tf[idx].len) {
     tf[idx].len = strlen(tmp_file) + 1;
@@ -215,59 +164,16 @@ create_tempfile(char **namebuf, const char *pfx)
   if (namebuf) {
     *namebuf = tf[idx].path;
   }
-  /* The Single UNIX Specification doesn't say that "mkstemp()"
+  /* The Single UNIX Specification doesn't say that "mkstemps()"
      creates the temporary file with mode rw-------, so we
      won't assume that all UNIXes will do so; instead, we set
      the umask to 0077 to take away all group and other
      permissions, attempt to create the file, and then put
      the umask back. */
-  old_umask = umask(0077);
-  fd = mkstemp(tf[idx].path);
-  umask(old_umask);
+  old_umask = ws_umask(0077);
+  fd = mkstemps(tf[idx].path, sfx ? (int) strlen(sfx) : 0);
+  ws_umask(old_umask);
   return fd;
-}
-
-/**
- * Create a directory with the given prefix (e.g. "wireshark"). The path
- * is created using g_get_tmp_dir and mkdtemp.
- *
- * @param namebuf
- * @param pfx A prefix for the temporary directory.
- * @return The temporary directory path on success, or NULL on failure.
- *         Must NOT be freed.
- */
-const char *
-create_tempdir(char **namebuf, const char *pfx)
-{
-  static char *td_path[3];
-  static int td_path_len[3];
-  static int idx;
-  const char *tmp_dir;
-
-  idx = (idx + 1) % 3;
-
-  /*
-   * Allocate the buffer if it's not already allocated.
-   */
-  if (td_path[idx] == NULL) {
-    td_path_len[idx] = INITIAL_PATH_SIZE;
-    td_path[idx] = (char *)g_malloc(td_path_len[idx]);
-  }
-
-  /*
-   * We can't use get_tempfile_path here because we're called from dumpcap.c.
-   */
-  tmp_dir = g_get_tmp_dir();
-
-  while (g_snprintf(td_path[idx], td_path_len[idx], "%s%c%s" TMP_FILE_SUFFIX, tmp_dir, G_DIR_SEPARATOR, pfx) > td_path_len[idx]) {
-    td_path_len[idx] *= 2;
-    td_path[idx] = (char *)g_realloc(td_path[idx], td_path_len[idx]);
-  }
-
-  if (namebuf) {
-    *namebuf = td_path[idx];
-  }
-  return mkdtemp(td_path[idx]);
 }
 
 /*

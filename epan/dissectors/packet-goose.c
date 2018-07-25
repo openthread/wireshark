@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -120,7 +108,7 @@ static int hf_goose_mMSString = -1;               /* MMSString */
 static int hf_goose_utc_time = -1;                /* UtcTime */
 
 /*--- End of included file: packet-goose-hf.c ---*/
-#line 52 "./asn1/goose/packet-goose-template.c"
+#line 40 "./asn1/goose/packet-goose-template.c"
 
 /* Initialize the subtree pointers */
 static int ett_goose = -1;
@@ -147,7 +135,7 @@ static gint ett_goose_SEQUENCE_OF_Data = -1;
 static gint ett_goose_Data = -1;
 
 /*--- End of included file: packet-goose-ett.c ---*/
-#line 57 "./asn1/goose/packet-goose-template.c"
+#line 45 "./asn1/goose/packet-goose-template.c"
 
 
 /*--- Included file: packet-goose-fn.c ---*/
@@ -704,7 +692,9 @@ dissect_goose_GOOSEpdu(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset 
 
 
 /*--- End of included file: packet-goose-fn.c ---*/
-#line 59 "./asn1/goose/packet-goose-template.c"
+#line 47 "./asn1/goose/packet-goose-template.c"
+
+static dissector_handle_t goose_handle = NULL;
 
 /*
 * Dissect GOOSE PDUs inside a PPDU.
@@ -1013,7 +1003,7 @@ void proto_register_goose(void) {
         "UtcTime", HFILL }},
 
 /*--- End of included file: packet-goose-hfarr.c ---*/
-#line 127 "./asn1/goose/packet-goose-template.c"
+#line 117 "./asn1/goose/packet-goose-template.c"
   };
 
   /* List of subtrees */
@@ -1041,7 +1031,7 @@ void proto_register_goose(void) {
     &ett_goose_Data,
 
 /*--- End of included file: packet-goose-ettarr.c ---*/
-#line 133 "./asn1/goose/packet-goose-template.c"
+#line 123 "./asn1/goose/packet-goose-template.c"
   };
 
   static ei_register_info ei[] = {
@@ -1053,7 +1043,7 @@ void proto_register_goose(void) {
 
 	/* Register protocol */
 	proto_goose = proto_register_protocol(PNAME, PSNAME, PFNAME);
-	register_dissector("goose", dissect_goose, proto_goose);
+	goose_handle = register_dissector("goose", dissect_goose, proto_goose);
 
 	/* Register fields and subtrees */
 	proto_register_field_array(proto_goose, hf, array_length(hf));
@@ -1064,9 +1054,6 @@ void proto_register_goose(void) {
 
 /*--- proto_reg_handoff_goose --- */
 void proto_reg_handoff_goose(void) {
-
-	dissector_handle_t goose_handle;
-	goose_handle = find_dissector("goose");
 
 	dissector_add_uint("ethertype", ETHERTYPE_IEC61850_GOOSE, goose_handle);
 }

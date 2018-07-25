@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -48,6 +36,8 @@ static int ett_h283 = -1;
 static dissector_handle_t rdc_pdu_handle;
 static dissector_handle_t rdc_device_list_handle;
 static dissector_handle_t data_handle;
+static dissector_handle_t h283_udp_handle;
+
 
 static gboolean info_is_set;
 
@@ -90,17 +80,14 @@ void proto_register_h283(void) {
   proto_register_field_array(proto_h283, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  register_dissector(PFNAME, dissect_h283_udp, proto_h283);
+  h283_udp_handle = register_dissector(PFNAME, dissect_h283_udp, proto_h283);
 
 }
 
 /*--- proto_reg_handoff_h283 -------------------------------------------*/
 void proto_reg_handoff_h283(void)
 {
-  dissector_handle_t h283_udp_handle;
-
-  h283_udp_handle = find_dissector(PFNAME);
-  dissector_add_for_decode_as("udp.port", h283_udp_handle);
+  dissector_add_for_decode_as_with_preference("udp.port", h283_udp_handle);
 
   rdc_pdu_handle = find_dissector_add_dependency("rdc", proto_h283);
   rdc_device_list_handle = find_dissector_add_dependency("rdc.device_list", proto_h283);

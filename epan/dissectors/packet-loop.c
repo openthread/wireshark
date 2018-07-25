@@ -1,27 +1,23 @@
 /* packet-loop.c
- * Routines for Ethernet loopback/Configuration Test Protocol dissection
+ * Routines for Ethernet loopback/Configuration Test Protocol dissection,
+ * as documented in section 8 "Ethernet Configuration Testing Protocol" of
+ * the v2.0 DIX Ethernet specification.
  *
  * See
  *
+ *    http://decnet.ipv7.net/docs/dundas/aa-k759b-tk.pdf
+ *
+ * for a copy of the DIX spec and
+ *
  *    http://stuff.mit.edu/people/jhawk/ctp.html
+ *
+ * for section 8.
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"

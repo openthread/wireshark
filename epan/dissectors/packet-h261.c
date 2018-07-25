@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -86,24 +74,20 @@ dissect_h261( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 		offset++;
 
 		/* GOBN 2nd octet, 4 bits */
-		proto_tree_add_uint( h261_tree, hf_h261_gobn, tvb, offset, 1, tvb_get_guint8( tvb, offset ) >> 4 );
+		proto_tree_add_item( h261_tree, hf_h261_gobn, tvb, offset, 1, ENC_NA);
 		/* MBAP 2nd octet, 4 bits, 3rd octet 1 bit */
-		proto_tree_add_uint( h261_tree, hf_h261_mbap, tvb, offset, 1,
-		    ( tvb_get_guint8( tvb, offset ) & 15 )
-		    + ( tvb_get_guint8( tvb, offset + 1 ) >> 7 ) );
+		proto_tree_add_item( h261_tree, hf_h261_mbap, tvb, offset, 1, ENC_BIG_ENDIAN);
 		offset++;
 
 		/* QUANT 3rd octet, 5 bits (starting at bit 2!) */
-		proto_tree_add_uint( h261_tree, hf_h261_quant, tvb, offset, 1, tvb_get_guint8( tvb, offset ) & 124 );
+		proto_tree_add_item( h261_tree, hf_h261_quant, tvb, offset, 1, ENC_NA );
 
 		/* HMVD 3rd octet 2 bits, 4th octet 3 bits */
-		proto_tree_add_uint( h261_tree, hf_h261_hmvd, tvb, offset, 2,
-		    ( ( tvb_get_guint8( tvb, offset ) & 0x03 ) << 3 )
-		     + ( tvb_get_guint8( tvb, offset+1 ) >> 5 ) );
+		proto_tree_add_item( h261_tree, hf_h261_hmvd, tvb, offset, 2, ENC_BIG_ENDIAN);
 		offset++;
 
 		/* VMVD 4th octet, last 5 bits */
-		proto_tree_add_uint( h261_tree, hf_h261_vmvd, tvb, offset, 1, tvb_get_guint8( tvb, offset ) & 31 );
+		proto_tree_add_item( h261_tree, hf_h261_vmvd, tvb, offset, 1, 0x1F );
 		offset++;
 
 		/* The rest of the packet is the H.261 stream */
@@ -173,7 +157,7 @@ proto_register_h261(void)
 				FT_UINT8,
 				BASE_DEC,
 				NULL,
-				0x0,
+				0xF0,
 				NULL, HFILL
 			}
 		},
@@ -185,7 +169,7 @@ proto_register_h261(void)
 				FT_UINT8,
 				BASE_DEC,
 				NULL,
-				0x0,
+				0x0E80,
 				NULL, HFILL
 			}
 		},
@@ -197,7 +181,7 @@ proto_register_h261(void)
 				FT_UINT8,
 				BASE_DEC,
 				NULL,
-				0x0,
+				0x7C,
 				NULL, HFILL
 			}
 		},
@@ -209,7 +193,7 @@ proto_register_h261(void)
 				FT_UINT8,
 				BASE_DEC,
 				NULL,
-				0x0,
+				0x03E0,
 				NULL, HFILL
 			}
 		},

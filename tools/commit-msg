@@ -1,26 +1,16 @@
 #!/bin/sh
-# From Gerrit Code Review 2.9-rc1-172-gd621a9e
+# From Gerrit Code Review 2.12.7
 #
-# Part of Gerrit Code Review (http://code.google.com/p/gerrit/)
+# Part of Gerrit Code Review (https://www.gerritcodereview.com/)
 #
 # Copyright (C) 2009 The Android Open Source Project
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
 #
 
 unset GREP_OPTIONS
 
-CHANGE_ID_AFTER="Bug|Issue"
+CHANGE_ID_AFTER="Bug|Issue|Test"
 MSG="$1"
 
 # Check for, and add if missing, a unique Change-Id
@@ -39,7 +29,19 @@ add_ChangeId() {
 		return
 	fi
 
+	# Do not add Change-Id to temp commits
+	if echo "$clean_message" | head -1 | grep -q '^\(fixup\|squash\)!'
+	then
+		return
+	fi
+
 	if test "false" = "`git config --bool --get gerrit.createChangeId`"
+	then
+		return
+	fi
+
+	# Do not add Change-Id on packaging branches
+	if git branch | grep -q '^\* \(debian\|ubuntu\)/'
 	then
 		return
 	fi
@@ -57,6 +59,10 @@ add_ChangeId() {
 		# Solaris AWK is just too broken
 		AWK=/usr/xpg4/bin/awk
 	fi
+
+	# Get core.commentChar from git config or use default symbol
+	commentChar=`git config --get core.commentChar`
+	commentChar=${commentChar:-#}
 
 	# How this works:
 	# - parse the commit message as (textLine+ blankLine*)*
@@ -76,8 +82,8 @@ add_ChangeId() {
 		blankLines = 0
 	}
 
-	# Skip lines starting with "#" without any spaces before it.
-	/^#/ { next }
+	# Skip lines starting with commentChar without any spaces before it.
+	/^'"$commentChar"'/ { next }
 
 	# Skip the line starting with the diff command and everything after it,
 	# up to the end of the file, assuming it is only patch data.
@@ -177,5 +183,14 @@ _gen_ChangeId() {
 	git hash-object -t commit --stdin
 }
 
+reject_long_message() {
+	read -r firstline < $MSG
+	if [ ${#firstline} -gt 80 ]
+	then
+		echo "\n\nERROR: First line in the commit message must not exceed 80 characters\n\n"
+		exit 1
+	fi
+}
 
 add_ChangeId
+reject_long_message

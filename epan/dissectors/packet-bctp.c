@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref ITU-T Rec. Q.1990 (07/2001)
  */
@@ -61,7 +49,7 @@ static const range_string tpi_vals[] = {
 
 static const value_string bvei_vals[] = {
 	{0,"No indication"},
-	{0,"Version Error Indication, BCTP version not supported"},
+	{1,"Version Error Indication, BCTP version not supported"},
 	{0,NULL}
 };
 
@@ -107,7 +95,7 @@ proto_register_bctp (void)
 
 	register_dissector("bctp", dissect_bctp, proto_bctp);
 
-	bctp_dissector_table = register_dissector_table("bctp.tpi", "BCTP Tunneled Protocol Indicator", proto_bctp, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	bctp_dissector_table = register_dissector_table("bctp.tpi", "BCTP Tunneled Protocol Indicator", proto_bctp, FT_UINT32, BASE_DEC);
 }
 
 void

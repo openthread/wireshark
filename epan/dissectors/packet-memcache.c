@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -104,8 +92,6 @@ void proto_reg_handoff_memcache(void);
 
 static int proto_memcache = -1;
 
-static range_t *memcache_tcp_port_range = NULL;
-static range_t *memcache_udp_port_range = NULL;
 static dissector_handle_t memcache_tcp_handle;
 static dissector_handle_t memcache_udp_handle;
 
@@ -861,7 +847,7 @@ dissect_memcache_message (tvbuff_t *tvb, int offset, packet_info *pinfo, proto_t
   if (is_request_or_reply) {
     line = tvb_get_ptr (tvb, offset, first_linelen);
     col_add_fstr (pinfo->cinfo, COL_INFO, "%s ",
-                 format_text (line, first_linelen));
+                 format_text(wmem_packet_scope(), line, first_linelen));
   } else {
     col_set_str (pinfo->cinfo, COL_INFO, "MEMCACHE Continuation");
   }
@@ -2122,7 +2108,7 @@ proto_register_memcache (void)
   expert_register_field_array(expert_memcache, ei, array_length(ei));
 
   /* Register our configuration options */
-  memcache_module = prefs_register_protocol (proto_memcache, proto_reg_handoff_memcache);
+  memcache_module = prefs_register_protocol (proto_memcache, NULL);
 
   prefs_register_bool_preference (memcache_module, "desegment_headers",
                                  "Reassemble MEMCACHE headers spanning multiple TCP segments",
@@ -2139,38 +2125,14 @@ proto_register_memcache (void)
                                   " To use this option, you must also enable \"Allow subdissectors"
                                   " to reassemble TCP streams\" in the TCP protocol settings.",
                                   &memcache_desegment_body);
-
-  range_convert_str(&memcache_tcp_port_range, MEMCACHE_DEFAULT_RANGE, 65535);
-  range_convert_str(&memcache_udp_port_range, MEMCACHE_DEFAULT_RANGE, 65535);
-
-  prefs_register_range_preference(memcache_module, "tcp.ports", \
-                                  "MEMCACHE TCP Port range", \
-                                  "MEMCACHE TCP Port range", \
-                                  &memcache_tcp_port_range, \
-                                  65535);
-  prefs_register_range_preference(memcache_module, "udp.ports", \
-                                  "MEMCACHE UDP Port range", \
-                                  "MEMCACHE UDP Port range", \
-                                  &memcache_udp_port_range, \
-                                  65535);
 }
 
 /* Register the tcp and udp memcache dissectors. */
 void
 proto_reg_handoff_memcache (void)
 {
-  static range_t  *orig_memcache_tcp_port_range = NULL;
-  static range_t  *orig_memcache_udp_port_range = NULL;
-
-  dissector_delete_uint_range("tcp.port", orig_memcache_tcp_port_range, memcache_tcp_handle);
-  dissector_delete_uint_range("udp.port", orig_memcache_udp_port_range, memcache_udp_handle);
-  g_free(orig_memcache_tcp_port_range);
-  g_free(orig_memcache_udp_port_range);
-
-  orig_memcache_tcp_port_range = range_copy(memcache_tcp_port_range);
-  orig_memcache_udp_port_range = range_copy(memcache_udp_port_range);
-  dissector_add_uint_range("tcp.port", orig_memcache_tcp_port_range, memcache_tcp_handle);
-  dissector_add_uint_range("udp.port", orig_memcache_udp_port_range, memcache_udp_handle);
+  dissector_add_uint_range_with_preference("tcp.port", MEMCACHE_DEFAULT_RANGE, memcache_tcp_handle);
+  dissector_add_uint_range_with_preference("udp.port", MEMCACHE_DEFAULT_RANGE, memcache_udp_handle);
 }
 
 /*

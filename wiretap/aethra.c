@@ -3,19 +3,7 @@
  * Wiretap Library
  * Copyright (c) 1998 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -35,21 +23,24 @@ static const guchar aethra_magic[MAGIC_SIZE] = {
 /* Aethra file header. */
 struct aethra_hdr {
 	guchar	magic[MAGIC_SIZE];
-	guint8	unknown1[39];
-	guchar	sw_vers[60];	/* software version string, not null-terminated */
-	guint8	unknown2[118];
-	guint8	start_sec;	/* seconds of capture start time */
-	guint8	start_min;	/* minutes of capture start time */
-	guint8	start_hour;	/* hour of capture start time */
-	guint8	unknown3[5007];
-	guint8	start_year[2];	/* year of capture start date */
-	guint8	start_month[2];	/* month of capture start date */
-	guint8	unknown4[2];
-	guint8	start_day[2];	/* day of capture start date */
-	guint8	unknown5[8];
-	guchar	com_info[16];	/* COM port and speed, null-padded(?) */
-	guint8	unknown6[107];
-	guchar	xxx_vers[41];	/* unknown version string (longer, null-padded?) */
+	guint8	unknown1[39];	/* 5-43 */
+	guchar	sw_vers[60];	/* 44-103 - software version string, not null-terminated */
+	guint8	unknown2[118];	/* 104-221 */
+	guint8	start_sec;	/* 222 - seconds of capture start time */
+	guint8	start_min;	/* 223 - minutes of capture start time */
+	guint8	start_hour;	/* 224 - hour of capture start time */
+	guint8	unknown3[462];	/* 225-686 */
+	guchar	xxx_string[37];	/* 687-723 - null-terminated short comment string? */
+	guint8	unknown3_5[4];	/* 724-727 */
+	guchar	yyy_string[4504];/* 728-5231 - null-terminated long comment string? */
+	guint8	start_year[2];	/* 5232-5233 - year of capture start date */
+	guint8	start_month[2];	/* 5234-5235 - month of capture start date */
+	guint8	unknown4[2];	/* 5236-5237 */
+	guint8	start_day[2];	/* 5238-5239 - day of capture start date */
+	guint8	unknown5[8];	/* 5240-5247 */
+	guchar	com_info[16];	/* 5248-5263 - COM port and speed, null-padded(?) */
+	guint8	unknown6[107];	/* 5264-5370 */
+	guchar	xxx_vers[41];	/* 5371-5411 - unknown version string (longer, null-padded?) */
 };
 
 /* Aethra record header.  Yes, the alignment is weird.
@@ -114,9 +105,9 @@ typedef struct {
 static gboolean aethra_read(wtap *wth, int *err, gchar **err_info,
     gint64 *data_offset);
 static gboolean aethra_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
+    wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
 static gboolean aethra_read_rec_header(wtap *wth, FILE_T fh, struct aethrarec_hdr *hdr,
-    struct wtap_pkthdr *phdr, int *err, gchar **err_info);
+    wtap_rec *rec, int *err, gchar **err_info);
 
 wtap_open_return_val aethra_open(wtap *wth, int *err, gchar **err_info)
 {
@@ -185,16 +176,16 @@ static gboolean aethra_read(wtap *wth, int *err, gchar **err_info,
 		*data_offset = file_tell(wth->fh);
 
 		/* Read record header. */
-		if (!aethra_read_rec_header(wth, wth->fh, &hdr, &wth->phdr, err, err_info))
+		if (!aethra_read_rec_header(wth, wth->fh, &hdr, &wth->rec, err, err_info))
 			return FALSE;
 
 		/*
 		 * XXX - if this is big, we might waste memory by
 		 * growing the buffer to handle it.
 		 */
-		if (wth->phdr.caplen != 0) {
-			if (!wtap_read_packet_bytes(wth->fh, wth->frame_buffer,
-			    wth->phdr.caplen, err, err_info))
+		if (wth->rec.rec_header.packet_header.caplen != 0) {
+			if (!wtap_read_packet_bytes(wth->fh, wth->rec_data,
+			    wth->rec.rec_header.packet_header.caplen, err, err_info))
 				return FALSE;	/* Read error */
 		}
 #if 0
@@ -244,7 +235,7 @@ fprintf(stderr, "    subtype 0x%02x (AETHRA_ISDN_LINK_ALL_ALARMS_CLEARED)\n", hd
 			default:
 #if 0
 fprintf(stderr, "    subtype 0x%02x, packet_size %u, direction 0x%02x\n",
-hdr.flags & AETHRA_ISDN_LINK_SUBTYPE, wth->phdr.caplen, hdr.flags & AETHRA_U_TO_N);
+hdr.flags & AETHRA_ISDN_LINK_SUBTYPE, wth->rec.rec_header.packet_header.caplen, hdr.flags & AETHRA_U_TO_N);
 #endif
 				break;
 			}
@@ -253,7 +244,7 @@ hdr.flags & AETHRA_ISDN_LINK_SUBTYPE, wth->phdr.caplen, hdr.flags & AETHRA_U_TO_
 		default:
 #if 0
 fprintf(stderr, "Packet %u: type 0x%02x, packet_size %u, flags 0x%02x\n",
-packet, hdr.rec_type, wth->phdr.caplen, hdr.flags);
+packet, hdr.rec_type, wth->rec.rec_header.packet_header.caplen, hdr.flags);
 #endif
 			break;
 		}
@@ -264,7 +255,7 @@ found:
 }
 
 static gboolean
-aethra_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
+aethra_seek_read(wtap *wth, gint64 seek_off, wtap_rec *rec,
     Buffer *buf, int *err, gchar **err_info)
 {
 	struct aethrarec_hdr hdr;
@@ -272,7 +263,7 @@ aethra_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
 	if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
 		return FALSE;
 
-	if (!aethra_read_rec_header(wth, wth->random_fh, &hdr, phdr, err,
+	if (!aethra_read_rec_header(wth, wth->random_fh, &hdr, rec, err,
 	    err_info)) {
 		if (*err == 0)
 			*err = WTAP_ERR_SHORT_READ;
@@ -282,7 +273,7 @@ aethra_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
 	/*
 	 * Read the packet data.
 	 */
-	if (!wtap_read_packet_bytes(wth->random_fh, buf, phdr->caplen, err, err_info))
+	if (!wtap_read_packet_bytes(wth->random_fh, buf, rec->rec_header.packet_header.caplen, err, err_info))
 		return FALSE;	/* failed */
 
 	return TRUE;
@@ -290,7 +281,7 @@ aethra_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
 
 static gboolean
 aethra_read_rec_header(wtap *wth, FILE_T fh, struct aethrarec_hdr *hdr,
-    struct wtap_pkthdr *phdr, int *err, gchar **err_info)
+    wtap_rec *rec, int *err, gchar **err_info)
 {
 	aethra_t *aethra = (aethra_t *)wth->priv;
 	guint32 rec_size;
@@ -310,18 +301,29 @@ aethra_read_rec_header(wtap *wth, FILE_T fh, struct aethrarec_hdr *hdr,
 		    (unsigned int)(sizeof *hdr - sizeof hdr->rec_size));
 		return FALSE;
 	}
+	if (rec_size > WTAP_MAX_PACKET_SIZE_STANDARD) {
+		/*
+		 * Probably a corrupt capture file; return an error,
+		 * so that our caller doesn't blow up trying to allocate
+		 * space for an immensely-large packet.
+		 */
+		*err = WTAP_ERR_BAD_FILE;
+		*err_info = g_strdup_printf("aethra: File has %u-byte packet, bigger than maximum of %u",
+		    rec_size, WTAP_MAX_PACKET_SIZE_STANDARD);
+		return FALSE;
+	}
 
 	packet_size = rec_size - (guint32)(sizeof *hdr - sizeof hdr->rec_size);
 
 	msecs = pletoh32(hdr->timestamp);
-	phdr->rec_type = REC_TYPE_PACKET;
-	phdr->presence_flags = WTAP_HAS_TS;
-	phdr->ts.secs = aethra->start + (msecs / 1000);
-	phdr->ts.nsecs = (msecs % 1000) * 1000000;
-	phdr->caplen = packet_size;
-	phdr->len = packet_size;
-	phdr->pseudo_header.isdn.uton = (hdr->flags & AETHRA_U_TO_N);
-	phdr->pseudo_header.isdn.channel = 0;	/* XXX - D channel */
+	rec->rec_type = REC_TYPE_PACKET;
+	rec->presence_flags = WTAP_HAS_TS;
+	rec->ts.secs = aethra->start + (msecs / 1000);
+	rec->ts.nsecs = (msecs % 1000) * 1000000;
+	rec->rec_header.packet_header.caplen = packet_size;
+	rec->rec_header.packet_header.len = packet_size;
+	rec->rec_header.packet_header.pseudo_header.isdn.uton = (hdr->flags & AETHRA_U_TO_N);
+	rec->rec_header.packet_header.pseudo_header.isdn.channel = 0;	/* XXX - D channel */
 
 	return TRUE;
 }

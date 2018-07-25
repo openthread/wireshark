@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -27,9 +15,14 @@
 #include <epan/xdlc.h>
 
 /*
- * See
+ * See:
  *
- *	http://www.protocols.com/pbook/sna.htm
+ * http://web.archive.org/web/20020206033700/http://www.wanresources.com/snacell.html
+ *
+ * http://web.archive.org/web/20150522015710/http://www.protocols.com/pbook/sna.htm
+ *
+ * Systems Network Architecture Formats, GA27-3136-20:
+ * https://publibz.boulder.ibm.com/cgi-bin/bookmgr/BOOKS/D50A5007/CCONTENTS
  */
 void proto_register_sdlc(void);
 void proto_reg_handoff_sdlc(void);

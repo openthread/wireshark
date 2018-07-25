@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -70,6 +58,8 @@ static gint ett_rpl_4018      = -1;
 static gint ett_rpl_c005      = -1;
 static gint ett_rpl_c014      = -1;
 static gint ett_rpl_unkn      = -1;
+
+static dissector_handle_t rpl_handle;
 
 static const value_string rpl_type_vals[] = {
 	{ 1,		"FIND Command" },
@@ -144,7 +134,7 @@ dissect_rpl_container(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 				if (reported_length > sublen)
 					reported_length = sublen;
 				if ( length > 0) {
-				  dissect_rpl_container(tvb_new_subset(tvb,
+				  dissect_rpl_container(tvb_new_subset_length_caplen(tvb,
 					offset, length, reported_length),
 					pinfo, rpl_container_tree);
 				  offset += reported_length;
@@ -397,15 +387,12 @@ proto_register_rpl(void)
 	    "RPL", "rpl");
 	proto_register_field_array(proto_rpl, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	register_dissector("rpl", dissect_rpl, proto_rpl);
+	rpl_handle = register_dissector("rpl", dissect_rpl, proto_rpl);
 }
 
 void
 proto_reg_handoff_rpl(void)
 {
-	dissector_handle_t rpl_handle;
-
-	rpl_handle = find_dissector("rpl");
 	dissector_add_uint("llc.dsap", SAP_RPL, rpl_handle);
 }
 

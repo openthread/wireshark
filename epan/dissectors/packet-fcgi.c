@@ -6,33 +6,18 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include "packet-tcp.h"
 
 void proto_register_fcgi(void);
 void proto_reg_handoff_fcgi(void);
 
 static int proto_fcgi = -1;
-
-static guint tcp_port = 0;
 
 static int hf_fcgi_version = -1;
 static int hf_fcgi_type = -1;
@@ -382,21 +367,11 @@ proto_register_fcgi(void)
       &ett_fcgi_end_request,
       &ett_fcgi_params
    };
-   module_t *fcgi_module;
 
    proto_fcgi = proto_register_protocol("FastCGI", "FCGI", "fcgi");
 
    proto_register_field_array(proto_fcgi, hf, array_length(hf));
    proto_register_subtree_array(ett, array_length(ett));
-
-   fcgi_module = prefs_register_protocol(proto_fcgi, proto_reg_handoff_fcgi);
-
-   prefs_register_uint_preference(fcgi_module,
-                                  "tcp.port",
-                                  "TCP port for FCGI",
-                                  "Set the TCP port for FastCGI traffic",
-                                  10,
-                                  &tcp_port);
 
    fcgi_handle = register_dissector("fcgi", dissect_fcgi, proto_fcgi);
 }
@@ -404,21 +379,7 @@ proto_register_fcgi(void)
 void
 proto_reg_handoff_fcgi(void)
 {
-   static gboolean initialized = FALSE;
-   static guint saved_tcp_port;
-
-   if (!initialized) {
-      dissector_add_for_decode_as("tcp.port", fcgi_handle);
-      initialized = TRUE;
-   } else if (saved_tcp_port != 0) {
-      dissector_delete_uint("tcp.port", saved_tcp_port, fcgi_handle);
-   }
-
-   if (tcp_port != 0) {
-      dissector_add_uint("tcp.port", tcp_port, fcgi_handle);
-   }
-
-   saved_tcp_port = tcp_port;
+   dissector_add_for_decode_as_with_preference("tcp.port", fcgi_handle);
 }
 
 /*

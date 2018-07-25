@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * This code is based on the protocol specification:
  *   http://www.spice-space.org/docs/spice_protocol.pdf
@@ -731,11 +719,11 @@ static int hf_spice_lz_magic = -1;
 static int hf_spice_lz_rgb_image_size = -1;
 static int hf_spice_lz_plt_data = -1;
 static int hf_spice_glyph_flags = -1;
-static int hf_spice_pallete_offset = -1;
+static int hf_spice_palette_offset = -1;
 #if 0
 static int hf_spice_lz_jpeg_image_size = -1;
 #endif
-static int hf_spice_pallete = -1;
+static int hf_spice_palette = -1;
 static int hf_spice_selected_authentication_mechanism_length = -1;
 static int hf_spice_display_reset_message = -1;
 static int hf_spice_topdown_flag = -1;
@@ -816,7 +804,7 @@ dissect_Pixmap(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
     proto_item *ti;
     proto_tree *Pixmap_tree;
     guint32     PixmapSize;
-    guint32     strides, height, pallete_ptr;
+    guint32     strides, height, palette_ptr;
 
     Pixmap_tree = proto_tree_add_subtree(tree, tvb, offset, 0, ett_Pixmap, &ti, "Pixmap"); /* size is fixed later */
     proto_tree_add_item(Pixmap_tree, hf_pixmap_format, tvb, offset, 1, ENC_LITTLE_ENDIAN);
@@ -831,7 +819,7 @@ dissect_Pixmap(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
     strides = tvb_get_letohl(tvb, offset);
     proto_tree_add_item(Pixmap_tree, hf_pixmap_stride, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
-    pallete_ptr = tvb_get_letohl(tvb, offset);
+    palette_ptr = tvb_get_letohl(tvb, offset);
     proto_tree_add_item(Pixmap_tree, hf_pixmap_address, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
     PixmapSize = height * strides;
@@ -839,8 +827,8 @@ dissect_Pixmap(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
     proto_tree_add_bytes_format(Pixmap_tree, hf_spice_pixmap_pixels, tvb, offset, PixmapSize, NULL,
                                 "Pixmap pixels (%d bytes)", PixmapSize);
     offset += PixmapSize;
-    /* FIXME: compute pallete size */
-    proto_tree_add_bytes_format(Pixmap_tree, hf_spice_pallete, tvb, offset, 0, NULL, "Pallete (offset from message start - %u)", pallete_ptr);
+    /* FIXME: compute palette size */
+    proto_tree_add_bytes_format(Pixmap_tree, hf_spice_palette, tvb, offset, 0, NULL, "Palette (offset from message start - %u)", palette_ptr);
     /*TODO: complete pixmap dissection */
 
     return PixmapSize + 18;
@@ -969,7 +957,7 @@ dissect_ImageQuic(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
 
         ImageQuic_tree = proto_tree_add_subtree(tree, tvb, offset, QuicSize + 4, ett_imageQuic, NULL, "QUIC Image");
 
-        proto_tree_add_uint_format_value(ImageQuic_tree, hf_spice_quic_image_size, tvb, offset, 4, QuicSize, "%u bytes", QuicSize);
+        proto_tree_add_uint(ImageQuic_tree, hf_spice_quic_image_size, tvb, offset, 4, QuicSize);
         offset += 4;
         proto_tree_add_item(ImageQuic_tree, hf_spice_quic_magic, tvb, offset, 4, ENC_ASCII|ENC_NA);
         offset += 4;
@@ -1066,7 +1054,7 @@ dissect_ImageLZ_JPEG(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
     const guint32  LZ_JPEGSize = tvb_get_letohl(tvb, offset);
 
     LZ_JPEG_tree = proto_tree_add_subtree(tree, tvb, offset, LZ_JPEGSize + 4, ett_LZ_JPEG, NULL, "LZ_JPEG Image");
-    proto_tree_add_uint_format_value(LZ_JPEG_tree, hf_spice_lz_jpeg_image_size, tvb, offset, 4, LZ_JPEGSize, "%u bytes", LZ_JPEGSize);
+    proto_tree_add_uint(LZ_JPEG_tree, hf_spice_lz_jpeg_image_size, tvb, offset, 4, LZ_JPEGSize);
     offset += 4;
     offset += dissect_ImageLZ_common_header(tvb, LZ_JPEG_tree, offset);
 
@@ -1083,7 +1071,7 @@ dissect_ImageGLZ_RGB(tvbuff_t *tvb, proto_tree *tree, guint32 offset, const guin
     if (size == 0) { /* if no size was passed to us, need to fetch it. Otherwise, we already have it from the callee */
         GLZ_RGBSize = tvb_get_letohl(tvb, offset);
         GLZ_RGB_tree = proto_tree_add_subtree(tree, tvb, offset, GLZ_RGBSize + 4, ett_GLZ_RGB, NULL, "GLZ_RGB Image");
-        proto_tree_add_uint_format_value(GLZ_RGB_tree, hf_spice_glz_rgb_image_size, tvb, offset, 4, GLZ_RGBSize, "%u bytes", GLZ_RGBSize);
+        proto_tree_add_uint(GLZ_RGB_tree, hf_spice_glz_rgb_image_size, tvb, offset, 4, GLZ_RGBSize);
         offset += 4;
     } else {
         GLZ_RGBSize = size;
@@ -1102,7 +1090,7 @@ dissect_ImageLZ_RGB(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
     const guint32  LZ_RGBSize = tvb_get_letohl(tvb, offset);
 
     LZ_RGB_tree = proto_tree_add_subtree(tree, tvb, offset, LZ_RGBSize + 4, ett_LZ_RGB, NULL, "LZ_RGB Image");
-    proto_tree_add_uint_format_value(LZ_RGB_tree, hf_spice_lz_rgb_image_size, tvb, offset, 4, LZ_RGBSize, "%u bytes", LZ_RGBSize);
+    proto_tree_add_uint(LZ_RGB_tree, hf_spice_lz_rgb_image_size, tvb, offset, 4, LZ_RGBSize);
     offset += 4;
 
     dissect_ImageLZ_common(tvb, LZ_RGB_tree, offset, TRUE, LZ_RGBSize);
@@ -1126,8 +1114,7 @@ dissect_ImageLZ_PLT(tvbuff_t *tvb, proto_tree *tree, guint32 offset)
     proto_tree_add_uint_format_value(LZ_PLT_tree, hf_spice_lz_plt_image_size, tvb, offset, 4, LZ_PLTSize, "%u bytes (2 extra bytes?)", LZ_PLTSize);
     offset += 4;
 
-    pal_size = tvb_get_letohl(tvb, offset);
-    proto_tree_add_uint_format_value(LZ_PLT_tree, hf_spice_pallete_offset, tvb, offset, 4, pal_size, "%u bytes", pal_size); /* TODO: not sure it's correct */
+    proto_tree_add_item_ret_uint(LZ_PLT_tree, hf_spice_palette_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pal_size); /* TODO: not sure it's correct */
     offset += 4;
 
     dissect_ImageLZ_common_header(tvb, LZ_PLT_tree, offset);
@@ -1197,7 +1184,7 @@ dissect_ImageJPEG(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, const gui
     return JPEG_Size + 4;
 }
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 static void
 dissect_ImageZLIB_GLZ_stream(tvbuff_t *tvb, proto_tree *ZLIB_GLZ_tree, packet_info *pinfo,
                              guint32 offset, guint32 ZLIB_GLZSize, guint32 ZLIB_uncompSize)
@@ -1227,7 +1214,6 @@ dissect_ImageZLIB_GLZ_stream(tvbuff_t *tvb, proto_tree *ZLIB_GLZ_tree, packet_in
 static guint32
 dissect_ImageZLIB_GLZ(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint32 offset)
 {
-    proto_item *ti;
     proto_tree *ZLIB_GLZ_tree;
     guint32     ZLIB_GLZSize, ZLIB_uncompSize;
 
@@ -1236,11 +1222,9 @@ dissect_ImageZLIB_GLZ(tvbuff_t *tvb, proto_tree *tree, packet_info *pinfo, guint
     if (tree) {
         ZLIB_GLZ_tree = proto_tree_add_subtree(tree, tvb, offset, ZLIB_GLZSize + 8, ett_ZLIB_GLZ, NULL, "ZLIB over GLZ Image");
 
-        ti = proto_tree_add_item(ZLIB_GLZ_tree, hf_zlib_uncompress_size, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-        proto_item_append_text(ti, " bytes");
+        proto_tree_add_item(ZLIB_GLZ_tree, hf_zlib_uncompress_size, tvb, offset, 4, ENC_LITTLE_ENDIAN);
         offset += 4;
-        ti = proto_tree_add_item(ZLIB_GLZ_tree, hf_zlib_compress_size, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-        proto_item_append_text(ti, " bytes");
+        proto_tree_add_item(ZLIB_GLZ_tree, hf_zlib_compress_size, tvb, offset, 4, ENC_LITTLE_ENDIAN);
         offset += 4;
         dissect_ImageZLIB_GLZ_stream(tvb, ZLIB_GLZ_tree, pinfo, offset, ZLIB_GLZSize, ZLIB_uncompSize);
     }
@@ -1727,7 +1711,7 @@ dissect_spice_record_client(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             offset += 4;
             proto_tree_add_item(record_tree, hf_audio_mode, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             offset += 2;
-            /* TODO - mode dependant, there may be more data here */
+            /* TODO - mode dependent, there may be more data here */
             break;
         default:
             expert_add_info_format(pinfo, msgtype_item, &ei_spice_unknown_message, "Unknown record client message - cannot dissect");
@@ -4212,12 +4196,12 @@ proto_register_spice(void)
         },
         { &hf_zlib_uncompress_size,
           { "ZLIB stream uncompressed size", "spice.zlib_uncompress_size",
-            FT_UINT32, BASE_DEC, NULL, 0x0,
+            FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,
             NULL, HFILL }
         },
         { &hf_zlib_compress_size,
           { "ZLIB stream compressed size", "spice.zlib_compress_size",
-            FT_UINT32, BASE_DEC, NULL, 0x0,
+            FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,
             NULL, HFILL }
         },
         { &hf_rect_left,
@@ -4432,9 +4416,9 @@ proto_register_spice(void)
         },
       /* Generated from convert_proto_tree_add_text.pl */
       { &hf_spice_pixmap_pixels, { "Pixmap pixels", "spice.pixmap_pixels", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_spice_pallete, { "Pallete", "spice.pallete", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_spice_palette, { "Palette", "spice.palette", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_cursor_data, { "Cursor data", "spice.cursor_data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_spice_quic_image_size, { "QUIC image size", "spice.quic_image_size", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_spice_quic_image_size, { "QUIC image size", "spice.quic_image_size", FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
       { &hf_spice_quic_magic, { "QUIC magic", "spice.quic_magic", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_quic_compressed_image_data, { "QUIC compressed image data", "spice.quic_compressed_image_data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_lz_magic, { "LZ magic", "spice.lz_magic", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -4442,13 +4426,13 @@ proto_register_spice(void)
       { &hf_spice_topdown_flag, { "Topdown flag", "spice.topdown_flag", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_unknown_bytes, { "Unknown bytes", "spice.unknown_bytes", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
 #if 0
-      { &hf_spice_lz_jpeg_image_size, { "LZ JPEG image size", "spice.lz_jpeg_image_size", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_spice_lz_jpeg_image_size, { "LZ JPEG image size", "spice.lz_jpeg_image_size", FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
 #endif
-      { &hf_spice_glz_rgb_image_size, { "GLZ RGB image size", "spice.glz_rgb_image_size", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_spice_lz_rgb_image_size, { "LZ RGB image size", "spice.lz_rgb_image_size", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_spice_glz_rgb_image_size, { "GLZ RGB image size", "spice.glz_rgb_image_size", FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
+      { &hf_spice_lz_rgb_image_size, { "LZ RGB image size", "spice.lz_rgb_image_size", FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
       { &hf_spice_lz_plt_flag, { "LZ_PLT Flag", "spice.lz_plt_flag", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_lz_plt_image_size, { "LZ PLT image size", "spice.lz_plt_image_size", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_spice_pallete_offset, { "pallete offset", "spice.pallete_offset", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+      { &hf_spice_palette_offset, { "palette offset", "spice.palette_offset", FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0, NULL, HFILL }},
       { &hf_spice_lz_plt_data, { "LZ_PLT data", "spice.lz_plt_data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_zlib_stream, { "ZLIB stream", "spice.zlib_stream", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_spice_image_from_cache, { "Image from Cache", "spice.image_from_cache", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -4563,7 +4547,7 @@ void
 proto_reg_handoff_spice(void)
 {
     spice_handle = create_dissector_handle(dissect_spice, proto_spice);
-    dissector_add_for_decode_as("tcp.port", spice_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", spice_handle);
     heur_dissector_add("tcp", test_spice_protocol, "Spice over TCP", "spice_tcp", proto_spice, HEURISTIC_ENABLE);
     jpeg_handle  = find_dissector_add_dependency("image-jfif", proto_spice);
 }

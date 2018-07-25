@@ -6,19 +6,7 @@
  * usb video dissector
  * Steven J. Magnani 2013
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1035,6 +1023,10 @@ dissect_usb_video_control_interface_descriptor(proto_tree *parent_tree, tvbuff_t
             video_conv_info = wmem_new(wmem_file_scope(), video_conv_info_t);
             video_conv_info->entities = wmem_tree_new(wmem_file_scope());
             usb_conv_info->class_data = video_conv_info;
+            usb_conv_info->class_data_type = USB_CONV_VIDEO;
+        } else if (usb_conv_info->class_data_type != USB_CONV_VIDEO) {
+            /* Stop dissection if another USB type is in the conversation */
+            return descriptor_len;
         }
 
         entity = (video_entity_t*) wmem_tree_lookup32(video_conv_info->entities, entity_id);
@@ -1473,7 +1465,7 @@ dissect_usb_vid_descriptor(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     descriptor_type = tvb_get_guint8(tvb, offset+1);
 
     bytes_available = tvb_captured_length_remaining(tvb, offset);
-    desc_tvb = tvb_new_subset(tvb, 0, bytes_available, descriptor_len);
+    desc_tvb = tvb_new_subset_length_caplen(tvb, 0, bytes_available, descriptor_len);
 
     if (descriptor_type == CS_ENDPOINT)
     {

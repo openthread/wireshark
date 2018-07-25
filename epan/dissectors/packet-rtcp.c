@@ -16,19 +16,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -359,6 +347,7 @@ static const value_string rtcp_rtpfb_fmt_vals[] =
     {   1,  "Generic negative acknowledgement (NACK)"},
     {   3,  "Temporary Maximum Media Stream Bit Rate Request (TMMBR)"},
     {   4,  "Temporary Maximum Media Stream Bit Rate Notification (TMMBN)"},
+    {  15,  "Transport-wide Congestion Control (Transport-cc)"}, /*https://tools.ietf.org/html/draft-holmer-rmcat-transport-wide-cc-extensions-01*/
     {  31,  "Reserved for future extensions"},
     {   0,  NULL }
 };
@@ -546,6 +535,14 @@ static int hf_rtcp_length_check = -1;
 static int hf_rtcp_rtpfb_fmt = -1;
 static int hf_rtcp_rtpfb_nack_pid = -1;
 static int hf_rtcp_rtpfb_nack_blp = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_base_seq = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_pkt_stats_cnt = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_ref_time = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_fb_pkt_cnt = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_pkt_chunk = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_recv_delta_1_byte = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_recv_delta_2_bytes = -1;
+static int hf_rtcp_rtpfb_transport_cc_fci_recv_delta_padding = -1;
 static int hf_rtcp_psfb_fmt = -1;
 static int hf_rtcp_fci = -1;
 static int hf_rtcp_psfb_fir_fci_ssrc = -1;
@@ -554,14 +551,12 @@ static int hf_rtcp_psfb_fir_fci_reserved = -1;
 static int hf_rtcp_psfb_sli_first = -1;
 static int hf_rtcp_psfb_sli_number = -1;
 static int hf_rtcp_psfb_sli_picture_id = -1;
-#if 0
 static int hf_rtcp_psfb_remb_fci_identifier = -1;
 static int hf_rtcp_psfb_remb_fci_number_ssrcs = -1;
 static int hf_rtcp_psfb_remb_fci_ssrc = -1;
 static int hf_rtcp_psfb_remb_fci_exp = -1;
 static int hf_rtcp_psfb_remb_fci_mantissa = -1;
 static int hf_rtcp_psfb_remb_fci_bitrate = -1;
-#endif
 static int hf_rtcp_rtpfb_tmbbr_fci_ssrc = -1;
 static int hf_rtcp_rtpfb_tmbbr_fci_exp = -1;
 static int hf_rtcp_rtpfb_tmbbr_fci_mantissa = -1;
@@ -701,6 +696,7 @@ static expert_field ei_rtcp_missing_sender_ssrc = EI_INIT;
 static expert_field ei_rtcp_missing_block_header = EI_INIT;
 static expert_field ei_rtcp_block_length = EI_INIT;
 static expert_field ei_srtcp_encrypted_payload = EI_INIT;
+static expert_field ei_rtcp_rtpfb_transportcc_bad = EI_INIT;
 
 /* Main dissection function */
 static int dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo,
@@ -750,14 +746,14 @@ void srtcp_add_address( packet_info *pinfo,
      * Check if the ip address and port combination is not
      * already registered as a conversation.
      */
-    p_conv = find_conversation( pinfo->num, addr, &null_addr, PT_UDP, port, other_port,
+    p_conv = find_conversation( pinfo->num, addr, &null_addr, ENDPOINT_UDP, port, other_port,
                                 NO_ADDR_B | (!other_port ? NO_PORT_B : 0));
 
     /*
      * If not, create a new conversation.
      */
     if ( ! p_conv ) {
-        p_conv = conversation_new( pinfo->num, addr, &null_addr, PT_UDP,
+        p_conv = conversation_new( pinfo->num, addr, &null_addr, ENDPOINT_UDP,
                                    (guint32)port, (guint32)other_port,
                                    NO_ADDR2 | (!other_port ? NO_PORT2 : 0));
     }
@@ -896,9 +892,8 @@ dissect_rtcp_nack( tvbuff_t *tvb, int offset, proto_tree *tree )
 static int
 dissect_rtcp_rtpfb_tmmbr( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, proto_item *top_item, int num_fci, int is_notification)
 {
-    int         bitrate;
-    int         exp;
-    guint32     mantissa;
+    guint8  exp;
+    guint32 mantissa;
     proto_tree *fci_tree;
 
     if (is_notification == 1) {
@@ -913,18 +908,17 @@ dissect_rtcp_rtpfb_tmmbr( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, prot
     /* Exp 6 bit*/
     proto_tree_add_item( fci_tree, hf_rtcp_rtpfb_tmbbr_fci_exp, tvb, offset, 1, ENC_BIG_ENDIAN );
     exp = (tvb_get_guint8(tvb, offset) & 0xfc) >> 2;
-        /* Mantissa 17 bit*/
+    /* Mantissa 17 bit*/
     proto_tree_add_item( fci_tree, hf_rtcp_rtpfb_tmbbr_fci_mantissa, tvb, offset, 3, ENC_BIG_ENDIAN );
     mantissa = (tvb_get_ntohl( tvb, offset) & 0x3fffe00) >> 9;
-    bitrate = mantissa << exp;
-    proto_tree_add_string_format_value( fci_tree, hf_rtcp_rtpfb_tmbbr_fci_bitrate, tvb, offset, 3, "", "%u", bitrate);
+    proto_tree_add_string_format_value( fci_tree, hf_rtcp_rtpfb_tmbbr_fci_bitrate, tvb, offset, 3, "", "%u*2^%u", mantissa, exp);
     offset += 3;
     /* Overhead */
     proto_tree_add_item( fci_tree, hf_rtcp_rtpfb_tmbbr_fci_measuredoverhead, tvb, offset, 1, ENC_BIG_ENDIAN );
     offset += 1;
 
     if (top_item != NULL) {
-          proto_item_append_text(top_item, ": TMMBR: %u", bitrate);
+          proto_item_append_text(top_item, ": TMMBR: %u*2^%u", mantissa, exp);
       }
 
     return offset;
@@ -950,13 +944,13 @@ dissect_rtcp_asfb_ms( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info *
     type_item = proto_tree_add_item( tree, hf_rtcp_psfb_ms_type, tvb, offset, 2, ENC_BIG_ENDIAN );
     offset += 2;
 
-    length = tvb_get_ntohs(tvb, offset) - 1;
+    length = tvb_get_ntohs(tvb, offset) - 4;
     proto_tree_add_item( tree, hf_rtcp_psfb_ms_length, tvb, offset, 2, ENC_BIG_ENDIAN );
     offset += 2;
 
     if (type == 1)
     {
-        rtcp_ms_vsr_tree = proto_tree_add_subtree(tree, tvb, offset, hf_rtcp_psfb_ms_length, ett_ms_vsr, &item, "MS Video Source Request");
+        rtcp_ms_vsr_tree = proto_tree_add_subtree(tree, tvb, offset, length, ett_ms_vsr, &item, "MS Video Source Request");
 
         col_append_fstr(pinfo->cinfo, COL_INFO,"( MS-VSR )");
 
@@ -1050,7 +1044,7 @@ dissect_rtcp_asfb_ms( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info *
     else if (type == 3)
     {
         /* MS Dominant Speaker History */
-        rtcp_ms_ds_tree = proto_tree_add_subtree(tree, tvb, offset, hf_rtcp_psfb_ms_length, ett_ms_ds, NULL, "MS Dominant Speaker History");
+        rtcp_ms_ds_tree = proto_tree_add_subtree(tree, tvb, offset, length, ett_ms_ds, NULL, "MS Dominant Speaker History");
         col_append_fstr(pinfo->cinfo, COL_INFO,"( MS-DSH )");
         while (length-- && tvb_captured_length_remaining (tvb, offset) >= 4)
         {
@@ -1069,7 +1063,6 @@ dissect_rtcp_asfb_ms( tvbuff_t *tvb, int offset, proto_tree *tree, packet_info *
     return offset;
 }
 
-#if 0
 static int
 dissect_rtcp_psfb_remb( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, proto_item *top_item, int num_fci, int *read_fci)
 {
@@ -1080,7 +1073,7 @@ dissect_rtcp_psfb_remb( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, proto_
 
     fci_tree = proto_tree_add_subtree_format( rtcp_tree, tvb, offset, 8, ett_ssrc, NULL, "REMB %d", num_fci );
 
-    /* Uniquie identifier 'REMB' */
+    /* Unique identifier 'REMB' */
     proto_tree_add_item( fci_tree, hf_rtcp_psfb_remb_fci_identifier, tvb, offset, 4, ENC_ASCII|ENC_NA );
     offset += 4;
 
@@ -1115,8 +1108,270 @@ dissect_rtcp_psfb_remb( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, proto_
 
     return offset;
 }
-#endif
 
+#define RTCP_HEADER_LENGTH      12
+
+static int
+dissect_rtcp_rtpfb_transport_cc( tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *rtcp_tree, int pkt_len)
+{
+    proto_tree *fci_tree, *pkt_chunk_tree, *recv_delta_tree;
+    proto_item *item       = NULL;
+    guint8  *delta_array;
+    guint16 *pkt_seq_array;
+    guint32 i, pkt_base_seq, pkt_seq_num, pkt_count, delta_index = 0;
+    gint fci_length        = pkt_len - RTCP_HEADER_LENGTH;
+    int padding_length     = offset;
+
+    fci_tree = proto_tree_add_subtree_format( rtcp_tree, tvb, offset, fci_length, ett_ssrc, NULL, "Transport-cc" );
+
+    /* base sequence number */
+    proto_tree_add_item_ret_uint( fci_tree, hf_rtcp_rtpfb_transport_cc_fci_base_seq, tvb, offset, 2, ENC_BIG_ENDIAN, &pkt_base_seq );
+    offset += 2;
+    pkt_seq_num = pkt_base_seq;
+
+    /* packet status count */
+    proto_tree_add_item_ret_uint( fci_tree, hf_rtcp_rtpfb_transport_cc_fci_pkt_stats_cnt, tvb, offset, 2, ENC_BIG_ENDIAN, &pkt_count );
+    offset += 2;
+
+    delta_array   = wmem_alloc0_array( wmem_packet_scope(), gint8, pkt_count );
+    pkt_seq_array = wmem_alloc0_array( wmem_packet_scope(), gint16, pkt_count );
+
+    /* reference time */
+    proto_tree_add_item( fci_tree, hf_rtcp_rtpfb_transport_cc_fci_ref_time, tvb, offset, 3, ENC_BIG_ENDIAN );
+    offset += 3;
+
+    /* feedback packet count */
+    proto_tree_add_item( fci_tree, hf_rtcp_rtpfb_transport_cc_fci_fb_pkt_cnt, tvb, offset, 1, ENC_BIG_ENDIAN );
+    offset += 1;
+
+    /* packet chunk */
+    pkt_chunk_tree = proto_tree_add_subtree_format( fci_tree, tvb, offset, 0, ett_ssrc, NULL, "Packet Chunks" );
+
+    for (i = 0; i < pkt_count; )
+    {
+        guint32 chunk = 0;
+        item = proto_tree_add_item_ret_uint( pkt_chunk_tree, hf_rtcp_rtpfb_transport_cc_fci_pkt_chunk, tvb, offset, 2, ENC_BIG_ENDIAN, &chunk );
+
+        /* Packet Status Symbols */
+        /**
+         * 00 Packet not received
+         * 01 Packet received, small delta
+         * 10 Packet received, large or negative delta
+         * 11 [Reserved]
+         */
+        if ( !(chunk & 0x8000) )
+        {
+            /* Run length chunk, first bit is zero */
+            guint length = chunk & 0x1FFF;
+
+            if ( length <= 0 || pkt_count - delta_index < length )
+            {
+                /* Malformed packet (zero or too many packets), stop parsing. */
+                proto_tree_add_expert(pkt_chunk_tree, pinfo, &ei_rtcp_rtpfb_transportcc_bad, tvb, offset, 2);
+                offset += 2;
+                return offset;
+            }
+
+            if ( !(chunk & 0x6000) )
+            {
+                proto_item_append_text( item, " [Run Length Chunk] Packet not received. Length : %d", length);
+                pkt_seq_num += length;
+            }
+            else if ( chunk & 0x2000 )
+            {
+                proto_item_append_text( item, " [Run Length Chunk] Small Delta. Length : %d", length);
+                for (guint j = 0; j < length; j++)
+                {
+                    /*1 means 1 byte delta, 2 means 2 bytes delta*/
+                    delta_array[delta_index+j] = 1;
+                    pkt_seq_array[delta_index+j] = pkt_seq_num++;
+                }
+                delta_index += length;
+            }
+            else if ( chunk & 0x4000 )
+            {
+                proto_item_append_text( item, " [Run Length Chunk] Large or Negative Delta. Length : %d", length);
+                for (guint j = 0; j < length; j++)
+                {
+                    delta_array[delta_index+j] = 2;
+                    pkt_seq_array[delta_index+j] = pkt_seq_num++;
+                }
+                delta_index += length;
+            }
+            else
+            {
+                proto_item_append_text( item, " [Run Length Chunk] [Reserved]. Length : %d", length);
+                pkt_seq_num += length;
+            }
+
+            i += length;
+
+        }
+        else
+        {
+            wmem_strbuf_t* status = wmem_strbuf_new(wmem_packet_scope(), "|");
+
+            /* Status Vector Chunk, first bit is one */
+            if ( !(chunk & 0x4000) )
+            {
+                /* 1 bit symbols */
+
+                int data = chunk & 0x3FFF;
+                int chunk_count = 14;
+
+                for (int k = 0; k < chunk_count; k++)
+                {
+                    if ( (data & (0x2000>>k)) == 0 )
+                    {
+                        if ( i + k < pkt_count )
+                        {
+                            wmem_strbuf_append(status, " N |");
+                            pkt_seq_num++;
+                        }
+                        else
+                        {
+                            /* padding */
+                            wmem_strbuf_append(status, " _ |");
+                        }
+                    }
+                    else
+                    {
+                        if (delta_index >= pkt_count) {
+                            /* Malformed packet (too many status packets). */
+                            proto_tree_add_expert(pkt_chunk_tree, pinfo, &ei_rtcp_rtpfb_transportcc_bad, tvb, offset, 2);
+                            offset += 2;
+                            return offset;
+                        }
+                        wmem_strbuf_append(status, " R |");
+                        delta_array[delta_index] = 1;
+                        pkt_seq_array[delta_index] = pkt_seq_num++;
+                        delta_index++;
+                    }
+                }
+                proto_item_append_text( item, " [1 bit Status Vector Chunk]: %s", wmem_strbuf_get_str(status));
+                i += chunk_count;
+            }
+            else
+            {
+                /* 2 bits symbols */
+                int chunk_count = 7;
+                int data = chunk & 0x3FFF;
+
+                for (int k = 0; k < chunk_count; k++)
+                {
+                    switch ( (data & (0x3000 >> (2*k))) >> ( 2 * (6-k) ) )
+                    {
+                        case 0: /*00 packet not received*/
+                            if ( i + k < pkt_count )
+                            {
+                                wmem_strbuf_append(status, " NR |");
+                                pkt_seq_num++;
+                            }
+                            else
+                            {
+                                /*padding*/
+                                wmem_strbuf_append(status, " __ |");
+                            }
+                            break;
+
+                        case 1: /*01 Packet received, small delta*/
+                            if (delta_index >= pkt_count) {
+                                /* Malformed packet (too many status packets). */
+                                proto_tree_add_expert(pkt_chunk_tree, pinfo, &ei_rtcp_rtpfb_transportcc_bad, tvb, offset, 2);
+                                offset += 2;
+                                return offset;
+                            }
+                            wmem_strbuf_append(status, " SD |");
+                            delta_array[delta_index] = 1;
+                            pkt_seq_array[delta_index] = pkt_seq_num++;
+                            delta_index++;
+                            break;
+
+                        case 2: /*10 Packet received, large or negative delta*/
+                            if (delta_index >= pkt_count) {
+                                /* Malformed packet (too many status packets). */
+                                proto_tree_add_expert(pkt_chunk_tree, pinfo, &ei_rtcp_rtpfb_transportcc_bad, tvb, offset, 2);
+                                offset += 2;
+                                return offset;
+                            }
+                            wmem_strbuf_append(status, " LD |");
+                            delta_array[delta_index] = 2;
+                            pkt_seq_array[delta_index] = pkt_seq_num++;
+                            delta_index++;
+                            break;
+
+                        case 3: /*11 packet received, w/o(wrong? overflow?) timestamp*/
+                        default:
+                            /*TODO: process overflow status which is not details on draft.*/
+                            wmem_strbuf_append(status, " WO |");
+                            pkt_seq_num++;
+                            break;
+
+                    }
+                }
+
+                proto_item_append_text( item, " [2 bits Status Vector Chunk]: %s", wmem_strbuf_get_str(status));
+                i += chunk_count;
+            }
+
+        }
+
+        offset += 2;
+    }
+
+    /* recv delta */
+    recv_delta_tree = proto_tree_add_subtree_format( fci_tree, tvb, offset, 0, ett_ssrc, NULL, "Recv Delta" );
+    for (i = 0; i < pkt_count; i++ )
+    {
+        if ( delta_array[i] == 1 )
+        {
+            /*1 byte delta*/
+            guint32 delta;
+            item = proto_tree_add_item_ret_uint( recv_delta_tree, hf_rtcp_rtpfb_transport_cc_fci_recv_delta_1_byte, tvb, offset, 1, ENC_BIG_ENDIAN, &delta );
+
+            proto_item_append_text( item, " Small Delta: [seq: %d] %lf ms", pkt_seq_array[i], delta*250.0/1000);
+
+            offset += 1;
+        }
+        else if ( delta_array[i] == 2 )
+        {
+            /*2 bytes delta*/
+            gint16 delta;
+            item = proto_tree_add_item( recv_delta_tree, hf_rtcp_rtpfb_transport_cc_fci_recv_delta_2_bytes, tvb, offset, 2, ENC_BIG_ENDIAN);
+            delta = tvb_get_ntohs(tvb, offset);
+
+            if ( delta < 0 )
+            {
+                proto_item_append_text( item, " Negative Delta: [seq: %d] %lf ms", pkt_seq_array[i], delta*250.0/1000 );
+            }
+            else
+            {
+                proto_item_append_text( item, " Large Delta: [seq: %d] %lf ms", pkt_seq_array[i], delta*250.0/1000 );
+            }
+
+            offset += 2;
+        }
+        else
+        {
+            /*End with 0*/
+            break;
+        }
+    }
+
+    /* padding */
+    padding_length = fci_length - (offset - padding_length);
+    if ( padding_length > 0 )
+    {
+        proto_tree_add_item( recv_delta_tree, hf_rtcp_rtpfb_transport_cc_fci_recv_delta_padding, tvb, offset, padding_length, ENC_BIG_ENDIAN );
+        offset += padding_length;
+    }
+
+    /* delta_array / pkt_seq_array will be freed out of wmem_packet_scope*/
+    delta_array = NULL;
+    pkt_seq_array = NULL;
+
+    return offset;
+}
 
 static int
 dissect_rtcp_rtpfb_nack( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, proto_item *top_item)
@@ -1210,6 +1465,9 @@ dissect_rtcp_rtpfb( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree, proto_item
         offset = dissect_rtcp_rtpfb_tmmbr(tvb, offset, rtcp_tree, top_item, counter, 0);
       } else if (rtcp_rtpfb_fmt == 4) {
         offset = dissect_rtcp_rtpfb_tmmbr(tvb, offset, rtcp_tree, top_item, counter, 1);
+      } else if (rtcp_rtpfb_fmt == 15) {
+        /* Handle transport-cc (RTP Extensions for Transport-wide Congestion Control) - https://tools.ietf.org/html/draft-holmer-rmcat-transport-wide-cc-extensions-01 */
+        offset = dissect_rtcp_rtpfb_transport_cc( tvb, offset, pinfo, rtcp_tree, packet_length);
       } else {
         /* Unknown FMT */
         proto_tree_add_item(rtcp_tree, hf_rtcp_fci, tvb, offset, start_offset + packet_length - offset, ENC_NA );
@@ -1340,14 +1598,16 @@ dissect_rtcp_psfb( tvbuff_t *tvb, int offset, proto_tree *rtcp_tree,
              * the a=rtcp-fb attribute, but if we don't, we'd need to have
              * the user specify it somehow.
              */
-#if 0
-            /* Handle REMB (Receiver Estimated Maximum Bitrate) - http://tools.ietf.org/html/draft-alvestrand-rmcat-remb-00 */
-            offset = dissect_rtcp_psfb_remb(tvb, offset, rtcp_tree, top_item, counter, &read_fci);
-#else
-            /* Handle MS Application Layer Feedback Messages - MS-RTP */
-            offset = dissect_rtcp_asfb_ms(tvb, offset, rtcp_tree, pinfo);
-            read_fci = num_fci;     /* Consume all the bytes. */
-#endif
+            guint32 magic_value = tvb_get_ntohl( tvb, offset);
+            /* look for string literal 'REMB' which is 0x52454d42 hex */
+            if (magic_value == 0x52454d42) {
+                /* Handle REMB (Receiver Estimated Maximum Bitrate) - http://tools.ietf.org/html/draft-alvestrand-rmcat-remb-00 */
+                offset = dissect_rtcp_psfb_remb(tvb, offset, rtcp_tree, top_item, counter, &read_fci);
+            } else {
+                /* Handle MS Application Layer Feedback Messages - MS-RTP */
+                offset = dissect_rtcp_asfb_ms(tvb, offset, rtcp_tree, pinfo);
+                read_fci = num_fci;     /* Consume all the bytes. */
+            }
             break;
         }
         case 3:             /* Reference Picture Selection Indication (RPSI) - Not decoded*/
@@ -2015,15 +2275,13 @@ dissect_rtcp_bye( tvbuff_t *tvb, packet_info *pinfo, int offset, proto_tree *tre
     }
 
     if ( tvb_reported_length_remaining( tvb, offset ) > 0 ) {
-        char *reason_text;
         /* Bye reason consists of an 8 bit length l and a string with length l */
         reason_length = tvb_get_guint8( tvb, offset );
         proto_tree_add_item( tree, hf_rtcp_sdes_length, tvb, offset, 1, ENC_BIG_ENDIAN );
         offset++;
 
         reason_offset = offset;
-        reason_text = (char*)tvb_get_string_enc(wmem_packet_scope(), tvb, offset, reason_length, ENC_ASCII);
-        proto_tree_add_string( tree, hf_rtcp_sdes_text, tvb, offset, reason_length, reason_text );
+        proto_tree_add_item( tree, hf_rtcp_sdes_text, tvb, offset, reason_length, ENC_ASCII|ENC_NA);
         offset += reason_length;
     }
 
@@ -2997,7 +3255,7 @@ void show_setup_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         conversation_t *p_conv;
         /* First time, get info from conversation */
         p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
-                                   pinfo->ptype,
+                                   conversation_pt_to_endpoint_type(pinfo->ptype),
                                    pinfo->destport, pinfo->srcport, NO_ADDR_B);
 
         if (p_conv)
@@ -3075,13 +3333,13 @@ static void remember_outgoing_sr(packet_info *pinfo, guint32 lsr)
        Even though we think of this as an outgoing packet being sent,
        we store the time as being received by the destination. */
     p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
-                               pinfo->ptype,
+                               conversation_pt_to_endpoint_type(pinfo->ptype),
                                pinfo->destport, pinfo->srcport, NO_ADDR_B);
 
     /* If the conversation doesn't exist, create it now. */
     if (!p_conv)
     {
-        p_conv = conversation_new(pinfo->num, &pinfo->net_dst, &pinfo->net_src, PT_UDP,
+        p_conv = conversation_new(pinfo->num, &pinfo->net_dst, &pinfo->net_src, ENDPOINT_UDP,
                                   pinfo->destport, pinfo->srcport,
                                   NO_ADDR2);
         if (!p_conv)
@@ -3167,7 +3425,7 @@ static void calculate_roundtrip_delay(tvbuff_t *tvb, packet_info *pinfo,
     /* Look for captured timestamp of last SR in conversation of sender */
     /* of this packet                                                   */
     p_conv = find_conversation(pinfo->num, &pinfo->net_src, &pinfo->net_dst,
-                               pinfo->ptype,
+                               conversation_pt_to_endpoint_type(pinfo->ptype),
                                pinfo->srcport, pinfo->destport, NO_ADDR_B);
     if (!p_conv)
     {
@@ -3321,7 +3579,7 @@ dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
     /* first see if this conversation is encrypted SRTP, and if so do not try to dissect the payload(s) */
     p_conv = find_conversation(pinfo->num, &pinfo->net_src, &pinfo->net_dst,
-                               pinfo->ptype,
+                               conversation_pt_to_endpoint_type(pinfo->ptype),
                                pinfo->srcport, pinfo->destport, NO_ADDR_B);
     if (p_conv)
     {
@@ -3580,7 +3838,7 @@ dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     /* offset should be total_packet_length by now... */
     else if (offset == total_packet_length)
     {
-        ti = proto_tree_add_boolean_format_value(tree, hf_rtcp_length_check, tvb,
+        ti = proto_tree_add_boolean_format_value(rtcp_tree, hf_rtcp_length_check, tvb,
                                             0, 0, TRUE, "OK - %u bytes",
                                             offset);
         /* Hidden might be less annoying here...? */
@@ -3588,7 +3846,7 @@ dissect_rtcp( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     }
     else
     {
-        ti = proto_tree_add_boolean_format_value(tree, hf_rtcp_length_check, tvb,
+        ti = proto_tree_add_boolean_format_value(rtcp_tree, hf_rtcp_length_check, tvb,
                                             0, 0, FALSE,
                                             "Wrong (expected %u bytes, found %d)",
                                             total_packet_length, offset);
@@ -5382,7 +5640,6 @@ proto_register_rtcp(void)
                 NULL, HFILL
             }
         },
-#if 0
         {
       &hf_rtcp_psfb_remb_fci_identifier,
             {
@@ -5455,7 +5712,6 @@ proto_register_rtcp(void)
                 NULL, HFILL
             }
         },
-#endif
     {
       &hf_rtcp_rtpfb_tmbbr_fci_ssrc,
             {
@@ -5513,6 +5769,102 @@ proto_register_rtcp(void)
                 BASE_DEC,
                 NULL,
                 0x1ff,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_base_seq,
+            {
+                "Base Sequence Number",
+                "rtcp.rtpfb.transportcc.baseseq",
+                FT_UINT16,
+                BASE_DEC_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_pkt_stats_cnt,
+            {
+                "Packet Status Count",
+                "rtcp.rtpfb.transportcc.statuscount",
+                FT_UINT16,
+                BASE_DEC_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_ref_time,
+            {
+                "Reference Time",
+                "rtcp.rtpfb.transportcc.reftime",
+                FT_UINT24,
+                BASE_DEC_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_fb_pkt_cnt,
+            {
+                "Feedback Packets Count",
+                "rtcp.rtpfb.transportcc.pktcount",
+                FT_UINT8,
+                BASE_DEC_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_pkt_chunk,
+            {
+                "Packet Chunk",
+                "rtcp.rtpfb.transportcc.pktchunk",
+                FT_UINT16,
+                BASE_DEC_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_recv_delta_1_byte,
+            {
+                "Recv Delta",
+                "rtcp.rtpfb.transportcc.recv_delta",
+                FT_UINT8,
+                BASE_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_recv_delta_2_bytes,
+            {
+                "Recv Delta",
+                "rtcp.rtpfb.transportcc.recv_delta",
+                FT_UINT16,
+                BASE_HEX,
+                NULL,
+                0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_rtcp_rtpfb_transport_cc_fci_recv_delta_padding,
+            {
+                "Recv Delta Padding",
+                "rtcp.rtpfb.transportcc.recv_delta.padding",
+                FT_UINT16,
+                BASE_HEX,
+                NULL,
+                0x0,
                 NULL, HFILL
             }
         },
@@ -6496,6 +6848,7 @@ proto_register_rtcp(void)
         { &ei_rtcp_missing_block_header, { "rtcp.missing_block_header", PI_PROTOCOL, PI_WARN, "Missing Required Block Headers", EXPFILL }},
         { &ei_rtcp_block_length, { "rtcp.block_length.invalid", PI_PROTOCOL, PI_WARN, "Block length is greater than packet length", EXPFILL }},
         { &ei_srtcp_encrypted_payload, { "srtcp.encrypted_payload", PI_UNDECODED, PI_WARN, "Encrypted RTCP Payload - not dissected", EXPFILL }},
+        { &ei_rtcp_rtpfb_transportcc_bad, { "rtcp.rtpfb.transportcc_bad", PI_MALFORMED, PI_WARN, "Too many packet chunks (more than packet status count)", EXPFILL }},
     };
 
     module_t *rtcp_module;
@@ -6508,7 +6861,7 @@ proto_register_rtcp(void)
     expert_rtcp = expert_register_protocol(proto_rtcp);
     expert_register_field_array(expert_rtcp, ei, array_length(ei));
 
-    register_dissector("rtcp", dissect_rtcp, proto_rtcp);
+    rtcp_handle = register_dissector("rtcp", dissect_rtcp, proto_rtcp);
 
     rtcp_module = prefs_register_protocol(proto_rtcp, NULL);
 
@@ -6533,9 +6886,9 @@ proto_register_rtcp(void)
         10, &global_rtcp_show_roundtrip_calculation_minimum);
 
     /* Register table for sub-dissetors */
-    rtcp_dissector_table = register_dissector_table("rtcp.app.name", "RTCP Application Name", proto_rtcp, FT_STRING, BASE_NONE, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    rtcp_psfb_dissector_table = register_dissector_table("rtcp.psfb.fmt", "RTCP Payload Specific Feedback Message Format", proto_rtcp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    rtcp_rtpfb_dissector_table = register_dissector_table("rtcp.rtpfb.fmt", "RTCP Generic RTP Feedback Message Format", proto_rtcp, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    rtcp_dissector_table = register_dissector_table("rtcp.app.name", "RTCP Application Name", proto_rtcp, FT_STRING, BASE_NONE);
+    rtcp_psfb_dissector_table = register_dissector_table("rtcp.psfb.fmt", "RTCP Payload Specific Feedback Message Format", proto_rtcp, FT_UINT8, BASE_DEC);
+    rtcp_rtpfb_dissector_table = register_dissector_table("rtcp.rtpfb.fmt", "RTCP Generic RTP Feedback Message Format", proto_rtcp, FT_UINT8, BASE_DEC);
 }
 
 void
@@ -6545,8 +6898,7 @@ proto_reg_handoff_rtcp(void)
      * Register this dissector as one that can be selected by a
      * UDP port number.
      */
-    rtcp_handle = find_dissector("rtcp");
-    dissector_add_for_decode_as("udp.port", rtcp_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", rtcp_handle);
     dissector_add_for_decode_as("flip.payload", rtcp_handle );
 
     heur_dissector_add( "udp", dissect_rtcp_heur_udp, "RTCP over UDP", "rtcp_udp", proto_rtcp, HEURISTIC_ENABLE);

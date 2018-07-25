@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /*
 
@@ -37,7 +25,7 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/exceptions.h>
+#include <epan/expert.h>
 
 #include "packet-igmp.h"
 
@@ -46,7 +34,7 @@ void proto_reg_handoff_mrdisc(void);
 
 static int proto_mrdisc = -1;
 static int hf_checksum = -1;
-static int hf_checksum_bad = -1;
+static int hf_checksum_status = -1;
 static int hf_type = -1;
 static int hf_advint = -1;
 static int hf_numopts = -1;
@@ -59,6 +47,8 @@ static int hf_option_bytes = -1;
 
 static int ett_mrdisc = -1;
 static int ett_options = -1;
+
+static expert_field ei_checksum = EI_INIT;
 
 #define MC_ALL_ROUTERS		0xe0000002
 
@@ -91,7 +81,7 @@ dissect_mrdisc_mra(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, i
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	/* skip unused bytes */
@@ -160,7 +150,7 @@ dissect_mrdisc_mrst(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, 
 	offset += 1;
 
 	/* checksum */
-	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_bad, pinfo, 0);
+	igmp_checksum(parent_tree, tvb, hf_checksum, hf_checksum_status, &ei_checksum, pinfo, 0);
 	offset += 2;
 
 	return offset;
@@ -178,8 +168,8 @@ dissect_mrdisc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void*
 	guint32 dst = g_htonl(MC_ALL_ROUTERS);
 
 	/* Shouldn't be destined for us */
-	if (memcmp(pinfo->dst.data, &dst, 4))
-	return 0;
+	if ((pinfo->dst.type != AT_IPv4) || memcmp(pinfo->dst.data, &dst, 4))
+		return 0;
 
 	col_set_str(pinfo->cinfo, COL_PROTOCOL, "MRDISC");
 	col_clear(pinfo->cinfo, COL_INFO);
@@ -222,9 +212,9 @@ proto_register_mrdisc(void)
 			{ "Checksum", "mrdisc.checksum", FT_UINT16, BASE_HEX,
 			  NULL, 0, "MRDISC Checksum", HFILL }},
 
-		{ &hf_checksum_bad,
-			{ "Bad Checksum", "mrdisc.checksum_bad", FT_BOOLEAN, BASE_NONE,
-			  NULL, 0x0, "Bad MRDISC Checksum", HFILL }},
+		{ &hf_checksum_status,
+			{ "Checksum Status", "mrdisc.checksum.status", FT_UINT8, BASE_NONE,
+			  VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 
 		{ &hf_advint,
 			{ "Advertising Interval", "mrdisc.adv_int", FT_UINT8, BASE_DEC,
@@ -264,9 +254,17 @@ proto_register_mrdisc(void)
 		&ett_options,
 	};
 
+	static ei_register_info ei[] = {
+		{ &ei_checksum, { "mrdisc.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+	};
+
+	expert_module_t* expert_mrdisc;
+
 	proto_mrdisc = proto_register_protocol("Multicast Router DISCovery protocol", "MRDISC", "mrdisc");
 	proto_register_field_array(proto_mrdisc, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
+	expert_mrdisc = expert_register_protocol(proto_mrdisc);
+	expert_register_field_array(expert_mrdisc, ei, array_length(ei));
 }
 
 void

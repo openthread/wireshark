@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -47,13 +35,11 @@
 
 void proto_register_idmp(void);
 void proto_reg_handoff_idm(void);
-static void prefs_register_idmp(void); /* forward declaration for use in preferences registration */
 void register_idmp_protocol_info(const char *oid, const ros_info_t *rinfo, int proto _U_, const char *name);
 
 static gboolean           idmp_desegment       = TRUE;
-static guint              global_idmp_tcp_port = 1102; /* made up for now */
+#define IDMP_TCP_PORT     1102 /* made up for now - not IANA registered */
 static gboolean           idmp_reassemble      = TRUE;
-static guint              tcp_port             = 0;
 static dissector_handle_t idmp_handle          = NULL;
 
 static proto_tree *top_tree         = NULL;
@@ -160,11 +146,10 @@ static int dissect_idmp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tr
 
     asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
 
-    conv = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
-                              pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+    conv = find_conversation_pinfo(pinfo, 0);
     if (conv) {
         /* Found a conversation, also use index for the generated dst_ref */
-        dst_ref = conv->index;
+        dst_ref = conv->conv_index;
     }
 
     /* save parent_tree so subdissectors can create new top nodes */
@@ -247,15 +232,8 @@ static int dissect_idmp_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *paren
 	return tvb_captured_length(tvb);
 }
 
-static void idmp_reassemble_init (void)
-{
-    reassembly_table_init (&idmp_reassembly_table,
-                           &addresses_reassembly_table_functions);
-}
-
 static void idmp_reassemble_cleanup(void)
 {
-    reassembly_table_destroy(&idmp_reassembly_table);
     saved_protocolID = NULL;
 }
 
@@ -336,14 +314,16 @@ void proto_register_idmp(void)
     proto_register_field_array(proto_idmp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    register_dissector("idmp", dissect_idmp_tcp, proto_idmp);
+    idmp_handle = register_dissector("idmp", dissect_idmp_tcp, proto_idmp);
 
-    register_init_routine (&idmp_reassemble_init);
     register_cleanup_routine (&idmp_reassemble_cleanup);
+    reassembly_table_register (&idmp_reassembly_table,
+                           &addresses_reassembly_table_functions);
+
 
     /* Register our configuration options for IDMP, particularly our port */
 
-    idmp_module = prefs_register_protocol_subtree("OSI/X.500", proto_idmp, prefs_register_idmp);
+    idmp_module = prefs_register_protocol_subtree("OSI/X.500", proto_idmp, NULL);
 
     prefs_register_bool_preference(idmp_module, "desegment_idmp_messages",
                                    "Reassemble IDMP messages spanning multiple TCP segments",
@@ -357,36 +337,10 @@ void proto_register_idmp(void)
                                    " To use this option, you must also enable"
                                    " \"Allow subdissectors to reassemble TCP streams\""
                                    " in the TCP protocol settings.", &idmp_reassemble);
-
-    prefs_register_uint_preference(idmp_module, "tcp.port", "IDMP TCP Port",
-                                   "Set the port for Internet Directly Mapped Protocol requests/responses",
-                                   10, &global_idmp_tcp_port);
-
 }
 
 
 /*--- proto_reg_handoff_idm --- */
 void proto_reg_handoff_idm(void) {
-
-    /* remember the idm handler for change in preferences */
-    idmp_handle = find_dissector(PFNAME);
-
-}
-
-
-static void
-prefs_register_idmp(void)
-{
-
-    /* de-register the old port */
-    /* port 102 is registered by TPKT - don't undo this! */
-    if(idmp_handle)
-        dissector_delete_uint("tcp.port", tcp_port, idmp_handle);
-
-    /* Set our port number for future use */
-    tcp_port = global_idmp_tcp_port;
-
-    if((tcp_port > 0) && idmp_handle)
-        dissector_add_uint("tcp.port", global_idmp_tcp_port, idmp_handle);
-
+    dissector_add_uint_with_preference("tcp.port", IDMP_TCP_PORT, idmp_handle);
 }

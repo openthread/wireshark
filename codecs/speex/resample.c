@@ -57,9 +57,7 @@
    The latter both reduces CPU time and makes the algorithm more SIMD-friendly.
 */
 
-#include "config.h"
-
-#include "wsutil/ws_diag_control.h"
+#include <config.h>
 
 #define OUTSIDE_SPEEX 1
 #define FLOATING_POINT 1
@@ -81,6 +79,8 @@ static void speex_free (void *ptr) {g_free(ptr);}
 #include "stack_alloc.h"
 #include <math.h>
 #include <limits.h>
+
+#include "ws_attributes.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
 }
 #endif
 
-DIAG_OFF(self-assign) /* SATURATE32PSHR */
+DIAG_OFF_CLANG(self-assign) /* SATURATE32PSHR */
 
 #ifdef FIXED_POINT
 /* The slow way of computing a sinc for the table. Should improve that some day */
@@ -790,7 +790,7 @@ EXPORT SpeexResamplerState *speex_resampler_init_frac(spx_uint32_t nb_channels, 
    SpeexResamplerState *st;
    int filter_err;
 
-   if (quality > 10 || quality < 0)
+   if (nb_channels == 0 || ratio_num == 0 || ratio_den == 0 || quality > 10 || quality < 0)
    {
       if (err)
          *err = RESAMPLER_ERR_INVALID_ARG;
@@ -1078,6 +1078,10 @@ EXPORT int speex_resampler_set_rate_frac(SpeexResamplerState *st, spx_uint32_t r
    spx_uint32_t fact;
    spx_uint32_t old_den;
    spx_uint32_t i;
+
+   if (ratio_num == 0 || ratio_den == 0)
+      return RESAMPLER_ERR_INVALID_ARG;
+
    if (st->in_rate == in_rate && st->out_rate == out_rate && st->num_rate == ratio_num && st->den_rate == ratio_den)
       return RESAMPLER_ERR_SUCCESS;
 
@@ -1205,5 +1209,3 @@ EXPORT const char *speex_resampler_strerror(int err)
          return "Unknown error. Bad error code or strange version mismatch.";
    }
 }
-
-DIAG_ON(self-assign)

@@ -4,23 +4,11 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "resolved_addresses_dialog.h"
-#include "ui_resolved_addresses_dialog.h"
+#include <ui_resolved_addresses_dialog.h>
 
 #include "config.h"
 
@@ -50,7 +38,7 @@ ipv4_hash_table_resolved_to_qstringlist(gpointer, gpointer value, gpointer sl_pt
     QStringList *string_list = (QStringList *) sl_ptr;
     hashipv4_t *ipv4_hash_table_entry = (hashipv4_t *) value;
 
-    if((ipv4_hash_table_entry->flags & DUMMY_ADDRESS_ENTRY) == 0) {
+    if((ipv4_hash_table_entry->flags & NAME_RESOLVED)) {
         QString entry = QString("%1\t%2")
                 .arg(ipv4_hash_table_entry->ip)
                 .arg(ipv4_hash_table_entry->name);
@@ -64,7 +52,7 @@ ipv6_hash_table_resolved_to_qstringlist(gpointer, gpointer value, gpointer sl_pt
     QStringList *string_list = (QStringList *) sl_ptr;
     hashipv6_t *ipv6_hash_table_entry = (hashipv6_t *) value;
 
-    if((ipv6_hash_table_entry->flags & DUMMY_ADDRESS_ENTRY) == 0) {
+    if((ipv6_hash_table_entry->flags & NAME_RESOLVED)) {
         QString entry = QString("%1\t%2")
                 .arg(ipv6_hash_table_entry->ip6)
                 .arg(ipv6_hash_table_entry->name);
@@ -77,7 +65,7 @@ ipv4_hash_table_to_qstringlist(gpointer key, gpointer value, gpointer sl_ptr)
 {
     QStringList *string_list = (QStringList *) sl_ptr;
     hashipv4_t *ipv4_hash_table_entry = (hashipv4_t *)value;
-    int addr = GPOINTER_TO_UINT(key);
+    guint addr = GPOINTER_TO_UINT(key);
 
     QString entry = QString("Key: 0x%1 IPv4: %2, Name: %3")
             .arg(QString::number(addr, 16))
@@ -92,7 +80,7 @@ ipv6_hash_table_to_qstringlist(gpointer key, gpointer value, gpointer sl_ptr)
 {
     QStringList *string_list = (QStringList *) sl_ptr;
     hashipv6_t *ipv6_hash_table_entry = (hashipv6_t *)value;
-    int addr = GPOINTER_TO_UINT(key);
+    guint addr = GPOINTER_TO_UINT(key);
 
     QString entry = QString("Key: 0x%1 IPv4: %2, Name: %3")
             .arg(QString::number(addr, 16))
@@ -194,43 +182,58 @@ ResolvedAddressesDialog::ResolvedAddressesDialog(QWidget *parent, CaptureFile *c
     ui->plainTextEdit->setTabStopWidth(ui->plainTextEdit->fontMetrics().averageCharWidth() * 8);
 
     if (capture_file->isValid()) {
-        wtap* wth = capture_file->capFile()->wth;
+        wtap* wth = capture_file->capFile()->provider.wth;
         if (wth) {
             // might return null
-            comment_ = wtap_get_nrb_comment(wth);
+            wtap_block_t nrb_hdr;
+
+            /*
+             * XXX - support multiple NRBs.
+             */
+            nrb_hdr = wtap_file_get_nrb(wth);
+            if (nrb_hdr != NULL) {
+                char *str;
+
+                /*
+                 * XXX - support multiple comments.
+                 */
+                if (wtap_block_get_nth_string_option_value(nrb_hdr, OPT_COMMENT, 0, &str) == WTAP_OPTTYPE_SUCCESS) {
+                    comment_ = str;
+                }
+            }
         }
     }
 
-    GHashTable *ipv4_hash_table = get_ipv4_hash_table();
+    wmem_map_t *ipv4_hash_table = get_ipv4_hash_table();
     if (ipv4_hash_table) {
-        g_hash_table_foreach(ipv4_hash_table, ipv4_hash_table_resolved_to_qstringlist, &host_addresses_);
-        g_hash_table_foreach(ipv4_hash_table, ipv4_hash_table_to_qstringlist, &v4_hash_addrs_);
+        wmem_map_foreach(ipv4_hash_table, ipv4_hash_table_resolved_to_qstringlist, &host_addresses_);
+        wmem_map_foreach(ipv4_hash_table, ipv4_hash_table_to_qstringlist, &v4_hash_addrs_);
     }
 
-    GHashTable *ipv6_hash_table = get_ipv6_hash_table();
+    wmem_map_t *ipv6_hash_table = get_ipv6_hash_table();
     if (ipv6_hash_table) {
-        g_hash_table_foreach(ipv6_hash_table, ipv6_hash_table_resolved_to_qstringlist, &host_addresses_);
-        g_hash_table_foreach(ipv6_hash_table, ipv6_hash_table_to_qstringlist, &v6_hash_addrs_);
+        wmem_map_foreach(ipv6_hash_table, ipv6_hash_table_resolved_to_qstringlist, &host_addresses_);
+        wmem_map_foreach(ipv6_hash_table, ipv6_hash_table_to_qstringlist, &v6_hash_addrs_);
     }
 
-    GHashTable *serv_port_hashtable = get_serv_port_hashtable();
+    wmem_map_t *serv_port_hashtable = get_serv_port_hashtable();
     if(serv_port_hashtable){
-        g_hash_table_foreach(serv_port_hashtable, serv_port_hash_to_qstringlist, &service_ports_);
+        wmem_map_foreach(serv_port_hashtable, serv_port_hash_to_qstringlist, &service_ports_);
     }
 
-    GHashTable *eth_hashtable = get_eth_hashtable();
+    wmem_map_t *eth_hashtable = get_eth_hashtable();
     if (eth_hashtable){
-        g_hash_table_foreach(eth_hashtable, eth_hash_to_qstringlist, &ethernet_addresses_);
+        wmem_map_foreach(eth_hashtable, eth_hash_to_qstringlist, &ethernet_addresses_);
     }
 
-    GHashTable *manuf_hashtable = get_manuf_hashtable();
+    wmem_map_t *manuf_hashtable = get_manuf_hashtable();
     if (manuf_hashtable){
-        g_hash_table_foreach(manuf_hashtable, manuf_hash_to_qstringlist, &ethernet_manufacturers_);
+        wmem_map_foreach(manuf_hashtable, manuf_hash_to_qstringlist, &ethernet_manufacturers_);
     }
 
-    GHashTable *wka_hashtable = get_wka_hashtable();
+    wmem_map_t *wka_hashtable = get_wka_hashtable();
     if(wka_hashtable){
-        g_hash_table_foreach(wka_hashtable, wka_hash_to_qstringlist, &ethernet_well_known_);
+        wmem_map_foreach(wka_hashtable, wka_hash_to_qstringlist, &ethernet_well_known_);
     }
 
     fillShowMenu();
@@ -266,7 +269,7 @@ void ResolvedAddressesDialog::fillShowMenu()
     show_bt->setText(tr("Show"));
 
     if (!show_bt->menu()) {
-        show_bt->setMenu(new QMenu());
+        show_bt->setMenu(new QMenu(show_bt));
     }
 
     QMenu *show_menu = show_bt->menu();

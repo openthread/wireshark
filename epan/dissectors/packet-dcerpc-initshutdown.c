@@ -201,40 +201,25 @@ initshutdown_dissect_enum_ReasonMinor(tvbuff_t *tvb _U_, int offset _U_, packet_
 int
 initshutdown_dissect_bitmap_ReasonFlags(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * initshutdown_initshutdown_ReasonFlags_fields[] = {
+		&hf_initshutdown_initshutdown_ReasonFlags_SHTDN_REASON_FLAG_USER_DEFINED,
+		&hf_initshutdown_initshutdown_ReasonFlags_SHTDN_REASON_FLAG_PLANNED,
+		NULL
+	};
 	guint32 flags;
 	ALIGN_TO_4_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 4, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_initshutdown_initshutdown_ReasonFlags);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_initshutdown_initshutdown_ReasonFlags, initshutdown_initshutdown_ReasonFlags_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint32(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_initshutdown_initshutdown_ReasonFlags_SHTDN_REASON_FLAG_USER_DEFINED, tvb, offset-4, 4, flags);
-	if (flags&( 0x40000000 )){
-		proto_item_append_text(item, "SHTDN_REASON_FLAG_USER_DEFINED");
-		if (flags & (~( 0x40000000 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x40000000 ));
-
-	proto_tree_add_boolean(tree, hf_initshutdown_initshutdown_ReasonFlags_SHTDN_REASON_FLAG_PLANNED, tvb, offset-4, 4, flags);
-	if (flags&( 0x80000000 )){
-		proto_item_append_text(item, "SHTDN_REASON_FLAG_PLANNED");
-		if (flags & (~( 0x80000000 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x80000000 ));
-
-	if (flags) {
+	if (flags & (~0xc0000000)) {
+		flags &= (~0xc0000000);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -500,37 +485,37 @@ void proto_register_dcerpc_initshutdown(void)
 {
 	static hf_register_info hf[] = {
 	{ &hf_initshutdown_initshutdown_Abort_server,
-		{ "Server", "initshutdown.initshutdown_Abort.server", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Server", "initshutdown.initshutdown_Abort.server", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_InitEx_do_reboot,
-		{ "Do Reboot", "initshutdown.initshutdown_InitEx.do_reboot", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Do Reboot", "initshutdown.initshutdown_InitEx.do_reboot", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_InitEx_force_apps,
-		{ "Force Apps", "initshutdown.initshutdown_InitEx.force_apps", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Force Apps", "initshutdown.initshutdown_InitEx.force_apps", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_InitEx_hostname,
-		{ "Hostname", "initshutdown.initshutdown_InitEx.hostname", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Hostname", "initshutdown.initshutdown_InitEx.hostname", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_InitEx_message,
-		{ "Message", "initshutdown.initshutdown_InitEx.message", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Message", "initshutdown.initshutdown_InitEx.message", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_InitEx_reason,
-		{ "Reason", "initshutdown.initshutdown_InitEx.reason", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Reason", "initshutdown.initshutdown_InitEx.reason", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_InitEx_timeout,
-		{ "Timeout", "initshutdown.initshutdown_InitEx.timeout", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Timeout", "initshutdown.initshutdown_InitEx.timeout", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_Init_do_reboot,
-		{ "Do Reboot", "initshutdown.initshutdown_Init.do_reboot", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Do Reboot", "initshutdown.initshutdown_Init.do_reboot", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_Init_force_apps,
-		{ "Force Apps", "initshutdown.initshutdown_Init.force_apps", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Force Apps", "initshutdown.initshutdown_Init.force_apps", FT_UINT8, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_Init_hostname,
-		{ "Hostname", "initshutdown.initshutdown_Init.hostname", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Hostname", "initshutdown.initshutdown_Init.hostname", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_Init_message,
-		{ "Message", "initshutdown.initshutdown_Init.message", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Message", "initshutdown.initshutdown_Init.message", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_Init_timeout,
-		{ "Timeout", "initshutdown.initshutdown_Init.timeout", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Timeout", "initshutdown.initshutdown_Init.timeout", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_ReasonFlags_SHTDN_REASON_FLAG_PLANNED,
-		{ "Shtdn Reason Flag Planned", "initshutdown.initshutdown_ReasonFlags.SHTDN_REASON_FLAG_PLANNED", FT_BOOLEAN, 32, TFS(&initshutdown_ReasonFlags_SHTDN_REASON_FLAG_PLANNED_tfs), ( 0x80000000 ), NULL, HFILL }},
+	  { "SHTDN REASON FLAG PLANNED", "initshutdown.initshutdown_ReasonFlags.SHTDN_REASON_FLAG_PLANNED", FT_BOOLEAN, 32, TFS(&initshutdown_ReasonFlags_SHTDN_REASON_FLAG_PLANNED_tfs), ( 0x80000000 ), NULL, HFILL }},
 	{ &hf_initshutdown_initshutdown_ReasonFlags_SHTDN_REASON_FLAG_USER_DEFINED,
-		{ "Shtdn Reason Flag User Defined", "initshutdown.initshutdown_ReasonFlags.SHTDN_REASON_FLAG_USER_DEFINED", FT_BOOLEAN, 32, TFS(&initshutdown_ReasonFlags_SHTDN_REASON_FLAG_USER_DEFINED_tfs), ( 0x40000000 ), NULL, HFILL }},
+	  { "SHTDN REASON FLAG USER DEFINED", "initshutdown.initshutdown_ReasonFlags.SHTDN_REASON_FLAG_USER_DEFINED", FT_BOOLEAN, 32, TFS(&initshutdown_ReasonFlags_SHTDN_REASON_FLAG_USER_DEFINED_tfs), ( 0x40000000 ), NULL, HFILL }},
 	{ &hf_initshutdown_opnum,
-		{ "Operation", "initshutdown.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Operation", "initshutdown.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_initshutdown_werror,
-		{ "Windows Error", "initshutdown.werror", FT_UINT32, BASE_HEX, VALS(WERR_errors), 0, NULL, HFILL }},
+	  { "Windows Error", "initshutdown.werror", FT_UINT32, BASE_HEX, VALS(WERR_errors), 0, NULL, HFILL }},
 	};
 
 

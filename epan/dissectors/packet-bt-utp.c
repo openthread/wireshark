@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -466,13 +454,9 @@ proto_register_bt_utp(void)
   module_t *bt_utp_module;
 
   /* Register protocol */
-  proto_bt_utp = proto_register_protocol (
-                        "uTorrent Transport Protocol",  /* name */
-                        "BT-uTP",               /* short name */
-                        "bt-utp"                /* abbrev */
-                        );
+  proto_bt_utp = proto_register_protocol ("uTorrent Transport Protocol", "BT-uTP", "bt-utp");
 
-  bt_utp_module = prefs_register_protocol(proto_bt_utp, proto_reg_handoff_bt_utp);
+  bt_utp_module = prefs_register_protocol(proto_bt_utp, NULL);
   prefs_register_obsolete_preference(bt_utp_module, "enable");
 
   proto_register_field_array(proto_bt_utp, hf, array_length(hf));
@@ -482,17 +466,11 @@ proto_register_bt_utp(void)
 void
 proto_reg_handoff_bt_utp(void)
 {
-  static gboolean prefs_initialized = FALSE;
+  /* disabled by default since heuristic is weak */
+  heur_dissector_add("udp", dissect_bt_utp, "BitTorrent UTP over UDP", "bt_utp_udp", proto_bt_utp, HEURISTIC_DISABLE);
 
-  if (!prefs_initialized) {
-    /* disabled by default since heuristic is weak */
-    heur_dissector_add("udp", dissect_bt_utp, "BitTorrent UTP over UDP", "bt_utp_udp", proto_bt_utp, HEURISTIC_DISABLE);
-
-    bt_utp_handle = create_dissector_handle(dissect_bt_utp, proto_bt_utp);
-    dissector_add_for_decode_as("udp.port", bt_utp_handle);
-
-    prefs_initialized = TRUE;
-  }
+  bt_utp_handle = create_dissector_handle(dissect_bt_utp, proto_bt_utp);
+  dissector_add_for_decode_as_with_preference("udp.port", bt_utp_handle);
 }
 
 /*

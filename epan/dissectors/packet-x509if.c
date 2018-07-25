@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -213,7 +201,7 @@ static int hf_x509if_AllowedSubset_oneLevel = -1;
 static int hf_x509if_AllowedSubset_wholeSubtree = -1;
 
 /*--- End of included file: packet-x509if-hf.c ---*/
-#line 49 "./asn1/x509if/packet-x509if-template.c"
+#line 37 "./asn1/x509if/packet-x509if-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -294,7 +282,7 @@ static gint ett_x509if_SEQUENCE_SIZE_1_MAX_OF_AttributeType = -1;
 static gint ett_x509if_SET_SIZE_1_MAX_OF_DirectoryString = -1;
 
 /*--- End of included file: packet-x509if-ett.c ---*/
-#line 52 "./asn1/x509if/packet-x509if-template.c"
+#line 40 "./asn1/x509if/packet-x509if-template.c"
 
 static proto_tree *top_of_dn = NULL;
 static proto_tree *top_of_rdn = NULL;
@@ -1070,7 +1058,7 @@ dissect_x509if_T_specificExclusions(gboolean implicit_tag _U_, tvbuff_t *tvb _U_
 
 static int
 dissect_x509if_BaseDistance(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-  offset = dissect_ber_integer(implicit_tag, actx, tree, tvb, offset, hf_index,
+  offset = dissect_ber_integer64(implicit_tag, actx, tree, tvb, offset, hf_index,
                                                 NULL);
 
   return offset;
@@ -2102,7 +2090,7 @@ static int dissect_HierarchyBelow_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_,
 
 
 /*--- End of included file: packet-x509if-fn.c ---*/
-#line 88 "./asn1/x509if/packet-x509if-template.c"
+#line 76 "./asn1/x509if/packet-x509if-template.c"
 
 const char * x509if_get_last_dn(void)
 {
@@ -2316,11 +2304,11 @@ void proto_register_x509if(void) {
         "LocalName", HFILL }},
     { &hf_x509if_minimum,
       { "minimum", "x509if.minimum",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         "BaseDistance", HFILL }},
     { &hf_x509if_maximum,
       { "maximum", "x509if.maximum",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         "BaseDistance", HFILL }},
     { &hf_x509if_item,
       { "item", "x509if.item",
@@ -2768,7 +2756,7 @@ void proto_register_x509if(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-x509if-hfarr.c ---*/
-#line 133 "./asn1/x509if/packet-x509if-template.c"
+#line 121 "./asn1/x509if/packet-x509if-template.c"
   };
 
   /* List of subtrees */
@@ -2851,7 +2839,7 @@ void proto_register_x509if(void) {
     &ett_x509if_SET_SIZE_1_MAX_OF_DirectoryString,
 
 /*--- End of included file: packet-x509if-ettarr.c ---*/
-#line 138 "./asn1/x509if/packet-x509if-template.c"
+#line 126 "./asn1/x509if/packet-x509if-template.c"
   };
 
   /* Register protocol */
@@ -2909,6 +2897,6 @@ void proto_reg_handoff_x509if(void) {
 
 
 /*--- End of included file: packet-x509if-dis-tab.c ---*/
-#line 157 "./asn1/x509if/packet-x509if-template.c"
+#line 145 "./asn1/x509if/packet-x509if-template.c"
 }
 

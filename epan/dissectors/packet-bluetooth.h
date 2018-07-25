@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PACKET_BLUETOOTH_H__
@@ -195,7 +183,18 @@ enum bluetooth_device_type {
     BLUETOOTH_DEVICE_NAME,
     BLUETOOTH_DEVICE_LOCAL_ADAPTER,
     BLUETOOTH_DEVICE_LOCAL_VERSION,
-    BLUETOOTH_DEVICE_REMOTE_VERSION
+    BLUETOOTH_DEVICE_REMOTE_VERSION,
+    BLUETOOTH_DEVICE_RESET,
+    BLUETOOTH_DEVICE_SCAN,
+    BLUETOOTH_DEVICE_VOICE_SETTING,
+    BLUETOOTH_DEVICE_AUTHENTICATION,
+    BLUETOOTH_DEVICE_ENCRYPTION,
+    BLUETOOTH_DEVICE_CLASS_OF_DEVICE,
+    BLUETOOTH_DEVICE_SIMPLE_PAIRING_MODE,
+    BLUETOOTH_DEVICE_PAGE_TIMEOUT,
+    BLUETOOTH_DEVICE_INQUIRY_MODE,
+    BLUETOOTH_DEVICE_MTUS,
+    BLUETOOTH_DEVICE_LE_MTU
 };
 
 typedef struct _bluetooth_device_tap_t {
@@ -220,6 +219,24 @@ typedef struct _bluetooth_device_tap_t {
             guint16  lmp_subversion;
             guint16  manufacturer;
         } remote_version;
+        guint8   scan;
+        guint16  page_timeout;
+        guint8   authentication;
+        guint8   encryption;
+        guint32  class_of_device;
+        guint16  voice_setting;
+        guint8   simple_pairing_mode;
+        guint8   inquiry_mode;
+        struct {
+            guint16  acl_mtu;
+            guint8   sco_mtu;
+            guint16  acl_packets;
+            guint16  sco_packets;
+        } mtus;
+        struct {
+            guint16  acl_mtu;
+            guint16  acl_packets;
+        } le_mtus;
     } data;
 } bluetooth_device_tap_t;
 
@@ -227,6 +244,7 @@ enum bluetooth_hci_summary_type {
     BLUETOOTH_HCI_SUMMARY_OPCODE,
     BLUETOOTH_HCI_SUMMARY_EVENT_OPCODE,
     BLUETOOTH_HCI_SUMMARY_EVENT,
+    BLUETOOTH_HCI_SUMMARY_SUBEVENT,
     BLUETOOTH_HCI_SUMMARY_VENDOR_OPCODE,
     BLUETOOTH_HCI_SUMMARY_VENDOR_EVENT_OPCODE,
     BLUETOOTH_HCI_SUMMARY_VENDOR_EVENT,
@@ -243,6 +261,7 @@ typedef struct _bluetooth_hci_summary_tap_t {
     guint16                          ocf;
     guint8                           ogf;
     guint8                           event;
+    guint8                           subevent;
     guint8                           status;
     guint8                           reason;
     guint8                           hardware_error;

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -27,13 +15,12 @@
 #include <string.h>
 #include <math.h>
 
-
 #include "time_shift.h"
 
-#include "ui/ui_util.h"
+#include "ui/ws_ui_util.h"
 
 #ifndef HAVE_FLOORL
-# include "wsutil/floorl.h"
+#define floorl(x) floor((double)x)
 #endif
 
 #define SHIFT_POS               0
@@ -257,6 +244,7 @@ time_string_to_nstime(const gchar *time_text, nstime_t *packettime, nstime_t *ns
     tm.tm_hour = h;
     tm.tm_min = m;
     tm.tm_sec = (int)floorl(f);
+    tm.tm_isdst = -1;
     tt = mktime(&tm);
     if (tt == -1) {
         return "Mktime went wrong. Is the time valid?";
@@ -297,11 +285,11 @@ time_shift_all(capture_file *cf, const gchar *offset_text)
     offset_float -= offset.secs;
     offset.nsecs = (int)(offset_float * 1000000000);
 
-    if (!frame_data_sequence_find(cf->frames, 1))
+    if (!frame_data_sequence_find(cf->provider.frames, 1))
         return "No frames found."; /* Shouldn't happen */
 
     for (i = 1; i <= cf->count; i++) {
-        if ((fd = frame_data_sequence_find(cf->frames, i)) == NULL)
+        if ((fd = frame_data_sequence_find(cf->provider.frames, i)) == NULL)
             continue;   /* Shouldn't happen */
         modify_time_perform(fd, neg ? SHIFT_NEG : SHIFT_POS, &offset, SHIFT_KEEPOFFSET);
     }
@@ -328,7 +316,7 @@ time_shift_settime(capture_file *cf, guint packet_num, const gchar *time_text)
      * Get a copy of the real time (abs_ts - shift_offset) do we can find out the
      * difference between the specified time and the original packet
      */
-    if ((packetfd = frame_data_sequence_find(cf->frames, packet_num)) == NULL)
+    if ((packetfd = frame_data_sequence_find(cf->provider.frames, packet_num)) == NULL)
         return "No packets found.";
     nstime_delta(&packet_time, &(packetfd->abs_ts), &(packetfd->shift_offset));
 
@@ -340,12 +328,12 @@ time_shift_settime(capture_file *cf, guint packet_num, const gchar *time_text)
 
     /* Up to here nothing is changed */
 
-    if (!frame_data_sequence_find(cf->frames, 1))
+    if (!frame_data_sequence_find(cf->provider.frames, 1))
         return "No frames found."; /* Shouldn't happen */
 
     /* Set everything back to the original time */
     for (i = 1; i <= cf->count; i++) {
-        if ((fd = frame_data_sequence_find(cf->frames, i)) == NULL)
+        if ((fd = frame_data_sequence_find(cf->provider.frames, i)) == NULL)
             continue;   /* Shouldn't happen */
         modify_time_perform(fd, SHIFT_POS, &diff_time, SHIFT_SETTOZERO);
     }
@@ -386,7 +374,7 @@ time_shift_adjtime(capture_file *cf, guint packet1_num, const gchar *time1_text,
      * Get a copy of the real time (abs_ts - shift_offset) do we can find out the
      * difference between the specified time and the original packet
      */
-    if ((packet1fd = frame_data_sequence_find(cf->frames, packet1_num)) == NULL)
+    if ((packet1fd = frame_data_sequence_find(cf->provider.frames, packet1_num)) == NULL)
         return "No frames found.";
     nstime_copy(&ot1, &(packet1fd->abs_ts));
     nstime_subtract(&ot1, &(packet1fd->shift_offset));
@@ -398,7 +386,7 @@ time_shift_adjtime(capture_file *cf, guint packet1_num, const gchar *time1_text,
      * Get a copy of the real time (abs_ts - shift_offset) do we can find out the
      * difference between the specified time and the original packet
      */
-    if ((packet2fd = frame_data_sequence_find(cf->frames, packet2_num)) == NULL)
+    if ((packet2fd = frame_data_sequence_find(cf->provider.frames, packet2_num)) == NULL)
         return "No frames found.";
     nstime_copy(&ot2, &(packet2fd->abs_ts));
     nstime_subtract(&ot2, &(packet2fd->shift_offset));
@@ -413,11 +401,11 @@ time_shift_adjtime(capture_file *cf, guint packet1_num, const gchar *time1_text,
     nstime_subtract(&dnt, &nt1);
 
     /* Up to here nothing is changed */
-    if (!frame_data_sequence_find(cf->frames, 1))
+    if (!frame_data_sequence_find(cf->provider.frames, 1))
         return "No frames found."; /* Shouldn't happen */
 
     for (i = 1; i <= cf->count; i++) {
-        if ((fd = frame_data_sequence_find(cf->frames, i)) == NULL)
+        if ((fd = frame_data_sequence_find(cf->provider.frames, i)) == NULL)
             continue;   /* Shouldn't happen */
 
         /* Set everything back to the original time */
@@ -449,11 +437,11 @@ time_shift_undo(capture_file *cf)
 
     nulltime.secs = nulltime.nsecs = 0;
 
-    if (!frame_data_sequence_find(cf->frames, 1))
+    if (!frame_data_sequence_find(cf->provider.frames, 1))
         return "No frames found."; /* Shouldn't happen */
 
     for (i = 1; i <= cf->count; i++) {
-        if ((fd = frame_data_sequence_find(cf->frames, i)) == NULL)
+        if ((fd = frame_data_sequence_find(cf->provider.frames, i)) == NULL)
             continue;   /* Shouldn't happen */
         modify_time_perform(fd, SHIFT_NEG, &nulltime, SHIFT_SETTOZERO);
     }

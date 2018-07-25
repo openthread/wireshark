@@ -9,26 +9,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
  * The information used comes from:
  * RFC7540: Hypertext Transfer Protocol version 2 (HTTP/2)
  * RFC7541: HTTP Header Compression for HTTP/2
- * HTTP Alternative Services draft-ietf-httpbis-alt-svc-04
+ * RFC7838: HTTP Alternative Services
  *
  * TODO
 * Enhance display of Data
@@ -42,15 +30,26 @@
 #include <epan/expert.h>
 #include <epan/prefs.h>
 #include <epan/proto_data.h>
+#include <epan/exceptions.h>
+#include <epan/dissectors/packet-http.h> /* for getting status reason-phrase */
+#include <epan/dissectors/packet-http2.h>
 
-#include <epan/nghttp2/nghttp2.h>
+#ifdef HAVE_NGHTTP2
+#include <epan/uat.h>
+
+#include <nghttp2/nghttp2.h>
+
+#endif
 
 #include "packet-tcp.h"
 #include <epan/tap.h>
 #include <epan/stats_tree.h>
+#include <epan/reassemble.h>
 
 #include "wsutil/pint.h"
+#include "wsutil/strtoi.h"
 
+#ifdef HAVE_NGHTTP2
 #define http2_header_repr_type_VALUE_STRING_LIST(XXX)                   \
     XXX(HTTP2_HD_NONE, 0x00, "")                                        \
     XXX(HTTP2_HD_INDEXED, 0x01, "Indexed Header Field")                 \
@@ -64,6 +63,19 @@
 
 VALUE_STRING_ENUM(http2_header_repr_type);
 VALUE_STRING_ARRAY(http2_header_repr_type);
+
+/*
+ * Decompression of zlib encoded entities.
+ */
+#ifdef HAVE_ZLIB
+static gboolean http2_decompress_body = TRUE;
+#else
+static gboolean http2_decompress_body = FALSE;
+#endif
+
+/* Try to dissect reassembled http2.data.data according to content-type later */
+static dissector_table_t media_type_dissector_table;
+#endif
 
 /* Decompressed header field */
 typedef struct {
@@ -124,6 +136,52 @@ typedef struct {
     int has_header_table_size;
 } http2_settings_t;
 
+#ifdef HAVE_NGHTTP2
+typedef guint64 http2_frame_num_t;
+/* struct for per-stream, per-direction DATA frame reassembly */
+typedef struct {
+    http2_frame_num_t data_initiated_in;
+    gboolean has_transfer_encoded_body;
+} http2_data_stream_reassembly_info_t;
+
+/* struct for per-stream, per-direction entity body info */
+typedef struct {
+    gchar *content_type;
+    gchar *content_type_parameters;
+    gchar *content_encoding;
+    gboolean is_partial_content;
+} http2_data_stream_body_info_t;
+
+/* struct to track header state, so we know if continuation frames are part
+ * of a HEADERS frame or a PUSH_PROMISE. Note: does not take into account
+ * trailing headers */
+typedef struct {
+    http2_frame_num_t header_start_in;
+    http2_frame_num_t header_end_in;
+    /* list of pointer to wmem_array_t, which is array of http2_header_t
+    * that come from all HEADERS and CONTINUATION frames. */
+    wmem_list_t *stream_header_list;
+} http2_header_stream_info_t;
+
+/* struct to reference uni-directional per-stream info */
+typedef struct {
+    http2_data_stream_body_info_t data_stream_body_info;
+    http2_data_stream_reassembly_info_t data_stream_reassembly_info;
+    http2_header_stream_info_t header_stream_info;
+} http2_oneway_stream_info_t;
+
+/* struct to hold per-stream information for both directions */
+typedef struct {
+    /* index into http2_oneway_stream_info_t struct is based off
+     * http2_session_t.fwd_flow, available by calling select_http2_flow_index().
+     * The index could be for either client or server, depending on when
+     * the capture is started but the index will be consistent for the lifetime
+     * of the http2_session_t */
+    http2_oneway_stream_info_t oneway_stream_info[2];
+    gboolean is_stream_http_connect;
+    guint32 stream_id;
+} http2_stream_info_t;
+#endif
 /* struct to hold data per HTTP/2 session */
 typedef struct {
     /* We need to distinguish the direction of the flow to keep track
@@ -137,8 +195,12 @@ typedef struct {
        hd_inflater[0].  Otherwise, we use settings_queue[1] and
        hd_inflater[1]. */
     wmem_queue_t *settings_queue[2];
+#ifdef HAVE_NGHTTP2
     nghttp2_hd_inflater *hd_inflater[2];
     http2_header_repr_info_t header_repr_info[2];
+    wmem_map_t *per_stream_info;
+    guint32 current_stream_id;
+#endif
     tcp_flow_t *fwd_flow;
 } http2_session_t;
 
@@ -193,6 +255,16 @@ static int hf_http2_excl_dependency = -1;
 /* Data */
 static int hf_http2_data_data = -1;
 static int hf_http2_data_padding = -1;
+static int hf_http2_body_fragments = -1;
+static int hf_http2_body_fragment = -1;
+static int hf_http2_body_fragment_overlap = -1;
+static int hf_http2_body_fragment_overlap_conflicts = -1;
+static int hf_http2_body_fragment_multiple_tails = -1;
+static int hf_http2_body_fragment_too_long_fragment = -1;
+static int hf_http2_body_fragment_error = -1;
+static int hf_http2_body_fragment_count = -1;
+static int hf_http2_body_reassembled_in = -1;
+static int hf_http2_body_reassembled_length = -1;
 /* Headers */
 static int hf_http2_headers = -1;
 static int hf_http2_headers_padding = -1;
@@ -239,13 +311,62 @@ static int hf_http2_window_update_window_size_increment = -1;
 static int hf_http2_continuation_header = -1;
 static int hf_http2_continuation_padding = -1;
 /* Altsvc */
-static int hf_http2_altsvc_maxage = -1;
-static int hf_http2_altsvc_port = -1;
-static int hf_http2_altsvc_proto_len = -1;
-static int hf_http2_altsvc_protocol = -1;
-static int hf_http2_altsvc_host_len = -1;
-static int hf_http2_altsvc_host = -1;
+static int hf_http2_altsvc_origin_len = -1;
 static int hf_http2_altsvc_origin = -1;
+static int hf_http2_altsvc_field_value = -1;
+#if HAVE_NGHTTP2
+/* HTTP2 header static fields */
+static int hf_http2_headers_status = -1;
+static int hf_http2_headers_path = -1;
+static int hf_http2_headers_method = -1;
+static int hf_http2_headers_scheme = -1;
+static int hf_http2_headers_accept = -1;
+static int hf_http2_headers_accept_charset = -1;
+static int hf_http2_headers_accept_encoding = -1;
+static int hf_http2_headers_accept_language = -1;
+static int hf_http2_headers_accept_ranges = -1;
+static int hf_http2_headers_access_control_allow_origin = -1;
+static int hf_http2_headers_age = -1;
+static int hf_http2_headers_allow = -1;
+static int hf_http2_headers_authorization = -1;
+static int hf_http2_headers_authority = -1;
+static int hf_http2_headers_cache_control = -1;
+static int hf_http2_headers_content_disposition = -1;
+static int hf_http2_headers_content_encoding = -1;
+static int hf_http2_headers_content_language = -1;
+static int hf_http2_headers_content_length = -1;
+static int hf_http2_headers_content_location = -1;
+static int hf_http2_headers_content_range = -1;
+static int hf_http2_headers_content_type = -1;
+static int hf_http2_headers_cookie = -1;
+static int hf_http2_headers_date = -1;
+static int hf_http2_headers_etag = -1;
+static int hf_http2_headers_expect = -1;
+static int hf_http2_headers_expires = -1;
+static int hf_http2_headers_from = -1;
+static int hf_http2_headers_if_match = -1;
+static int hf_http2_headers_if_modified_since = -1;
+static int hf_http2_headers_if_none_match = -1;
+static int hf_http2_headers_if_range = -1;
+static int hf_http2_headers_if_unmodified_since = -1;
+static int hf_http2_headers_last_modified = -1;
+static int hf_http2_headers_link = -1;
+static int hf_http2_headers_location = -1;
+static int hf_http2_headers_max_forwards = -1;
+static int hf_http2_headers_proxy_authenticate = -1;
+static int hf_http2_headers_proxy_authorization = -1;
+static int hf_http2_headers_range = -1;
+static int hf_http2_headers_referer = -1;
+static int hf_http2_headers_refresh = -1;
+static int hf_http2_headers_retry_after = -1;
+static int hf_http2_headers_server = -1;
+static int hf_http2_headers_set_cookie = -1;
+static int hf_http2_headers_strict_transport_security = -1;
+static int hf_http2_headers_user_agent = -1;
+static int hf_http2_headers_vary = -1;
+static int hf_http2_headers_via = -1;
+static int hf_http2_headers_www_authenticate = -1;
+#endif
 /* Blocked */
 
 /*
@@ -266,12 +387,36 @@ static int hf_http2_altsvc_origin = -1;
 #define MAX_HTTP2_HEADER_LINES 200
 static expert_field ei_http2_header_size = EI_INIT;
 static expert_field ei_http2_header_lines = EI_INIT;
+static expert_field ei_http2_body_decompression_failed = EI_INIT;
 
 static gint ett_http2 = -1;
 static gint ett_http2_header = -1;
 static gint ett_http2_headers = -1;
 static gint ett_http2_flags = -1;
 static gint ett_http2_settings = -1;
+static gint ett_http2_encoded_entity = -1;
+static gint ett_http2_body_fragment = -1;
+static gint ett_http2_body_fragments = -1;
+
+#ifdef HAVE_NGHTTP2
+static const fragment_items http2_body_fragment_items = {
+    /* Fragment subtrees */
+    &ett_http2_body_fragment,
+    &ett_http2_body_fragments,
+    /* Fragment fields */
+    &hf_http2_body_fragments,
+    &hf_http2_body_fragment,
+    &hf_http2_body_fragment_overlap,
+    &hf_http2_body_fragment_overlap_conflicts,
+    &hf_http2_body_fragment_multiple_tails,
+    &hf_http2_body_fragment_too_long_fragment,
+    &hf_http2_body_fragment_error,
+    &hf_http2_body_fragment_count,
+    &hf_http2_body_reassembled_in,
+    &hf_http2_body_reassembled_length,
+    NULL,
+    "Body fragments"
+};
 
 /* Due to HPACK compression, we may get lots of relatively large
    header fields (e.g., 4KiB).  Allocating each of them requires lots
@@ -283,8 +428,477 @@ static gint ett_http2_settings = -1;
 static wmem_map_t *http2_hdrcache_map = NULL;
 /* Header name_length + name + value_length + value */
 static char *http2_header_pstr = NULL;
+#endif
+
+#ifdef HAVE_NGHTTP2
+/* Stuff for generation/handling of fields for HTTP2 headers */
+
+enum header_field_type {
+    val_string,
+    val_uint64
+};
+
+typedef struct _header_field_t {
+    gchar* header_name;
+    enum header_field_type header_type;
+    gchar* header_desc;
+} header_field_t;
+
+static header_field_t* header_fields = NULL;
+static guint num_header_fields = 0;
+static guint num_header_fields_cleanup = 0;
+
+static GHashTable* header_fields_hash = NULL;
+
+static gboolean
+header_fields_update_cb(void *r, char **err)
+{
+    header_field_t *rec = (header_field_t *)r;
+    char c;
+
+    if (rec->header_name == NULL) {
+        *err = g_strdup("Header name can't be empty");
+        return FALSE;
+    }
+
+    g_strstrip(rec->header_name);
+    if (rec->header_name[0] == 0) {
+        *err = g_strdup("Header name can't be empty");
+        return FALSE;
+    }
+
+    /* Check for invalid characters (to avoid asserting out when
+     * registering the field).
+     */
+    c = proto_check_field_name(rec->header_name);
+    if (c) {
+        *err = g_strdup_printf("Header name can't contain '%c'", c);
+        return FALSE;
+    }
+
+    /* If the hash table is empty(e.g. on startup), do not try to check a value */
+    if (header_fields_hash != NULL) {
+        const gint *entry = (const gint *) g_hash_table_lookup(header_fields_hash, rec->header_name);
+        if (entry != NULL) {
+            *err = g_strdup_printf("This header field is already defined in UAT or it is a static header field");
+            return FALSE;
+        }
+    }
+
+    *err = NULL;
+    return TRUE;
+}
+
+static void *
+header_fields_copy_cb(void* n, const void* o, size_t siz _U_)
+{
+    header_field_t* new_rec = (header_field_t*)n;
+    const header_field_t* old_rec = (const header_field_t*)o;
+
+    new_rec->header_name = g_strdup(old_rec->header_name);
+    new_rec->header_type = old_rec->header_type;
+    new_rec->header_desc = g_strdup(old_rec->header_desc);
+
+    return new_rec;
+}
+
+static void
+header_fields_free_cb(void*r)
+{
+    header_field_t* rec = (header_field_t*)r;
+
+    g_hash_table_remove(header_fields_hash, rec->header_name);
+
+    g_free(rec->header_name);
+    g_free(rec->header_desc);
+
+}
+
+static void
+register_static_headers(void) {
+    header_fields_hash = g_hash_table_new_full(g_str_hash, g_str_equal,
+                                               g_free, NULL);
+
+    /* Here hf[x].hfinfo.name is a header method which is used as key
+     * for matching ids while processing HTTP2 packets */
+    static hf_register_info hf[] = {
+        {
+            &hf_http2_headers_authority,
+            {":authority", "http2.headers.authority",
+                FT_STRING, STR_UNICODE, NULL, 0x0,
+                "Authority portion of the target URI", HFILL}
+        },
+        {
+            &hf_http2_headers_status,
+                {":status", "http2.headers.status",
+                 FT_UINT16, BASE_DEC, NULL, 0x0,
+                 NULL, HFILL}
+        },
+        {
+            &hf_http2_headers_path,
+                {":path", "http2.headers.path",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 NULL, HFILL}
+        },
+        {
+            &hf_http2_headers_method,
+                {":method", "http2.headers.method",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 NULL, HFILL}
+        },
+        {
+            &hf_http2_headers_scheme,
+                {":scheme", "http2.headers.scheme",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 NULL, HFILL}
+        },
+        {
+            &hf_http2_headers_accept,
+                {"accept", "http2.headers.accept",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Media types that are acceptable to the user agent", HFILL}
+        },
+        {
+            &hf_http2_headers_accept_charset,
+                {"accept-charset", "http2.headers.accept_charset",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Acceptable charsets in textual responses for the user agent", HFILL}
+        },
+        {
+            &hf_http2_headers_accept_encoding,
+                {"accept-encoding", "http2.headers.accept_encoding",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Acceptable content codings (like compression) in responses for the user agent", HFILL}
+        },
+        {
+            &hf_http2_headers_accept_language,
+                {"accept-language", "http2.headers.accept_language",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Preferred natural languages for the user agent", HFILL}
+        },
+        {
+            &hf_http2_headers_accept_ranges,
+                {"accept-ranges", "http2.headers.accept_ranges",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Bytes range which server may use for partial data transfer", HFILL}
+        },
+        {
+            &hf_http2_headers_access_control_allow_origin,
+                {"access-control-allow-origin", "http2.headers.access_control_allow_origin",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Origin control for cross-origin resource sharing", HFILL}
+        },
+        {
+            &hf_http2_headers_age,
+                {"age", "http2.headers.age",
+                 FT_UINT64, BASE_DEC, NULL, 0x0,
+                 "Time in seconds which was spent for transferring data through proxy", HFILL}
+        },
+        {
+            &hf_http2_headers_allow,
+                {"allow", "http2.headers.allow",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "List of allowed methods for request", HFILL}
+        },
+        {
+            &hf_http2_headers_authorization,
+                {"authorization", "http2.headers.authorization",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Credentials for a server-side authorization", HFILL}
+        },
+        {
+            &hf_http2_headers_cache_control,
+                {"cache-control", "http2.headers.cache_control",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Request or response directives for a cache control", HFILL}
+        },
+        {
+            &hf_http2_headers_content_disposition,
+                {"content-disposition", "http2.headers.content_disposition",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Indicates that response will be displayed as page or downloaded with dialog box", HFILL}
+        },
+        {
+            &hf_http2_headers_content_encoding,
+                {"content-encoding", "http2.headers.content_encoding",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 NULL, HFILL}
+        },
+        {
+            &hf_http2_headers_content_language,
+                {"content-language", "http2.headers.content_language",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 NULL, HFILL}
+        },
+        {
+            &hf_http2_headers_content_length,
+                {"content-length", "http2.headers.content_length",
+                 FT_UINT64, BASE_DEC, NULL, 0x0,
+                 "Size of body in bytes", HFILL}
+        },
+        {
+            &hf_http2_headers_content_location,
+                {"content-location", "http2.headers.content_location",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Alternative URL for a response data", HFILL}
+        },
+        {
+            &hf_http2_headers_content_range,
+                {"content-range", "http2.headers.content_range",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Range of bytes which was sent by server for partial data transfer", HFILL}
+        },
+        {
+            &hf_http2_headers_content_type,
+                {"content-type", "http2.headers.content_type",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "MIME type of response", HFILL}
+        },
+        {
+            &hf_http2_headers_cookie,
+                {"cookie", "http2.headers.cookie",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Stored cookies", HFILL}
+        },
+        {
+            &hf_http2_headers_date,
+                {"date", "http2.headers.date",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Date and time at which the data was originated", HFILL}
+        },
+        {
+            &hf_http2_headers_etag,
+                {"etag", "http2.headers.etag",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Directive for version indication of resource", HFILL}
+        },
+        {
+            &hf_http2_headers_expect,
+                {"expect", "http2.headers.expect",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Expectations that need to be fulfilled for correct request", HFILL}
+        },
+        {
+            &hf_http2_headers_expires,
+                {"expires", "http2.headers.expires",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Data after which resource will be stale", HFILL}
+        },
+        {
+            &hf_http2_headers_from,
+                {"from", "http2.headers.from",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Email of a person who responsible for a requesting data", HFILL}
+        },
+        {
+            &hf_http2_headers_if_match,
+                {"if-match", "http2.headers.if_match",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism for requesting data matched by a list of ETags", HFILL}
+        },
+        {
+            &hf_http2_headers_if_modified_since,
+                {"if-modified-since", "http2.headers.if_modified_since",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Resource will be sent with status code 200 if it was modified otherwise with status code 304", HFILL}
+        },
+        {
+            &hf_http2_headers_if_none_match,
+                {"if-none-match", "http2.headers.if_none_match",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism for requesting data not matched by a list of ETags", HFILL}
+        },
+        {
+            &hf_http2_headers_if_range,
+                {"if-range", "http2.headers.if_range",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism for a range request which is used to check if a resource was modified", HFILL}
+        },
+        {
+            &hf_http2_headers_if_unmodified_since,
+                {"if-unmodified-since", "http2.headers.if_unmodified_since",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Resource will be processed if it was not modified otherwise 412 error will be returned", HFILL}
+        },
+        {
+            &hf_http2_headers_last_modified,
+                {"last-modified", "http2.headers.last_modified",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Date and time at which the origin server believes the resource was last modified", HFILL}
+        },
+        {
+            &hf_http2_headers_link,
+                {"link", "http2.headers.link",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism for indicating that resource will be preloaded", HFILL}
+        },
+        {
+            &hf_http2_headers_location,
+                {"location", "http2.headers.location",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism for indicating that client will be redirected", HFILL}
+        },
+        {
+            &hf_http2_headers_max_forwards,
+                {"max-forwards", "http2.headers.max_forwards",
+                 FT_UINT64, BASE_DEC, NULL, 0x0,
+                 "Mechanism for limiting the number of proxies", HFILL}
+        },
+        {
+            &hf_http2_headers_proxy_authenticate,
+                {"proxy-authenticate", "http2.headers.proxy_authenticate",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Authentication method that should be used to gain access to a resource behind a proxy server", HFILL}
+        },
+        {
+            &hf_http2_headers_proxy_authorization,
+                {"proxy-authorization", "http2.headers.proxy_authorization",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Credentials for a proxy-side authorization", HFILL}
+        },
+        {
+            &hf_http2_headers_range,
+                {"range", "http2.headers.range",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Range of resource bytes that server should return", HFILL}
+        },
+        {
+            &hf_http2_headers_referer,
+                {"referer", "http2.headers.referer",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Address of the previous web page", HFILL}
+        },
+        {
+            &hf_http2_headers_refresh,
+                {"refresh", "http2.headers.refresh",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Time in seconds after which client will be redirected by given url", HFILL}
+        },
+        {
+            &hf_http2_headers_retry_after,
+                {"retry-after", "http2.headers.retry_after",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism to indicate when resource expected to be available", HFILL}
+        },
+        {
+            &hf_http2_headers_server,
+                {"server", "http2.headers.server",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Information about server software", HFILL}
+        },
+        {
+            &hf_http2_headers_set_cookie,
+                {"set-cookie", "http2.headers.set_cookie",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Send a cookie to the client", HFILL}
+        },
+        {
+            &hf_http2_headers_strict_transport_security,
+                {"strict-transport-security", "http2.headers.strict_transport_security",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "HSTS indicates that resource should be accessed only using HTTPS", HFILL}
+        },
+        {
+            &hf_http2_headers_user_agent,
+                {"user-agent", "http2.headers.user_agent",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Information about client software", HFILL}
+        },
+        {
+            &hf_http2_headers_vary,
+                {"vary", "http2.headers.vary",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Mechanism for selecting which header will be used for content negotiation algorithm", HFILL}
+        },
+        {
+            &hf_http2_headers_via,
+                {"via", "http2.headers.via",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Additional information for loop detection and protocol capabilities in proxy requests", HFILL}
+        },
+        {
+            &hf_http2_headers_www_authenticate,
+                {"www-authenticate", "http2.headers.www_authenticate",
+                 FT_STRING, STR_UNICODE, NULL, 0x0,
+                 "Authentication method that should be used to gain access to a resource", HFILL}
+        }
+    };
+    gchar* header_name;
+    for (guint i = 0; i < G_N_ELEMENTS(hf); ++i) {
+        header_name = g_strdup(hf[i].hfinfo.name);
+
+        g_hash_table_insert(header_fields_hash, header_name, &hf[i].hfinfo.id);
+    }
+    proto_register_field_array(proto_http2, hf, G_N_ELEMENTS(hf));
+}
+
+UAT_CSTRING_CB_DEF(header_fields, header_name, header_field_t)
+UAT_VS_DEF(header_fields, header_type, header_field_t, enum header_field_type, val_string, "string")
+UAT_CSTRING_CB_DEF(header_fields, header_desc, header_field_t)
+
+static hf_register_info* hf_uat = NULL;
+#endif
+
+static void
+http2_init_protocol(void)
+{
+#if HAVE_NGHTTP2
+    gint* hf_id;
+    guint i;
+    gchar* header_name;
+    gchar* header_name_key;
+
+    /* Add to hash table headers from UAT */
+    if (num_header_fields) {
+        hf_uat = g_new0(hf_register_info, num_header_fields);
+        num_header_fields_cleanup = num_header_fields;
+
+        for (i = 0; i < num_header_fields; i++) {
+            hf_id = g_new(gint,1);
+            *hf_id = -1;
+            header_name = g_strdup(header_fields[i].header_name);
+            header_name_key = g_ascii_strdown(header_name, -1);
+
+            hf_uat[i].p_id = hf_id;
+            hf_uat[i].hfinfo.name = header_name;
+            hf_uat[i].hfinfo.abbrev = g_strdup_printf("http2.headers.%s", header_name);
+            switch(header_fields[i].header_type) {
+                case val_uint64:
+                    hf_uat[i].hfinfo.type = FT_UINT64;
+                    hf_uat[i].hfinfo.display = BASE_DEC;
+                    break;
+                default: // string
+                    hf_uat[i].hfinfo.type = FT_STRING;
+                    hf_uat[i].hfinfo.display = BASE_NONE;
+                    break;
+            }
+            hf_uat[i].hfinfo.strings = NULL;
+            hf_uat[i].hfinfo.bitmask = 0;
+            hf_uat[i].hfinfo.blurb = g_strdup(header_fields[i].header_desc);
+            HFILL_INIT(hf_uat[i]);
+
+            g_hash_table_insert(header_fields_hash, header_name_key, hf_id);
+        }
+
+        proto_register_field_array(proto_http2, hf_uat, num_header_fields);
+    }
+#endif
+}
+
+static void
+http2_cleanup_protocol(void) {
+#if HAVE_NGHTTP2
+    for (guint i = 0; i < num_header_fields_cleanup; ++i) {
+        proto_deregister_field(proto_http2, *(hf_uat[i].p_id));
+    }
+    proto_add_deregistered_data(hf_uat);
+    proto_free_deregistered_fields();
+#endif
+}
 
 static dissector_handle_t http2_handle;
+
+static reassembly_table http2_body_reassembly_table;
 
 #define FRAME_HEADER_LENGTH     9
 #define MAGIC_FRAME_LENGTH      24
@@ -347,6 +961,19 @@ static const value_string http2_type_vals[] = {
 #define HTTP2_FLAGS_R2          0xFA
 #define HTTP2_FLAGS_R4          0xFB
 
+/* http header keys and values */
+#define HTTP2_HEADER_CONTENT_ENCODING "content-encoding"
+#define HTTP2_HEADER_STATUS ":status"
+#define HTTP2_HEADER_STATUS_PARTIAL_CONTENT "206"
+#define HTTP2_HEADER_METHOD ":method"
+#define HTTP2_HEADER_METHOD_CONNECT "CONNECT"
+#define HTTP2_HEADER_TRANSFER_ENCODING "transfer-encoding"
+#define HTTP2_HEADER_PATH ":path"
+#define HTTP2_HEADER_CONTENT_TYPE "content-type"
+
+/* header matching helpers */
+#define IS_HTTP2_END_STREAM(flags)   (flags & HTTP2_FLAGS_END_STREAM)
+
 /* Magic Header : PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n */
 static    guint8 kMagicHello[] = {
         0x50, 0x52, 0x49, 0x20, 0x2a, 0x20, 0x48, 0x54,
@@ -407,6 +1034,7 @@ static const value_string http2_settings_vals[] = {
     { 0, NULL }
 };
 
+#ifdef HAVE_NGHTTP2
 static gboolean
 hd_inflate_del_cb(wmem_allocator_t *allocator _U_, wmem_cb_event_t event _U_, void *user_data)
 {
@@ -416,6 +1044,25 @@ hd_inflate_del_cb(wmem_allocator_t *allocator _U_, wmem_cb_event_t event _U_, vo
 
     return FALSE;
 }
+
+static http2_stream_info_t*
+get_stream_info(http2_session_t *http2_session)
+{
+    guint32 stream_id = http2_session->current_stream_id;
+    wmem_map_t *stream_map = http2_session->per_stream_info;
+
+    http2_stream_info_t *stream_info = (http2_stream_info_t *)wmem_map_lookup(stream_map, GINT_TO_POINTER(stream_id));
+    if (stream_info == NULL) {
+        stream_info = wmem_new0(wmem_file_scope(), http2_stream_info_t);
+        stream_info->oneway_stream_info[0].header_stream_info.stream_header_list = wmem_list_new(wmem_file_scope());
+        stream_info->oneway_stream_info[1].header_stream_info.stream_header_list = wmem_list_new(wmem_file_scope());
+        stream_info->stream_id = stream_id;
+        wmem_map_insert(stream_map, GINT_TO_POINTER(stream_id), stream_info);
+    }
+
+    return stream_info;
+}
+#endif
 
 static http2_session_t*
 get_http2_session(packet_info *pinfo)
@@ -435,6 +1082,7 @@ get_http2_session(packet_info *pinfo)
 
         h2session = wmem_new0(wmem_file_scope(), http2_session_t);
 
+#ifdef HAVE_NGHTTP2
         nghttp2_hd_inflate_new(&h2session->hd_inflater[0]);
         nghttp2_hd_inflate_new(&h2session->hd_inflater[1]);
 
@@ -442,6 +1090,10 @@ get_http2_session(packet_info *pinfo)
                                h2session->hd_inflater[0]);
         wmem_register_callback(wmem_file_scope(), hd_inflate_del_cb,
                                h2session->hd_inflater[1]);
+        h2session->per_stream_info = wmem_map_new(wmem_file_scope(),
+                                                  g_direct_hash,
+                                                  g_direct_equal);
+#endif
 
         h2session->fwd_flow = tcpd->fwd;
         h2session->settings_queue[0] = wmem_queue_new(wmem_file_scope());
@@ -453,7 +1105,8 @@ get_http2_session(packet_info *pinfo)
     return h2session;
 }
 
-static int
+#ifdef HAVE_NGHTTP2
+static guint32
 select_http2_flow_index(packet_info *pinfo, http2_session_t *h2session)
 {
     struct tcp_analysis *tcpd;
@@ -467,12 +1120,69 @@ select_http2_flow_index(packet_info *pinfo, http2_session_t *h2session)
     }
 }
 
+static http2_frame_num_t
+get_http2_frame_num(tvbuff_t *tvb, packet_info *pinfo)
+{
+    /* HTTP2 frames are identified as follows:
+     *
+     * +--- 32 bits ---+--------- 8 bits -------+----- 24 bits -----+
+     * |  pinfo->num   | pinfo->curr_layer_num  |  tvb->raw_offset  |
+     * +------------------------------------------------------------+
+     *
+     * This allows for a single HTTP2 frame to be uniquely identified across a capture with the
+     * added benefit that the number will always be increasing from the previous HTTP2 frame so
+     * we can use "<" and ">" comparisons to determine before and after in time.
+     *
+     * pinfo->curr_layer_num is used to deliberate when we have multiple TLS records in a
+     * single (non-http2) frame. This ends up being dissected using two separate TVBs
+     * (so tvb->raw_offset isn't useful) and then end up being the same pinfo->num.
+     *
+     * I have seen instances where the pinfo->curr_layer_num can change between the first and second
+     * pass of a packet so this needs to be taken into account when this is used as an identifier.
+     */
+    return (((guint64)pinfo->num) << 32) + (((guint64)pinfo->curr_layer_num) << 24) + ((guint64)tvb_raw_offset(tvb));
+}
+
+static http2_oneway_stream_info_t*
+get_oneway_stream_info(packet_info *pinfo, gboolean the_other_direction)
+{
+    http2_session_t *http2_session = get_http2_session(pinfo);
+    http2_stream_info_t *http2_stream_info = get_stream_info(http2_session);
+    guint32 flow_index = select_http2_flow_index(pinfo, http2_session);
+    if (the_other_direction) {
+        /* need stream info of the other direction,
+        so set index from 0 to 1, or from 1 to 0 */
+        flow_index ^= 1;
+    }
+
+    return &http2_stream_info->oneway_stream_info[flow_index];
+}
+
+static http2_data_stream_body_info_t*
+get_data_stream_body_info(packet_info *pinfo)
+{
+    return &(get_oneway_stream_info(pinfo, FALSE)->data_stream_body_info);
+}
+
+
+static http2_data_stream_reassembly_info_t*
+get_data_reassembly_info(packet_info *pinfo)
+{
+    return &(get_oneway_stream_info(pinfo, FALSE)->data_stream_reassembly_info);
+}
+
+static http2_header_stream_info_t*
+get_header_stream_info(packet_info *pinfo, gboolean the_other_direction)
+{
+    return &(get_oneway_stream_info(pinfo, the_other_direction)->header_stream_info);
+}
+
 static void
 push_settings(packet_info *pinfo, http2_session_t *h2session,
               http2_settings_t *settings)
 {
     wmem_queue_t *queue;
-    int flow_index;
+    guint32 flow_index;
 
     flow_index = select_http2_flow_index(pinfo, h2session);
 
@@ -487,7 +1197,7 @@ apply_and_pop_settings(packet_info *pinfo, http2_session_t *h2session)
     wmem_queue_t *queue;
     http2_settings_t *settings;
     nghttp2_hd_inflater *inflater;
-    int flow_index;
+    guint32 flow_index;
 
     /* When header table size is applied, it affects the inflater of
        opposite side. */
@@ -676,30 +1386,196 @@ static gboolean http2_hdrcache_equal(gconstpointer lhs, gconstpointer rhs)
     return alen == blen && memcmp(a, b, alen) == 0;
 }
 
+static int
+is_in_header_context(tvbuff_t *tvb, packet_info *pinfo)
+{
+    http2_header_stream_info_t *stream_info = get_header_stream_info(pinfo, FALSE);
+    if (get_http2_frame_num(tvb, pinfo) >= stream_info->header_start_in) {
+        /* We either haven't established the frame that the headers end in so we are currently in the HEADERS context,
+         * or if we have, it should be equal or less that the current frame number */
+        if (stream_info->header_end_in == 0 || get_http2_frame_num(tvb, pinfo) <= stream_info->header_end_in) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* Extracts only the media-type from a content-type header. EG:
+   "text/html"                  returns "text/html"
+   "text/html; charset=utf-8"   returns "text/html"
+
+   Allocates file-scoped string when called as its only called when the header population is done.
+*/
+static gchar*
+get_content_type_only(const gchar *content_type, int content_type_str_len) {
+    gchar *cp = wmem_strndup(wmem_file_scope(), content_type, content_type_str_len);
+    gchar *start = cp;
+
+    while (*cp != '\0' && *cp != ';' && !g_ascii_isspace(*cp)) {
+        *cp = g_ascii_tolower(*cp);
+        ++cp;
+    }
+    *cp = '\0';
+
+    return start;
+}
+
+/* Extracts the parameters from a content-type or returns NULL. EG:
+
+   "text/html; charset=utf-8"   returns "charset=utf-8"
+   "text/html"                  returns NULL
+   "text/html; "                returns NULL
+
+   Allocates file-scoped string when called as its only called when the header population is done.
+*/
+static gchar*
+get_content_type_parameters_only(const gchar *content_type, int content_type_str_len) {
+    gchar *cp = wmem_strndup(wmem_file_scope(), content_type, content_type_str_len);
+
+    /* Get past the first part of the content type EG: "text/html" */
+    while (*cp != '\0' && *cp != ';' && !g_ascii_isspace(*cp)) {
+        ++cp;
+    }
+
+    /* No parameters */
+    if(*cp == '\0') {
+        return NULL;
+    }
+
+    /* Move past the first ";" or any whitespace */
+    while (*cp == ';' || g_ascii_isspace(*cp)) {
+        ++cp;
+    }
+
+    /* Didn't end up getting any parameters, we just had trailing whitespace or a semicolon after the content-type */
+    if (*cp == '\0') {
+        return NULL;
+    }
+
+    return cp;
+}
+
+static void
+populate_http_header_tracking(tvbuff_t *tvb, packet_info *pinfo, http2_session_t *h2session, int header_value_length,
+                                   const gchar *header_name, const gchar *header_value)
+{
+    /* Populate the content encoding used so we can uncompress the body later if required */
+    if (strcmp(header_name, HTTP2_HEADER_CONTENT_ENCODING) == 0) {
+        http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo);
+        if (body_info->content_encoding == NULL) {
+            body_info->content_encoding = wmem_strndup(wmem_file_scope(), header_value, header_value_length);
+        }
+    }
+
+    /* Is this a partial content? */
+    if (strcmp(header_name, HTTP2_HEADER_STATUS) == 0 &&
+                strcmp(header_value, HTTP2_HEADER_STATUS_PARTIAL_CONTENT) == 0) {
+        http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo);
+        body_info->is_partial_content = TRUE;
+    }
+
+    /* Was this header used to initiate transfer of data frames? We'll use this later for reassembly */
+    if (strcmp(header_name, HTTP2_HEADER_STATUS) == 0 ||
+                strcmp(header_name, HTTP2_HEADER_METHOD) == 0) {
+        http2_data_stream_reassembly_info_t *reassembly_info = get_data_reassembly_info(pinfo);
+        if (reassembly_info->data_initiated_in == 0) {
+            reassembly_info->data_initiated_in = get_http2_frame_num(tvb, pinfo);
+        }
+    }
+
+    /* Do we have transfer encoding of bodies? We don't support reassembling these so mark it as such. */
+    if (strcmp(header_name, HTTP2_HEADER_TRANSFER_ENCODING) == 0) {
+        http2_data_stream_reassembly_info_t *reassembly_info = get_data_reassembly_info(pinfo);
+        reassembly_info->has_transfer_encoded_body = TRUE;
+    }
+
+    /* Store away if the stream is associated with a CONNECT request */
+    if (strcmp(header_name, HTTP2_HEADER_METHOD) == 0 &&
+                strcmp(header_value, HTTP2_HEADER_METHOD_CONNECT) == 0) {
+        http2_stream_info_t *stream_info = get_stream_info(h2session);
+        stream_info->is_stream_http_connect = TRUE;
+    }
+
+    /* Populate the content type so we can dissect the body later */
+    if (strcmp(header_name, HTTP2_HEADER_CONTENT_TYPE) == 0) {
+        http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo);
+        if (body_info->content_type == NULL) {
+            body_info->content_type = get_content_type_only(header_value, header_value_length);
+            body_info->content_type_parameters = get_content_type_parameters_only(header_value, header_value_length);
+        }
+    }
+}
+
+static void
+try_append_method_path_info(packet_info *pinfo, proto_tree *tree,
+                        const gchar *method_header_value, const gchar *path_header_value)
+{
+    if (method_header_value != NULL && path_header_value != NULL) {
+        /* append request inforamtion to info column (for example, HEADERS: GET /demo/1.jpg) */
+        col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s %s", method_header_value, path_header_value);
+        /* append request information to Stream node */
+        proto_item_append_text(tree, ", %s %s", method_header_value, path_header_value);
+    }
+}
+
+static void
+try_add_named_header_field(proto_tree *tree, tvbuff_t *tvb, int offset, guint32 length, const char *header_name, const char *header_value)
+{
+    int hf_id = -1;
+    header_field_info *hfi;
+
+    const gint *entry = (const gint*) g_hash_table_lookup(header_fields_hash, header_name);
+    if (entry == NULL) {
+        return;
+    }
+
+    hf_id = *entry;
+
+    hfi = proto_registrar_get_nth(hf_id);
+    DISSECTOR_ASSERT(hfi != NULL);
+
+    if (IS_FT_UINT32(hfi->type)) {
+        guint32 value;
+        if (ws_strtou32(header_value, NULL, &value)) {
+            proto_tree_add_uint(tree, hf_id, tvb, offset, length, value);
+        }
+    } else if (IS_FT_UINT(hfi->type)) {
+        guint64 value;
+        if (ws_strtou64(header_value, NULL, &value)) {
+            proto_tree_add_uint64(tree, hf_id, tvb, offset, length, value);
+        }
+    } else {
+        proto_tree_add_item(tree, hf_id, tvb, offset, length, ENC_BIG_ENDIAN);
+    }
+}
+
 static void
 inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
-                           proto_tree *tree, size_t headlen,
+                           proto_tree *tree, guint headlen,
                            http2_session_t *h2session, guint8 flags)
 {
     guint8 *headbuf;
     proto_tree *header_tree;
     proto_item *header, *ti;
-    int header_name_length;
-    int header_value_length;
-    const gchar *header_name;
-    const gchar *header_value;
+    guint32 header_name_length;
+    guint32 header_value_length;
+    const guint8 *header_name;
+    const guint8 *header_value;
     int hoffset = 0;
     nghttp2_hd_inflater *hd_inflater;
     tvbuff_t *header_tvb = tvb_new_composite();
     int rv;
     int header_len = 0;
     int final;
-    int flow_index;
+    guint32 flow_index;
     http2_header_data_t *header_data;
     http2_header_repr_info_t *header_repr_info;
     wmem_list_t *header_list;
     wmem_array_t *headers;
     guint i;
+    const gchar *method_header_value = NULL;
+    const gchar *path_header_value = NULL;
+    http2_header_stream_info_t* header_stream_info;
 
     if (!http2_hdrcache_map) {
         http2_hdrcache_map = wmem_map_new(wmem_file_scope(), http2_hdrcache_hash, http2_hdrcache_equal);
@@ -717,6 +1593,8 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
            This makes context out-of-sync. */
         int decompressed_bytes = 0;
 
+        /* Make sure the length isn't too large. */
+        tvb_ensure_bytes_exist(tvb, offset, headlen);
         headbuf = (guint8*)wmem_alloc(wmem_packet_scope(), headlen);
         tvb_memcpy(tvb, headbuf, offset, headlen);
 
@@ -818,7 +1696,13 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
             header_data->current = wmem_list_head(header_list);
         }
 
-    } else {
+        /* add this packet headers to stream header list */
+        header_stream_info = get_header_stream_info(pinfo, FALSE);
+        if (header_stream_info) {
+            wmem_list_append(header_stream_info->stream_header_list, headers);
+        }
+
+    } else if (header_data->current) {
         headers = (wmem_array_t*)wmem_list_frame_data(header_data->current);
 
         header_data->current = wmem_list_frame_next(header_data->current);
@@ -826,6 +1710,8 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
         if(!header_data->current) {
             header_data->current = wmem_list_head(header_list);
         }
+    } else {
+        return;
     }
 
     if(wmem_array_get_count(headers) == 0) {
@@ -891,40 +1777,72 @@ inflate_http2_header_block(tvbuff_t *tvb, packet_info *pinfo, guint offset,
         header_tree = proto_item_add_subtree(header, ett_http2_headers);
 
         /* header value length */
-        header_name_length = tvb_get_ntohl(header_tvb, hoffset);
-        proto_tree_add_uint(header_tree, hf_http2_header_name_length, tvb, offset, in->length, header_name_length);
+        proto_tree_add_item_ret_uint(header_tree, hf_http2_header_name_length, header_tvb, hoffset, 4, ENC_BIG_ENDIAN, &header_name_length);
         hoffset += 4;
 
         /* Add header name. */
-        header_name = (gchar *)tvb_get_string_enc(wmem_packet_scope(), header_tvb, hoffset, header_name_length, ENC_ASCII|ENC_NA);
-        proto_tree_add_string(header_tree, hf_http2_header_name, tvb, offset, in->length, header_name);
+        proto_tree_add_item_ret_string(header_tree, hf_http2_header_name, header_tvb, hoffset, header_name_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &header_name);
         hoffset += header_name_length;
 
         /* header value length */
-        header_value_length = tvb_get_ntohl(header_tvb, hoffset);
-        proto_tree_add_uint(header_tree, hf_http2_header_value_length, tvb, offset, in->length, header_value_length);
+        proto_tree_add_item_ret_uint(header_tree, hf_http2_header_value_length, header_tvb, hoffset, 4, ENC_BIG_ENDIAN, &header_value_length);
         hoffset += 4;
 
         /* Add header value. */
-        header_value = (gchar *)tvb_get_string_enc(wmem_packet_scope(),header_tvb, hoffset, header_value_length, ENC_ASCII|ENC_NA);
-        proto_tree_add_string(header_tree, hf_http2_header_value, tvb, offset, in->length, header_value);
+        proto_tree_add_item_ret_string(header_tree, hf_http2_header_value, header_tvb, hoffset, header_value_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &header_value);
+        // check if field is http2 header https://tools.ietf.org/html/rfc7541#appendix-A
+        try_add_named_header_field(header_tree, header_tvb, hoffset, header_value_length, header_name, header_value);
         hoffset += header_value_length;
 
+        /* Only track HEADER and CONTINUATION frames part there of. Don't look at PUSH_PROMISE and trailing CONTINUATION.
+         * Only do it for the first pass in case the current layer changes, altering where the headers frame number,
+         * http2_frame_num_t points to. */
+        if (is_in_header_context(tvb, pinfo) && !PINFO_FD_VISITED(pinfo)) {
+            populate_http_header_tracking(tvb, pinfo, h2session, header_value_length, header_name, header_value);
+        }
+
         /* Add encoding representation */
-        proto_tree_add_string(header_tree, hf_http2_header_repr, tvb, offset, in->length, http2_header_repr_type[in->type].strptr);
+        // This should probably be a bitmask for the first bits, see https://tools.ietf.org/html/rfc7541#section-6
+        proto_tree_add_string(header_tree, hf_http2_header_repr, tvb, offset, 1, http2_header_repr_type[in->type].strptr);
 
         if(in->type == HTTP2_HD_INDEXED ||
            in->type == HTTP2_HD_LITERAL_INDEXING_INDEXED_NAME ||
            in->type == HTTP2_HD_LITERAL_INDEXED_NAME ||
            in->type == HTTP2_HD_LITERAL_NEVER_INDEXING_INDEXED_NAME) {
-            proto_tree_add_uint(header_tree, hf_http2_header_index, tvb, offset, in->length, in->table.data.idx);
+            /* Only for HTTP2_HD_INDEXED, the index value covers the full
+             * "in->length". In other cases, it is a subset. For simplicity,
+             * just select 1 octet (this might not be accurate though). */
+            guint index_length = in->length;
+            if (in->type != HTTP2_HD_INDEXED) {
+                index_length = 1;
+            }
+            proto_tree_add_uint(header_tree, hf_http2_header_index, tvb, offset, index_length, in->table.data.idx);
         }
 
         proto_item_append_text(header, ": %s: %s", header_name, header_value);
 
+        /* Display :method, :path and :status in info column (just like http1.1 dissector does)*/
+        if (strcmp(header_name, HTTP2_HEADER_METHOD) == 0) {
+            method_header_value = header_value;
+            try_append_method_path_info(pinfo, tree, method_header_value, path_header_value);
+        }
+        else if (strcmp(header_name, HTTP2_HEADER_PATH) == 0) {
+            path_header_value = header_value;
+            try_append_method_path_info(pinfo, tree, method_header_value, path_header_value);
+        }
+        else if (strcmp(header_name, HTTP2_HEADER_STATUS) == 0) {
+            const gchar* reason_phase = val_to_str((guint)strtoul(header_value, NULL, 10), vals_http_status_code, "Unknown");
+            /* append response status and reason phrase to info column (for example, HEADERS: 200 OK) */
+            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s %s", header_value, reason_phase);
+            /* append response status and reason phrase to header_tree and Stream node */
+            proto_item_append_text(header_tree, " %s", reason_phase);
+            proto_item_append_text(tree, ", %s %s", header_value, reason_phase);
+        }
+
         offset += in->length;
     }
 }
+#endif
 
 static guint8
 dissect_http2_header_flags(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree, guint offset, guint8 type)
@@ -979,7 +1897,6 @@ dissect_http2_header_flags(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ht
             break;
     }
 
-
     return flags;
 }
 
@@ -1030,10 +1947,266 @@ dissect_frame_prio(tvbuff_t *tvb, proto_tree *http2_tree, guint offset, guint8 f
     return offset;
 }
 
+#ifdef HAVE_NGHTTP2
+static int
+can_uncompress_body(packet_info *pinfo)
+{
+    http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo);
+    gchar *content_encoding = body_info->content_encoding;
+
+    /* Check we have a content-encoding header appropriate as well as checking if this is partial content.
+     * We can't decompress part of a gzip encoded entity */
+    return http2_decompress_body
+           && body_info->is_partial_content == FALSE
+           && content_encoding != NULL
+           && (strncmp(content_encoding, "gzip", 4) == 0 || strncmp(content_encoding, "deflate", 7) == 0);
+}
+
+/* Try to dissect reassembled http2.data.data according to content_type. */
+static void
+dissect_body_data(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb,
+                  const gint start, gint length, const guint encoding)
+{
+    http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo);
+    gchar *content_type = body_info->content_type;
+    http_message_info_t metadata_used_for_media_type_handle = { HTTP_OTHERS, body_info->content_type_parameters };
+
+    proto_tree_add_item(tree, hf_http2_data_data, tvb, start, length, encoding);
+
+    if (content_type != NULL) {
+        /* add it to STREAM level */
+        proto_tree *ptree = proto_tree_get_parent_tree(tree);
+        dissector_try_string(media_type_dissector_table, content_type, tvb_new_subset_length(tvb, start, length), pinfo,
+                             ptree, &metadata_used_for_media_type_handle);
+    }
+}
+
+static void
+dissect_http2_data_full_body(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree)
+{
+    if (!tvb) {
+        return;
+    }
+
+    gint datalen = tvb_reported_length(tvb);
+
+    if (can_uncompress_body(pinfo)) {
+        proto_item *compressed_proto_item = NULL;
+        tvbuff_t *uncompressed_tvb = tvb_child_uncompress(tvb, tvb, 0, datalen);
+        http2_data_stream_body_info_t *body_info = get_data_stream_body_info(pinfo);
+        gchar *compression_method = body_info->content_encoding;
+
+        proto_tree *compressed_entity_tree = proto_tree_add_subtree_format(http2_tree, tvb, 0, datalen, ett_http2_encoded_entity,
+            &compressed_proto_item, "Content-encoded entity body (%s): %u bytes",
+            compression_method == NULL ? "unknown" : compression_method, datalen
+        );
+
+        if (uncompressed_tvb != NULL) {
+            guint uncompressed_length = tvb_captured_length(uncompressed_tvb);
+            add_new_data_source(pinfo, uncompressed_tvb, "Uncompressed entity body");
+            proto_item_append_text(compressed_proto_item, " -> %u bytes", uncompressed_length);
+            dissect_body_data(compressed_entity_tree, pinfo, uncompressed_tvb, 0, uncompressed_length, ENC_NA);
+
+        } else {
+            proto_tree_add_expert(compressed_entity_tree, pinfo, &ei_http2_body_decompression_failed, tvb, 0, datalen);
+            dissect_body_data(compressed_entity_tree, pinfo, tvb, 0, datalen, ENC_NA);
+        }
+    } else {
+        dissect_body_data(http2_tree, pinfo, tvb, 0, datalen, ENC_NA);
+    }
+
+}
+
+static int
+should_attempt_to_reassemble_data_frame(http2_data_stream_reassembly_info_t *reassembly, packet_info *pinfo)
+{
+    /* If we haven't captured the header frame with the request/response we don't know how many data
+     * frames we might have lost before processing */
+    if (reassembly->data_initiated_in == 0) {
+        return FALSE;
+    }
+
+    /* For now, do not reassemble transfer encoded bodies. Chunked encoding is explicitly disallowed by RFC7540,
+     * section 8.1. Additionally, section 8.1.2.2 specifies that the only valid value for the TE header (indicating
+     * which transfer-encoding is allowed) is trailers, suggesting transfer coding other than chunked (gzip,
+     * deflate, etc) are not allowed */
+    if (reassembly->has_transfer_encoded_body) {
+        return FALSE;
+    }
+
+    /* Is this data frame part of an established tunnel? Don't try to reassemble the data if that is the case */
+    http2_stream_info_t *stream_info = get_stream_info(get_http2_session(pinfo));
+    if (stream_info->is_stream_http_connect) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static guint32
+get_reassembly_id_from_stream(packet_info *pinfo)
+{
+    http2_session_t *session = get_http2_session(pinfo);
+    http2_stream_info_t *stream_info = get_stream_info(session);
+    guint32 flow_index = select_http2_flow_index(pinfo, session);
+
+    /* With a stream ID being 31 bits, use the most significant bit to determine the flow direction of the
+     * stream. We use this for the ID in the body reassembly using the reassemble API */
+    return stream_info->stream_id | (flow_index << 31);
+}
+
+static tvbuff_t*
+reassemble_http2_data_into_full_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree, guint offset,
+                                      guint8 flags, guint datalen)
+{
+    http2_data_stream_reassembly_info_t *reassembly = get_data_reassembly_info(pinfo);
+
+    /* There are a number of conditions as to why we may not want to reassemble DATA frames */
+    if (!should_attempt_to_reassemble_data_frame(reassembly, pinfo)) {
+        return NULL;
+    }
+
+    /* Continue to add fragments, checking if we have any more fragments */
+    guint32 reassembly_id = get_reassembly_id_from_stream(pinfo);
+    fragment_head *head = NULL;
+    if (IS_HTTP2_END_STREAM(flags) && datalen == 0) {
+        /* Workaround displaying "[Frame: N (no data)]" for a HTTP2 frame that contains no data but ends the stream */
+        head = fragment_end_seq_next(&http2_body_reassembly_table, pinfo, reassembly_id, NULL);
+    } else {
+        head = fragment_add_seq_next(&http2_body_reassembly_table, tvb, offset, pinfo, reassembly_id, NULL,
+                                     datalen, !IS_HTTP2_END_STREAM(flags));
+    }
+
+    /* Only call this if its the last DATA frame (END_STREAM) as the check in process_reassembled_data() will
+     * incorrectly match for frames that exist in the same packet as the final DATA frame and incorrectly add
+     * reassembly information to those dissection trees */
+    if (head && IS_HTTP2_END_STREAM(flags)) {
+        return process_reassembled_data(tvb, offset, pinfo, "Reassembled body", head,
+                                        &http2_body_fragment_items, NULL, http2_tree);
+    }
+
+    /* Add frame where reassembly happened. process_reassembled_data() does this automatically if the reassembled
+     * packet matches the packet that is calling the function, but makes some incorrect assumptions for multiple
+     * fragments contained in the same packet */
+    if (head) {
+        proto_tree_add_uint(http2_tree, hf_http2_body_reassembled_in, tvb, 0, 0,
+                            head->reassembled_in);
+    }
+
+    /* Reassembly not complete yet*/
+    return NULL;
+}
+
+static void
+dissect_http2_data_partial_body(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree, guint offset, gint length,
+                                guint8 flags)
+{
+    http2_data_stream_reassembly_info_t *reassembly = get_data_reassembly_info(pinfo);
+
+    /* Is the frame part of a body that is going to be reassembled? */
+    if(!IS_HTTP2_END_STREAM(flags)) {
+        proto_item_append_text(http2_tree, " (partial entity body)");
+    }
+
+    /* If we somehow got a transfer-encoded body, display it here */
+    if (reassembly->has_transfer_encoded_body) {
+        proto_item_append_text(http2_tree, " (transfer-encoded body)");
+    }
+
+    /* Is this part of a tunneled connection? */
+    http2_stream_info_t *stream_info = get_stream_info(get_http2_session(pinfo));
+    if (stream_info->is_stream_http_connect) {
+        proto_item_append_text(http2_tree, " (tunneled data)");
+    }
+
+    proto_tree_add_item(http2_tree, hf_http2_data_data, tvb, offset, length, ENC_NA);
+}
+
+static void
+dissect_http2_data_body(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree, guint offset, guint8 flags, gint length)
+{
+    tvbuff_t *data_tvb = reassemble_http2_data_into_full_frame(tvb, pinfo, http2_tree, offset, flags, length);
+
+    if (data_tvb != NULL) {
+        dissect_http2_data_full_body(data_tvb, pinfo, http2_tree);
+    } else {
+        dissect_http2_data_partial_body(tvb, pinfo, http2_tree, offset, length, flags);
+    }
+}
+
+/* Get header value from current or the other direction stream_header_list */
+const gchar*
+http2_get_header_value(packet_info *pinfo, const gchar* name, gboolean the_other_direction)
+{
+    http2_header_stream_info_t* header_stream_info;
+    wmem_list_frame_t* frame;
+    wmem_array_t* headers;
+    guint i;
+    guint32 name_len;
+    guint32 value_len;
+    http2_header_t *hdr;
+    gchar* data;
+
+    header_stream_info = get_header_stream_info(pinfo, the_other_direction);
+    if (!header_stream_info) {
+        return NULL;
+    }
+
+    for (frame = wmem_list_head(header_stream_info->stream_header_list);
+        frame;
+        frame = wmem_list_frame_next(frame))
+    {   /* each frame contains one HEADERS or CONTINUATION frame's headers */
+        headers = (wmem_array_t*)wmem_list_frame_data(frame);
+        if (!headers) {
+            continue;
+        }
+
+        for (i = 0; i < wmem_array_get_count(headers); ++i) {
+            hdr = (http2_header_t*)wmem_array_index(headers, i);
+            if (hdr->type == HTTP2_HD_HEADER_TABLE_SIZE_UPDATE) {
+                continue;
+            }
+
+            /* parsing data as format:
+                   name length (uint32)
+                   name (string)
+                   value length (uint32)
+                   value (string)
+            */
+            data = (gchar*) hdr->table.data.data;
+            name_len = pntoh32(data);
+            if (strlen(name) == name_len && strncmp(data + 4, name, name_len) == 0) {
+                value_len = pntoh32(data + 4 + name_len);
+                if (4 + name_len + 4 + value_len == hdr->table.data.datalen) {
+                    /* return value */
+                    return wmem_strndup(wmem_packet_scope(), data + 4 + name_len + 4, value_len);
+                }
+                else {
+                    return NULL; /* unexpected error */
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+#else
+static void
+dissect_http2_data_body(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree, guint offset, guint8 flags _U_, gint datalen)
+{
+    proto_tree_add_item(http2_tree, hf_http2_data_data, tvb, offset, datalen, ENC_NA);
+}
+
+const gchar*
+http2_get_header_value(packet_info *pinfo _U_, const gchar* name _U_, gboolean the_other_direction _U_)
+{
+    return NULL;
+}
+#endif
 
 /* Data (0) */
 static int
-dissect_http2_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree,
+dissect_http2_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree,
                    guint offset, guint8 flags)
 {
     guint16 padding;
@@ -1041,39 +2214,82 @@ dissect_http2_data(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree
 
     offset = dissect_frame_padding(tvb, &padding, http2_tree, offset, flags);
     datalen = tvb_reported_length_remaining(tvb, offset) - padding;
-    proto_tree_add_item(http2_tree, hf_http2_data_data, tvb, offset, datalen, ENC_NA);
+
+    dissect_http2_data_body(tvb, pinfo, http2_tree, offset, flags, datalen);
+
     offset += datalen;
 
-    proto_tree_add_item(http2_tree, hf_http2_data_padding, tvb, offset, padding, ENC_NA);
-    offset += padding;
+    if (padding) {
+        proto_tree_add_item(http2_tree, hf_http2_data_padding, tvb, offset, padding, ENC_NA);
+        offset += padding;
+    }
 
     return offset;
 }
 
 /* Headers */
 static int
+#ifdef HAVE_NGHTTP2
 dissect_http2_headers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *http2_tree,
                       guint offset, guint8 flags)
+#else
+dissect_http2_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree,
+                      guint offset, guint8 flags)
+#endif
 {
     guint16 padding;
     gint headlen;
+#ifdef HAVE_NGHTTP2
     http2_session_t *h2session;
 
     h2session = get_http2_session(pinfo);
 
+    /* Trailing headers coming after a DATA stream should have END_STREAM set. DATA should be complete
+     * so try to reassemble DATA fragments if that is the case */
+    if(IS_HTTP2_END_STREAM(flags) ) {
+        fragment_head *head = fragment_end_seq_next(&http2_body_reassembly_table, pinfo, get_reassembly_id_from_stream(pinfo), NULL);
+        if(head) {
+            tvbuff_t *reassembled_data = process_reassembled_data(tvb, 0, pinfo, "Reassembled body", head,
+                                                                  &http2_body_fragment_items, NULL, http2_tree);
+            dissect_http2_data_full_body(reassembled_data, pinfo, http2_tree);
+        }
+    }
+
+    /* Mark this frame as the first header frame seen and last if the END_HEADERS flag
+     * is set. We use this to ensure when we read header values, we are not reading ones
+     * that have come from a PUSH_PROMISE header (and associated CONTINUATION frames) */
+    http2_header_stream_info_t *stream_info = get_header_stream_info(pinfo, FALSE);
+    if (stream_info->header_start_in == 0) {
+        stream_info->header_start_in = get_http2_frame_num(tvb, pinfo);
+    }
+    if (stream_info->header_end_in == 0 && flags & HTTP2_FLAGS_END_HEADERS) {
+        stream_info->header_end_in = get_http2_frame_num(tvb, pinfo);
+    }
+#endif
+
     offset = dissect_frame_padding(tvb, &padding, http2_tree, offset, flags);
     offset = dissect_frame_prio(tvb, http2_tree, offset, flags);
 
-    headlen = tvb_reported_length_remaining(tvb, offset) - padding;
+    headlen = tvb_reported_length_remaining(tvb, offset);
+    if (headlen < padding) {
+        /* XXX - what error *should* be reported here? */
+        THROW(ReportedBoundsError);
+    }
+    headlen -= padding;
     proto_tree_add_item(http2_tree, hf_http2_headers, tvb, offset, headlen, ENC_NA);
 
+#ifdef HAVE_NGHTTP2
     /* decompress the header block */
     inflate_http2_header_block(tvb, pinfo, offset, http2_tree, headlen, h2session, flags);
+#endif
 
     offset += headlen;
 
-    proto_tree_add_item(http2_tree, hf_http2_headers_padding, tvb, offset, padding, ENC_NA);
-    offset += padding;
+    if (padding) {
+        proto_tree_add_item(http2_tree, hf_http2_headers_padding, tvb, offset, padding, ENC_NA);
+        offset += padding;
+    }
+
     return offset;
 }
 
@@ -1102,11 +2318,16 @@ dissect_http2_rst_stream(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http
 
 /* Settings */
 static int
+#ifdef HAVE_NGHTTP2
 dissect_http2_settings(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree, guint offset, guint8 flags)
+#else
+dissect_http2_settings(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree, guint offset, guint8 flags _U_)
+#endif
 {
     guint32 settingsid;
     proto_item *ti_settings;
     proto_tree *settings_tree;
+#ifdef HAVE_NGHTTP2
     guint32 header_table_size;
     guint32 min_header_table_size;
     int header_table_size_found;
@@ -1115,6 +2336,7 @@ dissect_http2_settings(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_
     header_table_size_found = 0;
     header_table_size = 0;
     min_header_table_size = 0xFFFFFFFFu;
+#endif
 
     while(tvb_reported_length_remaining(tvb, offset) > 0){
 
@@ -1131,12 +2353,14 @@ dissect_http2_settings(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_
             case HTTP2_SETTINGS_HEADER_TABLE_SIZE:
                 proto_tree_add_item(settings_tree, hf_http2_settings_header_table_size, tvb, offset, 4, ENC_BIG_ENDIAN);
 
+#ifdef HAVE_NGHTTP2
                 /* We only care the last header table size in SETTINGS */
                 header_table_size_found = 1;
                 header_table_size = tvb_get_ntohl(tvb, offset);
                 if(min_header_table_size > header_table_size) {
                     min_header_table_size = header_table_size;
                 }
+#endif
             break;
             case HTTP2_SETTINGS_ENABLE_PUSH:
                 proto_tree_add_item(settings_tree, hf_http2_settings_enable_push, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -1161,7 +2385,7 @@ dissect_http2_settings(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_
         offset += 4;
     }
 
-
+#ifdef HAVE_NGHTTP2
     if(!PINFO_FD_VISITED(pinfo)) {
         h2session = get_http2_session(pinfo);
 
@@ -1179,6 +2403,7 @@ dissect_http2_settings(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_
             push_settings(pinfo, h2session, settings);
         }
     }
+#endif
 
     return offset;
 }
@@ -1190,9 +2415,11 @@ dissect_http2_push_promise(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ht
 {
     guint16 padding;
     gint headlen;
+#ifdef HAVE_NGHTTP2
     http2_session_t *h2session;
 
     h2session = get_http2_session(pinfo);
+#endif
 
     offset = dissect_frame_padding(tvb, &padding, http2_tree, offset, flags);
 
@@ -1201,16 +2428,25 @@ dissect_http2_push_promise(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ht
                         offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    headlen = tvb_reported_length_remaining(tvb, offset) - padding;
+    headlen = tvb_reported_length_remaining(tvb, offset);
+    if (headlen < padding) {
+        /* XXX - what error *should* be reported here? */
+        THROW(ReportedBoundsError);
+    }
+    headlen -= padding;
     proto_tree_add_item(http2_tree, hf_http2_push_promise_header, tvb, offset, headlen,
-                        ENC_ASCII|ENC_NA);
+                        ENC_NA);
 
+#ifdef HAVE_NGHTTP2
     inflate_http2_header_block(tvb, pinfo, offset, http2_tree, headlen, h2session, flags);
+#endif
 
     offset += headlen;
 
-    proto_tree_add_item(http2_tree, hf_http2_push_promise_padding, tvb,
-                        offset, padding, ENC_NA);
+    if (padding) {
+        proto_tree_add_item(http2_tree, hf_http2_push_promise_padding, tvb,
+                            offset, padding, ENC_NA);
+    }
 
     offset +=  tvb_reported_length_remaining(tvb, offset);
 
@@ -1270,22 +2506,42 @@ dissect_http2_continuation(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *ht
 {
     guint16 padding;
     gint headlen;
+#ifdef HAVE_NGHTTP2
     http2_session_t *h2session;
 
     h2session = get_http2_session(pinfo);
 
+    /* Mark this as the last CONTINUATION frame for a HEADERS frame. This is used to know the context when we read
+     * header (is the source a HEADER frame or a PUSH_PROMISE frame?) */
+    if (flags & HTTP2_FLAGS_END_HEADERS) {
+        http2_header_stream_info_t *stream_info = get_header_stream_info(pinfo, FALSE);
+        if (stream_info->header_start_in != 0 && stream_info->header_end_in == 0) {
+            stream_info->header_end_in = get_http2_frame_num(tvb, pinfo);
+        }
+    }
+
+#endif
+
     offset = dissect_frame_padding(tvb, &padding, http2_tree, offset, flags);
 
-    headlen = tvb_reported_length_remaining(tvb, offset) - padding;
+    headlen = tvb_reported_length_remaining(tvb, offset);
+    if (headlen < padding) {
+        /* XXX - what error *should* be reported here? */
+        THROW(ReportedBoundsError);
+    }
+    headlen -= padding;
     proto_tree_add_item(http2_tree, hf_http2_continuation_header, tvb, offset, headlen, ENC_ASCII|ENC_NA);
 
+#ifdef HAVE_NGHTTP2
     inflate_http2_header_block(tvb, pinfo, offset, http2_tree, headlen, h2session, flags);
+#endif
 
     offset +=  headlen;
 
-    proto_tree_add_item(http2_tree, hf_http2_continuation_padding, tvb, offset, padding, ENC_NA);
-
-    offset += padding;
+    if (padding) {
+        proto_tree_add_item(http2_tree, hf_http2_continuation_padding, tvb, offset, padding, ENC_NA);
+        offset += padding;
+    }
 
     return offset;
 }
@@ -1296,35 +2552,19 @@ static int
 dissect_http2_altsvc(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tree,
                      guint offset, guint8 flags _U_, guint16 length)
 {
-    guint8 pidlen;
-    guint8 hostlen;
-    int remain;
+    guint32 origin_len;
+    int remain = length;
 
-    proto_tree_add_item(http2_tree, hf_http2_altsvc_maxage, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset+=4;
-
-    proto_tree_add_item(http2_tree, hf_http2_altsvc_port, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item_ret_uint(http2_tree, hf_http2_altsvc_origin_len, tvb, offset, 2, ENC_BIG_ENDIAN, &origin_len);
     offset += 2;
+    remain -= 2;
 
-    proto_tree_add_item(http2_tree, hf_http2_altsvc_proto_len, tvb, offset, 1, ENC_BIG_ENDIAN);
-    pidlen = tvb_get_guint8(tvb, offset);
-    offset ++;
+    proto_tree_add_item(http2_tree, hf_http2_altsvc_origin, tvb, offset, origin_len, ENC_ASCII|ENC_NA);
+    offset += origin_len;
+    remain -= origin_len;
 
-    proto_tree_add_item(http2_tree, hf_http2_altsvc_protocol, tvb, offset, pidlen, ENC_ASCII|ENC_NA);
-    offset += pidlen;
-
-    proto_tree_add_item(http2_tree, hf_http2_altsvc_host_len, tvb, offset, 1, ENC_BIG_ENDIAN);
-    hostlen = tvb_get_guint8(tvb, offset);
-    offset ++;
-
-    proto_tree_add_item(http2_tree, hf_http2_altsvc_host, tvb, offset, hostlen, ENC_ASCII|ENC_NA);
-    offset += hostlen;
-
-    remain = length - offset;
-    if(remain > -8) {
-        /* 8 is the fixed size of the http2 frame header */
-        proto_tree_add_item(http2_tree, hf_http2_altsvc_origin, tvb,
-                            offset, remain + 8, ENC_ASCII|ENC_NA);
+    if(remain) {
+        proto_tree_add_item(http2_tree, hf_http2_altsvc_field_value, tvb, offset, remain, ENC_ASCII|ENC_NA);
         offset += remain;
     }
 
@@ -1332,7 +2572,7 @@ dissect_http2_altsvc(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *http2_tr
 }
 
 
-static int
+int
 dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_ )
 {
     proto_item *ti;
@@ -1398,7 +2638,6 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
 
     proto_tree_add_item(http2_tree, hf_http2_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     type = tvb_get_guint8(tvb, offset);
-    col_append_sep_fstr( pinfo->cinfo, COL_INFO, ", ", "%s", val_to_str(type, http2_type_vals, "Unknown type (%d)"));
 
     offset += 1;
 
@@ -1410,6 +2649,15 @@ dissect_http2_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* dat
     streamid = tvb_get_ntohl(tvb, offset) & MASK_HTTP2_STREAMID;
     proto_item_append_text(ti, ": %s, Stream ID: %u, Length %u", val_to_str(type, http2_type_vals, "Unknown type (%d)"), streamid, length);
     offset += 4;
+
+    /* append stream id after frame type on info column, like: HEADERS[1], DATA[1], HEADERS[3], DATA[3] */
+    col_append_sep_fstr(pinfo->cinfo, COL_INFO, ", ", "%s[%u]", val_to_str(type, http2_type_vals, "Unknown type (%d)"), streamid);
+
+#ifdef HAVE_NGHTTP2
+    /* Mark the current stream, used for per-stream processing later in the dissection */
+    http2_session_t *http2_session = get_http2_session(pinfo);
+    http2_session->current_stream_id = streamid;
+#endif
 
     /* Collect stats */
     http2_stats = wmem_new0(wmem_packet_scope(), struct HTTP2Tap);
@@ -1492,10 +2740,6 @@ dissect_http2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 {
     proto_item *ti;
     proto_tree *http2_tree;
-
-    /* Check that there's enough data */
-    if (tvb_captured_length(tvb) < FRAME_HEADER_LENGTH)
-        return 0;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "HTTP2");
     col_clear(pinfo->cinfo, COL_INFO);
@@ -1704,6 +2948,57 @@ proto_register_http2(void)
               FT_BYTES, BASE_NONE, NULL, 0x0,
               "Padding octets", HFILL }
         },
+        /* Body fragments */
+        { &hf_http2_body_fragments,
+            { "Body fragments", "http2.body.fragments",
+              FT_NONE, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment,
+            { "Body fragment", "http2.body.fragment",
+              FT_FRAMENUM, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment_overlap,
+            { "Body fragment overlap", "http2.body.fragment.overlap",
+              FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment_overlap_conflicts,
+            { "Body fragment overlapping with conflicting data", "http2.body.fragment.overlap.conflicts",
+              FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment_multiple_tails,
+            { "Body has multiple tail fragments", "http2.body.fragment.multiple_tails",
+              FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment_too_long_fragment,
+            { "Body fragment too long", "http2.body.fragment.too_long_fragment",
+              FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment_error,
+            { "Body defragment error", "http2.body.fragment.error",
+              FT_FRAMENUM, BASE_NONE, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_fragment_count,
+            { "Body fragment count", "http2.body.fragment.count",
+              FT_UINT32, BASE_DEC, NULL, 0x0,
+              NULL, HFILL }
+        },
+        { &hf_http2_body_reassembled_in,
+            { "Reassembled body in frame", "http2.body.reassembled.in",
+              FT_FRAMENUM, BASE_NONE, NULL, 0x0,
+              "Reassembled body in frame number", HFILL }
+        },
+        { &hf_http2_body_reassembled_length,
+            { "Reassembled body length", "http2.body.reassembled.length",
+               FT_UINT32, BASE_DEC, NULL, 0x0,
+              "Reassembled body in frame number", HFILL }
+        },
 
         /* Headers */
         { &hf_http2_headers,
@@ -1838,9 +3133,9 @@ proto_register_http2(void)
               "Identifies the stream the endpoint intends to start sending frames for", HFILL }
         },
         { &hf_http2_push_promise_header,
-            { "Header", "http2.push_promise.header",
-               FT_STRING, BASE_NONE, NULL, 0x0,
-              NULL, HFILL }
+            { "Header Block Fragment", "http2.push_promise.header",
+               FT_BYTES, BASE_NONE, NULL, 0x0,
+              "Containing request header fields", HFILL }
         },
         { &hf_http2_push_promise_padding,
             { "Padding", "http2.push_promise.padding",
@@ -1906,36 +3201,11 @@ proto_register_http2(void)
               "Padding octets", HFILL }
         },
 
-        /* Altsvc */
-        { &hf_http2_altsvc_maxage,
-            { "Max-Age", "http2.altsvc.max-age",
-               FT_UINT32, BASE_DEC, NULL, 0x0,
-              "An unsigned, 32-bit integer indicating the freshness lifetime of the alternative service association", HFILL }
-        },
-        { &hf_http2_altsvc_port,
-            { "Port", "http2.altsvc.port",
+        /* ALTSVC */
+        { &hf_http2_altsvc_origin_len,
+            { "Origin Length", "http2.altsvc.origin.len",
                FT_UINT16, BASE_DEC, NULL, 0x0,
-              "An unsigned, 16-bit integer indicating the port that the alternative service is available upon", HFILL }
-        },
-        { &hf_http2_altsvc_proto_len,
-            { "Proto-Len", "http2.altsvc.proto_len",
-               FT_UINT8, BASE_DEC, NULL, 0x0,
-              "An unsigned, 8-bit integer indicating the length, in octets, of the PROTOCOL-ID field", HFILL }
-        },
-        { &hf_http2_altsvc_protocol,
-            { "Protocol-ID", "http2.altsvc.protocol",
-               FT_STRING, BASE_NONE, NULL, 0x0,
-              "A sequence of bytes containing the ALPN protocol identifier", HFILL }
-        },
-        { &hf_http2_altsvc_host_len,
-            { "Host-Len", "http2.altsvc.host_len",
-               FT_UINT8, BASE_DEC, NULL, 0x0,
-              "An unsigned, 8-bit integer indicating the length, in octets, of the Host field", HFILL }
-        },
-        { &hf_http2_altsvc_host,
-            { "Host", "http2.altsvc.host",
-               FT_STRING, BASE_NONE, NULL, 0x0,
-              "ASCII string indicating the host that the alternative service is available upon", HFILL }
+              "indicating the length, in octets, of the Origin field.", HFILL }
         },
         { &hf_http2_altsvc_origin,
             { "Origin", "http2.altsvc.origin",
@@ -1943,7 +3213,11 @@ proto_register_http2(void)
               "A sequence of characters containing ASCII serialisation of an "
               "origin that the alternate service is applicable to.", HFILL }
         },
-
+        { &hf_http2_altsvc_field_value,
+            { "Field/Value", "http2.altsvc.field_value",
+               FT_STRING, BASE_NONE, NULL, 0x0,
+              "A sequence of octets containing a value identical to the Alt-Svc field value", HFILL }
+        },
 
     };
 
@@ -1952,7 +3226,10 @@ proto_register_http2(void)
         &ett_http2_header,
         &ett_http2_headers,
         &ett_http2_flags,
-        &ett_http2_settings
+        &ett_http2_settings,
+        &ett_http2_encoded_entity,
+        &ett_http2_body_fragment,
+        &ett_http2_body_fragments
     };
 
     /* Setup protocol expert items */
@@ -1968,6 +3245,10 @@ proto_register_http2(void)
         { &ei_http2_header_lines,
           { "http2.header_lines_exceeded", PI_UNDECODED, PI_ERROR,
             "Decompression stopped after " G_STRINGIFY(MAX_HTTP2_HEADER_LINES) " header lines.", EXPFILL }
+        },
+        { &ei_http2_body_decompression_failed,
+          { "http2.body_decompression_failed", PI_UNDECODED, PI_WARN,
+            "Body decompression failed", EXPFILL }
         }
     };
 
@@ -1986,7 +3267,55 @@ proto_register_http2(void)
 
     prefs_register_obsolete_preference(http2_module, "heuristic_http2");
 
+#ifdef HAVE_NGHTTP2
+    uat_t* headers_uat;
+
+    static const value_string http2_custom_type_vals[] = {
+        { val_string,   "string" },
+        { val_uint64,   "unsigned 64-bit integer" },
+        { 0x00, NULL }
+    };
+
+    static uat_field_t custom_header_uat_fields[] = {
+        UAT_FLD_CSTRING(header_fields, header_name, "Header name", "HTTP2 header name"),
+        UAT_FLD_VS(header_fields, header_type, "Header type", http2_custom_type_vals, "Field type"),
+        UAT_FLD_CSTRING(header_fields, header_desc, "Field desc", "Description of the value contained in the header"),
+        UAT_END_FIELDS
+    };
+
+    headers_uat = uat_new("Custom HTTP2 Header Fields",
+                          sizeof(header_field_t),
+                          "custom_http2_header_fields",
+                          TRUE,
+                          &header_fields,
+                          &num_header_fields,
+                          /* specifies named fields, so affects dissection
+                             and the set of named fields */
+                          UAT_AFFECTS_DISSECTION|UAT_AFFECTS_FIELDS,
+                          NULL,
+                          header_fields_copy_cb,
+                          header_fields_update_cb,
+                          header_fields_free_cb,
+                          NULL,
+                          NULL,
+                          custom_header_uat_fields
+    );
+
+    prefs_register_uat_preference(http2_module, "custom_http2_header_fields", "Custom HTTP2 header fields",
+        "A table to define custom HTTP2 header for which fields can be setup and used for filtering/data extraction etc.",
+        headers_uat);
+
+    /* Fill hash table with static headers */
+    register_static_headers();
+#endif
+
+    register_init_routine(&http2_init_protocol);
+    register_cleanup_routine(&http2_cleanup_protocol);
+
     http2_handle = register_dissector("http2", dissect_http2, proto_http2);
+
+    reassembly_table_register(&http2_body_reassembly_table,
+                              &addresses_ports_reassembly_table_functions);
 
     http2_tap = register_tap("http2");
 }
@@ -2011,7 +3340,17 @@ static int http2_stats_tree_packet(stats_tree* st, packet_info* pinfo _U_, epan_
 void
 proto_reg_handoff_http2(void)
 {
-    dissector_add_for_decode_as("tcp.port", http2_handle);
+#ifdef HAVE_NGHTTP2
+    media_type_dissector_table = find_dissector_table("media_type");
+#endif
+
+    dissector_add_for_decode_as_with_preference("tcp.port", http2_handle);
+
+    /*
+     * SSL/TLS Application-Layer Protocol Negotiation (ALPN) protocol
+     * ID.
+     */
+    dissector_add_string("ssl.handshake.extensions_alpn_str", "h2", http2_handle);
 
     heur_dissector_add("ssl", dissect_http2_heur_ssl, "HTTP2 over SSL", "http2_ssl", proto_http2, HEURISTIC_ENABLE);
     heur_dissector_add("http", dissect_http2_heur, "HTTP2 over TCP", "http2_tcp", proto_http2, HEURISTIC_ENABLE);

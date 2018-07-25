@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_LBM_H_INCLUDED
@@ -94,7 +82,13 @@
 #endif
 #include <stddef.h>
 
-#include <wsutil/inet_aton.h>
+#ifdef HAVE_NETINET_IN_H
+# include <netinet/in.h>
+#endif
+
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 
 typedef guint8 lbm_uint8_t;
 typedef guint16 lbm_uint16_t;
@@ -112,8 +106,8 @@ typedef guint64 lbm_uint64_t;
 #define UAT_IPV4_CB_DEF(basename,field_name,rec_t) \
     static gboolean basename ## _ ## field_name ## _chk_cb(void * u1 _U_, const char * strptr, unsigned len _U_, const void * u2 _U_, const void * u3 _U_, char ** err) \
     { \
-        struct in_addr addr; \
-        if (inet_aton(strptr, &addr) == 0) \
+        guint32 addr; \
+        if (!ws_inet_pton4(strptr, &addr)) \
         { \
             *err = g_strdup("invalid address"); \
             return (FALSE); \
@@ -122,12 +116,12 @@ typedef guint64 lbm_uint64_t;
     } \
     static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, unsigned len, const void* u1 _U_, const void* u2 _U_) \
     { \
-        struct in_addr addr; \
+        guint32 addr; \
         char* new_buf = g_strndup(buf,len); \
         g_free((((rec_t*)rec)->field_name)); \
         (((rec_t*)rec)->field_name) = new_buf; \
-        inet_aton(new_buf, &addr); \
-        (((rec_t*)rec)->field_name ## _val_h) = g_ntohl(addr.s_addr); \
+        ws_inet_pton4(new_buf, &addr); \
+        (((rec_t*)rec)->field_name ## _val_h) = g_ntohl(addr); \
     } \
     static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* u1 _U_, const void* u2 _U_) \
     {\
@@ -150,13 +144,13 @@ typedef guint64 lbm_uint64_t;
 #define UAT_IPV4_MC_CB_DEF(basename,field_name,rec_t) \
     static gboolean basename ## _ ## field_name ## _chk_cb(void * u1 _U_, const char * strptr, unsigned len _U_, const void * u2 _U_, const void * u3 _U_, char ** err) \
     { \
-        struct in_addr addr; \
-        if (inet_aton(strptr, &addr) == 0) \
+        guint32 addr; \
+        if (!ws_inet_pton4(strptr, &addr)) \
         { \
             *err = g_strdup("invalid address"); \
             return (FALSE); \
         } \
-        if (!IN_MULTICAST(g_ntohl(addr.s_addr)) && (g_ntohl(addr.s_addr) != 0)) \
+        if (!IN_MULTICAST(g_ntohl(addr)) && (g_ntohl(addr) != 0)) \
         { \
             *err = g_strdup("invalid multicast address"); \
             return (FALSE); \
@@ -165,12 +159,12 @@ typedef guint64 lbm_uint64_t;
     } \
     static void basename ## _ ## field_name ## _set_cb(void* rec, const char* buf, unsigned len, const void* u1 _U_, const void* u2 _U_) \
     { \
-        struct in_addr addr; \
+        guint32 addr; \
         char* new_buf = g_strndup(buf,len); \
         g_free((((rec_t*)rec)->field_name)); \
         (((rec_t*)rec)->field_name) = new_buf; \
-        inet_aton(new_buf, &addr); \
-        (((rec_t*)rec)->field_name ## _val_h) = g_ntohl(addr.s_addr); \
+        ws_inet_pton4(new_buf, &addr); \
+        (((rec_t*)rec)->field_name ## _val_h) = g_ntohl(addr); \
     } \
     static void basename ## _ ## field_name ## _tostr_cb(void* rec, char** out_ptr, unsigned* out_len, const void* u1 _U_, const void* u2 _U_) \
     {\
@@ -216,15 +210,6 @@ typedef struct
         lbm_uim_stream_ctxinst_t ctxinst;
     } stream_info;
 } lbm_uim_stream_endpoint_t;
-
-typedef struct
-{
-    guint64 channel;
-    guint32 sqn;
-    lbm_uim_stream_endpoint_t endpoint_a;
-    lbm_uim_stream_endpoint_t endpoint_b;
-    const gchar * description;
-} lbm_uim_stream_info_t;
 
 typedef struct
 {

@@ -1,4 +1,4 @@
-/* IEEE 11073 FLOATs
+/* FLOATs as specified by ISO/IEEE Std. 11073-20601-2014
  *
  * Personal Health Devices Transcoding White Paper v1.5
  * https://www.bluetooth.org/DocMan/handlers/DownloadDoc.ashx?doc_id=272346
@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -213,33 +201,35 @@ sfloat_ieee_11073_val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_
 }
 
 static void
-sfloat_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+sfloat_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
     gint8    exponent;
     guint16  mantissa;
     guint16  mantissa_sign;
     guint32  offset = 0;
-    gchar    mantissa_str[5];
+#define MANTISSA_STR_BUFFER_SIZE 5
+    gchar    mantissa_str[MANTISSA_STR_BUFFER_SIZE];
     guint8   mantissa_digits;
 
     if (fv->value.sfloat_ieee_11073 >= 0x07FE && fv->value.sfloat_ieee_11073 <= 0x0802) {
         switch (fv->value.sfloat_ieee_11073) {
         case SFLOAT_VALUE_INFINITY_PLUS:
-            g_snprintf(buf, 10, "+INFINITY");
+            g_strlcpy(buf, "+INFINITY", size);
             break;
         case SFLOAT_VALUE_NAN:
-            g_snprintf(buf, 4, "NaN");
+            g_strlcpy(buf, "NaN", size);
             break;
         case SFLOAT_VALUE_NRES:
-            g_snprintf(buf, 5, "NRes");
+            g_strlcpy(buf, "NRes", size);
             break;
         case SFLOAT_VALUE_RFU:
-            g_snprintf(buf, 4, "RFU");
+            g_strlcpy(buf, "RFU", size);
             break;
         case SFLOAT_VALUE_INFINITY_MINUS:
-            g_snprintf(buf, 10, "-INFINITY");
+            g_strlcpy(buf, "-INFINITY", size);
             break;
         }
+        return;
     }
 
     exponent = fv->value.sfloat_ieee_11073 >> 12;
@@ -262,7 +252,7 @@ sfloat_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_displa
         offset += 1;
     }
 
-    mantissa_digits = g_snprintf(mantissa_str, 5, "%u", mantissa);
+    mantissa_digits = g_snprintf(mantissa_str, MANTISSA_STR_BUFFER_SIZE, "%u", mantissa);
 
     if (exponent == 0) {
         memcpy(buf + offset, mantissa_str, mantissa_digits);
@@ -908,7 +898,7 @@ float_ieee_11073_val_from_unparsed(fvalue_t *fv, const char *s, gboolean allow_p
 }
 
 static void
-float_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf)
+float_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display _U_, char *buf, unsigned int size)
 {
     gint8    exponent;
     guint32  mantissa;
@@ -920,19 +910,19 @@ float_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display
     if (fv->value.float_ieee_11073 >= 0x007FFFFE && fv->value.float_ieee_11073 <= 0x00800002) {
         switch (fv->value.float_ieee_11073) {
         case FLOAT_VALUE_INFINITY_PLUS:
-            g_snprintf(buf, 10, "+INFINITY");
+            g_strlcpy(buf, "+INFINITY", size);
             break;
         case FLOAT_VALUE_NAN:
-            g_snprintf(buf, 4, "NaN");
+            g_strlcpy(buf, "NaN", size);
             break;
         case FLOAT_VALUE_NRES:
-            g_snprintf(buf, 5, "NRes");
+            g_strlcpy(buf, "NRes", size);
             break;
         case FLOAT_VALUE_RFU:
-            g_snprintf(buf, 4, "RFU");
+            g_strlcpy(buf, "RFU", size);
             break;
         case FLOAT_VALUE_INFINITY_MINUS:
-            g_snprintf(buf, 10, "-INFINITY");
+            g_strlcpy(buf, "-INFINITY", size);
             break;
         }
     }
@@ -956,7 +946,7 @@ float_ieee_11073_val_to_repr(fvalue_t *fv, ftrepr_t rtype _U_, int field_display
         offset += 1;
     }
 
-    mantissa_digits = g_snprintf(mantissa_str, 9, "%u", mantissa);
+    mantissa_digits = g_snprintf(mantissa_str, size, "%u", mantissa);
 
     if (exponent == 0) {
         memcpy(buf + offset, mantissa_str, mantissa_digits);
@@ -1438,24 +1428,8 @@ Example: 114 is 0x0072
         sfloat_ieee_11073_val_to_repr,        /* val_to_string_repr */
         sfloat_ieee_11073_val_repr_len,       /* len_string_repr */
 
-        NULL,                                 /* set_value_byte_array */
-        NULL,                                 /* set_value_bytes */
-        NULL,                                 /* set_value_guid */
-        NULL,                                 /* set_value_time */
-        NULL,                                 /* set_value_string */
-        NULL,                                 /* set_value_tvbuff */
-        sfloat_ieee_11073_value_set,          /* set_value_uinteger */
-        NULL,                                 /* set_value_sinteger */
-        NULL,                                 /* set_value_uinteger64 */
-        NULL,                                 /* set_value_sinteger64 */
-        NULL,                                 /* set_value_floating */
-
-        NULL,                                 /* get_value */
-        sfloat_ieee_11073_value_get,          /* get_value_uinteger */
-        NULL,                                 /* get_value_sinteger */
-        NULL,                                 /* get_value_uinteger64 */
-        NULL,                                 /* get_value_sinteger64 */
-        NULL,                                 /* get_value_floating */
+        { .set_value_uinteger = sfloat_ieee_11073_value_set }, /* union set_value */
+        { .get_value_uinteger = sfloat_ieee_11073_value_get }, /* union get_value */
 
         sfloat_ieee_11073_cmp_eq,
         sfloat_ieee_11073_cmp_ne,
@@ -1510,24 +1484,8 @@ Example: 36.4 is 0xFF00016C
         float_ieee_11073_val_to_repr,        /* val_to_string_repr */
         float_ieee_11073_val_repr_len,       /* len_string_repr */
 
-        NULL,                                /* set_value_byte_array */
-        NULL,                                /* set_value_bytes */
-        NULL,                                /* set_value_guid */
-        NULL,                                /* set_value_time */
-        NULL,                                /* set_value_string */
-        NULL,                                /* set_value_tvbuff */
-        float_ieee_11073_value_set,          /* set_value_uinteger */
-        NULL,                                /* set_value_sinteger */
-        NULL,                                /* set_value_uinteger64 */
-        NULL,                                /* set_value_sinteger64 */
-        NULL,                                /* set_value_floating */
-
-        NULL,                                /* get_value */
-        float_ieee_11073_value_get,          /* get_value_uinteger */
-        NULL,                                /* get_value_sinteger */
-        NULL,                                /* get_value_uinteger64 */
-        NULL,                                /* get_value_sinteger64 */
-        NULL,                                /* get_value_floating */
+        { .set_value_uinteger = float_ieee_11073_value_set }, /* union set_value */
+        { .get_value_uinteger = float_ieee_11073_value_get }, /* union get_value */
 
         float_ieee_11073_cmp_eq,
         float_ieee_11073_cmp_ne,

@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PACKET_TCP_H__
@@ -113,14 +101,17 @@ typedef struct tcpheader {
 
 /*
  * Private data passed from the TCP dissector to subdissectors.
+ * NOTE: This structure is used by Export PDU functionality so
+ * make sure that handling is also updated if this structure
+ * changes!
  */
 struct tcpinfo {
 	guint32 seq;             /* Sequence number of first byte in the data */
 	guint32 nxtseq;          /* Sequence number of first byte after data */
 	guint32 lastackseq;      /* Sequence number of last ack */
 	gboolean is_reassembled; /* This is reassembled data. */
-	guint16	flags;           /* TCP flags */
-	guint16	urgent_pointer;  /* Urgent pointer value for the current packet. */
+	guint16 flags;           /* TCP flags */
+	guint16 urgent_pointer;  /* Urgent pointer value for the current packet. */
 };
 
 /*
@@ -184,6 +175,10 @@ struct tcp_multisegment_pdu {
 	nstime_t last_frame_time;
 	guint32 flags;
 #define MSP_FLAGS_REASSEMBLE_ENTIRE_SEGMENT	0x00000001
+/* Whether this MSP is finished and no more segments can be added. */
+#define MSP_FLAGS_GOT_ALL_SEGMENTS		0x00000002
+/* Whether the first segment of this MSP was not yet seen. */
+#define MSP_FLAGS_MISSING_FIRST_SEGMENT		0x00000004
 };
 
 
@@ -262,15 +257,16 @@ struct mptcp_subflow {
 	guint8 address_id;   /* sent during an MP_JOIN */
 
 
-	/* Attempt to map DSN to packets
-	 * Ideally this was to generate application latency
-	 * each node contains a GSList * ?
-	 * this should be done in tap or 3rd party tools
+	/* map DSN to packets
+	 * Used when looking for reinjections across subflows
 	 */
-	wmem_itree_t *dsn_map;
+	wmem_itree_t *dsn2packet_map;
 
-	/* Map SSN to a DSS mappings, each node registers a mptcp_dss_mapping_t */
-	wmem_itree_t *mappings;
+	/* Map SSN to a DSS mappings
+	 * a DSS can map DSN to SSNs possibily over several packets,
+	 * hence some packets may have been mapped by previous DSS,
+	 * whence the necessity to be able to look for SSN -> DSN */
+	wmem_itree_t *ssn2dsn_mappings;
 	/* meta flow to which it is attached. Helps setting forward and backward meta flow */
 	mptcp_meta_flow_t *meta;
 };
@@ -287,15 +283,13 @@ typedef enum {
 
 #define MPTCP_CHECKSUM_MASK                 0x80
 
-
-typedef struct _tcp_flow_t {
-	guint8 static_flags; /* true if base seq set */
-	guint32 base_seq;	/* base seq number (used by relative sequence numbers)*/
-#define TCP_MAX_UNACKED_SEGMENTS 1000 /* The most unacked segments we'll store */
+/* Information in a flow that is only used when tcp_analyze_seq preference
+ * is enabled, so save the memory when it isn't
+ */
+typedef struct tcp_analyze_seq_flow_info_t {
 	tcp_unacked_t *segments;/* List of segments for which we haven't seen an ACK */
 	guint16 segment_count;	/* How many unacked segments we're currently storing */
-	guint32 fin;		/* frame number of the final FIN */
-	guint32 lastack;	/* last seen ack */
+    guint32 lastack;	/* Last seen ack for the reverse flow */
 	nstime_t lastacktime;	/* Time of the last ack packet */
 	guint32 lastnondupack;	/* frame number of last seen non dupack */
 	guint32 dupacknum;	/* dupack number */
@@ -310,6 +304,23 @@ typedef struct _tcp_flow_t {
 				 * distinguish between retransmission,
 				 * fast retransmissions and outoforder
 				 */
+
+} tcp_analyze_seq_flow_info_t;
+
+	/* Process info, currently discovered via IPFIX */
+typedef struct tcp_process_info_t {
+	guint32 process_uid;	/* UID of local process */
+	guint32 process_pid;	/* PID of local process */
+	gchar  *username;		/* Username of the local process */
+	gchar  *command;		/* Local process name + path + args */
+
+} tcp_process_info_t;
+
+typedef struct _tcp_flow_t {
+	guint8 static_flags; /* true if base seq set */
+	guint32 base_seq;	/* base seq number (used by relative sequence numbers)*/
+#define TCP_MAX_UNACKED_SEGMENTS 1000 /* The most unacked segments we'll store */
+	guint32 fin;		/* frame number of the final FIN */
 	guint32 window;		/* last seen window */
 	gint16	win_scale;	/* -1 is we don't know, -2 is window scaling is not used */
 	gint16  scps_capable;   /* flow advertised scps capabilities */
@@ -317,6 +328,8 @@ typedef struct _tcp_flow_t {
 	gboolean valid_bif;     /* if lost pkts, disable BiF until ACK is recvd */
 	guint32 push_bytes_sent; /* bytes since the last PSH flag */
 	gboolean push_set_last; /* tracking last time PSH flag was set */
+
+	tcp_analyze_seq_flow_info_t* tcp_analyze_seq_info;
 
 /* This tcp flow/session contains only one single PDU and should
  * be reassembled until the final FIN segment.
@@ -327,16 +340,18 @@ typedef struct _tcp_flow_t {
 	/* see TCP_A_* in packet-tcp.c */
 	guint32 lastsegmentflags;
 
+	/* The next (largest) sequence number after all segments seen so far.
+	 * Valid only on the first pass and used to handle out-of-order segments
+	 * during reassembly. */
+	guint32 maxnextseq;
+
 	/* This tree is indexed by sequence number and keeps track of all
 	 * all pdus spanning multiple segments for this flow.
 	 */
 	wmem_tree_t *multisegment_pdus;
 
 	/* Process info, currently discovered via IPFIX */
-	guint32 process_uid;    /* UID of local process */
-	guint32 process_pid;    /* PID of local process */
-	gchar *username;	/* Username of the local process */
-	gchar *command;         /* Local process name + path + args */
+	tcp_process_info_t* process_info;
 
 	/* MPTCP subflow intel */
 	struct mptcp_subflow *mptcp_subflow;

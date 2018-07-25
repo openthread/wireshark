@@ -3,20 +3,7 @@
  * Wiretap Library
  * Copyright (c) 1998 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __W_BUFFER_H__
@@ -48,6 +35,8 @@ WS_DLL_PUBLIC
 void ws_buffer_append(Buffer* buffer, guint8 *from, gsize bytes);
 WS_DLL_PUBLIC
 void ws_buffer_remove_start(Buffer* buffer, gsize bytes);
+WS_DLL_PUBLIC
+void ws_buffer_cleanup(void);
 
 #ifdef SOME_FUNCTIONS_ARE_DEFINES
 # define ws_buffer_clean(buffer) ws_buffer_remove_start((buffer), ws_buffer_length(buffer))
@@ -59,7 +48,7 @@ void ws_buffer_remove_start(Buffer* buffer, gsize bytes);
 #else
  void ws_buffer_clean(Buffer* buffer);
  void ws_buffer_increase_length(Buffer* buffer, unsigned int bytes);
- unsigned int ws_buffer_length(Buffer* buffer);
+ unsigned gsize ws_buffer_length(Buffer* buffer);
  guint8* ws_buffer_start_ptr(Buffer* buffer);
  guint8* ws_buffer_end_ptr(Buffer* buffer);
  void ws_buffer_append_buffer(Buffer* buffer, Buffer* src_buffer);

@@ -8,23 +8,13 @@
  *
  * Added RFC 5515 by Uli Heilmeier <uh@heilmeier.eu>, 2016-02-29
  *
+ * Ericsson L2TP by Harald Welte <laforge@gnumonks.org>, 2016-07-16
+ *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -59,14 +49,14 @@
 #include <epan/packet.h>
 #include <epan/ipproto.h>
 #include <epan/sminmpec.h>
+#include <epan/addr_resolv.h>
 #include <epan/prefs.h>
 #include <epan/conversation.h>
 #include <epan/expert.h>
 #include <epan/decode_as.h>
 #include <epan/proto_data.h>
 
-#include <wsutil/md5.h>
-#include <wsutil/sha1.h>
+#include <wsutil/wsgcrypt.h>
 
 #include "packet-l2tp.h"
 
@@ -109,6 +99,7 @@ static int hf_l2tp_l2_spec_g = -1;
 static int hf_l2tp_l2_spec_c = -1;
 static int hf_l2tp_l2_spec_u = -1;
 static int hf_l2tp_cisco_avp_type = -1;
+static int hf_l2tp_ericsson_avp_type = -1;
 static int hf_l2tp_broadband_avp_type = -1;
 static int hf_l2tp_cablelabs_avp_type = -1;
 static int hf_l2tp_avp_message_type = -1;
@@ -156,6 +147,29 @@ static int hf_l2tp_avp_csu_current_rx_speed_v2 = -1;
 static int hf_l2tp_avp_csu_remote_session_id_v3 = -1;
 static int hf_l2tp_avp_csu_current_tx_speed_v3 = -1;
 static int hf_l2tp_avp_csu_current_rx_speed_v3 = -1;
+
+static int hf_l2tp_ericsson_msg_type = -1;
+static int hf_l2tp_ericsson_conn_type = -1;
+static int hf_l2tp_ericsson_stn_name = -1;
+static int hf_l2tp_ericsson_crc32_enable = -1;
+static int hf_l2tp_ericsson_abis_lower_mode = -1;
+static int hf_l2tp_ericsson_tc_overl_thresh = -1;
+static int hf_l2tp_ericsson_tc_num_groups = -1;
+static int hf_l2tp_ericsson_tcg_group_id = -1;
+static int hf_l2tp_ericsson_tcg_num_sapis = -1;
+static int hf_l2tp_ericsson_tcg_sapi = -1;
+static int hf_l2tp_ericsson_tcg_ip = -1;
+static int hf_l2tp_ericsson_tcg_dscp = -1;
+static int hf_l2tp_ericsson_tcg_crc32_enable = -1;
+static int hf_l2tp_ericsson_tcg_bundling_tout = -1;
+static int hf_l2tp_ericsson_tcg_bundling_max_pkt = -1;
+static int hf_l2tp_ericsson_tc_num_maps = -1;
+static int hf_l2tp_ericsson_map_tei_low = -1;
+static int hf_l2tp_ericsson_map_tei_high = -1;
+static int hf_l2tp_ericsson_map_sc = -1;
+static int hf_l2tp_ericsson_ver_pref = -1;
+static int hf_l2tp_ericsson_ver_2 = -1;
+static int hf_l2tp_ericsson_ver_3 = -1;
 
 /* Generated from convert_proto_tree_add_text.pl */
 static int hf_l2tp_cisco_pw_type = -1;
@@ -275,6 +289,8 @@ static gint ett_l2tp_ale_sub = -1;
 static gint ett_l2tp_lcp = -1;
 static gint ett_l2tp_l2_spec = -1;
 static gint ett_l2tp_csu = -1;
+static gint ett_l2tp_ericsson_tcg = -1;
+static gint ett_l2tp_ericsson_map = -1;
 
 static expert_field ei_l2tp_incorrect_digest = EI_INIT;
 /* Generated from convert_proto_tree_add_text.pl */
@@ -725,6 +741,69 @@ static const value_string cisco_avp_type_vals[] = {
     { 0,                              NULL }
 };
 
+#define ERICSSON_MSG_TYPE               0
+#define ERICSSON_TRANSPORT_CONFIG       1
+#define ERICSSON_PACKET_LOSS            2
+#define ERICSSON_PROTO_VERSION          3
+#define ERICSSON_CONN_TYPE              4
+#define ERICSSON_CRC_ENABLED            5
+#define ERICSSON_STN_NAME               6
+#define ERICSSON_ABIS_LOWER_MODE        7
+#define ERICSSON_TEI_TO_SC_MAP          8
+#define ERICSSON_CHAN_STATUS_LIST       9
+#define ERICSSON_EXT_PROTO_VERSION      10
+#define ERICSSON_CHAN_STATUS_LIST2      11
+
+static const value_string ericsson_avp_type_vals[] = {
+    { ERICSSON_MSG_TYPE,              "Message Type" },
+    { ERICSSON_TRANSPORT_CONFIG,      "Transport Configuration" },
+    { ERICSSON_PACKET_LOSS,           "Packet Loss" },
+    { ERICSSON_PROTO_VERSION,         "Protocol Version" },
+    { ERICSSON_CONN_TYPE,             "Connection Type" },
+    { ERICSSON_STN_NAME,              "STN Name" },
+    { ERICSSON_CRC_ENABLED,           "CRC32 Enabled" },
+    { ERICSSON_ABIS_LOWER_MODE,       "Abis Lower Mode" },
+    { ERICSSON_TEI_TO_SC_MAP,         "TEI to SC Map" },
+    { ERICSSON_CHAN_STATUS_LIST,      "Channel Status List" },
+    { ERICSSON_EXT_PROTO_VERSION,     "Extended Protoocl Version" },
+    { ERICSSON_CHAN_STATUS_LIST2,     "Channel Status List 2" },
+    { 0,                              NULL }
+};
+
+static const value_string ericsson_msg_type_vals[] = {
+    { 0,   "Transport Configuration Notification" },
+    { 1,   "Performance Notification" },
+    { 2,   "Transport Configuration Request" },
+    { 3,   "Transport Configuration Response" },
+    { 4,   "Abis Lower Transport Config Request" },
+    { 5,   "Abis Lower Transport Config Response" },
+    { 6,   "Local Connect Channel Status Notification" },
+    { 0,   NULL }
+};
+
+static const value_string ericsson_short_msg_type_vals[] = {
+    { 0,   "TCN" },
+    { 1,   "PN" },
+    { 2,   "TCRQ" },
+    { 3,   "TCRP" },
+    { 4,   "ALTCRQ" },
+    { 5,   "ALTCRP" },
+    { 6,   "LCCSN" },
+    { 0,   NULL }
+};
+
+static const value_string ericsson_conn_type_vals[] = {
+    { 0,   "Primary" },
+    { 1,   "Secondary" },
+    { 0,   NULL }
+};
+
+static const value_string ericsson_abis_lower_mode_vals[] = {
+    { 0,   "Single Timeslot" },
+    { 1,   "Super Channel" },
+    { 0,   NULL }
+};
+
 #define BROADBAND_AGENT_CIRCUIT_ID                    1
 #define BROADBAND_AGENT_REMOTE_ID                     2
 #define BROADBAND_ACTUAL_DR_UP                      129
@@ -869,7 +948,11 @@ static const value_string iwf_types_vals[] = {
     { 0,     NULL },
 };
 
-static const true_false_string tfs_up_down = { "Up", "Down" };
+static const val64_string unique_indeterminable_or_no_link[] = {
+    { 0, "indeterminable or no physical p2p link" },
+    { 0, NULL },
+};
+
 static const true_false_string tfs_new_existing = { "New", "Existing" };
 
 static dissector_handle_t ppp_hdlc_handle;
@@ -883,8 +966,6 @@ static dissector_handle_t l2tp_ip_handle;
 
 #define L2TP_HMAC_MD5  0
 #define L2TP_HMAC_SHA1 1
-#define L2TP_HMAC_MD5_KEY_LEN 16
-#define L2TP_HMAC_MD5_DIGEST_LEN 16
 
 typedef struct l2tpv3_conversation {
     address               lcce1;
@@ -909,7 +990,7 @@ typedef struct l2tpv3_tunnel {
     gint     lcce2_nonce_len;
 
     gchar   *shared_key_secret;
-    guint8   shared_key[L2TP_HMAC_MD5_KEY_LEN];
+    guint8   shared_key[HASH_MD5_LENGTH];
 
     GSList  *sessions;
 } l2tpv3_tunnel_t;
@@ -945,7 +1026,9 @@ static void update_shared_key(l2tpv3_tunnel_t *tunnel)
     if (tunnel->shared_key_secret == NULL || strcmp(secret, tunnel->shared_key_secret) != 0) {
         /* For secret specification, see RFC 3931 pg 37 */
         guint8 data = 2;
-        md5_hmac(&data, 1, secret, strlen(secret), tunnel->shared_key);
+        if (ws_hmac_buffer(GCRY_MD_MD5, tunnel->shared_key, &data, 1, secret, strlen(secret))) {
+            return;
+        }
         tunnel->shared_key_secret = wmem_strdup(wmem_file_scope(), secret);
     }
 }
@@ -959,35 +1042,41 @@ static void md5_hmac_digest(l2tpv3_tunnel_t *tunnel,
                             packet_info *pinfo,
                             guint8 digest[20])
 {
-    guint8 zero[L2TP_HMAC_MD5_DIGEST_LEN];
-    md5_hmac_state_t ms;
+    guint8 zero[HASH_MD5_LENGTH] = { 0 };
+    gcry_md_hd_t hmac_handle;
     int remainder;
     int offset = 0;
 
     if (tunnel->conv->pt == PT_NONE) /* IP encapsulated L2TPv3 */
         offset = 4;
 
-    md5_hmac_init(&ms, tunnel->shared_key, L2TP_HMAC_MD5_KEY_LEN);
+    if (gcry_md_open(&hmac_handle, GCRY_MD_MD5, GCRY_MD_FLAG_HMAC)) {
+        return;
+    }
+    if (gcry_md_setkey(hmac_handle, tunnel->shared_key, HASH_MD5_LENGTH)) {
+        gcry_md_close(hmac_handle);
+        return;
+    }
 
     if (msg_type != MESSAGE_TYPE_SCCRQ) {
         if (tunnel->lcce1_nonce != NULL && tunnel->lcce2_nonce != NULL) {
             if (addresses_equal(&tunnel->lcce1, &pinfo->src)) {
-                md5_hmac_append(&ms, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
-                md5_hmac_append(&ms, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
             } else {
-                md5_hmac_append(&ms, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
-                md5_hmac_append(&ms, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
             }
         }
     }
 
-    md5_hmac_append(&ms, tvb_get_ptr(tvb, offset, idx + 1 - offset), idx + 1 - offset);
+    gcry_md_write(hmac_handle, tvb_get_ptr(tvb, offset, idx + 1 - offset), idx + 1 - offset);
     /* Message digest is calculated with an empty message digest field */
-    memset(zero, 0, L2TP_HMAC_MD5_DIGEST_LEN);
-    md5_hmac_append(&ms, zero, avp_len - 1);
+    gcry_md_write(hmac_handle, zero, avp_len - 1);
     remainder = length - (idx + avp_len);
-    md5_hmac_append(&ms, tvb_get_ptr(tvb, idx + avp_len, remainder), remainder);
-    md5_hmac_finish(&ms, digest);
+    gcry_md_write(hmac_handle, tvb_get_ptr(tvb, idx + avp_len, remainder), remainder);
+    memcpy(digest, gcry_md_read(hmac_handle, 0), HASH_MD5_LENGTH);
+    gcry_md_close(hmac_handle);
 }
 
 static void sha1_hmac_digest(l2tpv3_tunnel_t *tunnel,
@@ -999,35 +1088,41 @@ static void sha1_hmac_digest(l2tpv3_tunnel_t *tunnel,
                              packet_info *pinfo,
                              guint8 digest[20])
 {
-    guint8 zero[SHA1_DIGEST_LEN];
-    sha1_hmac_context ms;
+    guint8 zero[HASH_SHA1_LENGTH] = { 0 };
+    gcry_md_hd_t hmac_handle;
     int remainder;
     int offset = 0;
 
     if (tunnel->conv->pt == PT_NONE) /* IP encapsulated L2TPv3 */
         offset = 4;
 
-    sha1_hmac_starts(&ms, tunnel->shared_key, L2TP_HMAC_MD5_KEY_LEN);
+    if (gcry_md_open(&hmac_handle, GCRY_MD_SHA1, GCRY_MD_FLAG_HMAC)) {
+        return;
+    }
+    if (gcry_md_setkey(hmac_handle, tunnel->shared_key, HASH_MD5_LENGTH)) {
+        gcry_md_close(hmac_handle);
+        return;
+    }
 
     if (msg_type != MESSAGE_TYPE_SCCRQ) {
         if (tunnel->lcce1_nonce != NULL && tunnel->lcce2_nonce != NULL) {
             if (addresses_equal(&tunnel->lcce1, &pinfo->src)) {
-                sha1_hmac_update(&ms, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
-                sha1_hmac_update(&ms, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
             } else {
-                sha1_hmac_update(&ms, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
-                sha1_hmac_update(&ms, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce2_nonce, tunnel->lcce2_nonce_len);
+                gcry_md_write(hmac_handle, tunnel->lcce1_nonce, tunnel->lcce1_nonce_len);
             }
         }
     }
 
-    sha1_hmac_update(&ms, tvb_get_ptr(tvb, offset, idx + 1 - offset), idx + 1 - offset);
+    gcry_md_write(hmac_handle, tvb_get_ptr(tvb, offset, idx + 1 - offset), idx + 1 - offset);
     /* Message digest is calculated with an empty message digest field */
-    memset(zero, 0, SHA1_DIGEST_LEN);
-    sha1_hmac_update(&ms, zero, avp_len - 1);
+    gcry_md_write(hmac_handle, zero, avp_len - 1);
     remainder = length - (idx + avp_len);
-    sha1_hmac_update(&ms, tvb_get_ptr(tvb, idx + avp_len, remainder), remainder);
-    sha1_hmac_finish(&ms, digest);
+    gcry_md_write(hmac_handle, tvb_get_ptr(tvb, idx + avp_len, remainder), remainder);
+    memcpy(digest, gcry_md_read(hmac_handle, 0), HASH_SHA1_LENGTH);
+    gcry_md_close(hmac_handle);
 }
 
 static int check_control_digest(l2tpv3_tunnel_t *tunnel,
@@ -1038,7 +1133,7 @@ static int check_control_digest(l2tpv3_tunnel_t *tunnel,
                                 int msg_type,
                                 packet_info *pinfo)
 {
-    guint8 digest[SHA1_DIGEST_LEN];
+    guint8 digest[HASH_SHA1_LENGTH];
 
     if (!tunnel)
         return 1;
@@ -1047,12 +1142,12 @@ static int check_control_digest(l2tpv3_tunnel_t *tunnel,
 
     switch (tvb_get_guint8(tvb, idx)) {
         case L2TP_HMAC_MD5:
-            if ((avp_len - 1) != L2TP_HMAC_MD5_DIGEST_LEN)
+            if ((avp_len - 1) != HASH_MD5_LENGTH)
                 return -1;
             md5_hmac_digest(tunnel, tvb, length, idx, avp_len, msg_type, pinfo, digest);
             break;
         case L2TP_HMAC_SHA1:
-            if ((avp_len - 1) != SHA1_DIGEST_LEN)
+            if ((avp_len - 1) != HASH_SHA1_LENGTH)
                 return -1;
             sha1_hmac_digest(tunnel, tvb, length, idx, avp_len, msg_type, pinfo, digest);
             break;
@@ -1334,6 +1429,7 @@ static l2tpv3_session_t *store_l2_sublayer(l2tpv3_session_t *_session,
         case MESSAGE_TYPE_ICCN:
         case MESSAGE_TYPE_OCCN:
             session->lcce1.l2_specific = result;
+        /* FALL THROUGH */
         case MESSAGE_TYPE_ICRP:
         case MESSAGE_TYPE_OCRP:
             session->lcce2.l2_specific = result;
@@ -1417,8 +1513,8 @@ static int dissect_l2tp_cisco_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
     avp_type        = tvb_get_ntohs(tvb, offset + 4);
 
     l2tp_avp_tree =  proto_tree_add_subtree_format(tree, tvb, offset,
-                              avp_len, ett_l2tp_avp, NULL, "Vendor %s: %s AVP",
-                              val_to_str_ext(avp_vendor_id, &sminmpec_values_ext, "Unknown (%u)"),
+                              avp_len, ett_l2tp_avp, NULL, "Vendor %s (%u): %s AVP",
+                              enterprises_lookup(avp_vendor_id, "Unknown"), avp_vendor_id,
                               val_to_str(avp_type, cisco_avp_type_vals, "Unknown (%u)"));
 
     proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_mandatory, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -1498,7 +1594,7 @@ static int dissect_l2tp_cisco_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
         break;
 
     default:
-        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len-6);
+        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len);
         break;
     }
     offset += avp_len;
@@ -1525,8 +1621,8 @@ static int dissect_l2tp_broadband_avps(tvbuff_t *tvb, packet_info *pinfo _U_, pr
     avp_type        = tvb_get_ntohs(tvb, offset + 4);
 
     l2tp_avp_tree =  proto_tree_add_subtree_format(tree, tvb, offset,
-                              avp_len, ett_l2tp_avp, NULL, "Vendor %s: %s AVP",
-                              val_to_str_ext(avp_vendor_id, &sminmpec_values_ext, "Unknown (%u)"),
+                              avp_len, ett_l2tp_avp, NULL, "Vendor %s (%u): %s AVP",
+                              enterprises_lookup(avp_vendor_id, "Unknown"), avp_vendor_id,
                               val_to_str(avp_type, broadband_avp_type_vals, "Unknown (%u)"));
 
     proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_mandatory, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -1634,7 +1730,142 @@ static int dissect_l2tp_broadband_avps(tvbuff_t *tvb, packet_info *pinfo _U_, pr
         break;
 
     default:
-        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len-6);
+        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len);
+        break;
+    }
+    offset += avp_len;
+
+    return offset;
+}
+
+/*
+ * Dissect Ericsson AVP:s
+ */
+
+/* Dissect a single variable-length Ericsson Transport Configuration Group */
+static int dissect_l2tp_ericsson_transp_cfg(tvbuff_t *tvb, proto_tree *parent_tree)
+{
+    int offset = 0;
+    guint32 i, num_sapis;
+    proto_tree *tree;
+
+    while (tvb_reported_length_remaining(tvb, offset) >= 8) {
+        tree = proto_tree_add_subtree_format(parent_tree, tvb, 0, -1, ett_l2tp_ericsson_tcg,
+                                             NULL, "Transport Config Bundling Group");
+        proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_group_id, tvb, offset++, 1, ENC_NA);
+        proto_tree_add_item_ret_uint(tree, hf_l2tp_ericsson_tcg_num_sapis, tvb, offset++, 1, ENC_NA, &num_sapis);
+        for (i = 0; i < num_sapis; i++) {
+            proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_sapi, tvb, offset++, 1, ENC_NA);
+        }
+        proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_ip, tvb, offset, 4, ENC_NA);
+        offset += 4;
+        proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_dscp, tvb, offset++, 1, ENC_NA);
+        proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_crc32_enable, tvb, offset++, 1, ENC_NA);
+        proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_bundling_tout, tvb, offset++, 1, ENC_NA);
+        proto_tree_add_item(tree, hf_l2tp_ericsson_tcg_bundling_max_pkt, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+    }
+
+    return offset;
+}
+
+/* Dissect a single 3-byte Ericsson TEI-to-SC Map */
+static int dissect_l2tp_ericsson_tei_sc_map(tvbuff_t *tvb, proto_tree *parent_tree)
+{
+    int i = 0, offset = 0;
+    proto_tree *tree;
+
+    while (tvb_reported_length_remaining(tvb, offset) >= 3) {
+        tree = proto_tree_add_subtree_format(parent_tree, tvb, offset, 3, ett_l2tp_ericsson_map,
+                                             NULL, "Transport Config Bundling Group %u", i);
+        proto_tree_add_item(tree, hf_l2tp_ericsson_map_tei_low, tvb, offset++, 1, ENC_NA);
+        proto_tree_add_item(tree, hf_l2tp_ericsson_map_tei_high, tvb, offset++, 1, ENC_NA);
+        proto_tree_add_item(tree, hf_l2tp_ericsson_map_sc, tvb, offset++, 1, ENC_NA);
+        i++;
+    }
+    return offset;
+}
+
+static int dissect_l2tp_ericsson_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint32 ccid)
+{
+    int offset = 0;
+    int         avp_type;
+    guint32     avp_vendor_id;
+    guint16     avp_len;
+    guint16     ver_len_hidden;
+    guint32     msg_type;
+    proto_tree *l2tp_avp_tree;
+    tvbuff_t   *tcg_tvb;
+
+    ver_len_hidden  = tvb_get_ntohs(tvb, offset);
+    avp_len         = AVP_LENGTH(ver_len_hidden);
+    avp_vendor_id   = tvb_get_ntohs(tvb, offset + 2);
+    avp_type        = tvb_get_ntohs(tvb, offset + 4);
+
+    l2tp_avp_tree =  proto_tree_add_subtree_format(tree, tvb, offset,
+                              avp_len, ett_l2tp_avp, NULL, "Vendor %s (%u): %s AVP",
+                              enterprises_lookup(avp_vendor_id, "Unknown"), avp_vendor_id,
+                              val_to_str(avp_type, ericsson_avp_type_vals, "Unknown (%u)"));
+
+    proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_mandatory, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_hidden, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_length, tvb, offset, 2, ENC_BIG_ENDIAN);
+
+    if (HIDDEN_BIT(ver_len_hidden)) { /* don't try do display hidden */
+        offset += avp_len;
+        return offset;
+    }
+
+    offset += 2;
+    avp_len -= 2;
+
+    proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_vendor_id, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    avp_len -= 2;
+
+    proto_tree_add_uint(l2tp_avp_tree, hf_l2tp_ericsson_avp_type, tvb, offset, 2, avp_type);
+    offset += 2;
+    avp_len -= 2;
+
+    ccid++;
+
+    switch (avp_type) {
+    case ERICSSON_MSG_TYPE:
+        proto_tree_add_item_ret_uint(l2tp_avp_tree, hf_l2tp_ericsson_msg_type, tvb, offset, 2, ENC_BIG_ENDIAN, &msg_type);
+        col_add_fstr(pinfo->cinfo, COL_INFO, "%s - %s", control_msg, val_to_str(msg_type, ericsson_short_msg_type_vals, "Unknown (0x%x)"));
+        break;
+    case ERICSSON_PROTO_VERSION:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_ver_pref, tvb, offset, 4, ENC_BIG_ENDIAN);
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_ver_2, tvb, offset+4, 4, ENC_BIG_ENDIAN);
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_ver_3, tvb, offset+8, 4, ENC_BIG_ENDIAN);
+        break;
+    case ERICSSON_CONN_TYPE:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_conn_type, tvb, offset, 1, ENC_NA);
+        break;
+    case ERICSSON_STN_NAME:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_stn_name, tvb, offset, avp_len, ENC_ASCII|ENC_NA);
+        break;
+    case ERICSSON_CRC_ENABLED:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_crc32_enable, tvb, offset, avp_len, ENC_NA);
+        break;
+    case ERICSSON_ABIS_LOWER_MODE:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_abis_lower_mode, tvb, offset, 1, ENC_NA);
+        break;
+    case ERICSSON_TRANSPORT_CONFIG:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_tc_overl_thresh, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_tc_num_groups, tvb, offset+2, 1, ENC_NA);
+        /* FIXME: iterate over multiple groups */
+        tcg_tvb = tvb_new_subset_length(tvb, offset+3, avp_len-3);
+        dissect_l2tp_ericsson_transp_cfg(tcg_tvb, l2tp_avp_tree);
+        break;
+    case ERICSSON_TEI_TO_SC_MAP:
+        proto_tree_add_item(l2tp_avp_tree, hf_l2tp_ericsson_tc_num_maps, tvb, offset++, 1, ENC_NA);
+        tcg_tvb = tvb_new_subset_length(tvb, offset, avp_len);
+        offset += dissect_l2tp_ericsson_tei_sc_map(tcg_tvb, l2tp_avp_tree);
+        break;
+
+    default:
+        proto_tree_add_expert(l2tp_avp_tree, pinfo, &ei_l2tp_vendor_specific_avp_data, tvb, offset, avp_len);
         break;
     }
     offset += avp_len;
@@ -1661,8 +1892,8 @@ dissect_l2tp_vnd_cablelabs_avps(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tre
     avp_type        = tvb_get_ntohs(tvb, offset + 4);
 
     l2tp_avp_tree =  proto_tree_add_subtree_format(tree, tvb, offset,
-                              avp_len, ett_l2tp_avp, NULL, "Vendor %s: %s AVP",
-                              val_to_str_ext(avp_vendor_id, &sminmpec_values_ext, "Unknown (%u)"),
+                              avp_len, ett_l2tp_avp, NULL, "Vendor %s (%u): %s AVP",
+                              enterprises_lookup(avp_vendor_id, "Unknown"), avp_vendor_id,
                               val_to_str(avp_type, cablelabs_avp_type_vals, "Unknown (%u)"));
 
     proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_mandatory, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -1738,7 +1969,7 @@ static void process_control_avps(tvbuff_t *tvb,
                                  l2tpv3_tunnel_t *tunnel)
 {
     proto_tree *l2tp_lcp_avp_tree, *l2tp_avp_tree = NULL, *l2tp_avp_tree_sub, *l2tp_avp_csu_tree;
-    proto_item *tf, *te, *tc;
+    proto_item *te, *tc;
 
     int                msg_type  = 0;
     gboolean           isStopCcn = FALSE;
@@ -1783,12 +2014,18 @@ static void process_control_avps(tvbuff_t *tvb,
                 idx += avp_len;
                 continue;
 
+            } else if (avp_vendor_id == VENDOR_ERICSSON) {      /* Vendor-Specific AVP */
+
+                dissect_l2tp_ericsson_avps(avp_tvb, pinfo, l2tp_tree, ccid);
+                idx += avp_len;
+                continue;
+
             } else {
                 /* Vendor-Specific AVP */
                 if (!dissector_try_uint_new(l2tp_vendor_avp_dissector_table, avp_vendor_id, avp_tvb, pinfo, l2tp_tree, FALSE, l2tp_cntrl_data)){
                     l2tp_avp_tree =  proto_tree_add_subtree_format(l2tp_tree, tvb, idx,
-                                          avp_len, ett_l2tp_avp, NULL, "Vendor %s AVP Type %u",
-                                          val_to_str_ext(avp_vendor_id, &sminmpec_values_ext, "Unknown (%u)"),
+                                          avp_len, ett_l2tp_avp, NULL, "Vendor %s (%u) AVP Type %u",
+                                          enterprises_lookup(avp_vendor_id, "Unknown"), avp_vendor_id,
                                           avp_type);
 
                     proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_mandatory, tvb, idx, 2, ENC_BIG_ENDIAN);
@@ -2228,31 +2465,17 @@ static void process_control_avps(tvbuff_t *tvb,
             store_cma_nonce(tunnel, tvb, idx, avp_len, msg_type);
             break;
         case TX_CONNECT_SPEED_V3:
-        {
-            guint64 speed;
             if (avp_len < 8)
                 break;
 
-            speed = tvb_get_ntoh64(tvb, idx);
-            tf = proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_tx_connect_speed_v3, tvb, idx, 8, ENC_BIG_ENDIAN);
-            if (speed == 0) {
-                proto_item_append_text(tf, " (indeterminable or no physical p2p link)");
-            }
+            proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_tx_connect_speed_v3, tvb, idx, 8, ENC_BIG_ENDIAN);
             break;
-        }
         case RX_CONNECT_SPEED_V3:
-        {
-            guint64 speed;
             if (avp_len < 8)
                 break;
 
-            speed = tvb_get_ntoh64(tvb, idx);
-            tf = proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_rx_connect_speed_v3, tvb, idx, 8, ENC_BIG_ENDIAN);
-            if (speed == 0) {
-                proto_item_append_text(tf, " (indeterminable or no physical p2p link)");
-            }
+            proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_rx_connect_speed_v3, tvb, idx, 8, ENC_BIG_ENDIAN);
             break;
-        }
         case CONNECT_SPEED_UPDATE:
         {
             tc = proto_tree_add_item(l2tp_avp_tree, hf_l2tp_avp_csu, tvb, idx, avp_len, ENC_NA);
@@ -2303,7 +2526,7 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 {
     int         idx         = *pIdx;
     int         sid;
-    guint32      oam_cell   = 0;
+    guint32     oam_cell    = 0;
     proto_tree *l2_specific = NULL;
     proto_item *ti          = NULL;
     tvbuff_t   *next_tvb;
@@ -2348,17 +2571,18 @@ process_l2tpv3_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     if (cookie_len == -1)
         cookie_len = L2TPv3_COOKIE_DEFAULT;
 
-    col_add_fstr(pinfo->cinfo,COL_INFO,
-                    "%s            (session id=%u)",
-                    data_msg, sid);
+    col_append_fstr(pinfo->cinfo, COL_INFO, "D[S:0x%02X]", sid);
+    col_set_fence(pinfo->cinfo, COL_INFO);
 
     if (tree) {
         proto_tree_add_item(l2tp_tree, hf_l2tp_sid, tvb, idx-4, 4, ENC_BIG_ENDIAN);
         proto_item_set_len(l2tp_item, idx);
-        if (!(tvb_offset_exists(tvb, idx)))
+        if (!(tvb_offset_exists(tvb, idx))) {
             return;
-        if (cookie_len != 0)
+        }
+        if (cookie_len != 0) {
             proto_tree_add_item(l2tp_tree, hf_l2tp_cookie, tvb, idx, cookie_len, ENC_NA);
+        }
     }
 
     switch(l2_spec){
@@ -2705,16 +2929,16 @@ dissect_l2tp_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
         return 0;
     }
 
-    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
+    conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
                          pinfo->srcport, pinfo->destport, NO_PORT_B);
 
     if (conv == NULL) {
-        conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
+        conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
                              pinfo->srcport, pinfo->destport, 0);
     }
 
     if ((conv == NULL) || (conversation_get_dissector(conv, pinfo->num) != l2tp_udp_handle)) {
-        conv = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
+        conv = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
                         pinfo->srcport, 0, NO_PORT2);
         conversation_set_dissector(conv, l2tp_udp_handle);
     }
@@ -2962,8 +3186,7 @@ static void l2tp_cleanup(void)
     GSList *iterator = list_heads;
 
     while (iterator) {
-        if (iterator->data != NULL)
-            g_slist_free((GSList *)iterator->data);
+        g_slist_free((GSList *)iterator->data);
         iterator = g_slist_next(iterator);
     }
 
@@ -3039,7 +3262,7 @@ proto_register_l2tp(void)
             NULL, HFILL }},
 
         { &hf_l2tp_avp_vendor_id,
-          { "Vendor ID", "l2tp.avp.vendor_id", FT_UINT16, BASE_DEC|BASE_EXT_STRING, &sminmpec_values_ext, 0,
+          { "Vendor ID", "l2tp.avp.vendor_id", FT_UINT16, BASE_ENTERPRISES, STRINGS_ENTERPRISES, 0,
             "AVP Vendor ID", HFILL }},
 
         { &hf_l2tp_avp_type,
@@ -3116,6 +3339,10 @@ proto_register_l2tp(void)
 
         { &hf_l2tp_cisco_avp_type,
           { "Type", "l2tp.avp.ciscotype", FT_UINT16, BASE_DEC, VALS(cisco_avp_type_vals), 0,
+            "AVP Type", HFILL }},
+
+        { &hf_l2tp_ericsson_avp_type,
+          { "Type", "l2tp.avp.ericssontype", FT_UINT16, BASE_DEC, VALS(ericsson_avp_type_vals), 0,
             "AVP Type", HFILL }},
 
         { &hf_l2tp_broadband_avp_type,
@@ -3299,12 +3526,100 @@ proto_register_l2tp(void)
             NULL, HFILL }},
 
         { &hf_l2tp_avp_csu_current_tx_speed_v3,
-          { "Current TX Connect Speed", "l2tp.avp.csu.current_tx_speed", FT_UINT64, BASE_DEC, NULL, 0x0,
+          { "Current TX Connect Speed", "l2tp.avp.csu.current_tx_speed64", FT_UINT64, BASE_DEC, NULL, 0x0,
             "Current TX Connect Speed in bps", HFILL }},
 
         { &hf_l2tp_avp_csu_current_rx_speed_v3,
-          { "Current RX Connect Speed", "l2tp.avp.csu.current_rx_speed", FT_UINT64, BASE_DEC, NULL, 0x0,
+          { "Current RX Connect Speed", "l2tp.avp.csu.current_rx_speed64", FT_UINT64, BASE_DEC, NULL, 0x0,
             "Current RX Connect Speed in bps", HFILL }},
+
+        { &hf_l2tp_ericsson_msg_type,
+          { "Ericsson Message Type", "l2tp.ericsson.msg_type", FT_UINT16, BASE_DEC, VALS(ericsson_msg_type_vals), 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_conn_type,
+          { "Connection Type", "l2tp.ericsson.conn_type", FT_UINT8, BASE_DEC, VALS(ericsson_conn_type_vals), 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_stn_name,
+          { "STN Name", "l2tp.ericsson.stn_name", FT_STRING, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_crc32_enable,
+          { "CRC32 Enabled", "l2tp.ericsson.crc32_enable", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_abis_lower_mode,
+          { "Abis Lower Type", "l2tp.ericsson.abis_lower_mode", FT_UINT8, BASE_DEC, VALS(ericsson_abis_lower_mode_vals), 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tc_overl_thresh,
+          { "Overload Threshold in 0.1%", "l2tp.ericsson.overload_thresh", FT_UINT16, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tc_num_groups,
+          { "Number of Transport Config Groups", "l2tp.ericsson.tc_num_groups", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_group_id,
+          { "Transport Config Group ID", "l2tp.ericsson.tc_group_id", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_num_sapis,
+          { "Number of SAPIs in Transport Group", "l2tp.ericsson.tc_num_sapi", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_sapi,
+          { "TCG SAPI", "l2tp.ericsson.tcg_sapi", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_ip,
+          { "TCG IP Address", "l2tp.ericsson.tcg_ip", FT_IPv4, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_dscp,
+          { "TCG DSCP", "l2tp.ericsson.tcg_dscp", FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_crc32_enable,
+          { "CRC32 Enabled", "l2tp.ericsson.crc32_en", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_bundling_tout,
+          { "TCG Bundling Timeout (ms)", "l2tp.ericsson.gcg.bundle_tout", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tcg_bundling_max_pkt,
+          { "TCG Bundling Max Packet Size", "l2tp.ericsson.tcg.bundle_max_pkt", FT_UINT16, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_tc_num_maps,
+          { "Number of TEI-SC Maps", "l2tp.ericsson.num_maps", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_map_tei_low,
+          { "TEI Range Lowest Value", "l2tp.ericsson.map_tei_low", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_map_tei_high,
+          { "TEI Range Highest Value", "l2tp.ericsson.map_tei_high", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_map_sc,
+          { "Super Channel", "l2tp.ericsson.map_ssc", FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_ver_pref,
+          { "Preferred/Chosen Version", "l2tp.ericsson.ver_pref", FT_UINT32, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_ver_2,
+          { "Version (2)", "l2tp.ericsson.ver_2", FT_UINT32, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
+
+        { &hf_l2tp_ericsson_ver_3,
+          { "Version (3)", "l2tp.ericsson.ver_3", FT_UINT32, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }},
 
       /* Generated from convert_proto_tree_add_text.pl */
       { &hf_l2tp_cisco_assigned_control_connection_id, { "Assigned Control Connection ID", "l2tp.cisco.assigned_control_connection_id", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -3384,8 +3699,8 @@ proto_register_l2tp(void)
       { &hf_l2tp_avp_circuit_type, { "Circuit Type", "l2tp.avp.circuit_type", FT_BOOLEAN, 16, TFS(&tfs_new_existing), 0x0002, NULL, HFILL }},
       { &hf_l2tp_avp_preferred_language, { "Preferred Language", "l2tp.avp.preferred_language", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_avp_nonce, { "Nonce", "l2tp.avp.nonce", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_l2tp_avp_tx_connect_speed_v3, { "Tx Connect Speed v3", "l2tp.avp.tx_connect_speed_v3", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL }},
-      { &hf_l2tp_avp_rx_connect_speed_v3, { "Rx Connect Speed v3", "l2tp.avp.rx_connect_speed_v3", FT_UINT64, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_l2tp_avp_tx_connect_speed_v3, { "Tx Connect Speed v3", "l2tp.avp.tx_connect_speed_v3", FT_UINT64, BASE_HEX|BASE_VAL64_STRING|BASE_SPECIAL_VALS, VALS64(unique_indeterminable_or_no_link), 0x0, NULL, HFILL }},
+      { &hf_l2tp_avp_rx_connect_speed_v3, { "Rx Connect Speed v3", "l2tp.avp.rx_connect_speed_v3", FT_UINT64, BASE_HEX|BASE_VAL64_STRING|BASE_SPECIAL_VALS, VALS64(unique_indeterminable_or_no_link), 0x0, NULL, HFILL }},
       { &hf_l2tp_lapd_info, { "LAPD info", "l2tp.lapd_info", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_session_id, { "Packet Type", "l2tp.session_id", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_l2tp_zero_length_body_message, { "Zero Length Body message", "l2tp.zero_length_body_message", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -3401,6 +3716,8 @@ proto_register_l2tp(void)
         &ett_l2tp_l2_spec,
         &ett_l2tp_lcp,
         &ett_l2tp_csu,
+        &ett_l2tp_ericsson_tcg,
+        &ett_l2tp_ericsson_map,
     };
 
     static ei_register_info ei[] = {
@@ -3426,8 +3743,8 @@ proto_register_l2tp(void)
     expert_l2tp = expert_register_protocol(proto_l2tp);
     expert_register_field_array(expert_l2tp, ei, array_length(ei));
 
-    l2tp_vendor_avp_dissector_table = register_dissector_table("l2tp.vendor_avp", "L2TP vendor AVP dissector table", proto_l2tp, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
-    pw_type_table = register_dissector_table("l2tp.pw_type", "L2TPv3 payload type", proto_l2tp, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    l2tp_vendor_avp_dissector_table = register_dissector_table("l2tp.vendor_avp", "L2TP vendor AVP dissector table", proto_l2tp, FT_UINT32, BASE_DEC);
+    pw_type_table = register_dissector_table("l2tp.pw_type", "L2TPv3 payload type", proto_l2tp, FT_UINT32, BASE_DEC);
 
     l2tp_module = prefs_register_protocol(proto_l2tp, NULL);
 
@@ -3463,7 +3780,7 @@ proto_reg_handoff_l2tp(void)
     dissector_handle_t atm_oam_llc_handle;
 
     l2tp_udp_handle = create_dissector_handle(dissect_l2tp_udp, proto_l2tp);
-    dissector_add_uint("udp.port", UDP_PORT_L2TP, l2tp_udp_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_L2TP, l2tp_udp_handle);
 
     l2tp_ip_handle = create_dissector_handle(dissect_l2tp_ip, proto_l2tp);
     dissector_add_uint("ip.proto", IP_PROTO_L2TP, l2tp_ip_handle);

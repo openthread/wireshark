@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef LTE_RLC_GRAPH_DIALOG_H
@@ -25,7 +13,7 @@
 #include "wireshark_dialog.h"
 #include <ui/tap-rlc-graph.h>
 
-#include "qcustomplot.h"
+#include <ui/qt/widgets/qcustomplot.h>
 
 class QMenu;
 class QRubberBand;
@@ -46,7 +34,8 @@ public:
     ~LteRlcGraphDialog();
 
     void setChannelInfo(guint16 ueid, guint8 rlcMode,
-                        guint16 channelType, guint16 channelId, guint8 direction);
+                        guint16 channelType, guint16 channelId, guint8 direction,
+                        bool maybe_empty=false);
 
 signals:
     void goToPacket(int packet_num);
@@ -76,11 +65,11 @@ private:
     QCPItemTracer *tracer_;
     guint32 packet_num_;
 
-    void completeGraph();
+    void completeGraph(bool may_be_empty=false);
 
     bool compareHeaders(rlc_segment *seg);
 
-    void findChannel();
+    void findChannel(bool may_fail=false);
     void fillGraph();
 
     void zoomAxes(bool in);
@@ -101,6 +90,7 @@ private slots:
     void on_dragRadioButton_toggled(bool checked);
     void on_zoomRadioButton_toggled(bool checked);
     void on_resetButton_clicked();
+    void on_otherDirectionButton_clicked();
 
     void on_actionReset_triggered();
     void on_actionZoomIn_triggered();
@@ -118,6 +108,9 @@ private slots:
     void on_actionMoveDown100_triggered();
     void on_actionGoToPacket_triggered();
     void on_actionCrosshairs_triggered();
+    void on_actionSwitchDirection_triggered();
+
+    void on_buttonBox_accepted();
 };
 
 #endif // LTE_RLC_GRAPH_DIALOG_H

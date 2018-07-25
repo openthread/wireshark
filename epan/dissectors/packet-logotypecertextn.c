@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -92,7 +80,7 @@ static int hf_logotypecertextn_hashAlg = -1;      /* AlgorithmIdentifier */
 static int hf_logotypecertextn_hashValue = -1;    /* OCTET_STRING */
 
 /*--- End of included file: packet-logotypecertextn-hf.c ---*/
-#line 42 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
+#line 30 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -119,7 +107,7 @@ static gint ett_logotypecertextn_T_refStructURI = -1;
 static gint ett_logotypecertextn_HashAlgAndValue = -1;
 
 /*--- End of included file: packet-logotypecertextn-ett.c ---*/
-#line 45 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
+#line 33 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
 
 
 
@@ -518,7 +506,7 @@ static int dissect_LogotypeExtn_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, p
 
 
 /*--- End of included file: packet-logotypecertextn-fn.c ---*/
-#line 48 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
+#line 36 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
 
 
 /*--- proto_register_logotypecertextn ----------------------------------------------*/
@@ -695,7 +683,7 @@ void proto_register_logotypecertextn(void) {
         "OCTET_STRING", HFILL }},
 
 /*--- End of included file: packet-logotypecertextn-hfarr.c ---*/
-#line 56 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
+#line 44 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
   };
 
   /* List of subtrees */
@@ -724,7 +712,7 @@ void proto_register_logotypecertextn(void) {
     &ett_logotypecertextn_HashAlgAndValue,
 
 /*--- End of included file: packet-logotypecertextn-ettarr.c ---*/
-#line 61 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
+#line 49 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
   };
 
   /* Register protocol */
@@ -748,6 +736,6 @@ void proto_reg_handoff_logotypecertextn(void) {
 
 
 /*--- End of included file: packet-logotypecertextn-dis-tab.c ---*/
-#line 76 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
+#line 64 "./asn1/logotypecertextn/packet-logotypecertextn-template.c"
 }
 

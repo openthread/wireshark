@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -40,10 +28,7 @@ void proto_register_tn5250(void);
 
 typedef struct tn5250_conv_info_t {
   struct tn5250_conv_info_t *next;
-  address outbound_addr;
   guint32 outbound_port;
-  address inbound_addr;
-  guint32 inbound_port;
   gint extended;
 } tn5250_conv_info_t;
 
@@ -2898,8 +2883,6 @@ static gint ett_cc = -1;
 
 static expert_field ei_tn5250_command_code = EI_INIT;
 
-static tn5250_conv_info_t *tn5250_info_items;
-
 static guint32 dissect_tn5250_orders_and_data(proto_tree *tn5250_tree, tvbuff_t *tvb, gint offset);
 
 typedef struct hf_items {
@@ -5125,9 +5108,7 @@ dissect_tn5250(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
   int sna_flag;
 
   /* Do we have a conversation for this connection? */
-  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                   pinfo->ptype, pinfo->srcport,
-                                   pinfo->destport, 0);
+  conversation = find_conversation_pinfo(pinfo, 0);
   if (conversation != NULL) {
     /* Do we already have a type and mechanism? */
     tn5250_info = (tn5250_conv_info_t *)conversation_get_proto_data(conversation, proto_tn5250);
@@ -5181,13 +5162,8 @@ add_tn5250_conversation(packet_info *pinfo, int tn5250e)
      * it to the list of information structures.
      */
     tn5250_info = wmem_new(wmem_file_scope(), tn5250_conv_info_t);
-    copy_address_wmem(wmem_file_scope(), &(tn5250_info->outbound_addr),&(pinfo->dst));
     tn5250_info->outbound_port = pinfo->destport;
-    copy_address_wmem(wmem_file_scope(), &(tn5250_info->inbound_addr),&(pinfo->src));
-    tn5250_info->inbound_port = pinfo->srcport;
     conversation_add_proto_data(conversation, proto_tn5250, tn5250_info);
-    tn5250_info->next = tn5250_info_items;
-    tn5250_info_items = tn5250_info;
   }
 
   tn5250_info->extended = tn5250e;
@@ -5203,9 +5179,7 @@ find_tn5250_conversation(packet_info *pinfo)
   /*
    * Do we have a conversation for this connection?
    */
-  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                   pinfo->ptype, pinfo->srcport,
-                                   pinfo->destport, 0);
+  conversation = find_conversation_pinfo(pinfo, 0);
 
   if (conversation != NULL) {
     tn5250_info = (tn5250_conv_info_t *)conversation_get_proto_data(conversation, proto_tn5250);

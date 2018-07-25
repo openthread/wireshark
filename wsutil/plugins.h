@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PLUGINS_H__
@@ -32,15 +20,29 @@ extern "C" {
 
 #include "ws_symbol_export.h"
 
-typedef gboolean (*plugin_callback)(GModule *handle);
+typedef void (*plugin_register_func)(void);
 
-WS_DLL_PUBLIC void scan_plugins(void);
-WS_DLL_PUBLIC void add_plugin_type(const char *type, plugin_callback callback);
-typedef void (*plugin_description_callback)(const char *, const char *,
-                                            const char *, const char *,
-                                            void *);
+typedef void plugins_t;
+
+typedef enum {
+    WS_PLUGIN_EPAN,
+    WS_PLUGIN_WIRETAP,
+    WS_PLUGIN_CODEC
+} plugin_type_e;
+
+WS_DLL_PUBLIC plugins_t *plugins_init(plugin_type_e type);
+
+typedef void (*plugin_description_callback)(const char *name, const char *version,
+                                            const char *types, const char *filename,
+                                            void *user_data);
+
 WS_DLL_PUBLIC void plugins_get_descriptions(plugin_description_callback callback, void *user_data);
+
 WS_DLL_PUBLIC void plugins_dump_all(void);
+
+WS_DLL_PUBLIC int plugins_get_count(void);
+
+WS_DLL_PUBLIC void plugins_cleanup(plugins_t *plugins);
 
 #ifdef __cplusplus
 }

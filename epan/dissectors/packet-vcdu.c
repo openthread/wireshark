@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.com>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -655,6 +643,7 @@ proto_register_vcdu(void)
         vcdu_uat_data_update_cb,
         NULL,
         NULL,
+        NULL,
         vcdu_uat_flds);
 
     prefs_register_uat_preference(vcdu_module,
@@ -669,7 +658,7 @@ proto_register_vcdu(void)
 void
 proto_reg_handoff_vcdu(void)
 {
-    dissector_add_for_decode_as("udp.port", vcdu_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", vcdu_handle);
     ccsds_handle = find_dissector_add_dependency("ccsds", proto_vcdu);
 }
 

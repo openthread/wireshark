@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -318,7 +306,6 @@ const value_string EVsipConfigItem_vals[] =
    {4215, "CONFIG_VIDEO_DEBLOCKING_FILTER"},
    {4216, "CONFIG_VIDEO_DEINTERLACING_MODE"},
    {4217, "CONFIG_VIDEO_DECODER_QUAD_DISCOVERY_MODE"},
-   {4224, "CONFIG_VIDEO_ECODER_POWER"},
    {4224, "CONFIG_VIDEO_ENCODER_POWER"},
    {4225, "CONFIG_VIDEO_ENCODER_MAX_STREAMS"},
    {4226, "CONFIG_VIDEO_ENCODER_MOTD_SUPPORTED"},
@@ -2081,8 +2068,8 @@ void proto_reg_handoff_vsip(void)
     dissector_handle_t vsip_handle;
 
     vsip_handle = create_dissector_handle(dissect_vsip, proto_vsip);
-    dissector_add_for_decode_as("udp.port", vsip_handle);
-    dissector_add_for_decode_as("tcp.port", vsip_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", vsip_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", vsip_handle);
 }
 
 /*

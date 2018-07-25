@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "uat_dialog.h"
@@ -24,38 +12,35 @@
 #include "wireshark_application.h"
 
 #include "epan/strutil.h"
-#include "epan/to_str.h"
 #include "epan/uat-int.h"
-#include "epan/value_string.h"
 #include "ui/help_url.h"
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 
-#include <QComboBox>
 #include <QDesktopServices>
-#include <QFileDialog>
-#include <QFont>
-#include <QKeyEvent>
 #include <QPushButton>
-#include <QTreeWidget>
-#include <QTreeWidgetItemIterator>
 #include <QUrl>
 
 #include <QDebug>
 
+// NOTE currently uat setter is always invoked in UatModel even if the uat checker fails.
+
 UatDialog::UatDialog(QWidget *parent, epan_uat *uat) :
     GeometryStateDialog(parent),
     ui(new Ui::UatDialog),
-    uat_(NULL),
-    cur_line_edit_(NULL),
-    cur_combo_box_(NULL)
+    uat_model_(NULL),
+    uat_delegate_(NULL),
+    uat_(uat)
 {
     ui->setupUi(this);
     if (uat) loadGeometry(0, 0, uat->name);
 
     ui->deleteToolButton->setEnabled(false);
     ui->copyToolButton->setEnabled(false);
+    ui->moveUpToolButton->setEnabled(false);
+    ui->moveDownToolButton->setEnabled(false);
+    ui->clearToolButton->setEnabled(false);
     ok_button_ = ui->buttonBox->button(QDialogButtonBox::Ok);
     help_button_ = ui->buttonBox->button(QDialogButtonBox::Help);
 
@@ -63,25 +48,38 @@ UatDialog::UatDialog(QWidget *parent, epan_uat *uat) :
     ui->newToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->deleteToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->copyToolButton->setAttribute(Qt::WA_MacSmallSize, true);
+    ui->moveUpToolButton->setAttribute(Qt::WA_MacSmallSize, true);
+    ui->moveDownToolButton->setAttribute(Qt::WA_MacSmallSize, true);
+    ui->clearToolButton->setAttribute(Qt::WA_MacSmallSize, true);
     ui->pathLabel->setAttribute(Qt::WA_MacSmallSize, true);
 #endif
 
     setUat(uat);
 
-#if (QT_VERSION < QT_VERSION_CHECK(5, 0, 0))
-    ui->uatTreeWidget->header()->setResizeMode(QHeaderView::ResizeToContents);
-#else
-    ui->uatTreeWidget->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-#endif
+    // FIXME: this prevents the columns from being resized, even if the text
+    // within a combobox needs more space (e.g. in the USER DLT settings).  For
+    // very long filenames in the SSL RSA keys dialog, it also results in a
+    // vertical scrollbar. Maybe remove this since the editor is not limited to
+    // the column width (and overlays other fields if more width is needed)?
+    ui->uatTreeView->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+
+    // start editing as soon as the field is selected or when typing starts
+    ui->uatTreeView->setEditTriggers(ui->uatTreeView->editTriggers() |
+            QAbstractItemView::CurrentChanged | QAbstractItemView::AnyKeyPressed);
 
     // Need to add uat_move or uat_insert to the UAT API.
-    ui->uatTreeWidget->setDragEnabled(false);
+    ui->uatTreeView->setDragEnabled(false);
     qDebug() << "FIX Add drag reordering to UAT dialog";
+
+    // Do NOT start editing the first column for the first item
+    ui->uatTreeView->setCurrentIndex(QModelIndex());
 }
 
 UatDialog::~UatDialog()
 {
     delete ui;
+    delete uat_delegate_;
+    delete uat_model_;
 }
 
 void UatDialog::setUat(epan_uat *uat)
@@ -90,8 +88,6 @@ void UatDialog::setUat(epan_uat *uat)
 
     uat_ = uat;
 
-    ui->uatTreeWidget->clear();
-    ui->uatTreeWidget->setColumnCount(0);
     ui->pathLabel->clear();
     ui->pathLabel->setEnabled(false);
     help_button_->setEnabled(false);
@@ -107,419 +103,151 @@ void UatDialog::setUat(epan_uat *uat)
         ui->pathLabel->setToolTip(tr("Open ") + uat->filename);
         ui->pathLabel->setEnabled(true);
 
-        ui->uatTreeWidget->setColumnCount(uat_->ncols);
+        uat_model_ = new UatModel(NULL, uat);
+        uat_delegate_ = new UatDelegate;
+        ui->uatTreeView->setModel(uat_model_);
+        ui->uatTreeView->setItemDelegate(uat_delegate_);
 
-        for (guint col = 0; col < uat->ncols; col++) {
-            ui->uatTreeWidget->headerItem()->setText(col, uat_->fields[col].title);
-        }
+        connect(uat_model_, SIGNAL(dataChanged(QModelIndex,QModelIndex)),
+                this, SLOT(modelDataChanged(QModelIndex)));
+        connect(uat_model_, SIGNAL(rowsRemoved(QModelIndex, int, int)),
+                this, SLOT(modelRowsRemoved()));
+        connect(uat_model_, SIGNAL(modelReset()), this, SLOT(modelRowsReset()));
 
-        updateItems();
+        ok_button_->setEnabled(!uat_model_->hasErrors());
 
         if (uat_->help && strlen(uat_->help) > 0) {
             help_button_->setEnabled(true);
         }
+
+        connect(this, SIGNAL(rejected()), this, SLOT(rejectChanges()));
+        connect(this, SIGNAL(accepted()), this, SLOT(acceptChanges()));
     }
 
     setWindowTitle(title);
 }
 
-void UatDialog::keyPressEvent(QKeyEvent *evt)
+// Invoked when a field in the model changes (e.g. by closing the editor)
+void UatDialog::modelDataChanged(const QModelIndex &topLeft)
 {
-    if (cur_line_edit_ && cur_line_edit_->hasFocus()) {
-        switch (evt->key()) {
-        case Qt::Key_Escape:
-            cur_line_edit_->setText(saved_string_pref_);
-            /* Fall Through */
-        case Qt::Key_Enter:
-        case Qt::Key_Return:
-            stringPrefEditingFinished();
-            return;
-        default:
-            break;
-        }
-    } else if (cur_combo_box_ && cur_combo_box_->hasFocus()) {
-        switch (evt->key()) {
-        case Qt::Key_Escape:
-            cur_combo_box_->setCurrentIndex(saved_combo_idx_);
-            /* Fall Through */
-        case Qt::Key_Enter:
-        case Qt::Key_Return:
-            // XXX The combo box eats enter and return
-            enumPrefCurrentIndexChanged(cur_combo_box_->currentIndex());
-            delete cur_combo_box_;
-            return;
-        default:
-            break;
-        }
-    }
-    QDialog::keyPressEvent(evt);
+    checkForErrorHint(topLeft, QModelIndex());
+    ok_button_->setEnabled(!uat_model_->hasErrors());
 }
 
-QString UatDialog::fieldString(guint row, guint column)
+// Invoked after a row has been removed from the model.
+void UatDialog::modelRowsRemoved()
 {
-    QString string_rep;
+    const QModelIndex &current = ui->uatTreeView->currentIndex();
 
-    if (!uat_) return string_rep;
-
-    void *rec = UAT_INDEX_PTR(uat_, row);
-    uat_field_t *field = &uat_->fields[column];
-    guint length;
-    char *str;
-
-    field->cb.tostr(rec, &str, &length, field->cbdata.tostr, field->fld_data);
-
-    switch(field->mode) {
-    case PT_TXTMOD_NONE:
-    case PT_TXTMOD_STRING:
-    case PT_TXTMOD_ENUM:
-    case PT_TXTMOD_FILENAME:
-    case PT_TXTMOD_DIRECTORYNAME:
-        string_rep = str;
-        break;
-    case PT_TXTMOD_HEXBYTES: {
-        {
-            char* temp_str = bytes_to_str(NULL, (const guint8 *) str, length);
-            QString qstr(temp_str);
-            string_rep = qstr;
-            wmem_free(NULL, temp_str);
-        }
-        break;
-    }
-    default:
-        g_assert_not_reached();
-        break;
+    // Because currentItemChanged() is called before the row is removed from the model
+    // we also need to check for button enabling here.
+    if (current.isValid()) {
+        ui->moveUpToolButton->setEnabled(current.row() != 0);
+        ui->moveDownToolButton->setEnabled(current.row() != (uat_model_->rowCount() - 1));
+    } else {
+        ui->moveUpToolButton->setEnabled(false);
+        ui->moveDownToolButton->setEnabled(false);
     }
 
-    g_free(str);
-    return string_rep;
+    checkForErrorHint(current, QModelIndex());
+    ok_button_->setEnabled(!uat_model_->hasErrors());
 }
 
-void UatDialog::updateItem(QTreeWidgetItem &item)
+void UatDialog::modelRowsReset()
 {
-    if (!uat_) return;
-    guint row = item.data(0, Qt::UserRole).toUInt();
-    for (guint col = 0; col < uat_->ncols; col++) {
-        item.setText(col, fieldString(row, col));
-    }
+    ui->deleteToolButton->setEnabled(false);
+    ui->clearToolButton->setEnabled(false);
+    ui->copyToolButton->setEnabled(false);
+    ui->moveUpToolButton->setEnabled(false);
+    ui->moveDownToolButton->setEnabled(false);
 }
 
-void UatDialog::updateItems()
+
+// Invoked when a different field is selected. Note: when selecting a different
+// field after editing, this event is triggered after modelDataChanged.
+void UatDialog::on_uatTreeView_currentItemChanged(const QModelIndex &current, const QModelIndex &previous)
 {
-    if (!uat_) return;
-
-    // Forcibly sync ui->uaTreeWidget with uat_.
-    // It would probably be more correct to create a UatModel and
-    // use it in conjunction with a QTreeView.
-    while (ui->uatTreeWidget->topLevelItemCount() > (int) uat_->raw_data->len) {
-        delete (ui->uatTreeWidget->topLevelItem(0));
-    }
-    for (guint row = 0; row < uat_->raw_data->len; row++) {
-        QTreeWidgetItem *item = ui->uatTreeWidget->topLevelItem(row);
-        if (!item) item = new QTreeWidgetItem(ui->uatTreeWidget);
-        item->setData(0, Qt::UserRole, qVariantFromValue(row));
-        updateItem(*item);
-    }
-}
-
-void UatDialog::activateLastItem()
-{
-    int last_item = ui->uatTreeWidget->topLevelItemCount() - 1;
-    if (last_item < 0) return;
-
-    QModelIndex idx = ui->uatTreeWidget->model()->index(last_item, 0);
-    ui->uatTreeWidget->clearSelection();
-    ui->uatTreeWidget->selectionModel()->select(idx, QItemSelectionModel::Select | QItemSelectionModel::Rows);
-    on_uatTreeWidget_itemActivated(ui->uatTreeWidget->topLevelItem(last_item), 0);
-    ui->uatTreeWidget->setCurrentItem(ui->uatTreeWidget->topLevelItem(last_item));
-}
-
-void UatDialog::on_uatTreeWidget_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *previous)
-{
-    for (int col = 0; col < ui->uatTreeWidget->columnCount(); col++) {
-        if (previous && ui->uatTreeWidget->itemWidget(previous, col)) {
-            ui->uatTreeWidget->removeItemWidget(previous, col);
-            updateItem(*previous);
-        }
-    }
-    ui->uatTreeWidget->setCurrentItem(current);
-}
-
-void UatDialog::on_uatTreeWidget_itemActivated(QTreeWidgetItem *item, int column)
-{
-    if (!uat_) return;
-
-    cur_line_edit_ = NULL;
-    cur_combo_box_ = NULL;
-
-    uat_field_t *field = &uat_->fields[column];
-    guint row = item->data(0, Qt::UserRole).toUInt();
-    void *rec = UAT_INDEX_PTR(uat_, row);
-    cur_column_ = column;
-    QWidget *editor = NULL;
-
-    // Reset any active items
-    QTreeWidgetItemIterator uat_it(ui->uatTreeWidget);
-    while (*uat_it) {
-        for (int col = 0; col < ui->uatTreeWidget->columnCount(); col++) {
-            if (ui->uatTreeWidget->itemWidget((*uat_it), col)) {
-                ui->uatTreeWidget->removeItemWidget((*uat_it), col);
-                updateItem(*(*uat_it));
-            }
-        }
-        ++uat_it;
-    }
-
-    switch(field->mode) {
-    case PT_TXTMOD_DIRECTORYNAME:
-    {
-        QString cur_path = fieldString(row, column);
-        const QByteArray& new_path = QFileDialog::getExistingDirectory(this,
-                field->title, cur_path).toUtf8();
-        field->cb.set(rec, new_path.constData(), (unsigned) new_path.size(), field->cbdata.set, field->fld_data);
-        updateItem(*item);
-        break;
-    }
-
-    case PT_TXTMOD_FILENAME:
-    {
-        QString cur_path = fieldString(row, column);
-        const QByteArray& new_path = QFileDialog::getOpenFileName(this,
-                field->title, cur_path, QString(), NULL, QFileDialog::DontConfirmOverwrite).toUtf8();
-        field->cb.set(rec, new_path.constData(), (unsigned) new_path.size(), field->cbdata.set, field->fld_data);
-        updateItem(*item);
-        break;
-    }
-
-    case PT_TXTMOD_STRING:
-    case PT_TXTMOD_HEXBYTES: {
-        cur_line_edit_ = new SyntaxLineEdit();
-        break;
-    }
-
-    case PT_TXTMOD_ENUM: {
-        cur_combo_box_ = new QComboBox();
-//        const enum_val_t *ev;
-        const value_string *enum_vals = (const value_string *)field->fld_data;
-        for (int i = 0; enum_vals[i].strptr != NULL; i++) {
-            cur_combo_box_->addItem(enum_vals[i].strptr, QVariant(enum_vals[i].value));
-            if (item->text(column).compare(enum_vals[i].strptr) == 0) {
-                cur_combo_box_->setCurrentIndex(cur_combo_box_->count() - 1);
-            }
-        }
-        saved_combo_idx_ = cur_combo_box_->currentIndex();
-        break;
-    }
-    case PT_TXTMOD_NONE: break;
-    default:
-        g_assert_not_reached();
-        break;
-    }
-
-    if (cur_line_edit_) {
-        editor = cur_line_edit_;
-        cur_line_edit_->setText(fieldString(row, column));
-        cur_line_edit_->selectAll();
-        connect(cur_line_edit_, SIGNAL(destroyed()), this, SLOT(lineEditPrefDestroyed()));
-        connect(cur_line_edit_, SIGNAL(textChanged(QString)), this, SLOT(stringPrefTextChanged(QString)));
-    }
-    if (cur_combo_box_) {
-        editor = cur_combo_box_;
-        connect(cur_combo_box_, SIGNAL(currentIndexChanged(int)), this, SLOT(enumPrefCurrentIndexChanged(int)));
-        connect(cur_combo_box_, SIGNAL(destroyed()), this, SLOT(enumPrefDestroyed()));
-    }
-    if (editor) {
-        QFrame *edit_frame = new QFrame();
-        QHBoxLayout *hb = new QHBoxLayout();
-        QSpacerItem *spacer = new QSpacerItem(5, 10);
-
-        hb->addWidget(editor, 0);
-        hb->addSpacerItem(spacer);
-        hb->setStretch(1, 1);
-        hb->setContentsMargins(0, 0, 0, 0);
-
-        edit_frame->setLineWidth(0);
-        edit_frame->setFrameStyle(QFrame::NoFrame);
-        // The documentation suggests setting autoFillbackground. That looks silly
-        // so we clear the item text instead.
-        saved_string_pref_ = item->text(column);
-        item->setText(column, "");
-        edit_frame->setLayout(hb);
-        ui->uatTreeWidget->setItemWidget(item, column, edit_frame);
-        if (cur_line_edit_) {
-            ui->uatTreeWidget->setCurrentItem(item);
-        }
-        editor->setFocus();
-    }
-}
-
-void UatDialog::on_uatTreeWidget_itemSelectionChanged()
-{
-    if (ui->uatTreeWidget->selectedItems().length() > 0) {
+    if (current.isValid()) {
         ui->deleteToolButton->setEnabled(true);
+        ui->clearToolButton->setEnabled(true);
         ui->copyToolButton->setEnabled(true);
+        ui->moveUpToolButton->setEnabled(current.row() != 0);
+        ui->moveDownToolButton->setEnabled(current.row() != (uat_model_->rowCount() - 1));
     } else {
         ui->deleteToolButton->setEnabled(false);
+        ui->clearToolButton->setEnabled(false);
         ui->copyToolButton->setEnabled(false);
+        ui->moveUpToolButton->setEnabled(false);
+        ui->moveDownToolButton->setEnabled(false);
     }
+
+    checkForErrorHint(current, previous);
 }
 
-void UatDialog::lineEditPrefDestroyed()
+// If the current field has errors, show them.
+// Otherwise if the row has not changed, but the previous field has errors, show them.
+// Otherwise pick the first error in the current row.
+// Otherwise show the error from the previous field (if any).
+// Otherwise clear the error hint.
+void UatDialog::checkForErrorHint(const QModelIndex &current, const QModelIndex &previous)
 {
-    cur_line_edit_ = NULL;
-}
+    if (current.isValid()) {
+        if (trySetErrorHintFromField(current)) {
+            return;
+        }
 
-void UatDialog::enumPrefDestroyed()
-{
-    cur_combo_box_ = NULL;
-}
+        const int row = current.row();
+        if (row == previous.row() && trySetErrorHintFromField(previous)) {
+            return;
+        }
 
-void UatDialog::enumPrefCurrentIndexChanged(int index)
-{
-    QTreeWidgetItem *item = ui->uatTreeWidget->currentItem();
-    if (!cur_combo_box_ || !item || index < 0) return;
-    guint row = item->data(0, Qt::UserRole).toUInt();
-    void *rec = UAT_INDEX_PTR(uat_, row);
-    uat_field_t *field = &uat_->fields[cur_column_];
-    const QByteArray& enum_txt = cur_combo_box_->itemText(index).toUtf8();
-    char *err = NULL;
-
-    if (field->cb.chk && !field->cb.chk(rec, enum_txt.constData(), (unsigned) enum_txt.size(), field->cbdata.chk, field->fld_data, &err)) {
-        QString err_string = "<font color='red'>%1</font>";
-        ui->hintLabel->setText(err_string.arg(err));
-        g_free(err);
-        ok_button_->setEnabled(false);
-        uat_update_record(uat_, rec, FALSE);
-    } else {
-        ui->hintLabel->clear();
-        field->cb.set(rec, enum_txt.constData(), (unsigned) enum_txt.size(), field->cbdata.set, field->fld_data);
-        ok_button_->setEnabled(true);
-        uat_update_record(uat_, rec, TRUE);
-    }
-    this->update();
-    uat_->changed = TRUE;
-}
-
-const QByteArray UatDialog::unhexbytes(const QString input, QString &qt_err) {
-    if (input.size() % 2) {
-        qt_err = tr("Uneven number of chars hex string (%1)").arg(input.size());
-        return NULL;
-    }
-
-    QByteArray output = QByteArray::fromHex(input.toUtf8());
-
-    if (output.size() != (input.size()/2)) {
-        qt_err = tr("Error parsing hex string");
-    }
-    return output;
-}
-
-
-void UatDialog::stringPrefTextChanged(const QString &text)
-{
-    QTreeWidgetItem *item = ui->uatTreeWidget->currentItem();
-    if (!cur_line_edit_) {
-        cur_line_edit_ = new SyntaxLineEdit();
-    }
-    if (!cur_line_edit_ || !item) return;
-    guint row = item->data(0, Qt::UserRole).toUInt();
-    void *rec = UAT_INDEX_PTR(uat_, row);
-    uat_field_t *field = &uat_->fields[cur_column_];
-    SyntaxLineEdit::SyntaxState ss = SyntaxLineEdit::Empty;
-    bool enable_ok = true;
-    QString qt_err;
-    const QByteArray &txt = (field->mode == PT_TXTMOD_HEXBYTES) ? unhexbytes(text, qt_err) : text.toUtf8();
-    QString err_string = "<font color='red'>%1</font>";
-    if (!qt_err.isEmpty()) {
-        ui->hintLabel->setText(err_string.arg(qt_err));
-        enable_ok = false;
-        ss = SyntaxLineEdit::Invalid;
-    } else {
-        char *err = NULL;
-        if (field->cb.chk && !field->cb.chk(rec, txt.constData(), (unsigned) txt.size(), field->cbdata.chk, field->fld_data, &err)) {
-            ui->hintLabel->setText(err_string.arg(err));
-            g_free(err);
-            enable_ok = false;
-            ss = SyntaxLineEdit::Invalid;
-            uat_update_record(uat_, rec, FALSE);
-        } else {
-            ui->hintLabel->clear();
-            field->cb.set(rec, txt.constData(), (unsigned) txt.size(), field->cbdata.set, field->fld_data);
-            saved_string_pref_ = text;
-            ss = SyntaxLineEdit::Valid;
-            uat_update_record(uat_, rec, TRUE);
+        for (int i = 0; i < uat_model_->columnCount(); i++) {
+            if (trySetErrorHintFromField(uat_model_->index(row, i))) {
+                return;
+            }
         }
     }
-    this->update();
 
-    ok_button_->setEnabled(enable_ok);
-    cur_line_edit_->setSyntaxState(ss);
-    uat_->changed = TRUE;
-}
-
-void UatDialog::stringPrefEditingFinished()
-{
-    QTreeWidgetItem *item = ui->uatTreeWidget->currentItem();
-    if (!cur_line_edit_ || !item) return;
-
-    item->setText(cur_column_, saved_string_pref_);
-    ok_button_->setEnabled(true);
-
-    if (uat_ && uat_->update_cb) {
-        gchar *err;
-        void *rec = UAT_INDEX_PTR(uat_, item->data(0, Qt::UserRole).toUInt());
-        if (!uat_->update_cb(rec, &err)) {
-            QString err_string = "<font color='red'>%1</font>";
-            ui->hintLabel->setText(err_string.arg(err));
-            g_free(err);
-            ok_button_->setEnabled(false);
-        } else {
-            ui->hintLabel->clear();
+    if (previous.isValid()) {
+        if (trySetErrorHintFromField(previous)) {
+            return;
         }
-        this->update();
     }
 
-    updateItem(*item);
+    ui->hintLabel->clear();
+}
+
+bool UatDialog::trySetErrorHintFromField(const QModelIndex &index)
+{
+    const QVariant &data = uat_model_->data(index, Qt::UserRole + 1);
+    if (!data.isNull()) {
+        // use HTML instead of PlainText because that handles wordwrap properly
+        ui->hintLabel->setText("<small><i>" + html_escape(data.toString()) + "</i></small>");
+        return true;
+    }
+    return false;
 }
 
 void UatDialog::addRecord(bool copy_from_current)
 {
     if (!uat_) return;
 
-    void *rec = g_malloc0(uat_->record_size);
+    const QModelIndex &current = ui->uatTreeView->currentIndex();
+    if (copy_from_current && !current.isValid()) return;
 
-    if (copy_from_current && uat_->copy_cb) {
-        QTreeWidgetItem *item = ui->uatTreeWidget->currentItem();
-        if (!item) return;
-        guint row = item->data(0, Qt::UserRole).toUInt();
-        uat_->copy_cb(rec, UAT_INDEX_PTR(uat_, row), uat_->record_size);
-    } else {
-        for (guint col = 0; col < uat_->ncols; col++) {
-            uat_field_t *field = &uat_->fields[col];
-            switch (field->mode) {
-            case PT_TXTMOD_ENUM:
-                guint length;
-                char *str;
-                field->cb.tostr(rec, &str, &length, field->cbdata.tostr, field->fld_data);
-                field->cb.set(rec, str, length, field->cbdata.set, field->fld_data);
-                g_free(str);
-                break;
-            case PT_TXTMOD_NONE:
-                break;
-            default:
-                field->cb.set(rec, "", 0, field->cbdata.set, field->fld_data);
-                break;
-            }
-        }
+    // should not fail, but you never know.
+    if (!uat_model_->insertRows(uat_model_->rowCount(), 1)) {
+        qDebug() << "Failed to add a new record";
+        return;
     }
-
-    uat_add_record(uat_, rec, TRUE);
-    if (uat_->free_cb) {
-        uat_->free_cb(rec);
+    const QModelIndex &new_index = uat_model_->index(uat_model_->rowCount() - 1, 0);
+    if (copy_from_current) {
+        uat_model_->copyRow(new_index.row(), current.row());
     }
-    g_free(rec);
-    uat_->changed = TRUE;
-    updateItems();
-    activateLastItem();
+    // due to an EditTrigger, this will also start editing.
+    ui->uatTreeView->setCurrentIndex(new_index);
+    // trigger updating error messages and the OK button state.
+    modelDataChanged(new_index);
 }
 
 void UatDialog::on_newToolButton_clicked()
@@ -529,21 +257,54 @@ void UatDialog::on_newToolButton_clicked()
 
 void UatDialog::on_deleteToolButton_clicked()
 {
-    QTreeWidgetItem *item = ui->uatTreeWidget->currentItem();
-    if (!uat_ || !item) return;
-
-    guint row = item->data(0, Qt::UserRole).toUInt();
-
-    uat_remove_record_idx(uat_, row);
-    updateItems();
-
-    on_uatTreeWidget_itemSelectionChanged();
-    uat_->changed = TRUE;
+    const QModelIndex &current = ui->uatTreeView->currentIndex();
+    if (uat_model_ && current.isValid()) {
+        if (!uat_model_->removeRows(current.row(), 1)) {
+            qDebug() << "Failed to remove row";
+        }
+    }
 }
 
 void UatDialog::on_copyToolButton_clicked()
 {
     addRecord(true);
+}
+
+void UatDialog::on_moveUpToolButton_clicked()
+{
+    const QModelIndex &current = ui->uatTreeView->currentIndex();
+    int current_row = current.row();
+    if (uat_model_ && current.isValid() && current_row > 0) {
+        if (!uat_model_->moveRow(current_row, current_row - 1)) {
+            qDebug() << "Failed to move row up";
+            return;
+        }
+        current_row--;
+        ui->moveUpToolButton->setEnabled(current_row > 0);
+        ui->moveDownToolButton->setEnabled(current_row < (uat_model_->rowCount() - 1));
+    }
+}
+
+void UatDialog::on_moveDownToolButton_clicked()
+{
+    const QModelIndex &current = ui->uatTreeView->currentIndex();
+    int current_row = current.row();
+    if (uat_model_ && current.isValid() && current_row < (uat_model_->rowCount() - 1)) {
+        if (!uat_model_->moveRow(current_row, current_row + 1)) {
+            qDebug() << "Failed to move row down";
+            return;
+        }
+        current_row++;
+        ui->moveUpToolButton->setEnabled(current_row > 0);
+        ui->moveDownToolButton->setEnabled(current_row < (uat_model_->rowCount() - 1));
+    }
+}
+
+void UatDialog::on_clearToolButton_clicked()
+{
+    if (uat_model_) {
+        uat_model_->clearAll();
+    }
 }
 
 void UatDialog::applyChanges()
@@ -561,7 +322,7 @@ void UatDialog::applyChanges()
 }
 
 
-void UatDialog::on_buttonBox_accepted()
+void UatDialog::acceptChanges()
 {
     if (!uat_) return;
 
@@ -580,7 +341,7 @@ void UatDialog::on_buttonBox_accepted()
     }
 }
 
-void UatDialog::on_buttonBox_rejected()
+void UatDialog::rejectChanges()
 {
     if (!uat_) return;
 

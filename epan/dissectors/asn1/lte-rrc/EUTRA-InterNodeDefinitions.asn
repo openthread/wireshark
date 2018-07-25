@@ -1,4 +1,4 @@
--- 3GPP TS 36.331 V13.0.0 (2015-12)
+-- 3GPP TS 36.331 V15.2.2 (2018-06)
 --
 EUTRA-InterNodeDefinitions DEFINITIONS AUTOMATIC TAGS ::=
 
@@ -17,19 +17,21 @@ IMPORTS
 	DRB-ToReleaseList,
 	FreqBandIndicator-r11,
 	InDeviceCoexIndication-r11,
+	LWA-Config-r13,
 	MasterInformationBlock,
 	maxBands,
 	maxFreq,
 	maxDRB,
 	maxSCell-r10,
 	maxSCell-r13,
-	maxSCell-Plus1,
 	maxServCell-r10,
-	maxServCell-Plus1,
 	maxServCell-r13,
 	MBMSInterestIndication-r11,
 	MeasConfig,
 	MeasGapConfig,
+	MeasGapConfigPerCC-List-r14,
+	MeasResultForRSSI-r13,
+	MeasResultListWLAN-r13,
 	OtherConfig-r9,
 	PhysCellId,
 	P-Max,
@@ -38,6 +40,7 @@ IMPORTS
 	SL-CommConfig-r12,
 	SL-DiscConfig-r12,
 	RadioResourceConfigDedicated,
+	RCLWI-Configuration-r13,
 	RSRP-Range,
 	RSRQ-Range,
 	RSRQ-Range-v1250,
@@ -51,9 +54,11 @@ IMPORTS
 	SCellToReleaseList-r10,
 	SCellToReleaseListExt-r13,
 	ServCellIndex-r10,
-	ServCellIndexFull-r13,
+	ServCellIndex-r13,
 	ShortMAC-I,
+	MeasResultServFreqListNR-r15,
 	MeasResultSSTD-r13,
+	SL-V2X-ConfigDedicated-r14,
 	SystemInformationBlockType1,
 	SystemInformationBlockType1-v890-IEs,
 	SystemInformationBlockType2,
@@ -61,6 +66,7 @@ IMPORTS
 	UECapabilityInformation,
 	UE-CapabilityRAT-ContainerList,
 	UE-RadioPagingInfo-r12,
+	WLANConnectionStatusReport-r13,
 	WLAN-OffloadConfig-r12
 FROM EUTRA-RRC-Definitions;
 
@@ -97,16 +103,16 @@ HandoverPreparationInformation ::=	SEQUENCE {
 
 HandoverPreparationInformation-r8-IEs ::= SEQUENCE {
 	ue-RadioAccessCapabilityInfo		UE-CapabilityRAT-ContainerList,
-	as-Config							AS-Config					OPTIONAL, 		-- Cond HO
+	as-Config							AS-Config					OPTIONAL,		-- Cond HO
 	rrm-Config							RRM-Config					OPTIONAL,
-	as-Context							AS-Context				OPTIONAL, 		-- Cond HO
+	as-Context							AS-Context				OPTIONAL,		-- Cond HO
 	nonCriticalExtension				HandoverPreparationInformation-v920-IEs		OPTIONAL
 }
 
 HandoverPreparationInformation-v920-IEs	::= SEQUENCE {
 	ue-ConfigRelease-r9					ENUMERATED {
 										rel9, rel10, rel11, rel12, v10j0, v11e0,
-										v1280, spare1, ...} 			OPTIONAL, 	-- Cond HO2
+										v1280, rel13, ..., rel14, rel15}		OPTIONAL,	-- Cond HO2
 	nonCriticalExtension				HandoverPreparationInformation-v9d0-IEs		OPTIONAL
 }
 
@@ -140,9 +146,21 @@ HandoverPreparationInformation-v1130-IEs	::= SEQUENCE {
 }
 
 HandoverPreparationInformation-v1250-IEs ::= SEQUENCE {
-	ue-SupportedEARFCN-r12 				ARFCN-ValueEUTRA-r9				OPTIONAL,	-- Cond HO3
-	as-Config-v1250					AS-Config-v1250				OPTIONAL, 	-- Cond HO2
-	nonCriticalExtension				SEQUENCE {}						OPTIONAL
+	ue-SupportedEARFCN-r12				ARFCN-ValueEUTRA-r9				OPTIONAL,	-- Cond HO3
+	as-Config-v1250					AS-Config-v1250				OPTIONAL,	-- Cond HO2
+	nonCriticalExtension				HandoverPreparationInformation-v1320-IEs						OPTIONAL
+}
+
+HandoverPreparationInformation-v1320-IEs ::= SEQUENCE {
+	as-Config-v1320						AS-Config-v1320					OPTIONAL,	-- Cond HO2
+	as-Context-v1320					AS-Context-v1320				OPTIONAL,	-- Cond HO2
+	nonCriticalExtension				HandoverPreparationInformation-v1430-IEs						OPTIONAL
+}
+
+HandoverPreparationInformation-v1430-IEs ::= SEQUENCE {
+	as-Config-v1430					AS-Config-v1430						OPTIONAL,	-- Cond HO2
+	makeBeforeBreakReq-r14			ENUMERATED {true}				OPTIONAL,	-- Cond HO2
+	nonCriticalExtension			SEQUENCE {}							OPTIONAL
 }
 
 
@@ -192,14 +210,25 @@ SCG-ConfigInfo-r12-IEs ::=			SEQUENCE {
 	sCellToAddModListSCG-r12		SCellToAddModListSCG-r12			OPTIONAL,
 	sCellToReleaseListSCG-r12		SCellToReleaseList-r10				OPTIONAL,
 	p-Max-r12							P-Max								OPTIONAL,
-	nonCriticalExtension			SCG-ConfigInfo-v13x0-IEs			OPTIONAL
+	nonCriticalExtension			SCG-ConfigInfo-v1310-IEs			OPTIONAL
 }
 
-SCG-ConfigInfo-v13x0-IEs ::=		SEQUENCE {
+SCG-ConfigInfo-v1310-IEs ::=		SEQUENCE {
 	measResultSSTD-r13				MeasResultSSTD-r13					OPTIONAL,	sCellToAddModListMCG-Ext-r13		SCellToAddModListExt-r13			OPTIONAL,
 	measResultServCellListSCG-Ext-r13	MeasResultServCellListSCG-Ext-r13	OPTIONAL,
 	sCellToAddModListSCG-Ext-r13		SCellToAddModListSCG-Ext-r13			OPTIONAL,
 	sCellToReleaseListSCG-Ext-r13	SCellToReleaseListExt-r13			OPTIONAL,
+	nonCriticalExtension			SCG-ConfigInfo-v1330-IEs			OPTIONAL
+}
+
+SCG-ConfigInfo-v1330-IEs ::=		SEQUENCE {
+	measResultListRSSI-SCG-r13		MeasResultListRSSI-SCG-r13			OPTIONAL,
+	nonCriticalExtension			SCG-ConfigInfo-v1430-IEs							OPTIONAL
+}
+
+SCG-ConfigInfo-v1430-IEs ::=		SEQUENCE {
+	makeBeforeBreakSCG-Req-r14		ENUMERATED {true}					OPTIONAL,
+	measGapConfigPerCC-List		MeasGapConfigPerCC-List-r14			OPTIONAL,
 	nonCriticalExtension			SEQUENCE {}							OPTIONAL
 }
 
@@ -214,7 +243,7 @@ DRB-InfoSCG-r12 ::=				SEQUENCE {
 
 SCellToAddModListSCG-r12 ::=	SEQUENCE (SIZE (1..maxSCell-r10)) OF Cell-ToAddMod-r12
 
-SCellToAddModListSCG-Ext-r13 ::=	SEQUENCE (SIZE (maxSCell-Plus1..maxSCell-r13)) OF Cell-ToAddMod-r12
+SCellToAddModListSCG-Ext-r13 ::=	SEQUENCE (SIZE (1..maxSCell-r13)) OF Cell-ToAddMod-r12
 
 Cell-ToAddMod-r12 ::=				SEQUENCE {
 	sCellIndex-r12						SCellIndex-r10,
@@ -228,15 +257,15 @@ Cell-ToAddMod-r12 ::=				SEQUENCE {
 	}																OPTIONAL,	-- Cond SCellAdd2
 	...,
 	[[		sCellIndex-r13					SCellIndex-r13				OPTIONAL,
-		measResultCellToAdd-v13xy			SEQUENCE {
-			rs-sinrResult-r13					RS-SINR-Range-r13
+		measResultCellToAdd-v1310			SEQUENCE {
+			rs-sinr-Result-r13					RS-SINR-Range-r13
 		}															OPTIONAL	-- Cond SCellAdd2
 	]]
 }
 
 MeasResultServCellListSCG-r12 ::=	SEQUENCE (SIZE (1..maxServCell-r10)) OF MeasResultServCellSCG-r12
 
-MeasResultServCellListSCG-Ext-r13 ::=	SEQUENCE (SIZE (maxServCell-Plus1..maxServCell-r13)) OF MeasResultServCellSCG-r12
+MeasResultServCellListSCG-Ext-r13 ::=	SEQUENCE (SIZE (1..maxServCell-r13)) OF MeasResultServCellSCG-r12
 
 MeasResultServCellSCG-r12 ::=			SEQUENCE {
 	servCellId-r12						ServCellIndex-r10,
@@ -245,16 +274,41 @@ MeasResultServCellSCG-r12 ::=			SEQUENCE {
 		rsrqResultSCell-r12					RSRQ-Range
 	},
 	...,
-	[[		servCellId-r13						ServCellIndexFull-r13		OPTIONAL,
-		measResultSCell-v13xy				SEQUENCE {
-			rs-sinrResultSCell-r13				RS-SINR-Range-r13
+	[[		servCellId-r13						ServCellIndex-r13		OPTIONAL,
+		measResultSCell-v1310				SEQUENCE {
+			rs-sinr-ResultSCell-r13				RS-SINR-Range-r13
 		}															OPTIONAL
 	]]
+}
+
+MeasResultListRSSI-SCG-r13 ::=	SEQUENCE (SIZE (1..maxServCell-r13)) OF MeasResultRSSI-SCG-r13
+
+MeasResultRSSI-SCG-r13 ::=			SEQUENCE {
+	servCellId-r13						ServCellIndex-r13,
+	measResultForRSSI-r13				MeasResultForRSSI-r13
 }
 
 SCG-ConfigRestrictInfo-r12 ::=		SEQUENCE {
 	maxSCH-TB-BitsDL-r12				INTEGER (1..100),
 	maxSCH-TB-BitsUL-r12				INTEGER (1..100)
+}
+
+
+UEPagingCoverageInformation ::= SEQUENCE {
+	criticalExtensions					CHOICE {
+		c1									CHOICE{
+			uePagingCoverageInformation-r13			UEPagingCoverageInformation-r13-IEs,
+			spare7 NULL,
+			spare6 NULL, spare5 NULL, spare4 NULL,
+			spare3 NULL, spare2 NULL, spare1 NULL
+		},
+		criticalExtensionsFuture			SEQUENCE {}
+	}
+}
+
+UEPagingCoverageInformation-r13-IEs ::= SEQUENCE {
+	mpdcch-NumRepetition-r13				INTEGER (1..256)	OPTIONAL,
+	nonCriticalExtension					SEQUENCE {}		OPTIONAL
 }
 
 
@@ -291,10 +345,10 @@ UERadioPagingInformation ::= SEQUENCE {
 
 UERadioPagingInformation-r12-IEs ::= SEQUENCE {
 	ue-RadioPagingInfo-r12				OCTET STRING (CONTAINING UE-RadioPagingInfo-r12),
-	nonCriticalExtension				UERadioPagingInformation-v13xy-IEs			OPTIONAL
+	nonCriticalExtension				UERadioPagingInformation-v1310-IEs			OPTIONAL
 }
 
-UERadioPagingInformation-v13xy-IEs ::= SEQUENCE {
+UERadioPagingInformation-v1310-IEs ::= SEQUENCE {
 	supportedBandListEUTRAForPaging-r13		SEQUENCE (SIZE (1..maxBands)) OF FreqBandIndicator-r11 OPTIONAL,
 	nonCriticalExtension					SEQUENCE {}								OPTIONAL
 
@@ -323,6 +377,8 @@ AS-Config ::=				SEQUENCE {
 	[[	sourceSCellConfigList-r10			SCellToAddModList-r10			OPTIONAL
 	]],
 	[[	sourceConfigSCG-r12					SCG-Config-r12		OPTIONAL
+	]],
+	[[	as-ConfigNR-r15						AS-ConfigNR-r15					OPTIONAL
 	]]
 }
 
@@ -340,6 +396,23 @@ AS-Config-v1250 ::=				SEQUENCE {
 	sourceSL-DiscConfig-r12				SL-DiscConfig-r12					OPTIONAL
 }
 
+AS-Config-v1320 ::=				SEQUENCE {
+	sourceSCellConfigList-r13			SCellToAddModListExt-r13			OPTIONAL,
+	sourceRCLWI-Configuration-r13		RCLWI-Configuration-r13				OPTIONAL
+}
+
+AS-Config-v1430 ::=				SEQUENCE {
+	sourceSL-V2X-CommConfig-r14			SL-V2X-ConfigDedicated-r14					OPTIONAL,
+	sourceLWA-Config-r14				LWA-Config-r13						OPTIONAL,
+	sourceWLAN-MeasResult-r14			MeasResultListWLAN-r13				OPTIONAL
+}
+
+AS-ConfigNR-r15 ::=				SEQUENCE {
+	sourceRB-ConfigNR-r15				OCTET STRING			OPTIONAL,
+	sourceRB-ConfigSN-NR-r15				OCTET STRING			OPTIONAL,
+	sourceOtherConfigSN-NR-r15			OCTET STRING			OPTIONAL
+}
+
 
 AS-Context ::=							SEQUENCE {
 	reestablishmentInfo						ReestablishmentInfo			OPTIONAL	-- Cond HO
@@ -355,7 +428,14 @@ AS-Context-v1130 ::=					SEQUENCE {
 	...,
 	[[	sidelinkUEInformation-r12				OCTET STRING (CONTAINING
 												SidelinkUEInformation-r12)	OPTIONAL	-- Cond HO2
+	]],
+	[[	sourceContextENDC-r15				OCTET STRING					OPTIONAL	-- Cond HO2
 	]]
+}
+
+AS-Context-v1320 ::=					SEQUENCE {
+	wlanConnectionStatusReport-r13			OCTET STRING (CONTAINING
+											WLANConnectionStatusReport-r13)	OPTIONAL	-- Cond HO2
 }
 
 
@@ -390,6 +470,8 @@ RRM-Config ::=				SEQUENCE {
 									day24, day30, dayMoreThan30}		OPTIONAL,
 	...,
 	[[	candidateCellInfoList-r10	CandidateCellInfoList-r10		OPTIONAL
+	]],
+	[[	candidateCellInfoListNR-r15	MeasResultServFreqListNR-r15		OPTIONAL
 	]]
 }
 
@@ -407,7 +489,7 @@ CandidateCellInfo-r10 ::=		SEQUENCE {
 	]],
 	[[	rsrqResult-v1250				RSRQ-Range-v1250			OPTIONAL
 	]],
-	[[	rs-sinrResult-v13xy				RS-SINR-Range-r13			OPTIONAL
+	[[	rs-sinr-Result-r13				RS-SINR-Range-r13			OPTIONAL
 	]]
 }
 

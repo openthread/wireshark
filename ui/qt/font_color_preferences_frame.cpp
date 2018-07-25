@@ -4,26 +4,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
+#include <config.h>
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 
 #include "font_color_preferences_frame.h"
+#include <ui/qt/models/pref_models.h>
 #include <ui_font_color_preferences_frame.h>
-#include "color_utils.h"
+#include <ui/qt/utils/color_utils.h>
 #include "wireshark_application.h"
 
 #include <QFontDialog>
@@ -31,9 +21,11 @@
 
 #include <epan/prefs-int.h>
 
-static const char *font_pangrams_[] = { //TODO : Fix translate
-  "Example GIF query packets have jumbo window sizes",
-  "Lazy badgers move unique waxy jellyfish packets"
+//: These are pangrams. Feel free to replace with nonsense text that spans your alphabet.
+//: https://en.wikipedia.org/wiki/Pangram
+static const char *font_pangrams_[] = {
+    QT_TR_NOOP("Example GIF query packets have jumbo window sizes"),
+    QT_TR_NOOP("Lazy badgers move unique waxy jellyfish packets")
 };
 const int num_font_pangrams_ = (sizeof font_pangrams_ / sizeof font_pangrams_[0]);
 
@@ -44,6 +36,12 @@ FontColorPreferencesFrame::FontColorPreferencesFrame(QWidget *parent) :
     ui->setupUi(this);
 
     pref_qt_gui_font_name_ = prefFromPrefPtr(&prefs.gui_qt_font_name);
+    pref_active_fg_ = prefFromPrefPtr(&prefs.gui_active_fg);
+    pref_active_bg_ = prefFromPrefPtr(&prefs.gui_active_bg);
+    pref_active_style_ = prefFromPrefPtr(&prefs.gui_active_style);
+    pref_inactive_fg_ = prefFromPrefPtr(&prefs.gui_inactive_fg);
+    pref_inactive_bg_ = prefFromPrefPtr(&prefs.gui_inactive_bg);
+    pref_inactive_style_ = prefFromPrefPtr(&prefs.gui_inactive_style);
     pref_marked_fg_ = prefFromPrefPtr(&prefs.gui_marked_fg);
     pref_marked_bg_ = prefFromPrefPtr(&prefs.gui_marked_bg);
     pref_ignored_fg_ = prefFromPrefPtr(&prefs.gui_ignored_fg);
@@ -56,7 +54,7 @@ FontColorPreferencesFrame::FontColorPreferencesFrame(QWidget *parent) :
     pref_invalid_bg_ = prefFromPrefPtr(&prefs.gui_text_invalid);
     pref_deprecated_bg_ = prefFromPrefPtr(&prefs.gui_text_deprecated);
 
-    cur_font_.fromString(pref_qt_gui_font_name_->stashed_val.string);
+    cur_font_.fromString(prefs_get_string_value(pref_qt_gui_font_name_, pref_stashed));
 
 }
 
@@ -79,112 +77,229 @@ void FontColorPreferencesFrame::showEvent(QShowEvent *)
 
 void FontColorPreferencesFrame::updateWidgets()
 {
+    gint     colorstyle;
+    QColor   foreground;
+    QColor   background1;
+    QColor   background2;
+    QPalette default_pal;
+
     int margin = style()->pixelMetric(QStyle::PM_LayoutLeftMargin);
 
-#if QT_VERSION < QT_VERSION_CHECK(4, 8, 0)
     ui->fontPushButton->setText(
-                cur_font_.family() + " " +
-                QString::number(cur_font_.pointSizeF(), 'f', 1));
-#else
-    ui->fontPushButton->setText(
-                cur_font_.family() + " " + cur_font_.styleName() + " " +
-                QString::number(cur_font_.pointSizeF(), 'f', 1));
-#endif
+        cur_font_.family() + " " + cur_font_.styleName() + " " +
+        QString::number(cur_font_.pointSizeF(), 'f', 1));
     ui->fontSampleLineEdit->setFont(cur_font_);
 
     QString line_edit_ss = QString("QLineEdit { margin-left: %1px; }").arg(margin);
     ui->fontSampleLineEdit->setStyleSheet(line_edit_ss);
 
     QString color_button_ss =
-            "QPushButton {"
-            "  border: 1px solid palette(Dark);"
-            "  background-color: %1;"
-            "  margin-left: %2px;"
-            "}";
+        "QPushButton {"
+        "  border: 1px solid palette(Dark);"
+        "  background-color: %1;"
+        "  margin-left: %2px;"
+        "}";
     QString sample_text_ss =
-            "QLineEdit {"
-            "  color: %1;"
-            "  background-color: %2;"
-            "}";
+        "QLineEdit {"
+        "  color: %1;"
+        "  background-color: %2;"
+        "}";
+    QString sample_text_ex_ss =
+        "QLineEdit {"
+        "  color: %1;"
+        "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1 stop: 0 %3, stop: 0.5 %2, stop: 1 %3);"
+        "}";
 
+    //
+    // Sample active selected item
+    //
+    colorstyle = prefs_get_enum_value(pref_active_style_, pref_stashed);
+
+    // Make foreground and background colors
+    switch (colorstyle)
+    {
+    case COLOR_STYLE_DEFAULT:
+        default_pal = QApplication::palette();
+        default_pal.setCurrentColorGroup(QPalette::Active);
+
+        foreground  = default_pal.highlightedText().color();
+        background1 = default_pal.highlight().color();
+        background2 = default_pal.highlight().color();
+        break;
+
+    case COLOR_STYLE_FLAT:
+        foreground  = ColorUtils::fromColorT(prefs_get_color_value(pref_active_fg_, pref_stashed));
+        background1 = ColorUtils::fromColorT(prefs_get_color_value(pref_active_bg_, pref_stashed));
+        background2 = ColorUtils::fromColorT(prefs_get_color_value(pref_active_bg_, pref_stashed));
+        break;
+
+    case COLOR_STYLE_GRADIENT:
+        foreground  = ColorUtils::fromColorT(prefs_get_color_value(pref_active_fg_, pref_stashed));
+        background1 = ColorUtils::fromColorT(prefs_get_color_value(pref_active_bg_, pref_stashed));
+        background2 = QColor::fromRgb(ColorUtils::alphaBlend(foreground, background1, COLOR_STYLE_ALPHA));
+        break;
+    }
+
+    ui->activeFGPushButton->setStyleSheet(color_button_ss.arg(foreground.name()).arg(margin));
+    ui->activeBGPushButton->setStyleSheet(color_button_ss.arg(background1.name()).arg(0));
+    ui->activeSampleLineEdit->setStyleSheet(sample_text_ex_ss.arg(
+                                                foreground.name(),
+                                                background1.name(),
+                                                background2.name()));
+    ui->activeSampleLineEdit->setFont(cur_font_);
+    ui->activeStyleComboBox->setCurrentIndex(prefs_get_enum_value(pref_active_style_, pref_stashed));
+
+    // Enable or disable the widgets
+    ui->activeFGPushButton->setEnabled(colorstyle != COLOR_STYLE_DEFAULT);
+    ui->activeBGPushButton->setEnabled(colorstyle != COLOR_STYLE_DEFAULT);
+
+    //
+    // Sample inactive selected item
+    //
+    colorstyle = prefs_get_enum_value(pref_inactive_style_, pref_stashed);
+
+    // Make foreground and background colors
+    switch (colorstyle)
+    {
+    case COLOR_STYLE_DEFAULT:
+        default_pal = QApplication::palette();
+        default_pal.setCurrentColorGroup(QPalette::Inactive);
+
+        foreground  = default_pal.highlightedText().color();
+        background1 = default_pal.highlight().color();
+        background2 = default_pal.highlight().color();
+        break;
+
+    case COLOR_STYLE_FLAT:
+        foreground  = ColorUtils::fromColorT(prefs_get_color_value(pref_inactive_fg_, pref_stashed));
+        background1 = ColorUtils::fromColorT(prefs_get_color_value(pref_inactive_bg_, pref_stashed));
+        background2 = ColorUtils::fromColorT(prefs_get_color_value(pref_inactive_bg_, pref_stashed));
+        break;
+
+    case COLOR_STYLE_GRADIENT:
+        foreground  = ColorUtils::fromColorT(prefs_get_color_value(pref_inactive_fg_, pref_stashed));
+        background1 = ColorUtils::fromColorT(prefs_get_color_value(pref_inactive_bg_, pref_stashed));
+        background2 = QColor::fromRgb(ColorUtils::alphaBlend(foreground, background1, COLOR_STYLE_ALPHA));
+        break;
+    }
+
+    ui->inactiveFGPushButton->setStyleSheet(color_button_ss.arg(foreground.name()).arg(margin));
+    ui->inactiveBGPushButton->setStyleSheet(color_button_ss.arg(background1.name()).arg(0));
+    ui->inactiveSampleLineEdit->setStyleSheet(sample_text_ex_ss.arg(
+                                                foreground.name(),
+                                                background1.name(),
+                                                background2.name()));
+    ui->inactiveSampleLineEdit->setFont(cur_font_);
+    ui->inactiveStyleComboBox->setCurrentIndex(prefs_get_enum_value(pref_inactive_style_, pref_stashed));
+
+    // Enable or disable the widgets
+    ui->inactiveFGPushButton->setEnabled(colorstyle != COLOR_STYLE_DEFAULT);
+    ui->inactiveBGPushButton->setEnabled(colorstyle != COLOR_STYLE_DEFAULT);
+
+    //
+    // Sample marked packet text
+    //
     ui->markedFGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_marked_fg_->stashed_val.color).name())
-                                          .arg(margin));
+                                              ColorUtils::fromColorT(prefs_get_color_value(pref_marked_fg_, pref_stashed)).name())
+                                              .arg(margin));
     ui->markedBGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_marked_bg_->stashed_val.color).name())
-                                          .arg(0));
+                                              ColorUtils::fromColorT(prefs_get_color_value(pref_marked_bg_, pref_stashed)).name())
+                                              .arg(0));
     ui->markedSampleLineEdit->setStyleSheet(sample_text_ss.arg(
-                                                ColorUtils::fromColorT(&pref_marked_fg_->stashed_val.color).name(),
-                                                ColorUtils::fromColorT(&pref_marked_bg_->stashed_val.color).name()));
+                                                ColorUtils::fromColorT(prefs_get_color_value(pref_marked_fg_, pref_stashed)).name(),
+                                                ColorUtils::fromColorT(prefs_get_color_value(pref_marked_bg_, pref_stashed)).name()));
     ui->markedSampleLineEdit->setFont(cur_font_);
 
+    //
+    // Sample ignored packet text
+    //
     ui->ignoredFGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_ignored_fg_->stashed_val.color).name())
-                                           .arg(margin));
+                                               ColorUtils::fromColorT(prefs_get_color_value(pref_ignored_fg_, pref_stashed)).name())
+                                               .arg(margin));
     ui->ignoredBGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_ignored_bg_->stashed_val.color).name())
-                                           .arg(0));
+                                               ColorUtils::fromColorT(prefs_get_color_value(pref_ignored_bg_, pref_stashed)).name())
+                                               .arg(0));
     ui->ignoredSampleLineEdit->setStyleSheet(sample_text_ss.arg(
-                                                ColorUtils::fromColorT(&pref_ignored_fg_->stashed_val.color).name(),
-                                                ColorUtils::fromColorT(&pref_ignored_bg_->stashed_val.color).name()));
+                                                 ColorUtils::fromColorT(prefs_get_color_value(pref_ignored_fg_, pref_stashed)).name(),
+                                                 ColorUtils::fromColorT(prefs_get_color_value(pref_ignored_bg_, pref_stashed)).name()));
     ui->ignoredSampleLineEdit->setFont(cur_font_);
 
+    //
+    // Sample "Follow Stream" client text
+    //
     ui->clientFGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_client_fg_->stashed_val.color).name())
-                                          .arg(margin));
+                                              ColorUtils::fromColorT(prefs_get_color_value(pref_client_fg_, pref_stashed)).name())
+                                              .arg(margin));
     ui->clientBGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_client_bg_->stashed_val.color).name())
-                                          .arg(0));
+                                              ColorUtils::fromColorT(prefs_get_color_value(pref_client_bg_, pref_stashed)).name())
+                                              .arg(0));
     ui->clientSampleLineEdit->setStyleSheet(sample_text_ss.arg(
-                                                ColorUtils::fromColorT(&pref_client_fg_->stashed_val.color).name(),
-                                                ColorUtils::fromColorT(&pref_client_bg_->stashed_val.color).name()));
+                                                ColorUtils::fromColorT(prefs_get_color_value(pref_client_fg_, pref_stashed)).name(),
+                                                ColorUtils::fromColorT(prefs_get_color_value(pref_client_bg_, pref_stashed)).name()));
     ui->clientSampleLineEdit->setFont(cur_font_);
 
+    //
+    // Sample "Follow Stream" server text
+    //
     ui->serverFGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_server_fg_->stashed_val.color).name())
-                                          .arg(margin));
+                                              ColorUtils::fromColorT(prefs_get_color_value(pref_server_fg_, pref_stashed)).name())
+                                              .arg(margin));
     ui->serverBGPushButton->setStyleSheet(color_button_ss.arg(
-                                              ColorUtils::fromColorT(&pref_server_bg_->stashed_val.color).name())
-                                          .arg(0));
+                                              ColorUtils::fromColorT(prefs_get_color_value(pref_server_bg_, pref_stashed)).name())
+                                              .arg(0));
     ui->serverSampleLineEdit->setStyleSheet(sample_text_ss.arg(
-                                                ColorUtils::fromColorT(&pref_server_fg_->stashed_val.color).name(),
-                                                ColorUtils::fromColorT(&pref_server_bg_->stashed_val.color).name()));
+                                                ColorUtils::fromColorT(prefs_get_color_value(pref_server_fg_, pref_stashed)).name(),
+                                                ColorUtils::fromColorT(prefs_get_color_value(pref_server_bg_, pref_stashed)).name()));
     ui->serverSampleLineEdit->setFont(cur_font_);
 
+    //
+    // Sample valid filter
+    //
     ui->validFilterBGPushButton->setStyleSheet(color_button_ss.arg(
-                                                   ColorUtils::fromColorT(&pref_valid_bg_->stashed_val.color).name())
-                                               .arg(0));
+                                                   ColorUtils::fromColorT(prefs_get_color_value(pref_valid_bg_, pref_stashed)).name())
+                                                   .arg(0));
     ui->validFilterSampleLineEdit->setStyleSheet(sample_text_ss.arg(
                                                      "palette(text)",
-                                                     ColorUtils::fromColorT(&pref_valid_bg_->stashed_val.color).name()));
+                                                     ColorUtils::fromColorT(prefs_get_color_value(pref_valid_bg_, pref_stashed)).name()));
+
+    //
+    // Sample invalid filter
+    //
     ui->invalidFilterBGPushButton->setStyleSheet(color_button_ss.arg(
-                                                     ColorUtils::fromColorT(&pref_invalid_bg_->stashed_val.color).name())
-                                                 .arg(0));
+                                                     ColorUtils::fromColorT(prefs_get_color_value(pref_invalid_bg_, pref_stashed)).name())
+                                                     .arg(0));
     ui->invalidFilterSampleLineEdit->setStyleSheet(sample_text_ss.arg(
                                                        "palette(text)",
-                                                       ColorUtils::fromColorT(&pref_invalid_bg_->stashed_val.color).name()));
+                                                       ColorUtils::fromColorT(prefs_get_color_value(pref_invalid_bg_, pref_stashed)).name()));
+
+    //
+    // Sample warning filter
+    //
     ui->deprecatedFilterBGPushButton->setStyleSheet(color_button_ss.arg(
-                                                        ColorUtils::fromColorT(&pref_deprecated_bg_->stashed_val.color).name())
-                                                    .arg(0));
+                                                        ColorUtils::fromColorT(prefs_get_color_value(pref_deprecated_bg_, pref_stashed)).name())
+                                                        .arg(0));
     ui->deprecatedFilterSampleLineEdit->setStyleSheet(sample_text_ss.arg(
                                                           "palette(text)",
-                                                          ColorUtils::fromColorT(&pref_deprecated_bg_->stashed_val.color).name()));
+                                                          ColorUtils::fromColorT(prefs_get_color_value(pref_deprecated_bg_, pref_stashed)).name()));
 }
 
 void FontColorPreferencesFrame::changeColor(pref_t *pref)
 {
     QColorDialog color_dlg;
+    color_t* color = prefs_get_color_value(pref, pref_stashed);
 
     color_dlg.setCurrentColor(QColor(
-                                  pref->stashed_val.color.red >> 8,
-                                  pref->stashed_val.color.green >> 8,
-                                  pref->stashed_val.color.blue >> 8
+                                  color->red >> 8,
+                                  color->green >> 8,
+                                  color->blue >> 8
                                   ));
     if (color_dlg.exec() == QDialog::Accepted) {
         QColor cc = color_dlg.currentColor();
-        pref->stashed_val.color.red = cc.red() << 8 | cc.red();
-        pref->stashed_val.color.green = cc.green() << 8 | cc.green();
-        pref->stashed_val.color.blue = cc.blue() << 8 | cc.blue();
+        color_t new_color;
+        new_color.red = cc.red() << 8 | cc.red();
+        new_color.green = cc.green() << 8 | cc.green();
+        new_color.blue = cc.blue() << 8 | cc.blue();
+        prefs_set_color_value(pref, new_color, pref_stashed);
         updateWidgets();
     }
 }
@@ -194,11 +309,43 @@ void FontColorPreferencesFrame::on_fontPushButton_clicked()
     bool ok;
     QFont new_font = QFontDialog::getFont(&ok, cur_font_, this, wsApp->windowTitleString(tr("Font")));
     if (ok) {
-        g_free(pref_qt_gui_font_name_->stashed_val.string);
-        pref_qt_gui_font_name_->stashed_val.string = qstring_strdup(new_font.toString());
+        prefs_set_string_value(pref_qt_gui_font_name_, new_font.toString().toStdString().c_str(), pref_stashed);
         cur_font_ = new_font;
         updateWidgets();
     }
+}
+
+void FontColorPreferencesFrame::on_activeFGPushButton_clicked()
+{
+    changeColor(pref_active_fg_);
+}
+
+void FontColorPreferencesFrame::on_activeBGPushButton_clicked()
+{
+    changeColor(pref_active_bg_);
+}
+
+void FontColorPreferencesFrame::on_activeStyleComboBox_currentIndexChanged(int index)
+{
+    prefs_set_enum_value(pref_active_style_, index, pref_stashed);
+    updateWidgets();
+}
+
+
+void FontColorPreferencesFrame::on_inactiveFGPushButton_clicked()
+{
+    changeColor(pref_inactive_fg_);
+}
+
+void FontColorPreferencesFrame::on_inactiveBGPushButton_clicked()
+{
+    changeColor(pref_inactive_bg_);
+}
+
+void FontColorPreferencesFrame::on_inactiveStyleComboBox_currentIndexChanged(int index)
+{
+    prefs_set_enum_value(pref_inactive_style_, index, pref_stashed);
+    updateWidgets();
 }
 
 void FontColorPreferencesFrame::on_markedFGPushButton_clicked()

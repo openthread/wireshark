@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,7 +17,7 @@
 #include <sys/utsname.h>
 #endif
 
-#ifdef HAVE_OS_X_FRAMEWORKS
+#ifdef HAVE_MACOS_FRAMEWORKS
 #include <CoreFoundation/CoreFoundation.h>
 #include <wsutil/cfutils.h>
 #endif
@@ -40,16 +28,12 @@
 
 #include <wsutil/os_version_info.h>
 
-#ifdef _WIN32
-typedef void (WINAPI *nativesi_func_ptr)(LPSYSTEM_INFO);
-#endif
-
 /*
  * Handles the rather elaborate process of getting OS version information
- * from OS X (we want the OS X version, not the Darwin version, the latter
+ * from macOS (we want the macOS version, not the Darwin version, the latter
  * being easy to get with uname()).
  */
-#ifdef HAVE_OS_X_FRAMEWORKS
+#ifdef HAVE_MACOS_FRAMEWORKS
 
 /*
  * Fetch a string, as a UTF-8 C string, from a dictionary, given a key.
@@ -71,11 +55,14 @@ get_string_from_dictionary(CFPropertyListRef dict, CFStringRef key)
 }
 
 /*
- * Get the OS X version information, and append it to the GString.
+ * Get the macOS version information, and append it to the GString.
  * Return TRUE if we succeed, FALSE if we fail.
+ *
+ * XXX - this gives the OS name as "Mac OS X" even if Apple called/calls
+ * it "OS X" or "macOS".
  */
 static gboolean
-get_os_x_version_info(GString *str)
+get_macos_version_info(GString *str)
 {
 	static const UInt8 server_version_plist_path[] =
 	    "/System/Library/CoreServices/ServerVersion.plist";
@@ -87,7 +74,7 @@ get_os_x_version_info(GString *str)
 	char *string;
 
 	/*
-	 * On OS X, report the OS X version number as the OS, and put
+	 * On macOS, report the macOS version number as the OS, and put
 	 * the Darwin information in parentheses.
 	 *
 	 * Alas, Gestalt() is deprecated in Mountain Lion, so the build
@@ -192,6 +179,14 @@ get_os_x_version_info(GString *str)
 }
 #endif
 
+#ifdef _WIN32
+typedef LONG (WINAPI * RtlGetVersionProc) (OSVERSIONINFOEX *);
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS 0
+#endif
+#include <stdlib.h>
+#endif // _WIN32
+
 /*
  * Get the OS version, and append it to the GString
  */
@@ -199,35 +194,33 @@ void
 get_os_version_info(GString *str)
 {
 #if defined(_WIN32)
-	OSVERSIONINFOEX info;
-	SYSTEM_INFO system_info;
-	nativesi_func_ptr nativesi_func;
-#elif defined(HAVE_SYS_UTSNAME_H)
-	struct utsname name;
-#endif
 
-#if defined(_WIN32)
+	OSVERSIONINFOEX win_version_info = {0};
+	RtlGetVersionProc RtlGetVersionP = 0;
+	LONG version_status = STATUS_ENTRYPOINT_NOT_FOUND; // Any nonzero value should work.
+
 	/*
-	 * See
-	 *
-	 *	http://msdn.microsoft.com/library/default.asp?url=/library/en-us/sysinfo/base/getting_the_system_version.asp
-	 *
-	 * for more than you ever wanted to know about determining the
-	 * flavor of Windows on which you're running.  Implementing more
-	 * of that is left as an exercise to the reader - who should
-	 * check any copyright information about code samples on MSDN
-	 * before cutting and pasting into Wireshark.
-	 *
-	 * They should also note that you need an OSVERSIONINFOEX structure
-	 * to get some of that information, and that not only is that
-	 * structure not supported on older versions of Windows, you might
-	 * not even be able to compile code that *uses* that structure with
-	 * older versions of the SDK.
+	 * We want the major and minor Windows version along with other
+	 * information. GetVersionEx provides this, but is deprecated.
+	 * We use RtlGetVersion instead, which requires a bit of extra
+	 * effort.
 	 */
 
-	memset(&info, '\0', sizeof info);
-	info.dwOSVersionInfoSize = sizeof info;
-	if (!GetVersionEx((OSVERSIONINFO *)&info)) {
+	HMODULE ntdll_module = LoadLibrary(_T("ntdll.dll"));
+	if (ntdll_module) {
+		RtlGetVersionP = (RtlGetVersionProc) GetProcAddress(ntdll_module, "RtlGetVersion");
+	}
+
+	if (RtlGetVersionP) {
+		win_version_info.dwOSVersionInfoSize = sizeof(win_version_info);
+		version_status = RtlGetVersionP(&win_version_info);
+	}
+
+	if (ntdll_module) {
+		FreeLibrary(ntdll_module);
+	}
+
+	if (version_status != STATUS_SUCCESS) {
 		/*
 		 * XXX - get the failure reason.
 		 */
@@ -235,16 +228,13 @@ get_os_version_info(GString *str)
 		return;
 	}
 
+	SYSTEM_INFO system_info;
 	memset(&system_info, '\0', sizeof system_info);
-	/* Look for and use the GetNativeSystemInfo() function if available to get the correct processor
-	 * architecture even when running 32-bit Wireshark in WOW64 (x86 emulation on 64-bit Windows) */
-	nativesi_func = (nativesi_func_ptr)GetProcAddress(GetModuleHandle(_T("kernel32.dll")), "GetNativeSystemInfo");
-	if(nativesi_func)
-		nativesi_func(&system_info);
-	else
-		GetSystemInfo(&system_info);
+	/* Look for and use the GetNativeSystemInfo() function to get the correct processor architecture
+	 * even when running 32-bit Wireshark in WOW64 (x86 emulation on 64-bit Windows) */
+	GetNativeSystemInfo(&system_info);
 
-	switch (info.dwPlatformId) {
+	switch (win_version_info.dwPlatformId) {
 
 	case VER_PLATFORM_WIN32s:
 		/* Shyeah, right. */
@@ -253,11 +243,11 @@ get_os_version_info(GString *str)
 
 	case VER_PLATFORM_WIN32_WINDOWS:
 		/* Windows OT */
-		switch (info.dwMajorVersion) {
+		switch (win_version_info.dwMajorVersion) {
 
 		case 4:
 			/* 3 cheers for Microsoft marketing! */
-			switch (info.dwMinorVersion) {
+			switch (win_version_info.dwMinorVersion) {
 
 			case 0:
 				g_string_append_printf(str, "Windows 95");
@@ -273,31 +263,31 @@ get_os_version_info(GString *str)
 
 			default:
 				g_string_append_printf(str, "Windows OT, unknown version %lu.%lu",
-				    info.dwMajorVersion, info.dwMinorVersion);
+				    win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 				break;
 			}
 			break;
 
 		default:
 			g_string_append_printf(str, "Windows OT, unknown version %lu.%lu",
-			    info.dwMajorVersion, info.dwMinorVersion);
+			    win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 			break;
 		}
 		break;
 
 	case VER_PLATFORM_WIN32_NT:
 		/* Windows NT */
-		switch (info.dwMajorVersion) {
+		switch (win_version_info.dwMajorVersion) {
 
 		case 3:
 		case 4:
 			g_string_append_printf(str, "Windows NT %lu.%lu",
-			    info.dwMajorVersion, info.dwMinorVersion);
+			    win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 			break;
 
 		case 5:
 			/* 3 cheers for Microsoft marketing! */
-			switch (info.dwMinorVersion) {
+			switch (win_version_info.dwMinorVersion) {
 
 			case 0:
 				g_string_append_printf(str, "Windows 2000");
@@ -308,7 +298,7 @@ get_os_version_info(GString *str)
 				break;
 
 			case 2:
-				if ((info.wProductType == VER_NT_WORKSTATION) &&
+				if ((win_version_info.wProductType == VER_NT_WORKSTATION) &&
 				    (system_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)) {
 					g_string_append_printf(str, "Windows XP Professional x64 Edition");
 				} else {
@@ -320,7 +310,7 @@ get_os_version_info(GString *str)
 
 			default:
 				g_string_append_printf(str, "Windows NT, unknown version %lu.%lu",
-						       info.dwMajorVersion, info.dwMinorVersion);
+						       win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 				break;
 			}
 			break;
@@ -334,11 +324,11 @@ get_os_version_info(GString *str)
 				g_string_append(str, "32-bit ");
 #ifndef VER_NT_WORKSTATION
 #define VER_NT_WORKSTATION 0x01
-			is_nt_workstation = ((info.wReserved[1] & 0xff) == VER_NT_WORKSTATION);
+			is_nt_workstation = ((win_version_info.wReserved[1] & 0xff) == VER_NT_WORKSTATION);
 #else
-			is_nt_workstation = (info.wProductType == VER_NT_WORKSTATION);
+			is_nt_workstation = (win_version_info.wProductType == VER_NT_WORKSTATION);
 #endif
-			switch (info.dwMinorVersion) {
+			switch (win_version_info.dwMinorVersion) {
 			case 0:
 				g_string_append_printf(str, is_nt_workstation ? "Windows Vista" : "Windows Server 2008");
 				break;
@@ -353,7 +343,7 @@ get_os_version_info(GString *str)
 				break;
 			default:
 				g_string_append_printf(str, "Windows NT, unknown version %lu.%lu",
-						       info.dwMajorVersion, info.dwMinorVersion);
+						       win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 				break;
 			}
 			break;
@@ -361,19 +351,25 @@ get_os_version_info(GString *str)
 
 		case 10: {
 			gboolean is_nt_workstation;
+                        TCHAR ReleaseId[10];
+                        DWORD ridSize = _countof(ReleaseId);
 
 			if (system_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
 				g_string_append(str, "64-bit ");
 			else if (system_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_INTEL)
 				g_string_append(str, "32-bit ");
-			is_nt_workstation = (info.wProductType == VER_NT_WORKSTATION);
-			switch (info.dwMinorVersion) {
+			is_nt_workstation = (win_version_info.wProductType == VER_NT_WORKSTATION);
+			switch (win_version_info.dwMinorVersion) {
 			case 0:
 				g_string_append_printf(str, is_nt_workstation ? "Windows 10" : "Windows Server 2016");
+                                if (RegGetValue(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                                                L"ReleaseId", RRF_RT_REG_SZ, NULL, &ReleaseId, &ridSize) == ERROR_SUCCESS) {
+                                        g_string_append_printf(str, " (%s)", utf_16to8(ReleaseId));
+                                }
 				break;
 			default:
 				g_string_append_printf(str, "Windows NT, unknown version %lu.%lu",
-						       info.dwMajorVersion, info.dwMinorVersion);
+						       win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 				break;
 			}
 			break;
@@ -381,20 +377,21 @@ get_os_version_info(GString *str)
 
 		default:
 			g_string_append_printf(str, "Windows NT, unknown version %lu.%lu",
-			    info.dwMajorVersion, info.dwMinorVersion);
+			    win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 			break;
 		} /* info.dwMajorVersion */
 		break;
 
 	default:
 		g_string_append_printf(str, "Unknown Windows platform %lu version %lu.%lu",
-		    info.dwPlatformId, info.dwMajorVersion, info.dwMinorVersion);
+		    win_version_info.dwPlatformId, win_version_info.dwMajorVersion, win_version_info.dwMinorVersion);
 		break;
 	}
-	if (info.szCSDVersion[0] != '\0')
-		g_string_append_printf(str, " %s", utf_16to8(info.szCSDVersion));
-	g_string_append_printf(str, ", build %lu", info.dwBuildNumber);
+	if (win_version_info.szCSDVersion[0] != '\0')
+		g_string_append_printf(str, " %s", utf_16to8(win_version_info.szCSDVersion));
+	g_string_append_printf(str, ", build %lu", win_version_info.dwBuildNumber);
 #elif defined(HAVE_SYS_UTSNAME_H)
+	struct utsname name;
 	/*
 	 * We have <sys/utsname.h>, so we assume we have "uname()".
 	 */
@@ -422,23 +419,23 @@ get_os_version_info(GString *str)
 		 * On Solaris, it's some kind of build information.
 		 * On HP-UX, it appears to be some sort of subrevision
 		 * thing.
-		 * On *BSD and Darwin/OS X, it's a long string giving
+		 * On *BSD and Darwin/macOS, it's a long string giving
 		 * a build date, config file name, etc., etc., etc..
 		 */
-#ifdef HAVE_OS_X_FRAMEWORKS
+#ifdef HAVE_MACOS_FRAMEWORKS
 		/*
-		 * On Mac OS X, report the Mac OS X version number as
-		 * the OS version if we can, and put the Darwin information
+		 * On macOS, report the macOS version number as the OS
+		 * version if we can, and put the Darwin information
 		 * in parentheses.
 		 */
-		if (get_os_x_version_info(str)) {
+		if (get_macos_version_info(str)) {
 			/* Success - append the Darwin information. */
 			g_string_append_printf(str, " (%s %s)", name.sysname, name.release);
 		} else {
 			/* Failure - just use the Darwin information. */
 			g_string_append_printf(str, "%s %s", name.sysname, name.release);
 		}
-#else /* HAVE_OS_X_FRAMEWORKS */
+#else /* HAVE_MACOS_FRAMEWORKS */
 		/*
 		 * XXX - on Linux, are there any APIs to get the distribution
 		 * name and version number?  I think some distributions have
@@ -489,38 +486,29 @@ get_os_version_info(GString *str)
 		 *
 		 * and the Lib/Platform.py file in recent Python 2.x
 		 * releases.
+		 *
+		 * And then there's
+		 *
+		 *	http://0pointer.de/blog/projects/os-release
+		 *
+		 * which, apparently, is something that all distributions
+		 * with systemd have, which seems to mean "most distributions"
+		 * these days.  It also has a list of several of the assorted
+		 * *other* such files that various distributions have.
+		 *
+		 * Maybe look at what pre-version-43 systemd does?  43
+		 * removed support for the old files, but I guess that
+		 * means older versions *did* support them:
+		 *
+		 *	https://lists.freedesktop.org/archives/systemd-devel/2012-February/004475.html
 		 */
 		g_string_append_printf(str, "%s %s", name.sysname, name.release);
-#endif /* HAVE_OS_X_FRAMEWORKS */
+#endif /* HAVE_MACOS_FRAMEWORKS */
 	}
 #else
 	g_string_append(str, "an unknown OS");
 #endif
 }
-
-#if defined(_WIN32)
-/*
- * Get the Windows major OS version.
- *
- * XXX - Should this return the minor version as well, e.g. 0x00050002?
- *
- * XXX - I think Microsoft have now stuck it at 6 forever, so it really
- * distinguishes, on the versions of Windows we currently support and
- * future Windows versions between Windows 2000/XP (major version 5) and
- * everything after it (major version 6).
- */
-guint32
-get_windows_major_version(void)
-{
-	OSVERSIONINFO info;
-
-	info.dwOSVersionInfoSize = sizeof info;
-	if (GetVersionEx(&info)) {
-		return info.dwMajorVersion;
-	}
-	return 0;
-}
-#endif
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

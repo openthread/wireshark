@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -126,8 +114,11 @@ static const value_string direction_vals[] = {
 	{ 0,	NULL }
 };
 
+static dissector_handle_t tr_handle;
 static dissector_handle_t trmac_handle;
 static dissector_handle_t llc_handle;
+
+static capture_dissector_handle_t llc_cap_handle;
 
 static const char* tr_conv_get_filter_type(conv_item_t* conv, conv_filter_type_e filter)
 {
@@ -151,7 +142,7 @@ tr_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, c
 	conv_hash_t *hash = (conv_hash_t*) pct;
 	const tr_hdr *trhdr=(const tr_hdr *)vip;
 
-	add_conversation_table_data(hash, &trhdr->src, &trhdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &tr_ct_dissector_info, PT_NONE);
+	add_conversation_table_data(hash, &trhdr->src, &trhdr->dst, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &tr_ct_dissector_info, ENDPOINT_NONE);
 
 	return 1;
 }
@@ -175,8 +166,8 @@ tr_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const
 	/* Take two "add" passes per packet, adding for each direction, ensures that all
 	packets are counted properly (even if address is sending to itself)
 	XXX - this could probably be done more efficiently inside hostlist_table */
-	add_hostlist_table_data(hash, &trhdr->src, 0, TRUE, 1, pinfo->fd->pkt_len, &tr_host_dissector_info, PT_NONE);
-	add_hostlist_table_data(hash, &trhdr->dst, 0, FALSE, 1, pinfo->fd->pkt_len, &tr_host_dissector_info, PT_NONE);
+	add_hostlist_table_data(hash, &trhdr->src, 0, TRUE, 1, pinfo->fd->pkt_len, &tr_host_dissector_info, ENDPOINT_NONE);
+	add_hostlist_table_data(hash, &trhdr->dst, 0, FALSE, 1, pinfo->fd->pkt_len, &tr_host_dissector_info, ENDPOINT_NONE);
 
 	return 1;
 }
@@ -245,7 +236,7 @@ int check_for_old_linux(const guchar * pd)
 static void
 add_ring_bridge_pairs(int rcf_len, tvbuff_t*, proto_tree *tree);
 
-gboolean
+static gboolean
 capture_tr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_) {
 
 	int			source_routed = 0;
@@ -359,7 +350,7 @@ capture_tr(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo,
 	/* The package is either MAC (0) or LLC (1)*/
 	switch (frame_type) {
 		case 1:
-			return capture_llc(pd, offset, len, cpinfo, pseudo_header);
+			return call_capture_dissector(llc_cap_handle, pd, offset, len, cpinfo, pseudo_header);
 	}
 
 	return FALSE;
@@ -790,16 +781,18 @@ proto_register_tr(void)
 	    "Whether Linux mangling of the link-layer header should be checked for and worked around",
 	    &fix_linux_botches);
 
-	register_dissector("tr", dissect_tr, proto_tr);
+	tr_handle = register_dissector("tr", dissect_tr, proto_tr);
 	tr_tap=register_tap("tr");
 
 	register_conversation_table(proto_tr, TRUE, tr_conversation_packet, tr_hostlist_packet);
+
+	register_capture_dissector("tr", capture_tr, proto_tr);
 }
 
 void
 proto_reg_handoff_tr(void)
 {
-	dissector_handle_t tr_handle;
+	capture_dissector_handle_t tr_cap_handle;
 
 	/*
 	 * Get handles for the TR MAC and LLC dissectors.
@@ -807,13 +800,15 @@ proto_reg_handoff_tr(void)
 	trmac_handle = find_dissector_add_dependency("trmac", proto_tr);
 	llc_handle = find_dissector_add_dependency("llc", proto_tr);
 
-	tr_handle = find_dissector("tr");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_TOKEN_RING, tr_handle);
 	dissector_add_uint("sflow_245.header_protocol", SFLOW_245_HEADER_TOKENRING, tr_handle);
 
-	register_capture_dissector("wtap_encap", WTAP_ENCAP_TOKEN_RING, capture_tr, proto_tr);
-	register_capture_dissector("atm_lane", TRAF_ST_LANE_802_5, capture_tr, proto_tr);
-	register_capture_dissector("atm_lane", TRAF_ST_LANE_802_5_MC, capture_tr, proto_tr);
+	tr_cap_handle = find_capture_dissector("tr");
+	capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_TOKEN_RING, tr_cap_handle);
+	capture_dissector_add_uint("atm_lane", TRAF_ST_LANE_802_5, tr_cap_handle);
+	capture_dissector_add_uint("atm_lane", TRAF_ST_LANE_802_5_MC, tr_cap_handle);
+
+	llc_cap_handle = find_capture_dissector("llc");
 }
 
 /*

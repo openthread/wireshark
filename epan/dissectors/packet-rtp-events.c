@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  * Ref http://www.ietf.org/rfc/rfc4733.txt?number=4733
  */
 
@@ -318,6 +306,8 @@ value_string_ext rtp_event_type_values_ext = VALUE_STRING_EXT_INIT(rtp_event_typ
 
 static gint ett_rtp_events           = -1;
 
+static dissector_handle_t rtp_events_handle;
+
 static struct _rtp_event_info rtp_event_info;
 
 static int
@@ -493,7 +483,7 @@ proto_register_rtp_events(void)
 				    " that specifies Cisco Named Signaling Events", 10,
 				    &cisco_nse_pt_value);
 
-	register_dissector("rtpevent", dissect_rtp_events, proto_rtp_events);
+	rtp_events_handle = register_dissector("rtpevent", dissect_rtp_events, proto_rtp_events);
 	rtp_event_tap = register_tap("rtpevent");
 }
 
@@ -502,7 +492,6 @@ proto_register_rtp_events(void)
 void
 proto_reg_handoff_rtp_events(void)
 {
-	static dissector_handle_t rtp_events_handle;
 	/* saved_payload_type_value is a temporary place to save */
 	/* the value so we can properly reinitialize when the    */
 	/* settings get changed.                                 */
@@ -511,7 +500,6 @@ proto_reg_handoff_rtp_events(void)
 	static gboolean rtp_events_prefs_initialized = FALSE;
 
 	if (!rtp_events_prefs_initialized) {
-		rtp_events_handle = find_dissector("rtpevent");
 		dissector_add_string("rtp_dyn_payload_type", "telephone-event", rtp_events_handle);
 		dissector_add_string("rtp_dyn_payload_type", "X-NSE", rtp_events_handle);
 		rtp_events_prefs_initialized = TRUE;

@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wireless_frame.h"
@@ -31,11 +19,12 @@
 
 #include <caputils/ws80211_utils.h>
 
-#include <ui/ui_util.h>
+#include "ui/ws_ui_util.h"
 #include <wsutil/utf8_entities.h>
 #include <wsutil/frequency-utils.h>
 
 #include <QProcess>
+#include <QAbstractItemView>
 
 // To do:
 // - Disable or hide invalid channel types.
@@ -85,6 +74,7 @@ WirelessFrame::WirelessFrame(QWidget *parent) :
 
 WirelessFrame::~WirelessFrame()
 {
+    ws80211_free_interfaces(interfaces_);
     delete ui;
 }
 
@@ -148,7 +138,6 @@ void WirelessFrame::timerEvent(QTimerEvent *event)
     }
 }
 
-Q_DECLARE_METATYPE(struct ws80211_interface *)
 void WirelessFrame::updateWidgets()
 {
     bool enable_interface = false;
@@ -210,8 +199,8 @@ void WirelessFrame::getInterfaceInfo()
 
             ws80211_get_iface_info(iface->ifname, &iface_info);
 
-            for (guint i = 0; i < iface->frequencies->len; i++) {
-                guint32 frequency = g_array_index(iface->frequencies, guint32, i);
+            for (guint j = 0; j < iface->frequencies->len; j++) {
+                guint32 frequency = g_array_index(iface->frequencies, guint32, j);
                 double ghz = frequency / 1000.0;
                 QString chan_str = QString("%1 " UTF8_MIDDLE_DOT " %2%3")
                         .arg(ieee80211_mhz_to_chan(frequency))
@@ -273,22 +262,28 @@ void WirelessFrame::setInterfaceInfo()
 
     if (cur_iface.isEmpty() || cur_chan_idx < 0 || cur_type_idx < 0) return;
 
-#if defined(HAVE_LIBNL) && defined(HAVE_NL80211)
+#if defined(HAVE_LIBNL) && defined(HAVE_NL80211) && defined(HAVE_LIBPCAP)
     int frequency = ui->channelComboBox->itemData(cur_chan_idx).toInt();
     int chan_type = ui->channelTypeComboBox->itemData(cur_type_idx).toInt();
     int bandwidth = getBandwidthFromChanType(chan_type);
     int center_freq = getCenterFrequency(frequency, bandwidth);
     const gchar *chan_type_s = ws80211_chan_type_to_str(chan_type);
+    gchar *center_freq_s = NULL;
     gchar *data, *primary_msg, *secondary_msg;
     int ret;
 
     if (frequency < 0 || chan_type < 0) return;
 
+    if (center_freq != -1) {
+        center_freq_s = g_strdup(QString::number(center_freq).toUtf8().constData());
+    }
+
     ret = sync_interface_set_80211_chan(cur_iface.toUtf8().constData(),
                                         QString::number(frequency).toUtf8().constData(), chan_type_s,
-                                        QString::number(center_freq).toUtf8().constData(), "-1",
+                                        center_freq_s, NULL,
                                         &data, &primary_msg, &secondary_msg, main_window_update);
 
+    g_free(center_freq_s);
     g_free(data);
     g_free(primary_msg);
     g_free(secondary_msg);

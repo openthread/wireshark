@@ -8,39 +8,27 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "mtp3_summary_dialog.h"
-#include "ui_mtp3_summary_dialog.h"
+#include <ui_mtp3_summary_dialog.h>
 
 #include "config.h"
 
 #include <glib.h>
 
-#include "globals.h"
-#include "summary.h"
-
 #include <epan/tap.h>
 
 #include <epan/dissectors/packet-mtp3.h>
 
+#include "wsutil/utf8_entities.h"
+
 #include "ui/capture_globals.h"
 #include "ui/simple_dialog.h"
+#include "ui/summary.h"
 
-#include "qt_ui_utils.h"
+#include <ui/qt/utils/qt_ui_utils.h>
 
 #include <QTextStream>
 
@@ -131,7 +119,7 @@ QString Mtp3SummaryDialog::summaryToHtml()
         << table_data_tmpl.arg(format_str)
         << table_row_end;
 
-    if (summary.has_snap) {
+    if (summary.snap != 0) {
         out << table_row_begin
             << table_vheader_tmpl.arg(tr("Snapshot length"))
             << table_data_tmpl.arg(summary.snap)
@@ -189,8 +177,7 @@ QString Mtp3SummaryDialog::summaryToHtml()
 
     out << table_end;
 
-    // TRANSLATOR Abbreviation for "not applicable"
-    QString n_a = tr("N/A");
+    QString n_a = UTF8_EM_DASH;
     int total_msus = 0;
     int total_bytes = 0;
     double seconds = summary.stop_time - summary.start_time;
@@ -208,7 +195,7 @@ QString Mtp3SummaryDialog::summaryToHtml()
         << table_hheader15_tmpl.arg(tr("Bytes/s"))
         << table_row_end;
 
-    for (size_t si_code = 0; si_code < MTP3_NUM_SI_CODE; si_code++) {
+    for (size_t ws_si_code = 0; ws_si_code < MTP3_NUM_SI_CODE; ws_si_code++) {
         int si_msus = 0;
         int si_bytes = 0;
         QString msus_s_str = n_a;
@@ -216,8 +203,8 @@ QString Mtp3SummaryDialog::summaryToHtml()
         QString bytes_s_str = n_a;
 
         for (size_t stat_idx = 0; stat_idx < mtp3_num_used; stat_idx++) {
-            si_msus += mtp3_stat[stat_idx].mtp3_si_code[si_code].num_msus;
-            si_bytes += mtp3_stat[stat_idx].mtp3_si_code[si_code].size;
+            si_msus += mtp3_stat[stat_idx].mtp3_si_code[ws_si_code].num_msus;
+            si_bytes += mtp3_stat[stat_idx].mtp3_si_code[ws_si_code].size;
         }
         total_msus += si_msus;
         total_bytes += si_bytes;
@@ -232,7 +219,7 @@ QString Mtp3SummaryDialog::summaryToHtml()
         }
 
         out << table_row_begin
-            << table_data_tmpl.arg(mtp3_service_indicator_code_short_vals[si_code].strptr)
+            << table_data_tmpl.arg(mtp3_service_indicator_code_short_vals[ws_si_code].strptr)
             << table_data_tmpl.arg(si_msus)
             << table_data_tmpl.arg(msus_s_str)
             << table_data_tmpl.arg(si_bytes)
@@ -379,6 +366,7 @@ register_tap_listener_qt_mtp3_summary(void)
     register_tap_listener("mtp3", &mtp3_stat, NULL, 0,
         mtp3_summary_reset,
         mtp3_summary_packet,
+        NULL,
         NULL);
 
     if (err_p != NULL)

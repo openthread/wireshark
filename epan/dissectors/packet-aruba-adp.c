@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -27,7 +15,7 @@
 #include <epan/packet.h>
 #include <epan/addr_resolv.h>
 
-#define UDP_PORT_ADP 8200
+#define UDP_PORT_ADP 8200 /* Not IANA registered */
 #define ADP_REQUEST 1
 #define ADP_RESPONSE 2
 
@@ -148,7 +136,7 @@ proto_reg_handoff_aruba_adp(void)
     dissector_handle_t adp_handle;
 
     adp_handle = create_dissector_handle(dissect_aruba_adp, proto_aruba_adp);
-    dissector_add_uint("udp.port", UDP_PORT_ADP, adp_handle);
+    dissector_add_uint_with_preference("udp.port", UDP_PORT_ADP, adp_handle);
 }
 
 /*

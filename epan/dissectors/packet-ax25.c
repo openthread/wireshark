@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -51,7 +39,6 @@
 #include <epan/xdlc.h>
 #include <epan/ax25_pids.h>
 #include <epan/ipproto.h>
-#include "packet-ax25.h"
 
 #define STRLEN	80
 
@@ -63,6 +50,8 @@ void proto_reg_handoff_ax25(void);
 
 /* Dissector table */
 static dissector_table_t ax25_dissector_table;
+
+static capture_dissector_handle_t ax25_cap_handle;
 
 /* Initialize the protocol and registered fields */
 static int proto_ax25		= -1;
@@ -250,7 +239,7 @@ dissect_ax25( tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* 
 	return tvb_captured_length(tvb);
 }
 
-gboolean
+static gboolean
 capture_ax25( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header)
 {
 	guint8 control;
@@ -409,8 +398,10 @@ proto_register_ax25(void)
 	proto_register_subtree_array(ett, array_length(ett ) );
 
 	/* Register dissector table for protocol IDs */
-	ax25_dissector_table = register_dissector_table("ax25.pid", "AX.25 protocol ID", proto_ax25, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	ax25_dissector_table = register_dissector_table("ax25.pid", "AX.25 protocol ID", proto_ax25, FT_UINT8, BASE_HEX);
 	register_capture_dissector_table("ax25.pid", "AX.25");
+
+	ax25_cap_handle = register_capture_dissector("ax25", capture_ax25, proto_ax25);
 }
 
 void
@@ -419,7 +410,7 @@ proto_reg_handoff_ax25(void)
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_AX25, ax25_handle);
 	dissector_add_uint("ip.proto", IP_PROTO_AX25, ax25_handle);
 
-	register_capture_dissector("wtap_encap", WTAP_ENCAP_AX25, capture_ax25, proto_ax25);
+	capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_AX25, ax25_cap_handle);
 }
 
 /*

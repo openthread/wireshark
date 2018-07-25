@@ -4,27 +4,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef CONVERSATION_DIALOG_H
 #define CONVERSATION_DIALOG_H
 
 #include "traffic_table_dialog.h"
-
-Q_DECLARE_METATYPE(conv_item_t *)
 
 class ConversationTreeWidget : public TrafficTableTreeWidget
 {
@@ -35,12 +21,19 @@ public:
 
     static void tapReset(void *conv_hash_ptr);
     static void tapDraw(void *conv_hash_ptr);
+    double minRelStartTime() { return min_rel_start_time_; }
+    double maxRelStopTime() { return max_rel_stop_time_; }
+
+public slots:
+    void updateStartTime(bool absolute);
 
 private:
     void initDirectionMap();
+    void updateItems();
+    double min_rel_start_time_; // seconds
+    double max_rel_stop_time_; // seconds
 
 private slots:
-    void updateItems();
     void filterActionTriggered();
 };
 
@@ -63,8 +56,8 @@ public slots:
     void captureFileClosing();
 
 signals:
-    void filterAction(QString& filter, FilterAction::Action action, FilterAction::ActionType type);
-    void openFollowStreamDialog(follow_type_t type);
+    void filterAction(QString filter, FilterAction::Action action, FilterAction::ActionType type);
+    void openFollowStreamDialog(follow_type_t type, int stream_num);
     void openTcpStreamGraph(int graph_type);
 
 private:
@@ -75,8 +68,8 @@ private:
     conv_item_t *currentConversation();
 
 private slots:
-    void itemSelectionChanged();
-    void on_nameResolutionCheckBox_toggled(bool checked);
+    void currentTabChanged();
+    void conversationSelectionChanged();
     void on_displayFilterCheckBox_toggled(bool checked);
     void followStream();
     void graphTcp();

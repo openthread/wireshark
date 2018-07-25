@@ -4,24 +4,21 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
 include(UseABICheck)
 
-set(WIRETAP_FILES
+set(WIRETAP_PUBLIC_HEADERS
+	file_wrappers.h
+	merge.h
+	pcap-encap.h
+	pcapng_module.h
+	wtap.h
+	wtap_opttypes.h
+)
+
+set(WIRETAP_NONGENERATED_FILES
 	5views.c
 	aethra.c
 	ascendtext.c
@@ -36,6 +33,7 @@ set(WIRETAP_FILES
 	csids.c
 	daintree-sna.c
 	dbs-etherwatch.c
+	dpa400.c
 	dct3trace.c
 	erf.c
 	eyesdn.c
@@ -54,6 +52,7 @@ set(WIRETAP_FILES
 	logcat_text.c
 	merge.c
 	mpeg.c
+	mplog.c
 	mime_file.c
 	mp2t.c
 	netmon.c
@@ -69,8 +68,10 @@ set(WIRETAP_FILES
 	pcapng.c
 	peekclassic.c
 	peektagged.c
+	pem.c
 	pppdump.c
 	radcom.c
+	ruby_marshal.c
 	snoop.c
 	stanag4607.c
 	tnef.c
@@ -80,23 +81,27 @@ set(WIRETAP_FILES
 	vwr.c
 	wtap.c
 	wtap_opttypes.c
+	${CMAKE_SOURCE_DIR}/version_info.c
 )
 
-if (WERROR_COMMON_FLAGS)
-	set_source_files_properties(
-		${WIRETAP_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
-	)
-endif()
+set(WIRETAP_FILES ${WIRETAP_NONGENERATED_FILES})
 
-add_lex_files(WIRETAP_FILES
+add_lex_files(LEX_FILES WIRETAP_FILES
 	ascend_scanner.l
 	k12text.l
 )
 
-add_yacc_files(WIRETAP_FILES
+add_yacc_files(YACC_FILES WIRETAP_FILES
 	ascend.y
+)
+
+#
+# All files are warning-clean.  (Let's keep it that way.)
+#
+set_source_files_properties(
+	${WIRETAP_FILES}
+	PROPERTIES
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
 )
 
 set(wiretap_LIBS
@@ -106,27 +111,32 @@ set(wiretap_LIBS
 	wsutil
 )
 
-add_library(wiretap ${LINK_MODE_LIB}
+add_library(wiretap
 	${WIRETAP_FILES}
 	${CMAKE_BINARY_DIR}/image/wiretap.rc
 )
 
-set(FULL_SO_VERSION "0.0.0")
+add_dependencies(wiretap version)
 
 set_target_properties(wiretap PROPERTIES
+	PREFIX "lib"
 	COMPILE_DEFINITIONS "WS_BUILD_DLL"
 	LINK_FLAGS "${WS_LINK_FLAGS}"
-	VERSION ${FULL_SO_VERSION} SOVERSION 0
+	VERSION "0.0.0" SOVERSION 0
 	FOLDER "DLLs"
 )
-IF(MSVC)
-	set_target_properties(wiretap PROPERTIES OUTPUT_NAME "wiretap-${PROJECT_VERSION}")
-ENDIF()
 
 if(ENABLE_APPLICATION_BUNDLE)
-	set_target_properties(wiretap PROPERTIES
-		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/Frameworks
-	)
+	if(NOT CMAKE_CFG_INTDIR STREQUAL ".")
+		# Xcode
+		set_target_properties(wiretap PROPERTIES
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/$<CONFIG>/Wireshark.app/Contents/Frameworks
+		)
+	else()
+		set_target_properties(wiretap PROPERTIES
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/Frameworks
+		)
+	endif()
 endif()
 
 ABICHECK(libwiretap)
@@ -143,10 +153,41 @@ add_custom_command(OUTPUT libwiretap.abi.tar.gz
 
 target_link_libraries(wiretap ${wiretap_LIBS})
 
-if(NOT ${ENABLE_STATIC})
-	install(TARGETS wiretap
-		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-		RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
-		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(TARGETS wiretap
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+if(NOT WIN32)
+	install(FILES ${WIRETAP_PUBLIC_HEADERS}
+		DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${CPACK_PACKAGE_NAME}/wiretap"
 	)
 endif()
+
+CHECKAPI(
+	NAME
+	  wiretap
+	SWITCHES
+## 'abort' checking disabled for now pending resolution of existing use of g_assert & g_error
+##	  -g abort -g termoutput
+	  -g termoutput -build
+	SOURCES
+	  ${WIRETAP_NONGENERATED_FILES}
+# LEX files commented out due to use of malloc, free etc.
+#	  ${LEX_FILES}
+	  ${YACC_FILES}
+)
+
+#
+# Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+#
+# Local variables:
+# c-basic-offset: 8
+# tab-width: 8
+# indent-tabs-mode: t
+# End:
+#
+# vi: set shiftwidth=8 tabstop=8 noexpandtab:
+# :indentSize=8:tabSize=8:noTabs=false:
+#

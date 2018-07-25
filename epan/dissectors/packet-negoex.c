@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -74,6 +62,8 @@ static gint ett_negoex_exchange = -1;
 static gint ett_negoex_checksum = -1;
 static gint ett_negoex_checksum_vector = -1;
 static gint ett_negoex_byte_vector = -1;
+
+static dissector_handle_t negoex_handle;
 
 /* If you add more message types, add them in sequence and update MAX_MSG */
 #define MESSAGE_TYPE_INITIATOR_NEGO      0
@@ -399,7 +389,7 @@ dissect_negoex(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
                           tvb, offset, 8, ENC_ASCII | ENC_NA);
       offset += 8;
 
-      col_append_sep_fstr(pinfo->cinfo, COL_INFO, ", ", "%s",
+      col_append_sep_str(pinfo->cinfo, COL_INFO, ", ",
                           val_to_str_const(message_type,
                                            negoex_message_types,
                                            "Unknown NEGOEX message type"));
@@ -446,7 +436,7 @@ dissect_negoex(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
        * Construct a new TVB covering just this message and pass to the
        * sub-dissector
        */
-      msg_tvb = tvb_new_subset(tvb,
+      msg_tvb = tvb_new_subset_length_caplen(tvb,
                                start_offset,
                                MIN(message_len, tvb_captured_length(tvb)),
                                message_len);
@@ -618,17 +608,14 @@ proto_register_negoex(void)
 
   /* negoex_module = prefs_register_protocol(proto_negoex, NULL);*/
 
-  register_dissector("negoex", dissect_negoex, proto_negoex);
+  negoex_handle = register_dissector("negoex", dissect_negoex, proto_negoex);
 }
 
 void
 proto_reg_handoff_negoex(void)
 {
-  dissector_handle_t negoex_handle;
 
   /* Register protocol with the GSS-API module */
-
-  negoex_handle = find_dissector("negoex");
   gssapi_init_oid("1.3.6.1.4.1.311.2.2.30", proto_negoex, ett_negoex,
                   negoex_handle, NULL,
                   "NEGOEX - SPNEGO Extended Negotiation Security Mechanism");

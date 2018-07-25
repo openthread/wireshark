@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -68,7 +56,9 @@ static int hf_cotp_eot_extended = -1;
 static int hf_cotp_parameter_code = -1;
 static int hf_cotp_parameter_length = -1;
 static int hf_cotp_parameter_value = -1;
-static int hf_cotp_atn_extended_checksum = -1;
+static int hf_cotp_atn_extended_checksum16 = -1;
+static int hf_cotp_atn_extended_checksum32 = -1;
+static int hf_cotp_atn_extended_checksum_status = -1;
 static int hf_cotp_ack_time = -1;
 static int hf_cotp_res_error_rate_target_value = -1;
 static int hf_cotp_res_error_rate_min_accept = -1;
@@ -92,6 +82,7 @@ static int hf_cotp_lower_window_edge = -1;
 static int hf_cotp_credit = -1;
 static int hf_cotp_tpdu_size = -1;
 static int hf_cotp_checksum = -1;
+static int hf_cotp_checksum_status = -1;
 static int hf_cotp_vp_version_nr = -1;
 static int hf_cotp_network_expedited_data = -1;
 static int hf_cotp_vp_opt_sel_class1_use = -1;
@@ -121,6 +112,9 @@ static expert_field ei_cotp_reject = EI_INIT;
 static expert_field ei_cotp_connection = EI_INIT;
 static expert_field ei_cotp_disconnect_request = EI_INIT;
 static expert_field ei_cotp_preferred_maximum_tpdu_size = EI_INIT;
+static expert_field ei_cotp_atn_extended_checksum = EI_INIT;
+static expert_field ei_cotp_checksum = EI_INIT;
+
 
 static int  proto_cltp         = -1;
 static gint ett_cltp           = -1;
@@ -148,6 +142,8 @@ static const fragment_items cotp_frag_items = {
 
 static dissector_handle_t rdp_cr_handle;
 static dissector_handle_t rdp_cc_handle;
+static dissector_handle_t ositp_handle;
+
 
 /*
  * ISO8073 OSI COTP definition
@@ -440,10 +436,8 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
   gint32          i                       = 0;
   guint8          tmp_code                = 0;
   guint           tmp_len                 = 0;
-  cksum_status_t  cksum_status;
-  gboolean        checksum_ok             = FALSE;
   guint32         pref_max_tpdu_size;
-  proto_item     *ti, *hidden_item;
+  proto_item     *hidden_item;
 
   while (vp_length != 0) {
     code = tvb_get_guint8(tvb, offset);
@@ -462,6 +456,7 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
 
     case VP_ATN_EC_16 : /* ATN */
       if (cotp_decode_atn) {
+        guint16 sum;
         /* if an alternate OSI checksum is present in the currently unprocessed
          * VP section to the checksum algorithm has to know.
          * this may be the case for backward compatible CR TPDU */
@@ -477,12 +472,12 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
             i += tmp_len;
           }
         }
-        checksum_ok = check_atn_ec_16(tvb, tpdu_len , offset,
+        sum = check_atn_ec_16(tvb, tpdu_len , offset,
                                       offset_iso8073_checksum,
                                       pinfo->dst.len, (const guint8 *)pinfo->dst.data,
                                       pinfo->src.len, (const guint8 *)pinfo->src.data);
-        ti = proto_tree_add_item(tree, hf_cotp_atn_extended_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
-        proto_item_append_text(ti, checksum_ok ? " (correct)" : " (incorrect)");
+        proto_tree_add_checksum(tree, tvb, offset, hf_cotp_atn_extended_checksum16, hf_cotp_atn_extended_checksum_status, &ei_cotp_atn_extended_checksum,
+                                pinfo, sum, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_ZERO);
       } else {
         proto_tree_add_bytes_format_value(tree, hf_cotp_parameter_value, tvb, offset, length, NULL, "<not shown>");
       }
@@ -492,6 +487,7 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
 
     case VP_ATN_EC_32 : /* ATN */
       if (cotp_decode_atn) {
+        guint32 sum;
         /* if an alternate OSI checksum is present in the currently unprocessed
          * VP section the checksum algorithm has to know.
          * this may be the case for backward compatible CR TPDU */
@@ -507,12 +503,12 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
             i += tmp_len;
           }
         }
-        checksum_ok = check_atn_ec_32(tvb, tpdu_len , offset,
+        sum = check_atn_ec_32(tvb, tpdu_len , offset,
                                       offset_iso8073_checksum,
                                       pinfo->dst.len, (const guint8 *)pinfo->dst.data,
                                       pinfo->src.len, (const guint8 *)pinfo->src.data);
-        ti = proto_tree_add_item(tree, hf_cotp_atn_extended_checksum, tvb, offset, 4, ENC_BIG_ENDIAN);
-        proto_item_append_text(ti, checksum_ok ? " (correct)" : " (incorrect)");
+        proto_tree_add_checksum(tree, tvb, offset, hf_cotp_atn_extended_checksum32, hf_cotp_atn_extended_checksum_status, &ei_cotp_atn_extended_checksum,
+                                pinfo, sum, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_ZERO);
       } else {
         proto_tree_add_bytes_format_value(tree, hf_cotp_parameter_value, tvb, offset, length, NULL, "<not shown>");
       }
@@ -528,19 +524,17 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
 
     case VP_RES_ERROR:
       s = tvb_get_guint8(tvb, offset);
-      proto_tree_add_uint_format(tree, hf_cotp_res_error_rate_target_value, tvb, offset, 1,
-                          s, "Residual error rate, target value: 10^%u", s);
+      proto_tree_add_uint_format_value(tree, hf_cotp_res_error_rate_target_value, tvb, offset, 1, s, "10^%u", s);
       offset += 1;
       vp_length -= 1;
 
       s = tvb_get_guint8(tvb, offset);
-      proto_tree_add_uint_format(tree, hf_cotp_res_error_rate_min_accept, tvb, offset, 1,
-                          s, "Residual error rate, minimum acceptable: 10^%u", s);
+      proto_tree_add_uint_format_value(tree, hf_cotp_res_error_rate_min_accept, tvb, offset, 1, s, "10^%u", s);
       offset += 1;
       vp_length -= 1;
 
       s = tvb_get_guint8(tvb, offset);
-      proto_tree_add_uint(tree,hf_cotp_res_error_rate_tdsu, tvb, offset, 1, 1 << s);
+      proto_tree_add_uint_format_value(tree, hf_cotp_res_error_rate_tdsu, tvb, offset, 1, s, "2^%u", s);
       offset += 1;
       vp_length -= 1;
       break;
@@ -691,36 +685,21 @@ static gboolean ositp_decode_var_part(tvbuff_t *tvb, int offset, int vp_length,
 
     case VP_CHECKSUM:
       offset_iso8073_checksum = offset; /* save ISO 8073 checksum offset for ATN extended checksum calculation */
-      cksum_status = calc_checksum(tvb, 0, tpdu_len,
-                                   tvb_get_ntohs(tvb, offset));
-      switch (cksum_status) {
 
-      default:
-        /*
-         * No checksum present, or not enough of the packet present to
-         * checksum it.
-         */
-        proto_tree_add_item(tree, hf_cotp_checksum, tvb, offset, 2, ENC_BIG_ENDIAN);
-        break;
+      if (tvb_get_ntohs(tvb, offset) == 0) {
+        /* No checksum present */
+        proto_tree_add_checksum(tree, tvb, offset, hf_cotp_checksum, hf_cotp_checksum_status, &ei_cotp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NOT_PRESENT);
+      } else {
+        guint32 calc_c0 = 0, calc_c1 = 0;
 
-      case CKSUM_OK:
-        /*
-         * Checksum is correct.
-         */
-        s = tvb_get_ntohs(tvb, offset);
-        proto_tree_add_uint_format_value(tree, hf_cotp_checksum, tvb, offset, 2,
-                            s, "0x%04x (correct)", s);
-        break;
-
-      case CKSUM_NOT_OK:
-        /*
-         * Checksum is not correct.
-         */
-        s = tvb_get_ntohs(tvb, offset);
-        proto_tree_add_uint_format_value(tree, hf_cotp_checksum, tvb, offset, 2,
-                            s, "0x%04x (incorrect)", s);
-        break;
+        if (osi_calc_checksum(tvb, 0, length, &calc_c0, &calc_c1)) {
+            /* Successfully processed checksum, verify it */
+            proto_tree_add_checksum(tree, tvb, offset, hf_cotp_checksum, hf_cotp_checksum_status, &ei_cotp_checksum, pinfo, calc_c0 | calc_c1, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_ZERO);
+        } else {
+            proto_tree_add_checksum(tree, tvb, offset, hf_cotp_checksum, hf_cotp_checksum_status, &ei_cotp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
+        }
       }
+
       offset += length;
       vp_length -= length;
       break;
@@ -984,12 +963,10 @@ static int ositp_decode_DT(tvbuff_t *tvb, int offset, guint8 li, guint8 tpdu,
         cotp_frame_reset = FALSE;
         cotp_last_fragment = fragment;
         dst_ref = cotp_dst_ref;
-        conv = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                 pinfo->ptype, pinfo->srcport, pinfo->destport,
-                                 0);
+        conv = find_conversation_pinfo(pinfo, 0);
         if (conv) {
           /* Found a conversation, also use index for the generated dst_ref */
-          dst_ref += (conv->index << 16);
+          dst_ref += (conv->conv_index << 16);
         }
         if (!fragment) {
           cotp_dst_ref++;
@@ -2215,23 +2192,7 @@ static gint dissect_ositp_inactive(tvbuff_t *tvb, packet_info *pinfo,
 static void
 cotp_reassemble_init(void)
 {
-  /*
-   * XXX - this is a connection-oriented transport-layer protocol,
-   * so we should probably use more than just network-layer
-   * endpoint addresses to match segments together, but the functions
-   * in addresses_ports_reassembly_table_functions do matching based
-   * on port numbers, so they won't let us ensure that segments from
-   * different connections don't get assembled together.
-   */
-  reassembly_table_init(&cotp_reassembly_table,
-                        &addresses_reassembly_table_functions);
   cotp_dst_ref = 0;
-}
-
-static void
-cotp_reassemble_cleanup(void)
-{
-  reassembly_table_destroy(&cotp_reassembly_table);
 }
 
 void proto_register_cotp(void)
@@ -2338,7 +2299,9 @@ void proto_register_cotp(void)
       { &hf_cotp_parameter_code, { "Parameter code", "cotp.parameter_code", FT_UINT8, BASE_HEX, VALS(tp_vpart_type_vals), 0x0, NULL, HFILL }},
       { &hf_cotp_parameter_length, { "Parameter length", "cotp.parameter_length", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_cotp_parameter_value, { "Parameter value", "cotp.parameter_value", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-      { &hf_cotp_atn_extended_checksum, { "ATN extended checksum", "cotp.atn_extended_checksum", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_cotp_atn_extended_checksum16, { "ATN extended checksum", "cotp.atn_extended_checksum", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_cotp_atn_extended_checksum32, { "ATN extended checksum", "cotp.atn_extended_checksum", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_cotp_atn_extended_checksum_status, { "ATN extended checksum Status", "cotp.atn_extended_checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
       { &hf_cotp_ack_time, { "Ack time (ms)", "cotp.ack_time", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_cotp_res_error_rate_target_value, { "Residual error rate, target value", "cotp.res_error_rate.target_value", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_cotp_res_error_rate_min_accept, { "Residual error rate, minimum acceptable", "cotp.res_error_rate.min_accept", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -2362,6 +2325,7 @@ void proto_register_cotp(void)
       { &hf_cotp_credit, { "Credit", "cotp.credit", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_cotp_tpdu_size, { "TPDU size", "cotp.tpdu_size", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_cotp_checksum, { "Checksum", "cotp.checksum", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_cotp_checksum_status, { "Checksum Status", "cotp.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
       { &hf_cotp_vp_version_nr, { "Version", "cotp.vp_version_nr", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_cotp_network_expedited_data, { "Use of network expedited data", "cotp.network_expedited_data", FT_BOOLEAN, 8, TFS(&tfs_used_notused), 0x08, NULL, HFILL }},
       { &hf_cotp_vp_opt_sel_class1_use, { "Use", "cotp.vp_opt_sel_class1_use", FT_BOOLEAN, 8, TFS(&tfs_vp_opt_sel_class1_use), 0x04, NULL, HFILL }},
@@ -2386,6 +2350,8 @@ void proto_register_cotp(void)
       { &ei_cotp_disconnect_confirm, { "cotp.disconnect_confirm", PI_SEQUENCE, PI_CHAT, "Disconnect Confirm(DC): 0x%x -> 0x%x", EXPFILL }},
       { &ei_cotp_multiple_tpdus, { "cotp.multiple_tpdus", PI_SEQUENCE, PI_NOTE, "Multiple TPDUs in one packet", EXPFILL }},
       { &ei_cotp_preferred_maximum_tpdu_size, { "cotp.preferred_maximum_tpdu_size.invalid", PI_PROTOCOL, PI_WARN, "Preferred maximum TPDU size: bogus length", EXPFILL }},
+      { &ei_cotp_atn_extended_checksum, { "cotp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+      { &ei_cotp_checksum, { "cotp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
   };
 
   module_t *cotp_module;
@@ -2431,11 +2397,20 @@ void proto_register_cotp(void)
   cotp_heur_subdissector_list = register_heur_dissector_list("cotp", proto_cotp);
 
   /* XXX - what about CLTP and proto_cltp? */
-  register_dissector("ositp", dissect_ositp, proto_cotp);
+  ositp_handle = register_dissector("ositp", dissect_ositp, proto_cotp);
   register_dissector("ositp_inactive", dissect_ositp_inactive, proto_cotp);
 
   register_init_routine(cotp_reassemble_init);
-  register_cleanup_routine(cotp_reassemble_cleanup);
+  /*
+   * XXX - this is a connection-oriented transport-layer protocol,
+   * so we should probably use more than just network-layer
+   * endpoint addresses to match segments together, but the functions
+   * in addresses_ports_reassembly_table_functions do matching based
+   * on port numbers, so they won't let us ensure that segments from
+   * different connections don't get assembled together.
+   */
+  reassembly_table_register(&cotp_reassembly_table,
+                        &addresses_reassembly_table_functions);
 }
 
 void proto_register_cltp(void)
@@ -2462,9 +2437,6 @@ void proto_register_cltp(void)
 void
 proto_reg_handoff_cotp(void)
 {
-  dissector_handle_t ositp_handle;
-
-  ositp_handle = find_dissector("ositp");
   dissector_add_uint("ip.proto", IP_PROTO_TP, ositp_handle);
 
   rdp_cr_handle = find_dissector("rdp_cr");

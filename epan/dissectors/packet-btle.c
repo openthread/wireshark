@@ -5,24 +5,13 @@
  * Copyright 2013, Mike Ryan, mikeryan /at/ isecpartners /dot/ com
  * Copyright 2013, Michal Labedzki for Tieto Corporation
  * Copyright 2014, Christopher D. Kilgour, techie at whiterocker dot com
+ * Copyright 2017, Stig Bjorlykke for Nordic Semiconductor
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,6 +20,7 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/proto_data.h>
+#include <epan/reassemble.h>
 
 #include <wiretap/wtap.h>
 
@@ -40,19 +30,21 @@
 
 static int proto_btle = -1;
 static int proto_btle_rf = -1;
+static int proto_nordic_ble = -1;
 
 static int hf_access_address = -1;
 static int hf_crc = -1;
 static int hf_master_bd_addr = -1;
 static int hf_slave_bd_addr = -1;
+static int hf_length = -1;
 static int hf_advertising_header = -1;
 static int hf_advertising_header_pdu_type = -1;
+static int hf_advertising_header_ch_sel = -1;
 static int hf_advertising_header_rfu_1 = -1;
 static int hf_advertising_header_randomized_tx = -1;
 static int hf_advertising_header_randomized_rx = -1;
 static int hf_advertising_header_reserved = -1;
 static int hf_advertising_header_length = -1;
-static int hf_advertising_header_rfu_2 = -1;
 static int hf_advertising_address = -1;
 static int hf_initiator_addresss = -1;
 static int hf_scanning_address = -1;
@@ -76,6 +68,7 @@ static int hf_data_header_more_data = -1;
 static int hf_data_header_sequence_number = -1;
 static int hf_data_header_next_expected_sequence_number = -1;
 static int hf_control_opcode = -1;
+static int hf_l2cap_index = -1;
 static int hf_l2cap_fragment = -1;
 static int hf_control_reject_opcode = -1;
 static int hf_control_error_code = -1;
@@ -89,7 +82,19 @@ static int hf_control_feature_set_connection_parameters_request_procedure = -1;
 static int hf_control_feature_set_extended_reject_indication = -1;
 static int hf_control_feature_set_slave_initiated_features_exchange = -1;
 static int hf_control_feature_set_le_ping = -1;
-static int hf_control_feature_set_reserved_5_7 = -1;
+static int hf_control_feature_set_le_pkt_len_ext = -1;
+static int hf_control_feature_set_ll_privacy = -1;
+static int hf_control_feature_set_ext_scan_flt_pol = -1;
+static int hf_control_feature_set_le_2m_phy = -1;
+static int hf_control_feature_set_stable_modulation_index_transmitter = -1;
+static int hf_control_feature_set_stable_modulation_index_receiver = -1;
+static int hf_control_feature_set_le_coded_phy = -1;
+static int hf_control_feature_set_le_extended_advertising = -1;
+static int hf_control_feature_set_le_periodic_advertising = -1;
+static int hf_control_feature_set_channel_selection_algorithm_2 = -1;
+static int hf_control_feature_set_le_power_class_1 = -1;
+static int hf_control_feature_set_minimum_number_of_used_channels_procedure = -1;
+static int hf_control_feature_set_reserved_bits = -1;
 static int hf_control_feature_set_reserved = -1;
 static int hf_control_window_size = -1;
 static int hf_control_window_offset = -1;
@@ -114,38 +119,182 @@ static int hf_control_master_session_key_diversifier = -1;
 static int hf_control_master_session_initialization_vector = -1;
 static int hf_control_slave_session_key_diversifier = -1;
 static int hf_control_slave_session_initialization_vector = -1;
+static int hf_control_max_rx_octets = -1;
+static int hf_control_max_rx_time = -1;
+static int hf_control_max_tx_octets = -1;
+static int hf_control_max_tx_time = -1;
+static int hf_control_phys_sender_le_1m_phy = -1;
+static int hf_control_phys_sender_le_2m_phy = -1;
+static int hf_control_phys_sender_le_coded_phy = -1;
+static int hf_control_phys_update_le_1m_phy = -1;
+static int hf_control_phys_update_le_2m_phy = -1;
+static int hf_control_phys_update_le_coded_phy = -1;
+static int hf_control_phys_reserved_bits = -1;
+static int hf_control_tx_phys = -1;
+static int hf_control_rx_phys = -1;
+static int hf_control_m_to_s_phy = -1;
+static int hf_control_s_to_m_phy = -1;
+static int hf_control_phys = -1;
+static int hf_control_phys_le_1m_phy = -1;
+static int hf_control_phys_le_2m_phy = -1;
+static int hf_control_phys_le_coded_phy = -1;
+static int hf_control_min_used_channels = -1;
+static int hf_btle_l2cap_msg_fragments = -1;
+static int hf_btle_l2cap_msg_fragment = -1;
+static int hf_btle_l2cap_msg_fragment_overlap = -1;
+static int hf_btle_l2cap_msg_fragment_overlap_conflicts = -1;
+static int hf_btle_l2cap_msg_fragment_multiple_tails = -1;
+static int hf_btle_l2cap_msg_fragment_too_long_fragment = -1;
+static int hf_btle_l2cap_msg_fragment_error = -1;
+static int hf_btle_l2cap_msg_fragment_count = -1;
+static int hf_btle_l2cap_msg_reassembled_in = -1;
+static int hf_btle_l2cap_msg_reassembled_length = -1;
+
 
 static gint ett_btle = -1;
 static gint ett_advertising_header = -1;
 static gint ett_link_layer_data = -1;
 static gint ett_data_header = -1;
 static gint ett_features = -1;
+static gint ett_tx_phys = -1;
+static gint ett_rx_phys = -1;
+static gint ett_m_to_s_phy = -1;
+static gint ett_s_to_m_phy = -1;
+static gint ett_phys = -1;
 static gint ett_channel_map = -1;
 static gint ett_scan_response_data = -1;
+static gint ett_btle_l2cap_msg_fragment = -1;
+static gint ett_btle_l2cap_msg_fragments = -1;
+
+
+static const int *hfx_control_feature_set_1[] = {
+    &hf_control_feature_set_le_encryption,
+    &hf_control_feature_set_connection_parameters_request_procedure,
+    &hf_control_feature_set_extended_reject_indication,
+    &hf_control_feature_set_slave_initiated_features_exchange,
+    &hf_control_feature_set_le_ping,
+    &hf_control_feature_set_le_pkt_len_ext,
+    &hf_control_feature_set_ll_privacy,
+    &hf_control_feature_set_ext_scan_flt_pol,
+    NULL
+};
+
+static const int *hfx_control_feature_set_2[] = {
+    &hf_control_feature_set_le_2m_phy,
+    &hf_control_feature_set_stable_modulation_index_transmitter,
+    &hf_control_feature_set_stable_modulation_index_receiver,
+    &hf_control_feature_set_le_coded_phy,
+    &hf_control_feature_set_le_extended_advertising,
+    &hf_control_feature_set_le_periodic_advertising,
+    &hf_control_feature_set_channel_selection_algorithm_2,
+    &hf_control_feature_set_le_power_class_1,
+    NULL
+};
+
+static const int *hfx_control_feature_set_3[] = {
+    &hf_control_feature_set_minimum_number_of_used_channels_procedure,
+    &hf_control_feature_set_reserved_bits,
+    NULL
+};
+
+static const int *hfx_control_phys_sender[] = {
+    &hf_control_phys_sender_le_1m_phy,
+    &hf_control_phys_sender_le_2m_phy,
+    &hf_control_phys_sender_le_coded_phy,
+    &hf_control_phys_reserved_bits,
+    NULL
+};
+
+static const int *hfx_control_phys_update[] = {
+    &hf_control_phys_update_le_1m_phy,
+    &hf_control_phys_update_le_2m_phy,
+    &hf_control_phys_update_le_coded_phy,
+    &hf_control_phys_reserved_bits,
+    NULL
+};
+
+static const int *hfx_control_phys[] = {
+    &hf_control_phys_le_1m_phy,
+    &hf_control_phys_le_2m_phy,
+    &hf_control_phys_le_coded_phy,
+    &hf_control_phys_reserved_bits,
+    NULL
+};
+
 
 static expert_field ei_unknown_data = EI_INIT;
 static expert_field ei_access_address_matched = EI_INIT;
 static expert_field ei_access_address_bit_errors = EI_INIT;
 static expert_field ei_access_address_illegal = EI_INIT;
 static expert_field ei_crc_cannot_be_determined = EI_INIT;
-static expert_field ei_crc_correct = EI_INIT;
 static expert_field ei_crc_incorrect = EI_INIT;
+static expert_field ei_missing_fragment_start = EI_INIT;
+static expert_field ei_retransmit = EI_INIT;
 
 static dissector_handle_t btle_handle;
 static dissector_handle_t btcommon_ad_handle;
 static dissector_handle_t btcommon_le_channel_map_handle;
 static dissector_handle_t btl2cap_handle;
 
-static wmem_tree_t *connection_addresses = NULL;
+static wmem_tree_t *connection_info_tree;
+static guint32 l2cap_index;
 
-typedef struct _connection_address_t {
+/* Reassembly */
+static reassembly_table btle_l2cap_msg_reassembly_table;
+
+static const fragment_items btle_l2cap_msg_frag_items = {
+    /* Fragment subtrees */
+    &ett_btle_l2cap_msg_fragment,
+    &ett_btle_l2cap_msg_fragments,
+    /* Fragment fields */
+    &hf_btle_l2cap_msg_fragments,
+    &hf_btle_l2cap_msg_fragment,
+    &hf_btle_l2cap_msg_fragment_overlap,
+    &hf_btle_l2cap_msg_fragment_overlap_conflicts,
+    &hf_btle_l2cap_msg_fragment_multiple_tails,
+    &hf_btle_l2cap_msg_fragment_too_long_fragment,
+    &hf_btle_l2cap_msg_fragment_error,
+    &hf_btle_l2cap_msg_fragment_count,
+    /* Reassembled in field */
+    &hf_btle_l2cap_msg_reassembled_in,
+    /* Reassembled length field */
+    &hf_btle_l2cap_msg_reassembled_length,
+    /* Reassembled data field */
+    NULL,
+    /* Tag */
+    "BTLE L2CAP fragments"
+};
+
+/* Store information about a connection direction */
+typedef struct _direction_info_t {
+    guint    prev_seq_num : 1;          /* Previous sequence number for this direction */
+    guint    segmentation_started : 1;  /* 0 = No, 1 = Yes */
+    guint    segment_len_rem;           /* The remaining segment length, used to find last segment */
+    guint32  l2cap_index;               /* Unique identifier for each L2CAP message */
+} direction_info_t;
+
+/* Store information about a connection */
+typedef struct _connection_info_t {
+    /* Address information */
     guint32  interface_id;
     guint32  adapter_id;
     guint32  access_address;
 
     guint8   master_bd_addr[6];
     guint8   slave_bd_addr[6];
-} connection_address_t;
+    /* Connection information */
+    /* Data used on the first pass to get info from previous frame, result will be in per_packet_data */
+    guint    first_data_frame_seen : 1;
+    direction_info_t direction_info[3];  /* UNKNOWN, MASTER_SLAVE and SLAVE_MASTER */
+} connection_info_t;
+
+/* */
+typedef struct _btle_frame_info_t {
+    guint    retransmit : 1;      /* 0 = No, 1 = Retransmitted frame */
+    guint    more_fragments : 1;  /* 0 = Last fragment, 1 = More fragments */
+    guint    missing_start : 1;   /* 0 = No, 1 = Missing fragment start */
+    guint32  l2cap_index;         /* Unique identifier for each L2CAP message */
+} btle_frame_info_t;
 
 static const value_string pdu_type_vals[] = {
     { 0x00, "ADV_IND" },
@@ -201,20 +350,46 @@ static const value_string control_opcode_vals[] = {
     { 0x11, "LL_REJECT_IND_EXT" },
     { 0x12, "LL_PING_REQ" },
     { 0x13, "LL_PING_RSP" },
+    { 0x14, "LL_LENGTH_REQ" },
+    { 0x15, "LL_LENGTH_RSP" },
+    { 0x16, "LL_PHY_REQ" },
+    { 0x17, "LL_PHY_RSP" },
+    { 0x18, "LL_PHY_UPDATE_IND" },
+    { 0x19, "LL_MIN_USED_CHANNELS_IND" },
     { 0, NULL }
 };
 static value_string_ext control_opcode_vals_ext = VALUE_STRING_EXT_INIT(control_opcode_vals);
 
 /* Taken from https://www.bluetooth.org/en-us/specification/assigned-numbers/link-layer */
 static const value_string ll_version_number_vals[] = {
-    {0x06, "4.0"},
-    {0x07, "4.1"},
-    {0, NULL }
+    { 0x06, "4.0"},
+    { 0x07, "4.1" },
+    { 0x08, "4.2" },
+    { 0x09, "5.0" },
+    { 0, NULL }
 };
 static value_string_ext ll_version_number_vals_ext = VALUE_STRING_EXT_INIT(ll_version_number_vals);
 
+static const true_false_string tfs_ch_sel = {
+    "#2",
+    "#1"
+};
+
+static const true_false_string tfs_random_public = {
+    "Random",
+    "Public"
+};
+
 void proto_register_btle(void);
 void proto_reg_handoff_btle(void);
+
+static gboolean btle_detect_retransmit = TRUE;
+
+static void
+btle_init(void)
+{
+    l2cap_index = 0;
+}
 
 /*
  * Implements Bluetooth Vol 6, Part B, Section 3.1.1 (ref Figure 3.2)
@@ -311,12 +486,12 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     proto_item           *sub_item;
     proto_tree           *sub_tree;
     gint                  offset = 0;
-    guint32               access_address;
-    guint8                length;
+    guint32               access_address, length;
     tvbuff_t              *next_tvb;
     guint8                *dst_bd_addr;
     guint8                *src_bd_addr;
-    connection_address_t  *connection_address = NULL;
+    static const guint8    broadcast_addr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    connection_info_t     *connection_info = NULL;
     wmem_tree_t           *wmem_tree;
     wmem_tree_key_t        key[5];
     guint32                interface_id;
@@ -334,12 +509,17 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     ubertooth_data_t      *ubertooth_data = NULL;
     gint                   previous_proto;
     wmem_list_frame_t     *list_data;
+    proto_item            *item;
+    guint                  window_size;
+    guint                  window_offset;
+    guint                  data_interval;
+    guint                  data_timeout;
 
     list_data = wmem_list_frame_prev(wmem_list_tail(pinfo->layers));
     if (list_data) {
         previous_proto = GPOINTER_TO_INT(wmem_list_frame_data(list_data));
 
-        if (previous_proto == proto_btle_rf) {
+        if ((previous_proto == proto_btle_rf)||(previous_proto == proto_nordic_ble)) {
             btle_context = (const btle_context_t *) data;
             bluetooth_data = btle_context->previous_protocol_data.bluetooth_data;
         } else if (previous_proto == proto_bluetooth) {
@@ -384,8 +564,8 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     if (bluetooth_data)
         interface_id = bluetooth_data->interface_id;
-    else if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID)
-        interface_id = pinfo->phdr->interface_id;
+    else if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID)
+        interface_id = pinfo->rec->rec_header.packet_header.interface_id;
     else
         interface_id = HCI_INTERFACE_DEFAULT;
 
@@ -403,7 +583,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         proto_tree  *advertising_header_tree;
         proto_item  *link_layer_data_item;
         proto_tree  *link_layer_data_tree;
-        guint8       pdu_type;
+        guint8       pdu_type, ch_sel;
 
         if (crc_status == CRC_INDETERMINATE) {
             /* Advertising channel CRCs can aways be calculated, because CRCInit is always known. */
@@ -414,7 +594,14 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         advertising_header_tree = proto_item_add_subtree(advertising_header_item, ett_advertising_header);
 
         pdu_type = tvb_get_guint8(tvb, offset) & 0x0F;
+        ch_sel = (tvb_get_guint8(tvb, offset) & 0x20) >> 5;
+        proto_item_append_text(advertising_header_item, " (PDU Type: %s, ChSel: %s, TxAdd: %s",
+                               val_to_str_ext_const(pdu_type, &pdu_type_vals_ext, "Unknown"),
+                               (ch_sel & 0x01) ? tfs_ch_sel.true_string : tfs_ch_sel.false_string,
+                               (tvb_get_guint8(tvb, offset) & 0x40) ? tfs_random_public.true_string : tfs_random_public.false_string);
+        proto_tree_add_item(advertising_header_tree, hf_advertising_header_pdu_type, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(advertising_header_tree, hf_advertising_header_rfu_1, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(advertising_header_tree, hf_advertising_header_ch_sel, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(advertising_header_tree, hf_advertising_header_randomized_tx, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         switch (pdu_type) {
         case 0x00: /* ADV_IND */
@@ -425,19 +612,17 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             break;
         default:
             proto_tree_add_item(advertising_header_tree, hf_advertising_header_randomized_rx, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+            proto_item_append_text(advertising_header_item, ", RxAdd: %s",
+                                   (tvb_get_guint8(tvb, offset) & 0x80) ? tfs_random_public.true_string : tfs_random_public.false_string);
         }
-        proto_tree_add_item(advertising_header_tree, hf_advertising_header_pdu_type, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        proto_item_append_text(advertising_header_item, " (PDU Type: %s, RandomRxBdAddr=%s, RandomTxBdAddr=%s)",
-                val_to_str_ext_const(pdu_type, &pdu_type_vals_ext, "Unknown"),
-                (tvb_get_guint8(tvb, offset) & 0x80) ? "true" : "false",
-                (tvb_get_guint8(tvb, offset) & 0x40) ? "true" : "false");
+        proto_item_append_text(advertising_header_item, ")");
         offset += 1;
 
         col_set_str(pinfo->cinfo, COL_INFO, val_to_str_ext_const(pdu_type, &pdu_type_vals_ext, "Unknown"));
 
-        proto_tree_add_item(advertising_header_tree, hf_advertising_header_rfu_2, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(advertising_header_tree, hf_advertising_header_length, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        length = tvb_get_guint8(tvb, offset) & 0x3f;
+        item = proto_tree_add_item_ret_uint(btle_tree, hf_length, tvb, offset, 1, ENC_LITTLE_ENDIAN, &length);
+        PROTO_ITEM_SET_HIDDEN(item);
         offset += 1;
 
         switch (pdu_type) {
@@ -450,7 +635,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
             copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            set_address(&pinfo->net_dst, AT_STRINGZ, 10, "broadcast");
+            set_address(&pinfo->net_dst, AT_ETHER, 6, broadcast_addr);
             copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
             copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
@@ -467,11 +652,11 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             }
 
             if (tvb_reported_length_remaining(tvb, offset) > 3) {
-                bluetooth_data_t *bt_data = wmem_new0(wmem_packet_scope(), bluetooth_data_t);
-                bt_data->interface_id = interface_id;
-                bt_data->adapter_id = adapter_id;
+                bluetooth_eir_ad_data_t *ad_data = wmem_new0(wmem_packet_scope(), bluetooth_eir_ad_data_t);
+                ad_data->interface_id = interface_id;
+                ad_data->adapter_id = adapter_id;
                 next_tvb = tvb_new_subset_length(tvb, offset, tvb_reported_length_remaining(tvb, offset) - 3);
-                call_dissector_with_data(btcommon_ad_handle, next_tvb, pinfo, btle_tree, bt_data);
+                call_dissector_with_data(btcommon_ad_handle, next_tvb, pinfo, btle_tree, ad_data);
             }
 
             offset += tvb_reported_length_remaining(tvb, offset) - 3;
@@ -534,7 +719,7 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
             copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-            set_address(&pinfo->net_dst, AT_STRINGZ, 10, "broadcast");
+            set_address(&pinfo->net_dst, AT_ETHER, 6, broadcast_addr);
             copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
             copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
@@ -554,11 +739,11 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             sub_tree = proto_item_add_subtree(sub_item, ett_scan_response_data);
 
             if (tvb_reported_length_remaining(tvb, offset) > 3) {
-                bluetooth_data_t *bt_data = wmem_new0(wmem_packet_scope(), bluetooth_data_t);
-                bt_data->interface_id = interface_id;
-                bt_data->adapter_id = adapter_id;
+                bluetooth_eir_ad_data_t *ad_data = wmem_new0(wmem_packet_scope(), bluetooth_eir_ad_data_t);
+                ad_data->interface_id = interface_id;
+                ad_data->adapter_id = adapter_id;
                 next_tvb = tvb_new_subset_length(tvb, offset, tvb_reported_length_remaining(tvb, offset) - 3);
-                call_dissector_with_data(btcommon_ad_handle, next_tvb, pinfo, sub_tree, bt_data);
+                call_dissector_with_data(btcommon_ad_handle, next_tvb, pinfo, sub_tree, ad_data);
             }
 
             offset += tvb_reported_length_remaining(tvb, offset) - 3;
@@ -598,19 +783,23 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_crc_init, tvb, offset, 3, ENC_LITTLE_ENDIAN);
             offset += 3;
 
-            proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_window_size, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+            item = proto_tree_add_item_ret_uint(link_layer_data_tree, hf_link_layer_data_window_size, tvb, offset, 1, ENC_LITTLE_ENDIAN, &window_size);
+            proto_item_append_text(item, " (%g msec)", window_size*1.25);
             offset += 1;
 
-            proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_window_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            item = proto_tree_add_item_ret_uint(link_layer_data_tree, hf_link_layer_data_window_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN, &window_offset);
+            proto_item_append_text(item, " (%g msec)", window_offset*1.25);
             offset += 2;
 
-            proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_interval, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            item = proto_tree_add_item_ret_uint(link_layer_data_tree, hf_link_layer_data_interval, tvb, offset, 2, ENC_LITTLE_ENDIAN, &data_interval);
+            proto_item_append_text(item, " (%g msec)", data_interval*1.25);
             offset += 2;
 
             proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_latency, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             offset += 2;
 
-            proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_timeout, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+            item = proto_tree_add_item_ret_uint(link_layer_data_tree, hf_link_layer_data_timeout, tvb, offset, 2, ENC_LITTLE_ENDIAN, &data_timeout);
+            proto_item_append_text(item, " (%u msec)", data_timeout*10);
             offset += 2;
 
             sub_item = proto_tree_add_item(link_layer_data_tree, hf_link_layer_data_channel_map, tvb, offset, 5, ENC_NA);
@@ -635,15 +824,15 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 key[4].length = 0;
                 key[4].key = NULL;
 
-                connection_address = wmem_new(wmem_file_scope(), connection_address_t);
-                connection_address->interface_id   = interface_id;
-                connection_address->adapter_id     = adapter_id;
-                connection_address->access_address = connection_access_address;
+                connection_info = wmem_new0(wmem_file_scope(), connection_info_t);
+                connection_info->interface_id   = interface_id;
+                connection_info->adapter_id     = adapter_id;
+                connection_info->access_address = connection_access_address;
 
-                memcpy(connection_address->master_bd_addr, src_bd_addr, 6);
-                memcpy(connection_address->slave_bd_addr,  dst_bd_addr, 6);
+                memcpy(connection_info->master_bd_addr, src_bd_addr, 6);
+                memcpy(connection_info->slave_bd_addr,  dst_bd_addr, 6);
 
-                wmem_tree_insert32_array(connection_addresses, key, connection_address);
+                wmem_tree_insert32_array(connection_info_tree, key, connection_info);
             }
 
             break;
@@ -654,10 +843,22 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             }
         }
     } else { /* data PDU */
-        proto_item  *data_header_item;
+        proto_item  *data_header_item, *seq_item;
         proto_tree  *data_header_tree;
+        guint8       oct;
         guint8       llid;
         guint8       control_opcode;
+        guint32      direction = BTLE_DIR_UNKNOWN;
+        gboolean     add_l2cap_index = FALSE;
+        gboolean     retransmit = FALSE;
+
+        if (btle_context) {
+            direction = btle_context->direction;
+        }
+
+        btle_frame_info_t *btle_frame_info = NULL;
+        fragment_head *frag_btl2cap_msg = NULL;
+        btle_frame_info_t empty_btle_frame_info = {0, 0, 0, 0};
 
         key[0].length = 1;
         key[0].key = &interface_id;
@@ -668,33 +869,57 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         key[3].length = 0;
         key[3].key = NULL;
 
-        wmem_tree = (wmem_tree_t *) wmem_tree_lookup32_array(connection_addresses, key);
+        oct = tvb_get_guint8(tvb, offset);
+        wmem_tree = (wmem_tree_t *) wmem_tree_lookup32_array(connection_info_tree, key);
         if (wmem_tree) {
-            connection_address = (connection_address_t *) wmem_tree_lookup32_le(wmem_tree, pinfo->num);
-            if (connection_address) {
-                gchar  *str_addr;
+            connection_info = (connection_info_t *) wmem_tree_lookup32_le(wmem_tree, pinfo->num);
+            if (connection_info) {
+                gchar  *str_addr_src, *str_addr_dst;
+                /* Holds "unknown" + access_address + NULL, which is the longest string */
                 int     str_addr_len = 18 + 1;
 
-                str_addr = (gchar *) wmem_alloc(pinfo->pool, str_addr_len);
+                str_addr_src = (gchar *) wmem_alloc(pinfo->pool, str_addr_len);
+                str_addr_dst = (gchar *) wmem_alloc(pinfo->pool, str_addr_len);
 
-                sub_item = proto_tree_add_ether(btle_tree, hf_master_bd_addr, tvb, 0, 0, connection_address->master_bd_addr);
+                sub_item = proto_tree_add_ether(btle_tree, hf_master_bd_addr, tvb, 0, 0, connection_info->master_bd_addr);
                 PROTO_ITEM_SET_GENERATED(sub_item);
 
-                sub_item = proto_tree_add_ether(btle_tree, hf_slave_bd_addr, tvb, 0, 0, connection_address->slave_bd_addr);
+                sub_item = proto_tree_add_ether(btle_tree, hf_slave_bd_addr, tvb, 0, 0, connection_info->slave_bd_addr);
                 PROTO_ITEM_SET_GENERATED(sub_item);
 
-                g_snprintf(str_addr, str_addr_len, "unknown_0x%08x", connection_address->access_address);
+                switch (direction) {
+                case BTLE_DIR_MASTER_SLAVE:
+                    g_snprintf(str_addr_src, str_addr_len, "Master_0x%08x", connection_info->access_address);
+                    g_snprintf(str_addr_dst, str_addr_len, "Slave_0x%08x", connection_info->access_address);
+                    set_address(&pinfo->dl_src, AT_ETHER, sizeof(connection_info->master_bd_addr), connection_info->master_bd_addr);
+                    set_address(&pinfo->dl_dst, AT_ETHER, sizeof(connection_info->slave_bd_addr), connection_info->slave_bd_addr);
+                    break;
+                case BTLE_DIR_SLAVE_MASTER:
+                    g_snprintf(str_addr_src, str_addr_len, "Slave_0x%08x", connection_info->access_address);
+                    g_snprintf(str_addr_dst, str_addr_len, "Master_0x%08x", connection_info->access_address);
+                    set_address(&pinfo->dl_src, AT_ETHER, sizeof(connection_info->slave_bd_addr), connection_info->slave_bd_addr);
+                    set_address(&pinfo->dl_dst, AT_ETHER, sizeof(connection_info->master_bd_addr), connection_info->master_bd_addr);
+                    break;
+                default:
+                    /* BTLE_DIR_UNKNOWN */
+                    g_snprintf(str_addr_src, str_addr_len, "Unknown_0x%08x", connection_info->access_address);
+                    g_snprintf(str_addr_dst, str_addr_len, "Unknown_0x%08x", connection_info->access_address);
+                    clear_address(&pinfo->dl_src);
+                    clear_address(&pinfo->dl_dst);
+                    break;
+                }
 
-                set_address(&pinfo->net_src, AT_STRINGZ, str_addr_len, str_addr);
-                copy_address_shallow(&pinfo->dl_src, &pinfo->net_src);
+                set_address(&pinfo->net_src, AT_STRINGZ, (int)strlen(str_addr_src)+1, str_addr_src);
                 copy_address_shallow(&pinfo->src, &pinfo->net_src);
 
-                set_address(&pinfo->net_dst, AT_STRINGZ, str_addr_len, str_addr);
-                copy_address_shallow(&pinfo->dl_dst, &pinfo->net_dst);
+                set_address(&pinfo->net_dst, AT_STRINGZ, (int)strlen(str_addr_dst)+1, str_addr_dst);
                 copy_address_shallow(&pinfo->dst, &pinfo->net_dst);
 
                 if (!pinfo->fd->flags.visited) {
                     address *addr;
+
+                    btle_frame_info = wmem_new0(wmem_file_scope(), btle_frame_info_t);
+                    btle_frame_info->l2cap_index = connection_info->direction_info[direction].l2cap_index;
 
                     addr = (address *) wmem_memdup(wmem_file_scope(), &pinfo->dl_src, sizeof(address));
                     addr->data =  wmem_memdup(wmem_file_scope(), pinfo->dl_src.data, pinfo->dl_src.len);
@@ -703,33 +928,154 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     addr = (address *) wmem_memdup(wmem_file_scope(), &pinfo->dl_dst, sizeof(address));
                     addr->data =  wmem_memdup(wmem_file_scope(), pinfo->dl_dst.data, pinfo->dl_dst.len);
                     p_add_proto_data(wmem_file_scope(), pinfo, proto_bluetooth, BLUETOOTH_DATA_DST, addr);
+
+                    if (!connection_info->first_data_frame_seen) {
+                        connection_info->first_data_frame_seen = 1;
+                        btle_frame_info->retransmit = 0;
+                        connection_info->direction_info[BTLE_DIR_MASTER_SLAVE].prev_seq_num = 0;
+                        connection_info->direction_info[BTLE_DIR_SLAVE_MASTER].prev_seq_num = 1;
+                    }
+                    else {
+                        guint8 seq_num = !!(oct & 0x8);
+
+                        if (seq_num != connection_info->direction_info[direction].prev_seq_num) {
+                            /* SN is not equal to previous packet (in same direction) SN */
+                            btle_frame_info->retransmit = 0;
+                        }
+                        else {
+                            btle_frame_info->retransmit = 1;
+                        }
+                        connection_info->direction_info[direction].prev_seq_num = seq_num;
+                    }
+                    p_add_proto_data(wmem_file_scope(), pinfo, proto_btle, pinfo->curr_layer_num, btle_frame_info);
+                }
+                else {
+                    /* Not the first pass */
+                    btle_frame_info = (btle_frame_info_t *)p_get_proto_data(wmem_file_scope(), pinfo, proto_btle, pinfo->curr_layer_num);
                 }
             }
         }
 
+        if (btle_frame_info == NULL) {
+            btle_frame_info = &empty_btle_frame_info;
+        }
         data_header_item = proto_tree_add_item(btle_tree, hf_data_header, tvb, offset, 2, ENC_LITTLE_ENDIAN);
         data_header_tree = proto_item_add_subtree(data_header_item, ett_data_header);
 
-        proto_tree_add_item(data_header_tree, hf_data_header_rfu, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(data_header_tree, hf_data_header_more_data, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(data_header_tree, hf_data_header_sequence_number, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(data_header_tree, hf_data_header_next_expected_sequence_number, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(data_header_tree, hf_data_header_llid, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(data_header_tree, hf_data_header_next_expected_sequence_number, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+        seq_item = proto_tree_add_item(data_header_tree, hf_data_header_sequence_number, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+
+        if (direction != BTLE_DIR_UNKNOWN) {
+            /* Unable to check valid SN or retransmission without direction */
+            if (btle_frame_info->retransmit == 0) {
+                proto_item_append_text(seq_item, " [OK]");
+            }
+            else {
+                proto_item_append_text(seq_item, " [Wrong]");
+                if (btle_detect_retransmit) {
+                    expert_add_info(pinfo, seq_item, &ei_retransmit);
+                    retransmit = TRUE;
+                }
+            }
+        }
+
+        proto_tree_add_item(data_header_tree, hf_data_header_more_data, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(data_header_tree, hf_data_header_rfu, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         llid = tvb_get_guint8(tvb, offset) & 0x03;
         offset += 1;
 
-        proto_tree_add_item(data_header_tree, hf_data_header_rfu, tvb, offset, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(data_header_tree, hf_data_header_length, tvb, offset, 1, ENC_LITTLE_ENDIAN);
-        length = tvb_get_guint8(tvb, offset) & 0x1f;
+        item = proto_tree_add_item_ret_uint(btle_tree, hf_length, tvb, offset, 1, ENC_LITTLE_ENDIAN, &length);
+        PROTO_ITEM_SET_HIDDEN(item);
         offset += 1;
 
         switch (llid) {
         case 0x01: /* Continuation fragment of an L2CAP message, or an Empty PDU */
-/* TODO: Try reassemble cases 0x01 and 0x02 */
             if (length > 0) {
-                col_set_str(pinfo->cinfo, COL_INFO, "L2CAP Fragment");
-                proto_tree_add_item(btle_tree, hf_l2cap_fragment, tvb, offset, length, ENC_NA);
-                offset += length;
+                tvbuff_t *new_tvb = NULL;
+
+                pinfo->fragmented = TRUE;
+                if (connection_info && !retransmit) {
+                    if (!pinfo->fd->flags.visited) {
+                        if (connection_info->direction_info[direction].segmentation_started == 1) {
+                            if (connection_info->direction_info[direction].segment_len_rem >= length) {
+                                connection_info->direction_info[direction].segment_len_rem = connection_info->direction_info[direction].segment_len_rem - length;
+                            } else {
+                                /*
+                                 * Missing fragment for previous L2CAP and fragment start for this.
+                                 * Increase l2cap_index.
+                                 */
+                                btle_frame_info->missing_start = 1;
+                                btle_frame_info->l2cap_index = l2cap_index;
+                                l2cap_index++;
+                            }
+                            if (connection_info->direction_info[direction].segment_len_rem > 0) {
+                                btle_frame_info->more_fragments = 1;
+                            }
+                            else {
+                                btle_frame_info->more_fragments = 0;
+                                connection_info->direction_info[direction].segmentation_started = 0;
+                                connection_info->direction_info[direction].segment_len_rem = 0;
+                            }
+                        } else {
+                            /*
+                             * Missing fragment start.
+                             * Set more_fragments and increase l2cap_index to avoid reassembly.
+                             */
+                            btle_frame_info->more_fragments = 1;
+                            btle_frame_info->missing_start = 1;
+                            btle_frame_info->l2cap_index = l2cap_index;
+                            l2cap_index++;
+                        }
+                    }
+
+                    add_l2cap_index = TRUE;
+
+                    frag_btl2cap_msg = fragment_add_seq_next(&btle_l2cap_msg_reassembly_table,
+                        tvb, offset,
+                        pinfo,
+                        btle_frame_info->l2cap_index,      /* guint32 ID for fragments belonging together */
+                        NULL,                              /* data* */
+                        length,                            /* Fragment length */
+                        btle_frame_info->more_fragments);  /* More fragments */
+
+                    new_tvb = process_reassembled_data(tvb, offset, pinfo,
+                        "Reassembled L2CAP",
+                        frag_btl2cap_msg,
+                        &btle_l2cap_msg_frag_items,
+                        NULL,
+                        btle_tree);
+                }
+
+                if (new_tvb) {
+                    bthci_acl_data_t  *acl_data;
+
+                    col_set_str(pinfo->cinfo, COL_INFO, "L2CAP Data");
+
+                    acl_data = wmem_new(wmem_packet_scope(), bthci_acl_data_t);
+                    acl_data->interface_id = interface_id;
+                    acl_data->adapter_id = adapter_id;
+                    acl_data->chandle = 0; /* No connection handle at this layer */
+                    acl_data->remote_bd_addr_oui = 0;
+                    acl_data->remote_bd_addr_id = 0;
+                    acl_data->is_btle = TRUE;
+                    acl_data->is_btle_retransmit = retransmit;
+
+                    next_tvb = tvb_new_subset_length(tvb, offset, length);
+                    if (next_tvb) {
+                        call_dissector_with_data(btl2cap_handle, new_tvb, pinfo, tree, acl_data);
+                    }
+                    offset += length;
+                }
+                else {
+                    col_set_str(pinfo->cinfo, COL_INFO, "L2CAP Fragment");
+                    item = proto_tree_add_item(btle_tree, hf_l2cap_fragment, tvb, offset, length, ENC_NA);
+                    if (btle_frame_info->missing_start) {
+                        expert_add_info(pinfo, item, &ei_missing_fragment_start);
+                    }
+                    offset += length;
+                }
             } else {
                 col_set_str(pinfo->cinfo, COL_INFO, "Empty PDU");
             }
@@ -737,14 +1083,54 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             break;
         case 0x02: /* Start of an L2CAP message or a complete L2CAP message with no fragmentation */
             if (length > 0) {
-                if (tvb_get_letohs(tvb, offset) > length) {
-/* TODO: Try reassemble cases 0x01 and 0x02 */
-                    col_set_str(pinfo->cinfo, COL_INFO, "L2CAP Fragment");
+                guint le_frame_len = tvb_get_letohs(tvb, offset);
+                if (le_frame_len > length) {
+                    pinfo->fragmented = TRUE;
+                    if (connection_info && !retransmit) {
+                        if (!pinfo->fd->flags.visited) {
+                            connection_info->direction_info[direction].segmentation_started = 1;
+                            /* The first two octets in the L2CAP PDU contain the length of the entire
+                             * L2CAP PDU in octets, excluding the Length and CID fields(4 octets).
+                             */
+                            connection_info->direction_info[direction].segment_len_rem = le_frame_len + 4 - length;
+                            connection_info->direction_info[direction].l2cap_index = l2cap_index;
+                            btle_frame_info->more_fragments = 1;
+                            btle_frame_info->l2cap_index = l2cap_index;
+                            l2cap_index++;
+                        }
+
+                        add_l2cap_index = TRUE;
+
+                        frag_btl2cap_msg = fragment_add_seq_next(&btle_l2cap_msg_reassembly_table,
+                            tvb, offset,
+                            pinfo,
+                            btle_frame_info->l2cap_index,      /* guint32 ID for fragments belonging together */
+                            NULL,                              /* data* */
+                            length,                            /* Fragment length */
+                            btle_frame_info->more_fragments);  /* More fragments */
+
+                        process_reassembled_data(tvb, offset, pinfo,
+                            "Reassembled L2CAP",
+                            frag_btl2cap_msg,
+                            &btle_l2cap_msg_frag_items,
+                            NULL,
+                            btle_tree);
+                    }
+
+                    col_set_str(pinfo->cinfo, COL_INFO, "L2CAP Fragment Start");
                     proto_tree_add_item(btle_tree, hf_l2cap_fragment, tvb, offset, length, ENC_NA);
                     offset += length;
                 } else {
                     bthci_acl_data_t  *acl_data;
-                    gint               saved_p2p_dir;
+                    if (connection_info) {
+                        /* Add a L2CAP index for completeness */
+                        if (!pinfo->fd->flags.visited) {
+                            btle_frame_info->l2cap_index = l2cap_index;
+                            l2cap_index++;
+                        }
+
+                        add_l2cap_index = TRUE;
+                    }
 
                     col_set_str(pinfo->cinfo, COL_INFO, "L2CAP Data");
 
@@ -754,15 +1140,12 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                     acl_data->chandle      = 0; /* No connection handle at this layer */
                     acl_data->remote_bd_addr_oui = 0;
                     acl_data->remote_bd_addr_id  = 0;
-
-                    saved_p2p_dir = pinfo->p2p_dir;
-                    pinfo->p2p_dir = P2P_DIR_UNKNOWN;
+                    acl_data->is_btle = TRUE;
+                    acl_data->is_btle_retransmit = retransmit;
 
                     next_tvb = tvb_new_subset_length(tvb, offset, length);
                     call_dissector_with_data(btl2cap_handle, next_tvb, pinfo, tree, acl_data);
                     offset += length;
-
-                    pinfo->p2p_dir = saved_p2p_dir;
                 }
             }
             break;
@@ -857,16 +1240,17 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 sub_item = proto_tree_add_item(btle_tree, hf_control_feature_set, tvb, offset, 8, ENC_LITTLE_ENDIAN);
                 sub_tree = proto_item_add_subtree(sub_item, ett_features);
 
-                proto_tree_add_item(sub_tree, hf_control_feature_set_le_encryption, tvb, offset, 1, ENC_NA);
-                proto_tree_add_item(sub_tree, hf_control_feature_set_connection_parameters_request_procedure, tvb, offset, 1, ENC_NA);
-                proto_tree_add_item(sub_tree, hf_control_feature_set_extended_reject_indication, tvb, offset, 1, ENC_NA);
-                proto_tree_add_item(sub_tree, hf_control_feature_set_slave_initiated_features_exchange, tvb, offset, 1, ENC_NA);
-                proto_tree_add_item(sub_tree, hf_control_feature_set_le_ping, tvb, offset, 1, ENC_NA);
-                proto_tree_add_item(sub_tree, hf_control_feature_set_reserved_5_7, tvb, offset, 1, ENC_NA);
+                proto_tree_add_bitmask_list(sub_tree, tvb, offset, 1, hfx_control_feature_set_1, ENC_NA);
                 offset += 1;
 
-                proto_tree_add_item(sub_tree, hf_control_feature_set_reserved, tvb, offset, 7, ENC_NA);
-                offset += 7;
+                proto_tree_add_bitmask_list(sub_tree, tvb, offset, 1, hfx_control_feature_set_2, ENC_NA);
+                offset += 1;
+
+                proto_tree_add_bitmask_list(sub_tree, tvb, offset, 1, hfx_control_feature_set_3, ENC_NA);
+                offset += 1;
+
+                proto_tree_add_item(sub_tree, hf_control_feature_set_reserved, tvb, offset, 5, ENC_NA);
+                offset += 5;
 
                 break;
             case 0x0C: /* LL_VERSION_IND */
@@ -927,6 +1311,49 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 offset += 1;
 
                 break;
+            case 0x14: /* LL_LENGTH_REQ */
+            case 0x15: /* LL_LENGTH_RSP */
+                proto_tree_add_item(btle_tree, hf_control_max_rx_octets, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                offset += 2;
+
+                proto_tree_add_item(btle_tree, hf_control_max_rx_time, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                offset += 2;
+
+                proto_tree_add_item(btle_tree, hf_control_max_tx_octets, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                offset += 2;
+
+                proto_tree_add_item(btle_tree, hf_control_max_tx_time, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                offset += 2;
+
+                break;
+            case 0x16: /* LL_PHY_REQ */
+            case 0x17: /* LL_PYH_RSP */
+                proto_tree_add_bitmask(btle_tree, tvb, offset, hf_control_tx_phys, ett_tx_phys, hfx_control_phys_sender, ENC_NA);
+                offset += 1;
+
+                proto_tree_add_bitmask(btle_tree, tvb, offset, hf_control_rx_phys, ett_rx_phys, hfx_control_phys_sender, ENC_NA);
+                offset += 1;
+
+                break;
+            case 0x18: /* LL_PHY_UPDATE_IND */
+                proto_tree_add_bitmask(btle_tree, tvb, offset, hf_control_m_to_s_phy, ett_m_to_s_phy, hfx_control_phys_update, ENC_NA);
+                offset += 1;
+
+                proto_tree_add_bitmask(btle_tree, tvb, offset, hf_control_s_to_m_phy, ett_s_to_m_phy, hfx_control_phys_update, ENC_NA);
+                offset += 1;
+
+                proto_tree_add_item(btle_tree, hf_control_instant, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                offset += 2;
+
+                break;
+            case 0x19: /* LL_MIN_USED_CHANNELS_IND */
+                proto_tree_add_bitmask(btle_tree, tvb, offset, hf_control_phys, ett_phys, hfx_control_phys, ENC_NA);
+                offset += 1;
+
+                proto_tree_add_item(btle_tree, hf_control_min_used_channels, tvb, offset, 1, ENC_LITTLE_ENDIAN);
+                offset += 1;
+
+                break;
             default:
                 if (tvb_reported_length_remaining(tvb, offset) > 3) {
                     proto_tree_add_expert(btle_tree, pinfo, &ei_unknown_data, tvb, offset, tvb_reported_length_remaining(tvb, offset) - 3);
@@ -940,6 +1367,11 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 proto_tree_add_expert(btle_tree, pinfo, &ei_unknown_data, tvb, offset, tvb_reported_length_remaining(tvb, offset) - 3);
                 offset += tvb_reported_length_remaining(tvb, offset) - 3;
             }
+        }
+
+        if (add_l2cap_index) {
+            item = proto_tree_add_uint(btle_tree, hf_l2cap_index, tvb, 0, 0, btle_frame_info->l2cap_index);
+            PROTO_ITEM_SET_GENERATED(item);
         }
 
         if ((crc_status == CRC_INDETERMINATE) &&
@@ -966,8 +1398,6 @@ dissect_btle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         expert_add_info(pinfo, sub_item, &ei_crc_incorrect);
         break;
     case CRC_CORRECT:
-        expert_add_info(pinfo, sub_item, &ei_crc_correct);
-        break;
     default:
         break;
     }
@@ -997,6 +1427,11 @@ proto_register_btle(void)
             FT_ETHER, BASE_NONE, NULL, 0x0,
             NULL, HFILL }
         },
+        { &hf_length,
+            { "Length",                          "btle.length",
+            FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
         { &hf_advertising_header,
             { "Packet Header",                   "btle.advertising_header",
             FT_UINT16, BASE_HEX, NULL, 0x0,
@@ -1009,17 +1444,22 @@ proto_register_btle(void)
         },
         { &hf_advertising_header_rfu_1,
             { "RFU",                             "btle.advertising_header.rfu.1",
-            FT_UINT8, BASE_DEC, NULL, 0x30,
+            FT_UINT8, BASE_DEC, NULL, 0x10,
+            "Reserved for Future Use", HFILL }
+        },
+        { &hf_advertising_header_ch_sel,
+            { "Channel Selection Algorithm",     "btle.advertising_header.ch_sel",
+            FT_BOOLEAN, 8, TFS(&tfs_ch_sel), 0x20,
             NULL, HFILL }
         },
         { &hf_advertising_header_randomized_tx,
-            { "Randomized Tx Address",           "btle.advertising_header.randomized_tx",
-            FT_BOOLEAN, 8, NULL, 0x40,
+            { "Tx Address",                      "btle.advertising_header.randomized_tx",
+            FT_BOOLEAN, 8, TFS(&tfs_random_public), 0x40,
             NULL, HFILL }
         },
         { &hf_advertising_header_randomized_rx,
-            { "Randomized Rx Address",           "btle.advertising_header.randomized_rx",
-            FT_BOOLEAN, 8, NULL, 0x80,
+            { "Rx Address",                      "btle.advertising_header.randomized_rx",
+            FT_BOOLEAN, 8, TFS(&tfs_random_public), 0x80,
             NULL, HFILL }
         },
         { &hf_advertising_header_reserved,
@@ -1029,12 +1469,7 @@ proto_register_btle(void)
         },
         { &hf_advertising_header_length,
             { "Length",                          "btle.advertising_header.length",
-            FT_UINT8, BASE_DEC, NULL, 0x03f,
-            NULL, HFILL }
-        },
-        { &hf_advertising_header_rfu_2,
-            { "RFU",                             "btle.advertising_header.rfu.2",
-            FT_UINT8, BASE_DEC, NULL, 0xC0,
+            FT_UINT8, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_advertising_address,
@@ -1104,12 +1539,12 @@ proto_register_btle(void)
         },
         { &hf_link_layer_data_hop,
             { "Hop",                             "btle.link_layer_data.hop",
-            FT_UINT8, BASE_DEC, NULL, 0xf8,
+            FT_UINT8, BASE_DEC, NULL, 0x1f,
             NULL, HFILL }
         },
         { &hf_link_layer_data_sleep_clock_accuracy,
             { "Sleep Clock Accuracy",            "btle.link_layer_data.sleep_clock_accuracy",
-            FT_UINT8, BASE_DEC | BASE_EXT_STRING, &sleep_clock_accuracy_vals_ext, 0x07,
+            FT_UINT8, BASE_DEC | BASE_EXT_STRING, &sleep_clock_accuracy_vals_ext, 0xe0,
             NULL, HFILL }
         },
         { &hf_data_header,
@@ -1120,7 +1555,7 @@ proto_register_btle(void)
         { &hf_data_header_llid,
             { "LLID",                            "btle.data_header.llid",
             FT_UINT8, BASE_HEX | BASE_EXT_STRING, &llid_codes_vals_ext, 0x03,
-            NULL, HFILL }
+            "Logical Link Identifier", HFILL }
         },
         { &hf_data_header_next_expected_sequence_number,
             { "Next Expected Sequence Number",   "btle.data_header.next_expected_sequence_number",
@@ -1139,13 +1574,13 @@ proto_register_btle(void)
         },
         { &hf_data_header_length,
             { "Length",                          "btle.data_header.length",
-            FT_UINT8, BASE_DEC, NULL, 0x1F,
+            FT_UINT8, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_data_header_rfu,
             { "RFU",                             "btle.data_header.rfu",
             FT_UINT8, BASE_DEC, NULL, 0xE0,
-            NULL, HFILL }
+            "Reserved for Future Use", HFILL }
         },
         { &hf_control_opcode,
             { "Control Opcode",                  "btle.control_opcode",
@@ -1179,7 +1614,7 @@ proto_register_btle(void)
         },
         { &hf_control_subversion_number,
             { "Subversion Number",               "btle.control.subversion_number",
-            FT_UINT16, BASE_HEX, NULL, 0x1F,
+            FT_UINT16, BASE_HEX, NULL, 0x0,
             NULL, HFILL }
         },
         { &hf_control_feature_set,
@@ -1189,32 +1624,92 @@ proto_register_btle(void)
         },
         { &hf_control_feature_set_le_encryption,
             { "LE Encryption",                   "btle.control.feature_set.le_encryption",
-            FT_BOOLEAN, 8, NULL, 0x80,
+            FT_BOOLEAN, 8, NULL, 0x01,
             NULL, HFILL }
         },
         { &hf_control_feature_set_connection_parameters_request_procedure,
             { "Connection Parameters Request Procedure",   "btle.control.feature_set.connection_parameters_request_procedure",
-            FT_BOOLEAN, 8, NULL, 0x40,
+            FT_BOOLEAN, 8, NULL, 0x02,
             NULL, HFILL }
         },
         { &hf_control_feature_set_extended_reject_indication,
             { "Extended Reject Indication",           "btle.control.feature_set.extended_reject_indication",
-            FT_BOOLEAN, 8, NULL, 0x20,
+            FT_BOOLEAN, 8, NULL, 0x04,
             NULL, HFILL }
         },
         { &hf_control_feature_set_slave_initiated_features_exchange,
             { "Slave Initiated Features Exchange",    "btle.control.feature_set.slave_initiated_features_exchange",
-            FT_BOOLEAN, 8, NULL, 0x10,
+            FT_BOOLEAN, 8, NULL, 0x08,
             NULL, HFILL }
         },
         { &hf_control_feature_set_le_ping,
             { "LE Ping",                         "btle.control.feature_set.le_ping",
+            FT_BOOLEAN, 8, NULL, 0x10,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_le_pkt_len_ext,
+        { "LE Data Packet Length Extension",          "btle.control.feature_set.le_pkt_len_ext",
+            FT_BOOLEAN, 8, NULL, 0x20,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_ll_privacy,
+        { "LL Privacy",          "btle.control.feature_set.le_privacy",
+            FT_BOOLEAN, 8, NULL, 0x40,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_ext_scan_flt_pol,
+        { "Extended Scanner Filter Policies",          "btle.control.feature_set.ext_scan_flt_pol",
+            FT_BOOLEAN, 8, NULL, 0x80,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_le_2m_phy,
+        { "LE 2M PHY", "btle.control.feature_set.le_2m_phy",
+            FT_BOOLEAN, 8, NULL, 0x01,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_stable_modulation_index_transmitter,
+        { "Stable Modulation Index - Transmitter", "btle.control.feature_set.st_mod_idx_tx",
+            FT_BOOLEAN, 8, NULL, 0x02,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_stable_modulation_index_receiver,
+        { "Stable Modulation Index - Receiver", "btle.control.feature_set.st_mod_idx_rx",
+            FT_BOOLEAN, 8, NULL, 0x04,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_le_coded_phy,
+        { "LE Coded PHY", "btle.control.feature_set.le_coded_phy",
             FT_BOOLEAN, 8, NULL, 0x08,
             NULL, HFILL }
         },
-        { &hf_control_feature_set_reserved_5_7,
-            { "Reseved",                         "btle.control.feature_set.reserved_5_7",
-            FT_BOOLEAN, 8, NULL, 0x07,
+        { &hf_control_feature_set_le_extended_advertising,
+        { "LE Extended Advertising", "btle.control.feature_set.le_extended_adv",
+            FT_BOOLEAN, 8, NULL, 0x10,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_le_periodic_advertising,
+        { "LE Periodic Advertising", "btle.control.feature_set.periodic_adv",
+            FT_BOOLEAN, 8, NULL, 0x20,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_channel_selection_algorithm_2,
+        { "Channel Selection Algorithm #2", "btle.control.feature_set.ch_sel_2",
+            FT_BOOLEAN, 8, NULL, 0x40,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_le_power_class_1,
+        { "LE Power Class 1", "btle.control.feature_set.le_power_class_1",
+            FT_BOOLEAN, 8, NULL, 0x80,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_minimum_number_of_used_channels_procedure,
+        { "Minimum Number of Used Channels Procedure", "btle.control.feature_set.min_num_used_ch_proc",
+            FT_BOOLEAN, 8, NULL, 0x01,
+            NULL, HFILL }
+        },
+        { &hf_control_feature_set_reserved_bits,
+            { "Reserved", "btle.control.feature_set.reserved_bits",
+            FT_UINT8, BASE_DEC, NULL, 0xFE,
             NULL, HFILL }
         },
         { &hf_control_feature_set_reserved,
@@ -1337,6 +1832,111 @@ proto_register_btle(void)
             FT_UINT64, BASE_DEC_HEX, NULL, 0x0,
             NULL, HFILL }
         },
+        { &hf_control_max_rx_octets,
+            { "Max RX octets",   "btle.control.max_rx_octets",
+            FT_UINT16, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_max_rx_time,
+            { "Max RX time",     "btle.control.max_rx_time",
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_microsecond_microseconds, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_max_tx_octets,
+            { "Max TX octets",   "btle.control.max_tx_octets",
+            FT_UINT16, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_max_tx_time,
+            { "Max TX time",     "btle.control.max_tx_time",
+            FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_microsecond_microseconds, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_sender_le_1m_phy,
+            { "Sender prefers to use the LE 1M PHY", "btle.control.phys.le_1m_phy",
+            FT_BOOLEAN, 8, NULL, 0x01,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_sender_le_2m_phy,
+            { "Sender prefers to use the LE 2M PHY", "btle.control.phys.le_2m_phy",
+            FT_BOOLEAN, 8, NULL, 0x02,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_sender_le_coded_phy,
+            { "Sender prefers to use the LE Coded PHY", "btle.control.phys.le_coded_phy",
+            FT_BOOLEAN, 8, NULL, 0x04,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_update_le_1m_phy,
+            { "The LE 1M PHY shall be used", "btle.control.phys.le_1m_phy",
+            FT_BOOLEAN, 8, NULL, 0x01,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_update_le_2m_phy,
+            { "The LE 2M PHY shall be used", "btle.control.phys.le_2m_phy",
+            FT_BOOLEAN, 8, NULL, 0x02,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_update_le_coded_phy,
+            { "The LE Coded PHY shall be used", "btle.control.phys.le_coded_phy",
+            FT_BOOLEAN, 8, NULL, 0x04,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_reserved_bits,
+            { "Reserved for future use", "btle.control.phys.reserved",
+            FT_UINT8, BASE_DEC, NULL, 0xF8,
+            NULL, HFILL }
+        },
+        { &hf_control_tx_phys,
+            { "TX PHYs", "btle.control.tx_phys",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_rx_phys,
+            { "RX PHYs", "btle.control.rx_phys",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_m_to_s_phy,
+            { "Master to Slave PHY", "btle.control.m_to_s_phy",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_s_to_m_phy,
+            { "Slave to Master PHY", "btle.control.s_to_m_phy",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_phys,
+            { "PHYs", "btle.control.phys",
+            FT_UINT8, BASE_HEX, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_le_1m_phy,
+            { "LE 1M PHY", "btle.control.phys.le_1m_phy",
+            FT_BOOLEAN, 8, NULL, 0x01,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_le_2m_phy,
+            { "LE 2M PHY", "btle.control.phys.le_2m_phy",
+            FT_BOOLEAN, 8, NULL, 0x02,
+            NULL, HFILL }
+        },
+        { &hf_control_phys_le_coded_phy,
+            { "LE Coded PHY", "btle.control.phys.le_coded_phy",
+            FT_BOOLEAN, 8, NULL, 0x04,
+            NULL, HFILL }
+        },
+        { &hf_control_min_used_channels,
+            { "Minimum Used Channels", "btle.control.min_used_channels",
+            FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_l2cap_index,
+            { "L2CAP Index",                     "btle.l2cap_index",
+            FT_UINT32, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
         { &hf_l2cap_fragment,
             { "L2CAP Fragment",                  "btle.l2cap_data",
             FT_NONE, BASE_NONE, NULL, 0x0,
@@ -1347,6 +1947,57 @@ proto_register_btle(void)
             FT_UINT24, BASE_HEX, NULL, 0x0,
             NULL, HFILL }
         },
+        { &hf_btle_l2cap_msg_fragments,
+        { "L2CAP fragments", "btle.l2cap.fragments",
+            FT_NONE, BASE_NONE, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment,
+        { "L2CAP fragment", "btle.l2cap.fragment",
+            FT_FRAMENUM, BASE_NONE, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment_overlap,
+        { "L2CAP fragment overlap", "btle.l2cap.fragment.overlap",
+            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment_overlap_conflicts,
+        { "L2CAP fragment overlapping with conflicting data", "btle.l2cap.fragment.overlap.conflicts",
+            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment_multiple_tails,
+        { "L2CAP has multiple tail fragments", "btle.l2cap.fragment.multiple_tails",
+            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment_too_long_fragment,
+        { "L2CAP fragment too long", "btle.l2cap.fragment.too_long_fragment",
+            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment_error,
+        { "L2CAP defragmentation error", "btle.l2cap.fragment.error",
+            FT_FRAMENUM, BASE_NONE, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_fragment_count,
+        { "L2CAP fragment count", "btle.l2cap.fragment.count",
+            FT_UINT32, BASE_DEC, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_reassembled_in,
+        { "Reassembled in", "btle.l2cap.reassembled.in",
+            FT_FRAMENUM, BASE_NONE, NULL, 0x00,
+            NULL, HFILL }
+        },
+        { &hf_btle_l2cap_msg_reassembled_length,
+        { "Reassembled L2CAP length", "btle.l2cap.reassembled.length",
+            FT_UINT32, BASE_DEC, NULL, 0x00,
+            NULL, HFILL }
+        },
+
     };
 
     static ei_register_info ei[] = {
@@ -1360,10 +2011,12 @@ proto_register_btle(void)
             { "btle.access_address.illegal",    PI_PROTOCOL, PI_ERROR, "AccessAddress has illegal value", EXPFILL }},
         { &ei_crc_cannot_be_determined,
             { "btle.crc.indeterminate",         PI_CHECKSUM, PI_NOTE,  "CRC unchecked, not all data available", EXPFILL }},
-        { &ei_crc_correct,
-            { "btle.crc.correct",               PI_CHECKSUM, PI_CHAT,  "Correct CRC", EXPFILL }},
         { &ei_crc_incorrect,
             { "btle.crc.incorrect",             PI_CHECKSUM, PI_WARN,  "Incorrect CRC", EXPFILL }},
+        { &ei_missing_fragment_start,
+            { "btle.missing_fragment_start",    PI_SEQUENCE, PI_WARN,  "Missing Fragment Start", EXPFILL }},
+        { &ei_retransmit,
+            { "btle.retransmit",                PI_SEQUENCE, PI_NOTE,  "Retransmission", EXPFILL }},
     };
 
     static gint *ett[] = {
@@ -1372,11 +2025,18 @@ proto_register_btle(void)
         &ett_link_layer_data,
         &ett_data_header,
         &ett_features,
+        &ett_tx_phys,
+        &ett_rx_phys,
+        &ett_m_to_s_phy,
+        &ett_s_to_m_phy,
+        &ett_phys,
         &ett_channel_map,
-        &ett_scan_response_data
+        &ett_scan_response_data,
+        &ett_btle_l2cap_msg_fragment,
+        &ett_btle_l2cap_msg_fragments
     };
 
-    connection_addresses = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
+    connection_info_tree = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
     proto_btle = proto_register_protocol("Bluetooth Low Energy Link Layer",
             "BT LE LL", "btle");
@@ -1388,10 +2048,20 @@ proto_register_btle(void)
     expert_module = expert_register_protocol(proto_btle);
     expert_register_field_array(expert_module, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_btle, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btle, NULL);
     prefs_register_static_text_preference(module, "version",
-            "Bluetooth LE LL version: 4.1 (Core)",
+            "Bluetooth LE LL version: 5.0 (Core)",
             "Version of protocol supported by this dissector.");
+
+    prefs_register_bool_preference(module, "detect_retransmit",
+                                   "Detect retransmission",
+                                   "Detect retransmission based on SN (Sequence Number)",
+                                   &btle_detect_retransmit);
+
+    reassembly_table_register(&btle_l2cap_msg_reassembly_table,
+        &addresses_reassembly_table_functions);
+
+    register_init_routine(btle_init);
 }
 
 void
@@ -1402,6 +2072,7 @@ proto_reg_handoff_btle(void)
     btl2cap_handle = find_dissector_add_dependency("btl2cap", proto_btle);
 
     proto_btle_rf = proto_get_id_by_filter_name("btle_rf");
+    proto_nordic_ble = proto_get_id_by_filter_name("nordic_ble");
 
     dissector_add_uint("bluetooth.encap", WTAP_ENCAP_BLUETOOTH_LE_LL, btle_handle);
 }

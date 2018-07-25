@@ -8,25 +8,12 @@
  * from nearly-the-same packet-raw.c created by Mike Hall <mlh@io.com>
  * Copyright 1999
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/capture_dissectors.h>
 #include <epan/expert.h>
 #include <wiretap/wtap.h>
 
@@ -118,8 +105,6 @@ proto_reg_handoff_clip(void)
   clip_handle = create_dissector_handle(dissect_clip, proto_clip);
       /* XXX - no protocol, can't be disabled */
   dissector_add_uint("wtap_encap", WTAP_ENCAP_LINUX_ATM_CLIP, clip_handle);
-
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_LINUX_ATM_CLIP, capture_ip, proto_clip);
 }
 
 /*

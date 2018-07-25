@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This dissector supports version 3.0 of the dlm(Distributed Lock Manager)
@@ -50,7 +38,7 @@
 
 
 
-#define TCP_PORT_DLM3           21064
+#define TCP_PORT_DLM3           21064 /* Not IANA registered */
 #define SCTP_PORT_DLM3          TCP_PORT_DLM3
 
 #define DLM3_MAJOR_VERSION      0x00030000
@@ -351,7 +339,6 @@ static gint ett_dlm3_rl_name     = -1;
 
 
 /* configurable parameters */
-static guint dlm3_tcp_port  = TCP_PORT_DLM3;
 static guint dlm3_sctp_port = SCTP_PORT_DLM3;
 
 /*
@@ -756,21 +743,25 @@ dissect_dlm3_rcom_lock(tvbuff_t *tvb, proto_tree *tree,
                       namelen);
 
   offset += 2;
-  sub_item = proto_tree_add_item(tree,
-                                 hf_dlm3_rl_name, tvb, offset,
-                                 DLM3_RESNAME_MAXLEN, ENC_NA);
+  if (namelen <= DLM3_RESNAME_MAXLEN) {
+    sub_item = proto_tree_add_item(tree,
+                                   hf_dlm3_rl_name, tvb, offset,
+                                   DLM3_RESNAME_MAXLEN, ENC_NA);
 
-  sub_tree = proto_item_add_subtree(sub_item,
-                                    ett_dlm3_rl_name);
-  sub_offset = offset;
-  proto_tree_add_item(sub_tree,
-                      hf_dlm3_rl_name_contents, tvb, sub_offset,
-                      namelen, ENC_ASCII|ENC_NA);
+    sub_tree = proto_item_add_subtree(sub_item,
+                                      ett_dlm3_rl_name);
+    sub_offset = offset;
+    proto_tree_add_item(sub_tree,
+                        hf_dlm3_rl_name_contents, tvb, sub_offset,
+                        namelen, ENC_ASCII|ENC_NA);
 
-  sub_offset += namelen;
-  proto_tree_add_item(sub_tree,
-                      hf_dlm3_rl_name_padding, tvb, sub_offset,
-                      DLM3_RESNAME_MAXLEN - namelen, ENC_NA);
+    sub_offset += namelen;
+    proto_tree_add_item(sub_tree,
+                        hf_dlm3_rl_name_padding, tvb, sub_offset,
+                        DLM3_RESNAME_MAXLEN - namelen, ENC_NA);
+  } else {
+    /* XXX - report an error */
+  }
 
   offset += DLM3_RESNAME_MAXLEN;
   if (((length - offset) > 0) && (exflags & DLM3_LKF_VALBLK))
@@ -1548,11 +1539,6 @@ proto_register_dlm3(void)
   dlm3_module = prefs_register_protocol(proto_dlm3,
                                         proto_reg_handoff_dlm3);
 
-  prefs_register_uint_preference(dlm3_module, "tcp.port",
-                                 "DLM3 TCP Port",
-                                 "Set the TCP port for Distributed Lock Manager",
-                                 10,
-                                 &dlm3_tcp_port);
   prefs_register_uint_preference(dlm3_module, "sctp.port",
                                  "DLM3 SCTP Port",
                                  "Set the SCTP port for Distributed Lock Manager",
@@ -1566,7 +1552,6 @@ proto_reg_handoff_dlm3(void)
 {
   static gboolean dissector_registered = FALSE;
 
-  static guint tcp_port;
   static guint sctp_port;
 
   static dissector_handle_t dlm3_tcp_handle;
@@ -1575,15 +1560,13 @@ proto_reg_handoff_dlm3(void)
   if (!dissector_registered) {
     dlm3_sctp_handle = create_dissector_handle(dissect_dlm3, proto_dlm3);
     dlm3_tcp_handle = create_dissector_handle(dissect_dlm3, proto_dlm3);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_DLM3, dlm3_tcp_handle);
     dissector_registered = TRUE;
   } else {
-    dissector_delete_uint("tcp.port",  tcp_port,  dlm3_tcp_handle);
     dissector_delete_uint("sctp.port", sctp_port, dlm3_sctp_handle);
   }
 
-  tcp_port  = dlm3_tcp_port;
   sctp_port = dlm3_sctp_port;
-  dissector_add_uint("tcp.port",  tcp_port,  dlm3_tcp_handle);
   dissector_add_uint("sctp.port", sctp_port, dlm3_sctp_handle);
 }
 

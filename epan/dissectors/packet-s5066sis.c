@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -87,7 +75,7 @@ static gboolean s5066_desegment = TRUE;
 /* Dissect old 'edition 1' of STANAG 5066 (It lacks the 'version' field.) */
 static gboolean s5066_edition_one = FALSE;
 /* This port is registered with IANA */
-static guint global_s5066_port = 5066;
+#define S5066_PORT 5066
 /* Size of header outside 'size' field */
 static gint s5066_header_size = 5;
 /* Offset of 'size' field */
@@ -1049,7 +1037,7 @@ dissect_s5066_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	reported_length = pdu_size - offset;
 	available_length = tvb_captured_length(tvb) - offset;
 
-	next_tvb = tvb_new_subset(tvb, offset, MIN(available_length, reported_length), reported_length);
+	next_tvb = tvb_new_subset_length_caplen(tvb, offset, MIN(available_length, reported_length), reported_length);
 
 	if(dissector_try_uint(s5066sis_dissector_table, client_app_id, next_tvb, pinfo, tree) == 0) {
 		call_data_dissector(next_tvb, pinfo, tree);
@@ -1421,11 +1409,7 @@ proto_register_s5066(void)
 
 	module_t *s5066_module;
 
-	proto_s5066 = proto_register_protocol (
-			"STANAG 5066 (SIS layer)",	/* name */
-			"STANAG 5066 SIS",		/* short name*/
-			"s5066sis"			/* abbrev */
-		);
+	proto_s5066 = proto_register_protocol ("STANAG 5066 (SIS layer)", "STANAG 5066 SIS", "s5066sis");
 	proto_register_field_array(proto_s5066, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
@@ -1440,13 +1424,8 @@ proto_register_s5066(void)
 				       "Whether the S5066 SIS dissector should dissect this edition of the STANAG."
 				       " This edition was never formally approved and is very rare. The common edition is edition 1.2.",
 				       &s5066_edition_one);
-	prefs_register_uint_preference(s5066_module, "tcp.port",
-				       "STANAG 5066 SIS TCP Port",
-				       "Set the port for STANAG 5066 SIS. (If other than the default 5066."
-				       " This number is registered with IANA.)",
-				       10, &global_s5066_port);
 
-	s5066sis_dissector_table = register_dissector_table("s5066sis.ctl.appid", "STANAG 5066 Application Identifier", proto_s5066, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	s5066sis_dissector_table = register_dissector_table("s5066sis.ctl.appid", "STANAG 5066 Application Identifier", proto_s5066, FT_UINT16, BASE_DEC);
 
 }
 
@@ -1455,17 +1434,12 @@ proto_reg_handoff_s5066(void)
 {
 	static gboolean Initialized = FALSE;
 	static dissector_handle_t s5066_tcp_handle;
-	static guint saved_s5066_port;
 
 	if (!Initialized) {
 		s5066_tcp_handle = create_dissector_handle(dissect_s5066_tcp, proto_s5066);
+		dissector_add_uint_with_preference("tcp.port", S5066_PORT, s5066_tcp_handle);
 		Initialized = TRUE;
-	} else {
-		dissector_delete_uint("tcp.port", saved_s5066_port, s5066_tcp_handle);
 	}
-
-	dissector_add_uint("tcp.port", global_s5066_port, s5066_tcp_handle);
-	saved_s5066_port = global_s5066_port;
 
 	if (!s5066_edition_one) {
 		s5066_header_size = 5;

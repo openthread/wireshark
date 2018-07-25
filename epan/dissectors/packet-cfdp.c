@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -927,7 +915,7 @@ static guint32 dissect_cfdp_eof_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
     col_add_fstr(pinfo->cinfo, COL_INFO, "EOF (%s)",  val_to_str_const((aux_byte & 0xF0) >> 4, cfdp_condition_codes, "Reserved Code"));
 
-    proto_tree_add_item(tree, hf_cfdp_file_checksum, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_checksum(tree, tvb, offset, hf_cfdp_file_checksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     offset += 4;
 
     proto_tree_add_item(tree, hf_cfdp_file_size, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -1631,7 +1619,7 @@ void
 proto_reg_handoff_cfdp(void)
 {
     dissector_add_uint("ccsds.apid", CFDP_APID, cfdp_handle);
-    dissector_add_for_decode_as("udp.port", cfdp_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", cfdp_handle);
 }
 
 /*

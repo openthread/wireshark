@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef IAX2_ANALYSIS_DIALOG_H
@@ -34,6 +22,7 @@
 #include <epan/address.h>
 
 #include "ui/tap-iax2-analysis.h"
+#include "ui/rtp_stream_id.h"
 
 #include <QAbstractButton>
 #include <QMenu>
@@ -47,6 +36,14 @@ class Iax2AnalysisDialog;
 class QCPGraph;
 class QTemporaryFile;
 
+typedef enum {
+    TAP_IAX2_NO_ERROR,
+    TAP_IAX2_NO_PACKET_SELECTED,
+    TAP_IAX2_WRONG_LENGTH,
+    TAP_IAX2_FILE_IO_ERROR
+} iax2_error_type_t;
+
+
 class Iax2AnalysisDialog : public WiresharkDialog
 {
     Q_OBJECT
@@ -59,6 +56,7 @@ signals:
     void goToPacket(int packet_num);
 
 protected slots:
+    void captureEvent(CaptureEvent e);
     virtual void updateWidgets();
 
 private slots:
@@ -83,14 +81,8 @@ private:
     Ui::Iax2AnalysisDialog *ui;
     enum StreamDirection { dir_both_, dir_forward_, dir_reverse_ };
 
-    address src_fwd_;
-    guint32 port_src_fwd_;
-    address dst_fwd_;
-    guint32 port_dst_fwd_;
-    address src_rev_;
-    guint32 port_src_rev_;
-    address dst_rev_;
-    guint32 port_dst_rev_;
+    rtpstream_id_t fwd_id_;
+    rtpstream_id_t rev_id_;
 
     tap_iax2_stat_t fwd_statinfo_;
     tap_iax2_stat_t rev_statinfo_;
@@ -109,6 +101,7 @@ private:
     QVector<double> rev_diff_vals_;
 
     QString err_str_;
+    iax2_error_type_t save_payload_error_;
 
     QMenu stream_ctx_menu_;
     QMenu graph_ctx_menu_;

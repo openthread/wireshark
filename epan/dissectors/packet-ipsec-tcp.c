@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* TODO:
@@ -32,7 +20,6 @@
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 #include "packet-ndmp.h"
 
 void proto_register_tcpencap(void);
@@ -67,11 +54,6 @@ static const value_string tcpencap_proto_vals[] = {
 
 #define TRAILERLENGTH 16
 #define TCP_CISCO_IPSEC 10000
-/* Another case of several companies creating protocols and
-   choosing an easy-to-remember port. Playing tonight: Cisco vs NDMP.
-   Since NDMP has officially registered port 10000 with IANA, it should be the default
-*/
-static guint global_tcpencap_tcp_port = 0;
 
 static dissector_handle_t esp_handle;
 static dissector_handle_t udp_handle;
@@ -153,7 +135,7 @@ dissect_tcpencap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data
 	}
 
 	/* Create the tvbuffer for the next dissector */
-	next_tvb = tvb_new_subset(tvb, 0, reported_length - TRAILERLENGTH , -1);
+	next_tvb = tvb_new_subset_length_caplen(tvb, 0, reported_length - TRAILERLENGTH , -1);
 	if (protocol == TCP_ENCAP_P_UDP) {
 		call_dissector(udp_handle, next_tvb, pinfo, tree);
 	} else { /* Hopefully ESP */
@@ -224,43 +206,25 @@ proto_register_tcpencap(void)
 		&ett_tcpencap_unknown,
 	};
 
-	module_t *tcpencap_module;
+	proto_tcpencap = proto_register_protocol("TCP Encapsulation of IPsec Packets", "TCPENCAP", "tcpencap");
 
-	proto_tcpencap = proto_register_protocol(
-		"TCP Encapsulation of IPsec Packets", "TCPENCAP", "tcpencap");
 	proto_register_field_array(proto_tcpencap, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	tcpencap_module = prefs_register_protocol(proto_tcpencap, proto_reg_handoff_tcpencap);
-	prefs_register_uint_preference(tcpencap_module, "tcp.port", "IPSEC TCP Port",
-		"Set the port for IPSEC/ISAKMP messages (typically 10000)",
-		10, &global_tcpencap_tcp_port);
 }
 
 void
 proto_reg_handoff_tcpencap(void)
 {
-	static dissector_handle_t tcpencap_handle;
-	static gboolean initialized = FALSE;
-	static guint tcpencap_tcp_port = 0;
+	dissector_handle_t tcpencap_handle;
 
-	if (!initialized) {
-		tcpencap_handle = create_dissector_handle(dissect_tcpencap, proto_tcpencap);
-		esp_handle = find_dissector_add_dependency("esp", proto_tcpencap);
-		udp_handle = find_dissector_add_dependency("udp", proto_tcpencap);
+	tcpencap_handle = create_dissector_handle(dissect_tcpencap, proto_tcpencap);
+	esp_handle = find_dissector_add_dependency("esp", proto_tcpencap);
+	udp_handle = find_dissector_add_dependency("udp", proto_tcpencap);
 
-		heur_dissector_add("tcp", dissect_tcpencap_heur, "TCP Encapsulation of IPsec Packets", "ipsec_tcp", proto_tcpencap, HEURISTIC_ENABLE);
-
-		initialized = TRUE;
-	}
+	heur_dissector_add("tcp", dissect_tcpencap_heur, "TCP Encapsulation of IPsec Packets", "ipsec_tcp", proto_tcpencap, HEURISTIC_ENABLE);
 
 	/* Register TCP port for dissection */
-	if(tcpencap_tcp_port != 0 && tcpencap_tcp_port != global_tcpencap_tcp_port){
-		dissector_delete_uint("tcp.port", tcpencap_tcp_port, tcpencap_handle);
-	}
-
-	if(global_tcpencap_tcp_port != 0 && tcpencap_tcp_port != global_tcpencap_tcp_port) {
-		dissector_add_uint("tcp.port", global_tcpencap_tcp_port, tcpencap_handle);
-	}
+	dissector_add_for_decode_as_with_preference("tcp.port", tcpencap_handle);
 }
 
 /*

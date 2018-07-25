@@ -14,19 +14,7 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -96,6 +84,7 @@ static gboolean support_IG          = FALSE;
 
 static dissector_handle_t q931_handle;
 static dissector_handle_t x25_handle;
+static dissector_handle_t iua_handle;
 
 #define ADD_PADDING(x) ((((x) + 3) >> 2) << 2)
 
@@ -975,7 +964,7 @@ proto_register_iua(void)
         &global_iua_gsm_sapis);
 
   /* Allow other dissectors to find this one by name. */
-  register_dissector("iua", dissect_iua, proto_iua);
+  iua_handle = register_dissector("iua", dissect_iua, proto_iua);
 }
 
 #define SCTP_PORT_IUA          9900
@@ -983,9 +972,6 @@ proto_register_iua(void)
 void
 proto_reg_handoff_iua(void)
 {
-  dissector_handle_t iua_handle;
-
-  iua_handle  = find_dissector("iua");
   q931_handle = find_dissector_add_dependency("q931", proto_iua);
   x25_handle  = find_dissector_add_dependency("x.25", proto_iua);
 

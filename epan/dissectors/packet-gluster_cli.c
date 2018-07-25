@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *
  * References to source files point in general to the glusterfs sources.
@@ -71,7 +59,7 @@ gluster_cli_2_common_call(tvbuff_t *tvb,
 
 static int
 gluster_cli_2_common_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -85,7 +73,7 @@ gluster_cli_2_common_reply(tvbuff_t *tvb, packet_info *pinfo,
 
 static int
 gluster_cli_2_probe_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -114,7 +102,7 @@ gluster_cli_2_probe_call(tvbuff_t *tvb,
 
 static int
 gluster_cli_2_deprobe_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 	offset = gluster_dissect_common_reply(tvb, offset, pinfo, tree, data);
@@ -146,7 +134,7 @@ gluster_cli_2_fsm_log_call(tvbuff_t *tvb,
 
 static int
 gluster_cli_2_getwd_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -178,7 +166,7 @@ gluster_cli_2_mount_call(tvbuff_t *tvb,
 
 static int
 gluster_cli_2_mount_reply(tvbuff_t *tvb, packet_info *pinfo,
-							proto_tree *tree, void* data _U_)
+							proto_tree *tree, void* data)
 {
 	int offset = 0;
 
@@ -202,7 +190,7 @@ gluster_cli_2_umount_call(tvbuff_t *tvb,
 
 static int
 gluster_cli_dissect_common_reply(tvbuff_t *tvb,
-				packet_info *pinfo _U_, proto_tree *tree, void* data _U_)
+				packet_info *pinfo, proto_tree *tree, void* data)
 {
 	return gluster_dissect_common_reply(tvb, 0, pinfo, tree, data);
 }

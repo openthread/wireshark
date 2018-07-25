@@ -3,25 +3,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef FTYPES_INT_H
 #define FTYPES_INT_H
 
-#include <epan/packet.h>
+#include <epan/proto.h>
 #include "ftypes.h"
 
 
@@ -51,7 +39,7 @@ typedef void (*FvalueFreeFunc)(fvalue_t*);
 
 typedef gboolean (*FvalueFromUnparsed)(fvalue_t*, const char*, gboolean, gchar **);
 typedef gboolean (*FvalueFromString)(fvalue_t*, const char*, gchar **);
-typedef void (*FvalueToStringRepr)(fvalue_t*, ftrepr_t, int field_display, char*volatile);
+typedef void (*FvalueToStringRepr)(fvalue_t*, ftrepr_t, int field_display, char*volatile, unsigned int);
 typedef int (*FvalueStringReprLen)(fvalue_t*, ftrepr_t, int field_display);
 
 typedef void (*FvalueSetByteArrayFunc)(fvalue_t*, GByteArray *);
@@ -59,7 +47,7 @@ typedef void (*FvalueSetBytesFunc)(fvalue_t*, const guint8 *);
 typedef void (*FvalueSetGuidFunc)(fvalue_t*, const e_guid_t *);
 typedef void (*FvalueSetTimeFunc)(fvalue_t*, const nstime_t *);
 typedef void (*FvalueSetStringFunc)(fvalue_t*, const gchar *value);
-typedef void (*FvalueSetTvbuffFunc)(fvalue_t*, tvbuff_t *value);
+typedef void (*FvalueSetProtocolFunc)(fvalue_t*, tvbuff_t *value, const gchar *name);
 typedef void (*FvalueSetUnsignedIntegerFunc)(fvalue_t*, guint32);
 typedef void (*FvalueSetSignedIntegerFunc)(fvalue_t*, gint32);
 typedef void (*FvalueSetUnsignedInteger64Func)(fvalue_t*, guint64);
@@ -90,26 +78,28 @@ struct _ftype_t {
 	FvalueToStringRepr	val_to_string_repr;
 	FvalueStringReprLen	len_string_repr;
 
-	/* could be union */
-	FvalueSetByteArrayFunc	set_value_byte_array;
-	FvalueSetBytesFunc	set_value_bytes;
-	FvalueSetGuidFunc	set_value_guid;
-	FvalueSetTimeFunc	set_value_time;
-	FvalueSetStringFunc	set_value_string;
-	FvalueSetTvbuffFunc	set_value_tvbuff;
-	FvalueSetUnsignedIntegerFunc	set_value_uinteger;
-	FvalueSetSignedIntegerFunc		set_value_sinteger;
-	FvalueSetUnsignedInteger64Func	set_value_uinteger64;
-	FvalueSetSignedInteger64Func		set_value_sinteger64;
-	FvalueSetFloatingFunc	set_value_floating;
+	union {
+		FvalueSetByteArrayFunc	set_value_byte_array;
+		FvalueSetBytesFunc	set_value_bytes;
+		FvalueSetGuidFunc	set_value_guid;
+		FvalueSetTimeFunc	set_value_time;
+		FvalueSetStringFunc	set_value_string;
+		FvalueSetProtocolFunc	set_value_protocol;
+		FvalueSetUnsignedIntegerFunc	set_value_uinteger;
+		FvalueSetSignedIntegerFunc	set_value_sinteger;
+		FvalueSetUnsignedInteger64Func	set_value_uinteger64;
+		FvalueSetSignedInteger64Func	set_value_sinteger64;
+		FvalueSetFloatingFunc	set_value_floating;
+	} set_value;
 
-	/* could be union */
-	FvalueGetFunc		get_value;
-	FvalueGetUnsignedIntegerFunc	get_value_uinteger;
-	FvalueGetSignedIntegerFunc		get_value_sinteger;
-	FvalueGetUnsignedInteger64Func	get_value_uinteger64;
-	FvalueGetSignedInteger64Func	get_value_sinteger64;
-	FvalueGetFloatingFunc	get_value_floating;
+	union {
+		FvalueGetFunc		get_value_ptr;
+		FvalueGetUnsignedIntegerFunc	get_value_uinteger;
+		FvalueGetSignedIntegerFunc	get_value_sinteger;
+		FvalueGetUnsignedInteger64Func	get_value_uinteger64;
+		FvalueGetSignedInteger64Func	get_value_sinteger64;
+		FvalueGetFloatingFunc	get_value_floating;
+	} get_value;
 
 	FvalueCmp		cmp_eq;
 	FvalueCmp		cmp_ne;

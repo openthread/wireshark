@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -148,7 +136,7 @@ static int hf_acp133_OnSupported_acp127_pn = -1;
 static int hf_acp133_OnSupported_acp127_tn = -1;
 
 /*--- End of included file: packet-acp133-hf.c ---*/
-#line 52 "./asn1/acp133/packet-acp133-template.c"
+#line 40 "./asn1/acp133/packet-acp133-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_acp133 = -1;
@@ -177,7 +165,7 @@ static gint ett_acp133_Capability = -1;
 static gint ett_acp133_SET_OF_ExtendedContentType = -1;
 
 /*--- End of included file: packet-acp133-ett.c ---*/
-#line 56 "./asn1/acp133/packet-acp133-template.c"
+#line 44 "./asn1/acp133/packet-acp133-template.c"
 
 
 /*--- Included file: packet-acp133-fn.c ---*/
@@ -1220,7 +1208,7 @@ static int dissect_Capability_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, pro
 
 
 /*--- End of included file: packet-acp133-fn.c ---*/
-#line 58 "./asn1/acp133/packet-acp133-template.c"
+#line 46 "./asn1/acp133/packet-acp133-template.c"
 
 
 /*--- proto_register_acp133 -------------------------------------------*/
@@ -1578,7 +1566,7 @@ void proto_register_acp133(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-acp133-hfarr.c ---*/
-#line 67 "./asn1/acp133/packet-acp133-template.c"
+#line 55 "./asn1/acp133/packet-acp133-template.c"
   };
 
   /* List of subtrees */
@@ -1609,7 +1597,7 @@ void proto_register_acp133(void) {
     &ett_acp133_SET_OF_ExtendedContentType,
 
 /*--- End of included file: packet-acp133-ettarr.c ---*/
-#line 73 "./asn1/acp133/packet-acp133-template.c"
+#line 61 "./asn1/acp133/packet-acp133-template.c"
   };
 
   /* Register protocol */
@@ -1681,7 +1669,7 @@ void proto_reg_handoff_acp133(void) {
 
 
 /*--- End of included file: packet-acp133-dis-tab.c ---*/
-#line 89 "./asn1/acp133/packet-acp133-template.c"
+#line 77 "./asn1/acp133/packet-acp133-template.c"
 
   /* X.402 Object Classes */
   oid_add_from_string("id-oc-mhs-distribution-list","2.6.5.1.0");

@@ -6,27 +6,7 @@ License of Lrexlib release
 Copyright (C) Reuben Thomas 2000-2012
 Copyright (C) Shmuel Zeigerman 2004-2012
 
-Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without limitation
-the rights to use, copy, modify, merge, publish, distribute,
-sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall
-be included in all copies or substantial portions of the
-Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
-KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
-OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+SPDX-License-Identifier: MIT
 */
 
 #include "lrexlib.h"
@@ -475,8 +455,10 @@ static int finish_generic_find (lua_State *L, TUserdata *ud, TArgExec *argE,
     }
     return (method == METHOD_FIND) ? ALG_NSUB(ud) + 2 : ALG_NSUB(ud);
   }
-  else if (ALG_NOMATCH (res))
-    return lua_pushnil (L), 1;
+  else if (ALG_NOMATCH (res)) {
+    lua_pushnil (L);
+    return 1;
+  }
   else
     return generate_error (L, ud, res);
 }
@@ -489,8 +471,10 @@ static int generic_find_func (lua_State *L, int method) {
   int res;
 
   checkarg_find_func (L, &argC, &argE);
-  if (argE.startoffset > (int)argE.textlen)
-    return lua_pushnil (L), 1;
+  if (argE.startoffset > (int)argE.textlen) {
+    lua_pushnil (L);
+    return 1;
+  }
 
   if (argC.ud) {
     ud = (TUserdata*) argC.ud;
@@ -700,8 +684,10 @@ static int generic_find_method (lua_State *L, int method) {
   int res;
 
   checkarg_find_method (L, &argE, &ud);
-  if (argE.startoffset > (int)argE.textlen)
-    return lua_pushnil(L), 1;
+  if (argE.startoffset > (int)argE.textlen) {
+      lua_pushnil(L);
+      return 1;
+  }
 
   res = findmatch_exec (ud, &argE);
   if (ALG_ISMATCH (res)) {
@@ -722,8 +708,10 @@ static int generic_find_method (lua_State *L, int method) {
     }
     return 0;
   }
-  else if (ALG_NOMATCH (res))
-    return lua_pushnil (L), 1;
+  else if (ALG_NOMATCH (res)) {
+      lua_pushnil (L);
+      return 1;
+  }
   else
     return generate_error(L, ud, res);
 }

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -57,6 +45,35 @@ struct conversation_filter_s* find_conversation_filter(const char *name)
             return filter;
 
         list_entry = g_list_next(list_entry);
+    }
+
+    return NULL;
+}
+
+static void conversation_filter_free(gpointer p, gpointer user_data _U_)
+{
+    g_free(p);
+}
+
+void conversation_filters_cleanup(void)
+{
+    g_list_foreach(conv_filter_list, conversation_filter_free, NULL);
+    g_list_free(conv_filter_list);
+}
+
+gchar *conversation_filter_from_packet(struct _packet_info *pinfo)
+{
+    const char *layers[] = { "tcp", "udp", "ip", "ipv6", "eth" };
+    conversation_filter_t *conv_filter;
+    gchar *filter;
+    size_t i;
+
+    for (i = 0; i < G_N_ELEMENTS(layers); i++) {
+        conv_filter = find_conversation_filter(layers[i]);
+        if (conv_filter && conv_filter->is_filter_valid(pinfo)) {
+            if ((filter = conv_filter->build_filter_string(pinfo)) != NULL)
+                return filter;
+        }
     }
 
     return NULL;

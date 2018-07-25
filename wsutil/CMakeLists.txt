@@ -4,35 +4,79 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 
 include(UseABICheck)
 
-if(WIN32)
-	set(WSUTIL_PLATFORM_FILES
-		file_util.c
-		inet_ntop.c
-		inet_pton.c
-	)
-ENDIF(WIN32)
+if(NOT WIN32)
+	add_definitions(-DPLUGIN_DIR=\"${CMAKE_INSTALL_FULL_LIBDIR}/wireshark/plugins\")
+endif()
 
-set(WSUTIL_FILES
+set(WSUTIL_PUBLIC_HEADERS
+	adler32.h
+	base32.h
+	base64.h
+	bits_count_ones.h
+	bits_ctz.h
+	bitswap.h
+	buffer.h
+	clopts_common.h
+	cmdarg_err.h
+	color.h
+	copyright_info.h
+	cpu_info.h
+	crash_info.h
+	crc6.h
+	crc7.h
+	crc8.h
+	crc10.h
+	crc11.h
+	crc16.h
+	crc16-plain.h
+	crc32.h
+	eax.h
+	filesystem.h
+	frequency-utils.h
+	g711.h
+	inet_addr.h
+	inet_ipv4.h
+	inet_ipv6.h
+	interface.h
+	jsmn.h
+	mpeg-audio.h
+	netlink.h
+	nstime.h
+	os_version_info.h
+	pint.h
+	plugins.h
+	pow2.h
+	privileges.h
+	processes.h
+	report_message.h
+	sign_ext.h
+	sober128.h
+	socket.h
+	str_util.h
+	strnatcmp.h
+	strtoi.h
+	tempfile.h
+	time_util.h
+	type_util.h
+	unicode-utils.h
+	utf8_entities.h
+	ws_cpuid.h
+	ws_mempbrk.h
+	ws_mempbrk_int.h
+	ws_pipe.h
+	ws_printf.h
+	wsjson.h
+	xtea.h
+)
+
+set(WSUTIL_COMMON_FILES
 	adler32.c
-	aes.c
-	airpdcap_wep.c
+	base32.c
 	base64.c
 	bitswap.c
 	buffer.c
@@ -48,7 +92,7 @@ set(WSUTIL_FILES
 	crc7.c
 	crc8.c
 	crc11.c
-	des.c
+	dot11decrypt_wep.c
 	eax.c
 	filesystem.c
 	frequency-utils.c
@@ -56,31 +100,45 @@ set(WSUTIL_FILES
 	inet_addr.c
 	interface.c
 	jsmn.c
-	md4.c
-	md5.c
 	mpeg-audio.c
 	nstime.c
+	cpu_info.c
 	os_version_info.c
-	plugins.c
 	privileges.c
-	sha1.c
-	sha2.c
+	rsa.c
 	sober128.c
 	strnatcmp.c
 	str_util.c
-	rc4.c
-	report_err.c
+	strtoi.c
+	report_message.c
 	tempfile.c
 	time_util.c
 	type_util.c
 	unicode-utils.c
 	ws_mempbrk.c
-	ws_version_info.c
-	${WSUTIL_PLATFORM_FILES}
+	ws_pipe.c
+	wsgcrypt.c
+	wsjson.c
+	xtea.c
 )
 
-if(HAVE_OS_X_FRAMEWORKS)
-	set(WSUTIL_FILES ${WSUTIL_FILES} cfutils.c)
+if(ENABLE_PLUGINS)
+	list(APPEND WSUTIL_COMMON_FILES
+		plugins.c
+	)
+endif()
+
+set(WSUTIL_FILES ${WSUTIL_COMMON_FILES})
+if(WIN32)
+	list(APPEND WSUTIL_FILES
+		file_util.c
+		win32-utils.c
+	)
+endif(WIN32)
+
+
+if(HAVE_MACOS_FRAMEWORKS)
+	list(APPEND WSUTIL_FILES cfutils.c)
 endif()
 
 #
@@ -142,28 +200,20 @@ if(COMPILER_CAN_HANDLE_SSE4_2)
 	endif()
 endif()
 if(HAVE_SSE4_2)
-	set(WSUTIL_FILES ${WSUTIL_FILES} ws_mempbrk_sse42.c)
+	list(APPEND WSUTIL_FILES ws_mempbrk_sse42.c)
 endif()
 
 if(NOT HAVE_GETOPT_LONG)
-	set(WSUTIL_FILES ${WSUTIL_FILES} wsgetopt.c)
-endif()
-
-if(NOT HAVE_INET_ATON)
-	set(WSUTIL_FILES ${WSUTIL_FILES} inet_aton.c)
-endif()
-
-if(NOT HAVE_POPCOUNT)
-	set(WSUTIL_FILES ${WSUTIL_FILES} popcount.c)
+	list(APPEND WSUTIL_FILES getopt_long.c)
 endif()
 
 if(NOT HAVE_STRPTIME)
-	set(WSUTIL_FILES ${WSUTIL_FILES} strptime.c)
+	list(APPEND WSUTIL_FILES strptime.c)
 endif()
 
 if(APPLE)
 	#
-	# We assume that APPLE means OS X so that we have the OS X
+	# We assume that APPLE means macOS so that we have the macOS
 	# frameworks.
 	#
 	FIND_LIBRARY (APPLE_CORE_FOUNDATION_LIBRARY CoreFoundation)
@@ -175,64 +225,59 @@ set(wsutil_LIBS
 	${GMODULE2_LIBRARIES}
 	${GLIB2_LIBRARIES}
 	${GCRYPT_LIBRARIES}
+	${ZLIB_LIBRARIES}
 	${WIN_WSOCK32_LIBRARY}
+	${GNUTLS_LIBRARIES}
 )
+
+IF(HAVE_JSONGLIB)
+	list(APPEND wsutil_LIBS ${JSONGLIB_LIBRARIES})
+ENDIF()
+
 IF(WIN32)
-	set(wsutil_LIBS ${wsutil_LIBS} "ws2_32.lib")
+	set(wsutil_LIBS ${wsutil_LIBS} "iphlpapi.lib" "ws2_32.lib")
 ENDIF(WIN32)
 
-set(CLEAN_FILES
+set_source_files_properties(
 	${WSUTIL_FILES}
+	PROPERTIES
+	COMPILE_FLAGS "${WERROR_COMMON_FLAGS}"
 )
-
-if (WERROR_COMMON_FLAGS)
-	set_source_files_properties(
-		${CLEAN_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ${WERROR_COMMON_FLAGS}
-	)
-else()
-	#
-	# Set the property to an empty string, so that if we try
-	# to get it below, it succeeds.
-	#
-	set_source_files_properties(
-		${CLEAN_FILES}
-		PROPERTIES
-		COMPILE_FLAGS ""
-	)
-endif()
 if (HAVE_SSE4_2)
-	get_source_file_property(
-		WS_MEMPBRK_SSE42_COMPILE_FLAGS
-		ws_mempbrk_sse42.c
-		COMPILE_FLAGS
-	)
+	# TODO with CMake 2.8.12, we could use COMPILE_OPTIONS and just append
+	# instead of this COMPILE_FLAGS duplication...
 	set_source_files_properties(
 		ws_mempbrk_sse42.c
 		PROPERTIES
-		COMPILE_FLAGS "${WS_MEMPBRK_SSE42_COMPILE_FLAGS} ${SSE4_2_FLAG}"
+		COMPILE_FLAGS "${WERROR_COMMON_FLAGS} ${SSE4_2_FLAG}"
 	)
 endif()
 
-add_library(wsutil ${LINK_MODE_LIB}
+add_library(wsutil
 	${WSUTIL_FILES}
 	${CMAKE_BINARY_DIR}/image/libwsutil.rc
 )
-
-set(FULL_SO_VERSION "0.0.0")
 
 set_target_properties(wsutil PROPERTIES
 	PREFIX "lib"
 	COMPILE_DEFINITIONS "WS_BUILD_DLL"
 	LINK_FLAGS "${WS_LINK_FLAGS}"
-	VERSION ${FULL_SO_VERSION} SOVERSION 0
-	FOLDER "Libs")
+	VERSION "0.0.0" SOVERSION 0
+	FOLDER "DLLs"
+)
 
 if(ENABLE_APPLICATION_BUNDLE)
-	set_target_properties(wsutil PROPERTIES
-		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/Frameworks
-	)
+
+	if(NOT CMAKE_CFG_INTDIR STREQUAL ".")
+		# Xcode
+		set_target_properties(wsutil PROPERTIES
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/$<CONFIG>/Wireshark.app/Contents/Frameworks
+		)
+	else()
+		set_target_properties(wsutil PROPERTIES
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/Frameworks
+		)
+	endif()
 endif()
 
 ABICHECK(libwsutil)
@@ -249,15 +294,35 @@ add_custom_command(OUTPUT libwsutil.abi.tar.gz
 
 target_link_libraries(wsutil ${wsutil_LIBS})
 
-if(NOT ${ENABLE_STATIC})
-	install(TARGETS wsutil
-		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-		RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
-		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(TARGETS wsutil
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+if(NOT WIN32)
+	install(FILES ${WSUTIL_PUBLIC_HEADERS}
+		DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${CPACK_PACKAGE_NAME}/wsutil"
 	)
 endif()
 
-add_definitions( -DTOP_SRCDIR=\"${CMAKE_SOURCE_DIR}\" )
+# Export build-time datadir (note: the macro "DATAFILE_DIR" is defined in
+# config.h and points to the install-time data directory, hence the different
+# name).
+set_property(SOURCE filesystem.c APPEND PROPERTY
+	COMPILE_DEFINITIONS BUILD_TIME_DATAFILE_DIR="${DATAFILE_DIR}"
+)
+
+CHECKAPI(
+	NAME
+	  wsutil
+	SWITCHES
+	  -g termoutput -build
+	SOURCES
+	  ${WSUTIL_COMMON_FILES}
+)
+
+set_source_files_properties(jsmn.c PROPERTIES COMPILE_DEFINITIONS "JSMN_STRICT")
 
 #
 # Editor modelines  -  http://www.wireshark.org/tools/modelines.html

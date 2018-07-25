@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -89,10 +77,10 @@ static lbmtcp_transport_t * lbmtcp_transport_add(const address * address1, guint
     lbmtcp_transport_t * entry;
     conversation_t * conv = NULL;
 
-    conv = find_conversation(frame, address1, address2, PT_TCP, port1, port2, 0);
+    conv = find_conversation(frame, address1, address2, ENDPOINT_TCP, port1, port2, 0);
     if (conv == NULL)
     {
-        conv = conversation_new(frame, address1, address2, PT_TCP, port1, port2, 0);
+        conv = conversation_new(frame, address1, address2, ENDPOINT_TCP, port1, port2, 0);
     }
     entry = (lbmtcp_transport_t *) conversation_get_proto_data(conv, lbmpdm_tcp_protocol_handle);
     if (entry != NULL)
@@ -159,7 +147,7 @@ static gboolean lbmpdm_tcp_tag_update_cb(void * record, char * * error_string)
 
     if (tag->name == NULL)
     {
-        *error_string = g_strdup_printf("Tag name can't be empty");
+        *error_string = g_strdup("Tag name can't be empty");
         return FALSE;
     }
     else
@@ -167,7 +155,7 @@ static gboolean lbmpdm_tcp_tag_update_cb(void * record, char * * error_string)
         g_strstrip(tag->name);
         if (tag->name[0] == 0)
         {
-            *error_string = g_strdup_printf("Tag name can't be empty");
+            *error_string = g_strdup("Tag name can't be empty");
             return FALSE;
         }
     }
@@ -424,6 +412,7 @@ void proto_register_lbmpdm_tcp(void)
         lbmpdm_tcp_tag_update_cb,
         lbmpdm_tcp_tag_free_cb,
         NULL,
+        NULL,
         lbmpdm_tcp_tag_array);
     prefs_register_uat_preference(lbmpdm_tcp_module,
         "tnw_lbmpdm_tcp_tags",
@@ -440,7 +429,7 @@ void proto_reg_handoff_lbmpdm_tcp(void)
     if (!already_registered)
     {
         lbmpdm_tcp_dissector_handle = create_dissector_handle(dissect_lbmpdm_tcp, lbmpdm_tcp_protocol_handle);
-        dissector_add_for_decode_as("tcp.port", lbmpdm_tcp_dissector_handle);
+        dissector_add_for_decode_as_with_preference("tcp.port", lbmpdm_tcp_dissector_handle);
         heur_dissector_add("tcp", test_lbmpdm_tcp_packet, "LBMPDM over TCP", "lbmpdm_tcp", lbmpdm_tcp_protocol_handle, HEURISTIC_ENABLE);
     }
 

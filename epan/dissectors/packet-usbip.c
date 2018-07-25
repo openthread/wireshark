@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -26,6 +14,10 @@
  * on top of TCP/IP. The server exports the USB devices and the
  * clients imports them. The device driver for the exported USB
  * device runs on the client machine.
+ *
+ * See
+ *
+ *    https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/plain/Documentation/usb/usbip_protocol.txt
  */
 
 #include <config.h>
@@ -160,6 +152,7 @@ static value_string_ext usbip_urb_vals_ext = VALUE_STRING_EXT_INIT(usbip_urb_val
 
 extern value_string_ext ext_usb_vendors_vals;
 extern value_string_ext ext_usb_products_vals;
+extern value_string_ext linux_negative_errno_vals_ext;
 
 static const value_string usb_endpoint_direction_vals[] = {
     {USBIP_DIR_OUT, "OUT"                        },
@@ -342,8 +335,8 @@ dissect_cmd_submit(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
 {
     col_set_str(pinfo->cinfo, COL_INFO, "URB Submit");
 
-    proto_tree_add_item(tree, hf_usbip_transfer_flags, tvb, offset, 4,
-                        ENC_BIG_ENDIAN);
+    dissect_urb_transfer_flags(tvb, offset, tree, hf_usbip_transfer_flags,
+                               ENC_BIG_ENDIAN);
     offset += 4;
 
     proto_tree_add_item(tree, hf_usbip_transfer_buffer_length, tvb, offset, 4,
@@ -818,12 +811,6 @@ get_usbip_message_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset,
 static int
 dissect_usbip(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-    /* Check that there's enough data */
-    if (tvb_reported_length(tvb) < 4) {
-        /* usbip's smallest packet size is 4 */
-        return 0;
-    }
-
     tcp_dissect_pdus(tvb, pinfo, tree, TRUE, FRAME_HEADER_LEN,
                      get_usbip_message_len, dissect_usbip_common, data);
 
@@ -855,7 +842,7 @@ proto_register_usbip(void)
 
         {&hf_usbip_status,
          {"Status",                        "usbip.status",
-            FT_INT32, BASE_DEC | BASE_EXT_STRING, &usb_urb_status_vals_ext, 0,
+            FT_INT32, BASE_DEC | BASE_EXT_STRING, &linux_negative_errno_vals_ext, 0,
             "USBIP Status", HFILL}},
 
         {&hf_usbip_number_devices,
@@ -1053,17 +1040,20 @@ proto_register_usbip(void)
 
     static ei_register_info ei[] = {
         {&ei_usbip,
-         {"usbip.unsupported_version", PI_MALFORMED, PI_ERROR,
+         { "usbip.unsupported_version", PI_MALFORMED, PI_ERROR,
           "Unsupported element", EXPFILL}},
     };
 
     expert_module_t *expert_usbip;
 
-    expert_usbip = expert_register_protocol(proto_usbip);
-    expert_register_field_array(expert_usbip, ei, array_length(ei));
     proto_usbip = proto_register_protocol("USBIP Protocol", "USBIP", "usbip");
+
     proto_register_field_array(proto_usbip, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
+
+    expert_usbip = expert_register_protocol(proto_usbip);
+    expert_register_field_array(expert_usbip, ei, array_length(ei));
+
 }
 
 void
@@ -1072,7 +1062,7 @@ proto_reg_handoff_usbip(void)
     dissector_handle_t usbip_handle;
 
     usbip_handle = create_dissector_handle(dissect_usbip, proto_usbip);
-    dissector_add_for_decode_as("tcp.port", usbip_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", usbip_handle);
 }
 
 /*

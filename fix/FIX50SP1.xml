@@ -6454,7 +6454,7 @@
    <value enum='AK' description='PRIOR_REFERENCE_PRICE' />
    <value enum='AL' description='STOPPED_SOLD_LAST' />
    <value enum='AM' description='STOPPED_OUT_OF_SEQUENCE' />
-   <value enum='AN' description='OFFICAL_CLOSING_PRICE' />
+   <value enum='AN' description='OFFICIAL_CLOSING_PRICE' />
    <value enum='AO' description='CROSSED_AO' />
    <value enum='AP' description='FAST_MARKET' />
    <value enum='AQ' description='AUTOMATIC_EXECUTION' />
@@ -7411,14 +7411,14 @@
   <field number='532' name='MassCancelRejectReason' type='INT'>
    <value enum='0' description='MASS_CANCEL_NOT_SUPPORTED' />
    <value enum='1' description='INVALID_OR_UNKNOWN_SECURITY' />
-   <value enum='2' description='INVALID_OR_UNKOWN_UNDERLYING_SECURITY' />
+   <value enum='2' description='INVALID_OR_UNKNOWN_UNDERLYING_SECURITY' />
    <value enum='3' description='INVALID_OR_UNKNOWN_PRODUCT' />
    <value enum='4' description='INVALID_OR_UNKNOWN_CFICODE' />
    <value enum='5' description='INVALID_OR_UNKNOWN_SECURITYTYPE' />
    <value enum='6' description='INVALID_OR_UNKNOWN_TRADING_SESSION' />
    <value enum='99' description='OTHER' />
    <value enum='7' description='INVALID_OR_UNKNOWN_MARKET' />
-   <value enum='8' description='INVALID_OR_UNKOWN_MARKET_SEGMENT' />
+   <value enum='8' description='INVALID_OR_UNKNOWN_MARKET_SEGMENT' />
    <value enum='9' description='INVALID_OR_UNKNOWN_SECURITY_GROUP' />
   </field>
   <field number='533' name='TotalAffectedOrders' type='INT' />

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -54,8 +42,7 @@ static int hf_babel_message_hopcount = -1;
 
 static gint ett_subtree = -1;
 
-#define UDP_PORT_BABEL 6696
-#define UDP_PORT_BABEL_OLD 6697
+#define UDP_PORT_RANGE_BABEL "6696-6697" /* 6697 Not IANA registered, 6696 is */
 
 #define MESSAGE_PAD1        0
 #define MESSAGE_PADN        1
@@ -68,7 +55,13 @@ static gint ett_subtree = -1;
 #define MESSAGE_UPDATE      8
 #define MESSAGE_REQUEST     9
 #define MESSAGE_MH_REQUEST 10
+#define MESSAGE_TS_PC      11
+#define MESSAGE_HMAC       12
+#define MESSAGE_SRC_UPDATE 13
+#define MESSAGE_SRC_REQUEST 14
+#define MESSAGE_SRC_SEQNO  15
 
+/** message string values listed in rfc7557 */
 static const value_string messages[] = {
     { MESSAGE_PAD1,       "pad1"},
     { MESSAGE_PADN,       "padn"},
@@ -81,8 +74,14 @@ static const value_string messages[] = {
     { MESSAGE_UPDATE,     "update"},
     { MESSAGE_REQUEST,    "request"},
     { MESSAGE_MH_REQUEST, "mh-request"},
+    { MESSAGE_TS_PC,      "ts/pc"},
+    { MESSAGE_HMAC,       "hmac" },
+    { MESSAGE_SRC_UPDATE, "source-specific-update"},
+    { MESSAGE_SRC_REQUEST,"source-specific-req"},
+    { MESSAGE_SRC_SEQNO,  "source-specific-seqno"},
     { 0, NULL}
 };
+
 
 static const value_string aes[] = {
     { 0, "Wildcard" },
@@ -515,8 +514,7 @@ proto_reg_handoff_babel(void)
     dissector_handle_t babel_handle;
 
     babel_handle = create_dissector_handle(dissect_babel, proto_babel);
-    dissector_add_uint("udp.port", UDP_PORT_BABEL, babel_handle);
-    dissector_add_uint("udp.port", UDP_PORT_BABEL_OLD, babel_handle);
+    dissector_add_uint_range_with_preference("udp.port", UDP_PORT_RANGE_BABEL, babel_handle);
 }
 
 /*

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * ToDo:
  *
@@ -109,27 +97,27 @@ static const value_string pvc_status_act_str[] = {
 static void
 dissect_lmi_report_type(tvbuff_t *tvb, int offset, proto_tree *tree)
 {
-    proto_tree_add_uint(tree, hf_lmi_rcd_type, tvb, offset, 1, tvb_get_guint8( tvb, offset));
+    proto_tree_add_item(tree, hf_lmi_rcd_type, tvb, offset, 1, ENC_NA);
 }
 
 static void
 dissect_lmi_link_int(tvbuff_t *tvb, int offset, proto_tree *tree)
 {
-    proto_tree_add_uint(tree, hf_lmi_send_seq, tvb, offset, 1, tvb_get_guint8( tvb, offset));
+    proto_tree_add_item(tree, hf_lmi_send_seq, tvb, offset, 1, ENC_NA);
     ++offset;
-    proto_tree_add_uint(tree, hf_lmi_recv_seq, tvb, offset, 1, tvb_get_guint8( tvb, offset));
+    proto_tree_add_item(tree, hf_lmi_recv_seq, tvb, offset, 1, ENC_NA);
 
 }
 
 static void
 dissect_lmi_pvc_status(tvbuff_t *tvb, int offset, proto_tree *tree)
 {
-    proto_tree_add_uint(tree, hf_lmi_dlci_high, tvb, offset, 1, tvb_get_guint8( tvb, offset));
+    proto_tree_add_item(tree, hf_lmi_dlci_high, tvb, offset, 1, ENC_NA);
     ++offset;
-    proto_tree_add_uint(tree, hf_lmi_dlci_low, tvb, offset, 1, tvb_get_guint8( tvb, offset));
+    proto_tree_add_item(tree, hf_lmi_dlci_low, tvb, offset, 1, ENC_NA);
     ++offset;
-    proto_tree_add_uint(tree, hf_lmi_new, tvb, offset, 1, tvb_get_guint8( tvb, offset));
-    proto_tree_add_uint(tree, hf_lmi_act, tvb, offset, 1, tvb_get_guint8( tvb, offset));
+    proto_tree_add_item(tree, hf_lmi_new, tvb, offset, 1, ENC_NA);
+    proto_tree_add_item(tree, hf_lmi_act, tvb, offset, 1, ENC_NA);
 }
 
 static int

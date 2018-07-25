@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_ZBEE_ZCL_H
@@ -175,26 +163,34 @@ typedef struct{
 #define ZBEE_ZCL_STAT_OTA_WAIT_FOR_DATA             0x97
 #define ZBEE_ZCL_STAT_OTA_NO_IMAGE_AVAILABLE        0x98
 #define ZBEE_ZCL_STAT_OTA_REQUIRE_MORE_IMAGE        0x99
+#define ZBEE_ZCL_STAT_OTA_NOTIFICATION_PENDING      0x9a
 #define ZBEE_ZCL_STAT_HARDWARE_FAILURE              0xc0
 #define ZBEE_ZCL_STAT_SOFTWARE_FAILURE              0xc1
 #define ZBEE_ZCL_STAT_CALIBRATION_ERROR             0xc2
+#define ZBEE_ZCL_STAT_UNSUPPORTED_CLUSTER           0xc3
+#define ZBEE_ZCL_STAT_LIMIT_REACHED                 0xc4
 
 /* Misc. */
 #define INT24_SIGN_BITS                             0xffff8000
 #define MONTHS_PER_YEAR                             12
 #define YEAR_OFFSET                                 1900
 
-typedef void (*zbee_zcl_fn_attr_data)(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type);
+/* ZigBee ZCL Cluster Key */
+#define ZCL_CLUSTER_MFR_KEY(cluster_id,mfr_code)    (((mfr_code)<<16) | (cluster_id))
+
+typedef void (*zbee_zcl_fn_attr_data)(proto_tree *tree, tvbuff_t *tvb, guint *offset, guint16 attr_id, guint data_type, gboolean client_attr);
 
 typedef struct _zbee_zcl_cluster_desc {
     int         proto_id;
     protocol_t  *proto;
     const char  *name;
     int         ett;
-    int         hf_attr_id;
+    int         hf_attr_server_id;
+    int         hf_attr_client_id;
     int         hf_cmd_rx_id;
     int         hf_cmd_tx_id;
     guint16     cluster_id;
+    guint16     mfr_code;
     zbee_zcl_fn_attr_data fn_attr_data;
 } zbee_zcl_cluster_desc;
 
@@ -203,16 +199,24 @@ extern const value_string zbee_mfr_code_names[];
 extern const value_string zbee_zcl_status_names[];
 
 /* Dissector functions */
-extern void dissect_zcl_read_attr (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint *offset, guint16 cluster_id);
-extern void dissect_zcl_write_attr (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint *offset, guint16 cluster_id);
-extern void dissect_zcl_read_attr_resp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint *offset, guint16 cluster_id);
+extern void dissect_zcl_read_attr (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint *offset, guint16 cluster_id, guint16 mfr_code, gboolean direction);
+extern void dissect_zcl_write_attr (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint *offset, guint16 cluster_id, guint16 mfr_code, gboolean direction);
+extern void dissect_zcl_report_attr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, guint *offset, guint16 cluster_id, guint16 mfr_code, gboolean direction);
+extern void dissect_zcl_read_attr_resp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, guint *offset, guint16 cluster_id, guint16 mfr_code, gboolean direction);
+extern void dissect_zcl_attr_id(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint16 cluster_id, guint16 mfr_code, gboolean client_attr);
+extern void dissect_zcl_attr_data_type_val(tvbuff_t *tvb, proto_tree *tree, guint *offset, guint16 attr_id, guint16 cluster_id, guint16 mfr_code, gboolean client_attr);
+extern guint dissect_zcl_attr_uint8 (tvbuff_t *tvb, proto_tree *tree, guint *offset, int *length);
 
 /* Helper functions */
-void decode_zcl_time_in_seconds (gchar *s, guint16 value);
-void decode_zcl_time_in_minutes (gchar *s, guint16 value);
-void dissect_zcl_attr_data (tvbuff_t *tvb, proto_tree *tree, guint *offset, guint data_type);
-void zbee_zcl_init_cluster(int proto, gint ett, guint16 cluster_id, int hf_attr_id, int hf_cmd_rx_id, int hf_cmd_tx_id, zbee_zcl_fn_attr_data fn_attr_data);
-zbee_zcl_cluster_desc *zbee_zcl_get_cluster_desc(guint16 cluster_id);
+zbee_zcl_cluster_desc *zbee_zcl_get_cluster_desc(guint16 cluster_id, guint16 mfr_code);
+
+/* Exported DLL functions */
+WS_DLL_PUBLIC void decode_zcl_time_in_100ms (gchar *s, guint16 value);
+WS_DLL_PUBLIC void decode_zcl_time_in_seconds (gchar *s, guint16 value);
+WS_DLL_PUBLIC void decode_zcl_time_in_minutes (gchar *s, guint16 value);
+WS_DLL_PUBLIC void dissect_zcl_attr_data (tvbuff_t *tvb, proto_tree *tree, guint *offset, guint data_type, gboolean client_attr);
+
+WS_DLL_PUBLIC void zbee_zcl_init_cluster(const char *proto_abbrev, int proto, gint ett, guint16 cluster_id, guint16 mfr_code, int hf_attr_server_id, int hf_attr_client_id, int hf_cmd_rx_id, int hf_cmd_tx_id, zbee_zcl_fn_attr_data fn_attr_data);
 
 /* Cluster-specific commands and parameters */
 #define ZBEE_ZCL_CSC_IAS_ZONE_C_ERC_NEP             0x02

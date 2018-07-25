@@ -4,25 +4,13 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PACKET_NBAP_H
 #define PACKET_NBAP_H
 
-#include "packet-rlc.h"
+#include "packet-umts_rlc.h"
 #include "packet-umts_mac.h"
 
 /*
@@ -36,6 +24,11 @@ extern guint8 lchId_type_table[];
 
 /* Mapping logicalchannel id to RLC_MODE */
 extern guint8 lchId_rlc_map[];
+
+/* Mapping Scrambling Codes to C-RNC Contexts */
+extern wmem_tree_t *nbap_scrambling_code_crncc_map;
+/* Mapping C-RNC Contexts to U-RNTIs */
+extern wmem_tree_t *nbap_crncc_urnti_map;
 
 #if 0
 static const value_string lchid_name_resolve[] = {

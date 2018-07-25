@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This module provides statistics about two merged capture files, to find packet loss,
@@ -49,7 +37,7 @@
 
 
 /* For checksum */
-#define BYTES 8
+#define BYTES 14
 #define WRONG_CHKSUM 0
 
 #define MERGED_FILES 2
@@ -112,7 +100,7 @@ static int
 comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const void *arg2)
 {
 	comparestat_t *cs = (comparestat_t *)arg;
-	const ws_ip *ci = (const ws_ip *)arg2;
+	const ws_ip4 *ci = (const ws_ip4 *)arg2;
 	frame_info *fInfo;
 	vec_t cksum_vec[3];
 	guint16 computed_cksum = 0;
@@ -124,10 +112,10 @@ comparestat_packet(void *arg, packet_info *pinfo, epan_dissect_t *edt _U_, const
 	}
 
 	/* Set up the fields of the pseudo-header and create checksum */
-	cksum_vec[0].ptr = &ci->ip_v_hl;
+	cksum_vec[0].ptr = (const guint8 *)&ci;
 	cksum_vec[0].len = BYTES;
 	/* skip TTL */
-	cksum_vec[1].ptr = &ci->ip_p;
+	cksum_vec[1].ptr = &ci->ip_proto;
 	cksum_vec[1].len = 1;
 	/* skip header checksum and ip's (because of NAT)*/
 	cksum_vec[2].ptr = (const guint8 *)ci->ip_dst.data;
@@ -232,12 +220,15 @@ call_foreach_count_ip_id(gpointer key _U_, gpointer value, gpointer arg)
 
 	/* collect TTL's */
 	if (TTL_method && (fInfo->num < TTL_SEARCH)) {
+		gboolean found = FALSE;
 		for (i=0; i < cs->ip_ttl_list->len; i++) {
 			if (g_array_index(cs->ip_ttl_list, guint8, i) == fInfo->ip_ttl) {
-				return;
+				found = TRUE;
+				break;
 			}
 		}
-		g_array_append_val(cs->ip_ttl_list, fInfo->ip_ttl);
+		if (!found)
+			g_array_prepend_val(cs->ip_ttl_list, fInfo->ip_ttl);
 	}
 
 	g_free(pinfo->fd);
@@ -565,16 +556,12 @@ comparestat_init(const char *opt_arg, void *userdata _U_)
 	cs->zebra_time.nsecs	   = 1;
 	cs->nr_set		   = g_hash_table_new(NULL, NULL);
 
-	if (filter) {
-		cs->filter = g_strdup(filter);
-	} else {
-		cs->filter = NULL;
-	}
+	cs->filter = g_strdup(filter);
 
 	/* create a Hash to count the packets with the same ip.id */
 	cs->packet_set = g_hash_table_new_full(NULL, NULL, NULL, frame_info_free);
 
-	error_string = register_tap_listener("ip", cs, filter, 0, comparestat_reset, comparestat_packet, comparestat_draw);
+	error_string = register_tap_listener("ip", cs, filter, 0, comparestat_reset, comparestat_packet, comparestat_draw, NULL);
 	if (error_string) {
 		/* error, we failed to attach to the tap. clean up */
 		g_free(cs->filter);

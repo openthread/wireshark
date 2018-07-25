@@ -9,24 +9,12 @@
 -- By Gerald Combs <gerald@wireshark.org>
 -- Copyright 1998 Gerald Combs
 --
--- This program is free software; you can redistribute it and/or
--- modify it under the terms of the GNU General Public License
--- as published by the Free Software Foundation; either version 2
--- of the License, or (at your option) any later version.
---
--- This program is distributed in the hope that it will be useful,
--- but WITHOUT ANY WARRANTY; without even the implied warranty of
--- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
--- GNU General Public License for more details.
---
--- You should have received a copy of the GNU General Public License
--- along with this program; if not, write to the Free Software
--- Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+-- SPDX-License-Identifier: GPL-2.0-or-later
 
--- Set disable_lua to true to disable Lua support.
-disable_lua = false
+-- Set enable_lua to false to disable Lua support.
+enable_lua = true
 
-if disable_lua then
+if not enable_lua then
     return
 end
 
@@ -109,40 +97,41 @@ function package.prepend_path(name)
     package.path = name .. sep .. "?.lua;" .. package.path
 end
 
--- %WTAP_ENCAPS%
+%WTAP_ENCAPS%
 
--- %WTAP_FILETYPES%
+%WTAP_FILETYPES%
 
--- %WTAP_TSPRECS%
+%WTAP_TSPRECS%
 
--- %WTAP_COMMENTTYPES%
+%WTAP_COMMENTTYPES%
 
--- %FT_TYPES%
+%FT_TYPES%
 
 -- the following table is since 2.0
--- %FT_FRAME_TYPES%
+%FT_FRAME_TYPES%
 
 -- the following table is since 1.12
--- %WTAP_REC_TYPES%
+%WTAP_REC_TYPES%
 
 -- the following table is since 1.11.3
--- %WTAP_PRESENCE_FLAGS%
+%WTAP_PRESENCE_FLAGS%
 
--- %BASES%
+%BASES%
 
--- %ENCODINGS%
+%ENCODINGS%
 
--- %EXPERT%
+%EXPERT%
 
 -- the following table is since 1.11.3
--- %EXPERT_TABLE%
+%EXPERT_TABLE%
 
--- %MENU_GROUPS%
+%MENU_GROUPS%
 
 -- other useful constants
+-- DATA_DIR and USER_DIR have a trailing directory separator.
 GUI_ENABLED = gui_enabled()
-DATA_DIR = Dir.global_config_path()
-USER_DIR = Dir.personal_config_path()
+DATA_DIR = Dir.global_config_path()..package.config:sub(1,1)
+USER_DIR = Dir.personal_config_path()..package.config:sub(1,1)
 
 -- deprecated function names
 datafile_path = Dir.global_config_path

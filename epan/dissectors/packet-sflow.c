@@ -18,19 +18,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *
  * This file (mostly) implements a dissector for sFlow (RFC3176),
@@ -62,11 +50,6 @@
 void proto_register_sflow(void);
 
 static dissector_handle_t sflow_handle;
-
-/*
- *  global_sflow_ports : holds the configured range of ports for sflow
- */
-static range_t *global_sflow_ports = NULL;
 
 /*
  *  sflow_245_ports : holds the currently used range of ports for sflow
@@ -163,10 +146,7 @@ static const value_string sflow_ifdirection_vals[] = {
     { 0, NULL}
 };
 
-const true_false_string tfs_low_normal = { "Low", "Normal" };
-const true_false_string tfs_high_normal = { "High", "Normal" };
-const true_false_string tfs_minimize_monetary_normal = { "Minimize Monetary", "Normal" };
-const true_false_string tfs_up_down = { "Up", "Down" };
+static const true_false_string tfs_minimize_monetary_normal = { "Minimize Monetary", "Normal" };
 
 static const value_string sflow_245_header_protocol[] = {
     { SFLOW_245_HEADER_ETHERNET,           "Ethernet"},
@@ -634,6 +614,8 @@ static expert_field ei_sflow_invalid_address_type = EI_INIT;
 
 static dissector_table_t   header_subdissector_table;
 
+static const unit_name_string units_total_packets = { " total packet", " total packets" };
+
 void proto_reg_handoff_sflow_245(void);
 
 /* dissect a sampled header - layer 2 protocols */
@@ -676,10 +658,10 @@ dissect_sflow_245_sampled_header(tvbuff_t *tvb, packet_info *pinfo,
 
     /* hand the header off to the appropriate dissector.  It's probably
      * a short frame, so ignore any exceptions. */
-    next_tvb = tvb_new_subset(tvb, offset, header_length, frame_length);
+    next_tvb = tvb_new_subset_length_caplen(tvb, offset, header_length, frame_length);
 
     /* save some state */
-    save_writable = col_get_writable(pinfo->cinfo);
+    save_writable = col_get_writable(pinfo->cinfo, -1);
 
     /*
        If sFlow samples a TCP packet it is very likely that the
@@ -705,7 +687,7 @@ dissect_sflow_245_sampled_header(tvbuff_t *tvb, packet_info *pinfo,
         pinfo->flags.in_error_pkt = TRUE;
     }
 
-    col_set_writable(pinfo->cinfo, FALSE);
+    col_set_writable(pinfo->cinfo, -1, FALSE);
     copy_address_shallow(&save_dl_src, &pinfo->dl_src);
     copy_address_shallow(&save_dl_dst, &pinfo->dl_dst);
     copy_address_shallow(&save_net_src, &pinfo->net_src);
@@ -727,7 +709,7 @@ dissect_sflow_245_sampled_header(tvbuff_t *tvb, packet_info *pinfo,
     ENDTRY;
 
     /* restore saved state */
-    col_set_writable(pinfo->cinfo, save_writable);
+    col_set_writable(pinfo->cinfo, -1, save_writable);
     pinfo->flags.in_error_pkt = save_in_error_pkt;
     copy_address_shallow(&pinfo->dl_src, &save_dl_src);
     copy_address_shallow(&pinfo->dl_dst, &save_dl_dst);
@@ -765,7 +747,7 @@ dissect_sflow_245_address_type(tvbuff_t *tvb, packet_info *pinfo,
         break;
     default:
         /* Invalid address type, or a type we don't understand; we don't
-           know the length. W e treat it as having no contents; that
+           know the length. We treat it as having no contents; that
            doesn't trap us in an endless loop, as we at least include
            the address type and thus at least advance the offset by 4.
            Note that we have a problem, though. */
@@ -776,6 +758,9 @@ dissect_sflow_245_address_type(tvbuff_t *tvb, packet_info *pinfo,
 
     if (addr) {
         switch (len) {
+        default:
+            clear_address(addr);
+            break;
         case 4:
             set_address_tvb(addr, AT_IPv4, len, tvb, offset);
             break;
@@ -1438,7 +1423,7 @@ dissect_sflow_5_extended_80211_aggregation(tvbuff_t *tvb _U_, proto_tree *tree _
 static gint
 dissect_sflow_24_flow_sample(tvbuff_t *tvb, packet_info *pinfo,
         proto_tree *tree, gint offset, proto_item *parent) {
-    guint32     sequence_number, sampling_rate, sample_pool, output;
+    guint32     sequence_number, sampling_rate, output;
 
     proto_tree *extended_data_tree;
     proto_item *ti;
@@ -1453,10 +1438,8 @@ dissect_sflow_24_flow_sample(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree_add_uint_format_value(tree, hf_sflow_flow_sample_sampling_rate, tvb, offset + 8, 4,
             sampling_rate, "1 out of %u packets",
             sampling_rate);
-    sample_pool = tvb_get_ntohl(tvb, offset + 12);
-    proto_tree_add_uint_format_value(tree, hf_sflow_flow_sample_sample_pool, tvb, offset + 12, 4,
-            sample_pool, "%u total packets",
-            sample_pool);
+
+    proto_tree_add_item(tree, hf_sflow_flow_sample_sample_pool, tvb, offset + 12, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_sflow_flow_sample_dropped_packets, tvb, offset + 16, 4, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_sflow_flow_sample_input_interface, tvb, offset + 20, 4, ENC_BIG_ENDIAN);
     output = tvb_get_ntohl(tvb, offset + 24);
@@ -1955,7 +1938,7 @@ static void
 dissect_sflow_5_flow_sample(tvbuff_t *tvb, packet_info *pinfo,
         proto_tree *tree, gint offset, proto_item *parent) {
 
-    guint32 sequence_number, sampling_rate, sample_pool,
+    guint32 sequence_number, sampling_rate,
             output, records, i;
 
     sequence_number = tvb_get_ntohl(tvb, offset);
@@ -1970,9 +1953,7 @@ dissect_sflow_5_flow_sample(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree_add_uint_format_value(tree, hf_sflow_flow_sample_sampling_rate, tvb, offset, 4,
             sampling_rate, "1 out of %u packets", sampling_rate);
     offset += 4;
-    sample_pool = tvb_get_ntohl(tvb, offset);
-    proto_tree_add_uint_format_value(tree, hf_sflow_flow_sample_sample_pool, tvb, offset, 4,
-            sample_pool, "%u total packets", sample_pool);
+    proto_tree_add_item(tree, hf_sflow_flow_sample_sample_pool, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
     proto_tree_add_item(tree, hf_sflow_flow_sample_dropped_packets, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -2007,7 +1988,7 @@ static void
 dissect_sflow_5_expanded_flow_sample(tvbuff_t *tvb, packet_info *pinfo,
         proto_tree *tree, gint offset, proto_item *parent) {
 
-    guint32 sequence_number, sampling_rate, sample_pool, records, i;
+    guint32 sequence_number, sampling_rate, records, i;
 
     sequence_number = tvb_get_ntohl(tvb, offset);
     proto_tree_add_item(tree, hf_sflow_flow_sample_sequence_number, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -2021,9 +2002,7 @@ dissect_sflow_5_expanded_flow_sample(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree_add_uint_format_value(tree, hf_sflow_flow_sample_sampling_rate, tvb, offset, 4,
             sampling_rate, "1 out of %u packets", sampling_rate);
     offset += 4;
-    sample_pool = tvb_get_ntohl(tvb, offset);
-    proto_tree_add_uint_format_value(tree, hf_sflow_flow_sample_sample_pool, tvb, offset, 4,
-            sample_pool, "%u total packets", sample_pool);
+    proto_tree_add_item(tree, hf_sflow_flow_sample_sample_pool, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
     proto_tree_add_item(tree, hf_sflow_flow_sample_dropped_packets, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -2325,6 +2304,7 @@ dissect_sflow_245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     address                       addr_details;
     int                           sflow_addr_type;
     struct sflow_address_type     addr_type;
+    guint32                       uptime;
 
     guint32        numsamples;
     guint          offset = 0;
@@ -2346,16 +2326,12 @@ dissect_sflow_245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
        /* Unknown version; assume it's not an sFlow packet. */
        return 0;
     }
+
     sflow_addr_type = tvb_get_ntohl(tvb, offset + 4);
     switch (sflow_addr_type) {
         case ADDR_TYPE_UNKNOWN:
-            addr_details.type = AT_NONE;
-            break;
         case ADDR_TYPE_IPV4:
-            addr_details.type = AT_IPv4;
-            break;
         case ADDR_TYPE_IPV6:
-            addr_details.type = AT_IPv6;
             break;
 
         default:
@@ -2365,7 +2341,6 @@ dissect_sflow_245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
              */
             return 0;
     }
-
     /* Make entries in Protocol column and Info column on summary display */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "sFlow");
 
@@ -2400,7 +2375,9 @@ dissect_sflow_245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
     col_append_fstr(pinfo->cinfo, COL_INFO, ", seq %u", seqnum);
     proto_tree_add_uint(sflow_245_tree, hf_sflow_245_seqnum, tvb, offset, 4, seqnum);
     offset += 4;
-    proto_tree_add_item(sflow_245_tree, hf_sflow_245_sysuptime, tvb, offset, 4, ENC_BIG_ENDIAN);
+    uptime = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_uint_format_value(sflow_245_tree, hf_sflow_245_sysuptime, tvb, offset, 4, uptime, "%s (%us)",
+        unsigned_time_secs_to_str(wmem_packet_scope(), uptime), uptime);
     offset += 4;
     numsamples = tvb_get_ntohl(tvb, offset);
     col_append_fstr(pinfo->cinfo, COL_INFO, ", %u samples", numsamples);
@@ -3328,7 +3305,7 @@ proto_register_sflow(void) {
       },
       { &hf_sflow_flow_sample_sample_pool,
         { "Sample pool", "sflow.flow_sample.sample_pool",
-          FT_UINT32, BASE_DEC, NULL, 0x0,
+          FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_total_packets, 0x0,
           NULL, HFILL }
       },
       { &hf_sflow_flow_sample_dropped_packets,
@@ -3623,11 +3600,7 @@ proto_register_sflow(void) {
     expert_module_t* expert_sflow;
 
     /* Register the protocol name and description */
-    proto_sflow = proto_register_protocol(
-            "InMon sFlow", /* name       */
-            "sFlow", /* short name */
-            "sflow" /* abbrev     */
-            );
+    proto_sflow = proto_register_protocol("InMon sFlow", "sFlow", "sflow");
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_sflow, hf, array_length(hf));
@@ -3635,21 +3608,10 @@ proto_register_sflow(void) {
     expert_sflow = expert_register_protocol(proto_sflow);
     expert_register_field_array(expert_sflow, ei, array_length(ei));
 
-    header_subdissector_table  = register_dissector_table("sflow_245.header_protocol", "SFLOW header protocol", proto_sflow, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    header_subdissector_table  = register_dissector_table("sflow_245.header_protocol", "SFLOW header protocol", proto_sflow, FT_UINT32, BASE_DEC);
 
     /* Register our configuration options for sFlow */
-    sflow_245_module = prefs_register_protocol(proto_sflow, proto_reg_handoff_sflow_245);
-
-    /* Set default Neflow port(s) */
-    range_convert_str(&global_sflow_ports, SFLOW_UDP_PORTS, MAX_UDP_PORT);
-
-    prefs_register_obsolete_preference(sflow_245_module, "udp.port");
-
-    prefs_register_range_preference(sflow_245_module, "ports",
-            "sFlow UDP Port(s)",
-            "Set the port(s) for sFlow messages"
-            " (default: " SFLOW_UDP_PORTS ")",
-            &global_sflow_ports, MAX_UDP_PORT);
+    sflow_245_module = prefs_register_protocol(proto_sflow, NULL);
 
     /*
        If I use a filter like "ip.src == 10.1.1.1" this will, in
@@ -3681,19 +3643,9 @@ proto_register_sflow(void) {
 
 void
 proto_reg_handoff_sflow_245(void) {
-    static range_t  *sflow_ports;
-    static gboolean  sflow_245_prefs_initialized = FALSE;
 
-    if (!sflow_245_prefs_initialized) {
-        sflow_handle = create_dissector_handle(dissect_sflow_245, proto_sflow);
-        sflow_245_prefs_initialized = TRUE;
-    } else {
-        dissector_delete_uint_range("udp.port", sflow_ports, sflow_handle);
-        g_free(sflow_ports);
-    }
-
-    sflow_ports = range_copy(global_sflow_ports);
-    dissector_add_uint_range("udp.port", sflow_ports, sflow_handle);
+    sflow_handle = create_dissector_handle(dissect_sflow_245, proto_sflow);
+    dissector_add_uint_range_with_preference("udp.port", SFLOW_UDP_PORTS, sflow_handle);
 }
 
 /*

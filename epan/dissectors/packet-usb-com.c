@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -417,7 +405,7 @@ dissect_usb_com_descriptor(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     proto_tree *subtree_capabilities;
     proto_item *subitem_capabilities;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_usb_com, NULL, "COMMUNICATIONS DESCRIPTOR");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, tvb_captured_length(tvb), ett_usb_com, NULL, "COMMUNICATIONS DESCRIPTOR");
 
     dissect_usb_descriptor_header(subtree, tvb, offset, &usb_com_descriptor_type_vals_ext);
     offset += 2;
@@ -747,11 +735,9 @@ dissect_usb_com_interrupt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, v
             offset += 2;
             proto_tree_add_item(subtree, hf_usb_com_interrupt_length, tvb, offset, 2, ENC_LITTLE_ENDIAN);
             offset += 2;
-            it = proto_tree_add_item(subtree, hf_usb_com_interrupt_dl_bitrate, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-            proto_item_append_text(it, " b/s");
+            proto_tree_add_item(subtree, hf_usb_com_interrupt_dl_bitrate, tvb, offset, 4, ENC_LITTLE_ENDIAN);
             offset += 4;
-            it = proto_tree_add_item(subtree, hf_usb_com_interrupt_ul_bitrate, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-            proto_item_append_text(it, " b/s");
+            proto_tree_add_item(subtree, hf_usb_com_interrupt_ul_bitrate, tvb, offset, 4, ENC_LITTLE_ENDIAN);
             offset += 4;
             break;
         default:
@@ -1048,11 +1034,11 @@ proto_register_usb_com(void)
             { "Length", "usbcom.interrupt.length", FT_UINT16, BASE_DEC,
               NULL, 0, NULL, HFILL }},
         { &hf_usb_com_interrupt_dl_bitrate,
-            { "DL Bitrate", "usbcom.interrupt.conn_speed_change.dl_bitrate", FT_UINT32, BASE_DEC,
-              NULL, 0, NULL, HFILL }},
+            { "DL Bitrate", "usbcom.interrupt.conn_speed_change.dl_bitrate", FT_UINT32, BASE_DEC|BASE_UNIT_STRING,
+              &units_bit_sec, 0, NULL, HFILL }},
         { &hf_usb_com_interrupt_ul_bitrate,
-            { "UL Bitrate", "usbcom.interrupt.conn_speed_change.ul_bitrate", FT_UINT32, BASE_DEC,
-              NULL, 0, NULL, HFILL }},
+            { "UL Bitrate", "usbcom.interrupt.conn_speed_change.ul_bitrate", FT_UINT32, BASE_DEC|BASE_UNIT_STRING,
+              &units_bit_sec, 0, NULL, HFILL }},
         { &hf_usb_com_interrupt_payload,
             { "Payload", "usbcom.interrupt.payload", FT_BYTES, BASE_NONE,
               NULL, 0, NULL, HFILL }}

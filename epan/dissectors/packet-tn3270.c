@@ -28,19 +28,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1238,14 +1226,10 @@ static const value_string vals_tn3270_header_response_flags_response[] = {
 };
 
 /*
- * Data structure attached to a conversation, giving authentication
- * information from a bind request.
+ * Data structure attached to a conversation, giving session information.
  */
 typedef struct tn3270_conv_info_t {
-  address outbound_addr;
   guint32 outbound_port;
-  address inbound_addr;
-  guint32 inbound_port;
   gint    extended;
   guint8  altrows;
   guint8  altcols;
@@ -5186,7 +5170,7 @@ dissect_inbound_stream(proto_tree *tn3270_tree, packet_info *pinfo, tvbuff_t *tv
       /* XXX: Is this the correct/complete set of AID bytes for this case ? */
       if (tvb_reported_length_remaining(tvb, offset) <= 0)
         break;
-      /* fall into next */
+      /* FALL THROUGH */
     case  AID_READ_PARTITION_AID:
     case  AID_NO_AID_GENERATED:
     case  AID_NO_AID_GENERATED_PRINTER_ONLY:
@@ -5248,9 +5232,7 @@ dissect_tn3270(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
   pinfo->fd->flags.encoding = PACKET_CHAR_ENC_CHAR_EBCDIC;
 
   /* Do we have a conversation for this connection? */
-  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                   pinfo->ptype, pinfo->srcport,
-                                   pinfo->destport, 0);
+  conversation = find_conversation_pinfo(pinfo, 0);
   if (conversation != NULL) {
     /* Do we already have a type and mechanism? */
     tn3270_info = (tn3270_conv_info_t *)conversation_get_proto_data(conversation, proto_tn3270);
@@ -5309,11 +5291,7 @@ add_tn3270_conversation(packet_info *pinfo, int tn3270e, gint model)
      */
     tn3270_info = wmem_new(wmem_file_scope(), tn3270_conv_info_t);
 
-    copy_address(&(tn3270_info->outbound_addr), &(pinfo->dst));
     tn3270_info->outbound_port = pinfo->destport;
-
-    copy_address(&(tn3270_info->inbound_addr), &(pinfo->src));
-    tn3270_info->inbound_port  = pinfo->srcport;
 
     conversation_add_proto_data(conversation, proto_tn3270, tn3270_info);
   }
@@ -5354,9 +5332,7 @@ find_tn3270_conversation(packet_info *pinfo)
   /*
    * Do we have a conversation for this connection?
    */
-  conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                   pinfo->ptype, pinfo->srcport,
-                                   pinfo->destport, 0);
+  conversation = find_conversation_pinfo(pinfo, 0);
   if (conversation != NULL) {
     tn3270_info = (tn3270_conv_info_t *)conversation_get_proto_data(conversation, proto_tn3270);
     if (tn3270_info != NULL) {

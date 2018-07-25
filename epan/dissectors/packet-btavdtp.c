@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1480,8 +1468,6 @@ dissect_btavdtp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 key[0].key    = &interface_id;
                 key[1].length = 1;
                 key[1].key    = &adapter_id;
-                key[2].length = 1;
-                key[2].key    = &chandle;
                 key[3].length = 1;
                 key[3].key    = &cid;
                 key[4].length = 1;
@@ -2321,7 +2307,7 @@ proto_register_btavdtp(void)
             NULL, HFILL }
         },
         { &hf_btavdtp_sbc_min_bitpool,
-            { "Minumum Bitpool",                "btavdtp.codec.sbc.minimum_bitpool",
+            { "Minimum Bitpool",                "btavdtp.codec.sbc.minimum_bitpool",
             FT_UINT8, BASE_DEC, NULL, 0x00,
             NULL, HFILL }
         },
@@ -2730,7 +2716,7 @@ proto_register_btavdtp(void)
     proto_register_field_array(proto_btavdtp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    module = prefs_register_protocol(proto_btavdtp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btavdtp, NULL);
     prefs_register_static_text_preference(module, "avdtp.version",
             "Bluetooth Protocol AVDTP version: 1.3",
             "Version of protocol supported by this dissector.");
@@ -2848,7 +2834,6 @@ dissect_aptx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         cumulative_frame_duration = (tvb_reported_length(tvb) / 4.0) * frame_duration;
 
         pitem = proto_tree_add_double(aptx_tree, hf_aptx_cumulative_frame_duration, tvb, 0, 0, cumulative_frame_duration);
-        proto_item_append_text(pitem, " ms");
         PROTO_ITEM_SET_GENERATED(pitem);
 
         if (info && info->previous_media_packet_info && info->current_media_packet_info) {
@@ -2856,27 +2841,22 @@ dissect_aptx(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
             nstime_delta(&delta, &pinfo->abs_ts, &info->previous_media_packet_info->abs_ts);
             pitem = proto_tree_add_double(aptx_tree, hf_aptx_delta_time, tvb, 0, 0, nstime_to_msec(&delta));
-            proto_item_append_text(pitem, " ms");
             PROTO_ITEM_SET_GENERATED(pitem);
 
             pitem = proto_tree_add_double(aptx_tree, hf_aptx_avrcp_song_position, tvb, 0, 0, info->previous_media_packet_info->avrcp_song_position);
-            proto_item_append_text(pitem, " ms");
             PROTO_ITEM_SET_GENERATED(pitem);
 
             nstime_delta(&delta, &pinfo->abs_ts, &info->previous_media_packet_info->first_abs_ts);
             pitem = proto_tree_add_double(aptx_tree, hf_aptx_delta_time_from_the_beginning, tvb, 0, 0, nstime_to_msec(&delta));
-            proto_item_append_text(pitem, " ms");
             PROTO_ITEM_SET_GENERATED(pitem);
 
             if (!pinfo->fd->flags.visited)
                 info->current_media_packet_info->cumulative_frame_duration += cumulative_frame_duration;
 
             pitem = proto_tree_add_double(aptx_tree, hf_aptx_cumulative_duration, tvb, 0, 0, info->previous_media_packet_info->cumulative_frame_duration);
-            proto_item_append_text(pitem, " ms");
             PROTO_ITEM_SET_GENERATED(pitem);
 
             pitem = proto_tree_add_double(aptx_tree, hf_aptx_diff, tvb, 0, 0, info->previous_media_packet_info->cumulative_frame_duration - nstime_to_msec(&delta));
-            proto_item_append_text(pitem, " ms");
             PROTO_ITEM_SET_GENERATED(pitem);
         }
     }
@@ -2895,32 +2875,32 @@ proto_register_aptx(void)
         },
         { &hf_aptx_cumulative_frame_duration,
             { "Cumulative Frame Duration",      "aptx.cumulative_frame_duration",
-            FT_DOUBLE, BASE_NONE, NULL, 0x00,
+            FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_aptx_delta_time,
             { "Delta time",                      "aptx.delta_time",
-            FT_DOUBLE, BASE_NONE, NULL, 0x00,
+            FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_aptx_avrcp_song_position,
             { "AVRCP Song Position",             "aptx.avrcp_song_position",
-            FT_DOUBLE, BASE_NONE, NULL, 0x00,
+            FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_aptx_delta_time_from_the_beginning,
             { "Delta time from the beginning",   "aptx.delta_time_from_the_beginning",
-            FT_DOUBLE, BASE_NONE, NULL, 0x00,
+            FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_aptx_cumulative_duration,
             { "Cumulative Music Duration",      "aptx.cumulative_music_duration",
-            FT_DOUBLE, BASE_NONE, NULL, 0x00,
+            FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
         { &hf_aptx_diff,
             { "Diff",                            "aptx.diff",
-            FT_DOUBLE, BASE_NONE, NULL, 0x00,
+            FT_DOUBLE, BASE_NONE|BASE_UNIT_STRING, &units_milliseconds, 0x00,
             NULL, HFILL }
         },
     };
@@ -2930,7 +2910,7 @@ proto_register_aptx(void)
     };
 
     proto_aptx = proto_register_protocol("APT-X Codec", "APT-X", "aptx");
-    proto_register_field_array(proto_bta2dp, hf, array_length(hf));
+    proto_register_field_array(proto_aptx, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
     aptx_handle = register_dissector("aptx", dissect_aptx, proto_aptx);
@@ -3082,7 +3062,7 @@ dissect_bta2dp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     if (bta2dp_codec_info.content_protection_type == 0 && codec_dissector == aptx_handle) {
         call_dissector_with_data(aptx_handle, tvb, pinfo, tree, &bta2dp_codec_info);
     } else {
-        bluetooth_add_address(pinfo, &pinfo->net_dst, sep_data.stream_number, "BT A2DP", pinfo->num, FALSE, &bta2dp_codec_info);
+        bluetooth_add_address(pinfo, &pinfo->net_dst, sep_data.stream_number, "BT A2DP", pinfo->num, RTP_MEDIA_AUDIO, &bta2dp_codec_info);
         call_dissector(rtp_handle, tvb, pinfo, tree);
     }
     offset += tvb_reported_length_remaining(tvb, offset);
@@ -3153,7 +3133,7 @@ proto_register_bta2dp(void)
 
     bta2dp_handle = register_dissector("bta2dp", dissect_bta2dp, proto_bta2dp);
 
-    module = prefs_register_protocol(proto_bta2dp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_bta2dp, NULL);
     prefs_register_static_text_preference(module, "a2dp.version",
             "Bluetooth Profile A2DP version: 1.3",
             "Version of profile supported by this dissector.");
@@ -3315,7 +3295,7 @@ dissect_btvdp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     pinfo->destport = sep_data.stream_number;
 #endif
 
-    bluetooth_add_address(pinfo, &pinfo->net_dst, 0, "BT VDP", pinfo->num, TRUE, &btvdp_codec_info);
+    bluetooth_add_address(pinfo, &pinfo->net_dst, 0, "BT VDP", pinfo->num, RTP_MEDIA_VIDEO, &btvdp_codec_info);
     call_dissector(rtp_handle, tvb, pinfo, tree);
     offset += tvb_reported_length_remaining(tvb, offset);
 
@@ -3388,12 +3368,12 @@ proto_register_btvdp(void)
 
     proto_btvdp = proto_register_protocol("Bluetooth VDP Profile", "BT VDP", "btvdp");
     btvdp_handle = register_dissector("btvdp", dissect_btvdp, proto_btvdp);
-    proto_register_field_array(proto_bta2dp, hf, array_length(hf));
+    proto_register_field_array(proto_btvdp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
     expert_btavdtp = expert_register_protocol(proto_btvdp);
     expert_register_field_array(expert_btavdtp, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_btvdp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btvdp, NULL);
     prefs_register_static_text_preference(module, "vdp.version",
             "Bluetooth Profile VDP version: 1.1",
             "Version of profile supported by this dissector.");

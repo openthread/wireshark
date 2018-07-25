@@ -8,19 +8,7 @@
  *
  * Copied from packet-data.c, README.developer, and various other files.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *
  * Apple network-midi session establishment is a lightweight protocol for
@@ -296,7 +284,7 @@ dissect_applemidi_heur( tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 
 	rtp_dyn_payload = rtp_dyn_payload_new();
 	rtp_dyn_payload_insert(rtp_dyn_payload, 97, "rtp-midi", 10000);
-	rtp_add_address( pinfo, &pinfo->src, pinfo->srcport, 0, APPLEMIDI_DISSECTOR_SHORTNAME,
+	rtp_add_address( pinfo, PT_UDP, &pinfo->src, pinfo->srcport, 0, APPLEMIDI_DISSECTOR_SHORTNAME,
 			 pinfo->num, FALSE, rtp_dyn_payload);
 
 	/* call dissect_applemidi() from now on for UDP packets on this "connection"

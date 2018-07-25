@@ -11,19 +11,7 @@
  *
  * Copied from old packet-tacacs.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -38,7 +26,8 @@
 #include <epan/prefs.h>
 #include <epan/expert.h>
 #include <epan/addr_resolv.h>
-#include <wsutil/md5.h>
+#include <wsutil/wsgcrypt.h>
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
 
 #include "packet-tacacs.h"
 
@@ -282,7 +271,7 @@ proto_reg_handoff_tacacs(void)
 	dissector_handle_t tacacs_handle;
 
 	tacacs_handle = create_dissector_handle(dissect_tacacs, proto_tacacs);
-	dissector_add_uint("udp.port", UDP_PORT_TACACS, tacacs_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_TACACS, tacacs_handle);
 }
 
 static int proto_tacplus = -1;
@@ -381,17 +370,13 @@ tacplus_decrypted_tvb_setup( tvbuff_t *tvb, tvbuff_t **dst_tvb, packet_info *pin
 
 	tvb_memcpy(tvb, session_id, 4,4);
 
-	buff = (guint8 *)tvb_memdup(NULL, tvb, TAC_PLUS_HDR_SIZE, len);
+	buff = (guint8 *)tvb_memdup(pinfo->pool, tvb, TAC_PLUS_HDR_SIZE, len);
 
 
 	md5_xor( buff, key, len, session_id,version, tvb_get_guint8(tvb,2) );
 
 	/* Allocate a new tvbuff, referring to the decrypted data. */
 	*dst_tvb = tvb_new_child_real_data(tvb,  buff, len, len );
-
-	/* Arrange that the allocated packet data copy be freed when the
-	   tvbuff is freed. */
-	tvb_set_free_cb( *dst_tvb, g_free );
 
 	/* Add the decrypted data to the data source list. */
 	add_new_data_source(pinfo, *dst_tvb, "TACACS+ Decrypted");
@@ -753,9 +738,9 @@ tacplus_print_key_entry( gpointer data, gpointer user_data )
 	s_str = address_to_str( NULL, tacplus_data->s );
 	c_str = address_to_str( NULL, tacplus_data->c );
 	if( user_data ) {
-		printf("%s:%s=%s\n", s_str, c_str, tacplus_data->k );
+		ws_debug_printf("%s:%s=%s\n", s_str, c_str, tacplus_data->k );
 	} else {
-		printf("%s:%s\n", s_str, c_str );
+		ws_debug_printf("%s:%s\n", s_str, c_str );
 	}
 	wmem_free(NULL, s_str);
 	wmem_free(NULL, c_str);
@@ -768,9 +753,9 @@ cmp_conv_address( gconstpointer p1, gconstpointer p2 )
 	const tacplus_key_entry *a2=(const tacplus_key_entry *)p2;
 	gint32	ret;
 	/*
-	printf("p1=>");
+	ws_debug_printf("p1=>");
 	tacplus_print_key_entry( p1, NULL );
-	printf("p2=>");
+	ws_debug_printf("p2=>");
 	tacplus_print_key_entry( p2, NULL );
 	*/
 	ret=cmp_address( a1->s, a2->s );
@@ -778,9 +763,9 @@ cmp_conv_address( gconstpointer p1, gconstpointer p2 )
 		ret=cmp_address( a1->c, a2->c );
 		/*
 		if(ret)
-			printf("No Client found!"); */
+			ws_debug_printf("No Client found!"); */
 	} else {
-		/* printf("No Server found!"); */
+		/* ws_debug_printf("No Server found!"); */
 	}
 	return ret;
 }
@@ -793,10 +778,10 @@ find_key( address *srv, address *cln )
 
 	data.s=srv;
 	data.c=cln;
-/*	printf("Looking for: ");
+/*	ws_debug_printf("Looking for: ");
 	tacplus_print_key_entry( (gconstpointer)&data, NULL ); */
 	match=g_slist_find_custom( tacplus_keys, (gpointer)&data, cmp_conv_address );
-/*	printf("Finished (%p)\n", match);  */
+/*	ws_debug_printf("Finished (%p)\n", match);  */
 	if( match )
 		return ((tacplus_key_entry*)match->data)->k;
 
@@ -823,7 +808,7 @@ parse_tuple( char *key_from_option )
 	char *client,*key;
 	tacplus_key_entry *tacplus_data=(tacplus_key_entry *)g_malloc( sizeof(tacplus_key_entry) );
 	/*
-	printf("keys: %s\n", key_from_option );
+	ws_debug_printf("keys: %s\n", key_from_option );
 	*/
 	client=strchr(key_from_option,'/');
 	if(!client) {
@@ -838,7 +823,7 @@ parse_tuple( char *key_from_option )
 	}
 	*key++='\0';
 	/*
-	printf("%s %s => %s\n", key_from_option, client, key );
+	ws_debug_printf("%s %s => %s\n", key_from_option, client, key );
 	*/
 	mkipv4_address( &tacplus_data->s, key_from_option );
 	mkipv4_address( &tacplus_data->c, client );
@@ -1280,26 +1265,22 @@ proto_reg_handoff_tacplus(void)
 
 	tacplus_handle = create_dissector_handle(dissect_tacplus,
 	    proto_tacplus);
-	dissector_add_uint("tcp.port", TCP_PORT_TACACS, tacplus_handle);
+	dissector_add_uint_with_preference("tcp.port", TCP_PORT_TACACS, tacplus_handle);
 }
-
-
-#define MD5_LEN 16
 
 static void
 md5_xor( guint8 *data, const char *key, int data_len, guint8 *session_id, guint8 version, guint8 seq_no )
 {
 	int i,j;
 	size_t md5_len;
-	md5_byte_t *md5_buff;
-	md5_byte_t hash[MD5_LEN];				/* the md5 hash */
-	md5_byte_t *mdp;
-	md5_state_t mdcontext;
+	guint8 *md5_buff;
+	guint8 hash[HASH_MD5_LENGTH];				/* the md5 hash */
+	guint8 *mdp;
 
 	md5_len = 4 /* sizeof(session_id) */ + strlen(key)
 			+ sizeof(version) + sizeof(seq_no);
 
-	md5_buff = (md5_byte_t*)wmem_alloc(wmem_packet_scope(), md5_len+MD5_LEN);
+	md5_buff = (guint8*)wmem_alloc(wmem_packet_scope(), md5_len + HASH_MD5_LENGTH);
 
 
 	mdp = md5_buff;
@@ -1311,10 +1292,8 @@ md5_xor( guint8 *data, const char *key, int data_len, guint8 *session_id, guint8
 	*mdp++ = seq_no;
 
 
-	md5_init(&mdcontext);
-	md5_append(&mdcontext, md5_buff, md5_len);
-	md5_finish(&mdcontext,hash);
-	md5_len += MD5_LEN;
+	gcry_md_hash_buffer(GCRY_MD_MD5, hash, md5_buff, md5_len);
+	md5_len += HASH_MD5_LENGTH;
 	for (i = 0; i < data_len; i += 16) {
 
 		for (j = 0; j < 16; j++) {
@@ -1324,10 +1303,8 @@ md5_xor( guint8 *data, const char *key, int data_len, guint8 *session_id, guint8
 			}
 			data[i + j] ^= hash[j];
 		}
-		memcpy(mdp, hash, MD5_LEN);
-		md5_init(&mdcontext);
-		md5_append(&mdcontext, md5_buff, md5_len);
-		md5_finish(&mdcontext,hash);
+		memcpy(mdp, hash, HASH_MD5_LENGTH);
+		gcry_md_hash_buffer(GCRY_MD_MD5, hash, md5_buff, md5_len);
 	}
 }
 

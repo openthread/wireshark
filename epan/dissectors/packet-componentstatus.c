@@ -10,19 +10,7 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -75,7 +63,7 @@ static gint ett_message_flags           = -1;
 static gint ett_association             = -1;
 
 
-#define COMPONENTSTATUSPROTOCOL_PORT    2960
+#define COMPONENTSTATUSPROTOCOL_PORT    2960   /* Not IANA registered */
 #define COMPONENTSTATUSPROTOCOL_VERSION 0x0200
 
 
@@ -174,7 +162,7 @@ dissect_componentstatusprotocol_componentstatusreport_message(tvbuff_t *message_
   while(tvb_reported_length_remaining(message_tvb, offset) >= COMPONENTASSOCIATION_LENGTH) {
      association_tree = proto_tree_add_subtree_format(message_tree, message_tvb, offset, COMPONENTASSOCIATION_LENGTH,
          ett_association, NULL, "Association #%d", i++);
-     association_tvb  = tvb_new_subset(message_tvb, offset,
+     association_tvb  = tvb_new_subset_length_caplen(message_tvb, offset,
                                        MIN(COMPONENTASSOCIATION_LENGTH, tvb_reported_length_remaining(message_tvb, offset)),
                                        COMPONENTASSOCIATION_LENGTH);
 
@@ -292,7 +280,7 @@ proto_reg_handoff_componentstatusprotocol(void)
   dissector_handle_t componentstatusprotocol_handle;
 
   componentstatusprotocol_handle = create_dissector_handle(dissect_componentstatusprotocol, proto_componentstatusprotocol);
-  dissector_add_uint("udp.port", COMPONENTSTATUSPROTOCOL_PORT, componentstatusprotocol_handle);
+  dissector_add_uint_with_preference("udp.port", COMPONENTSTATUSPROTOCOL_PORT, componentstatusprotocol_handle);
 }
 
 /*

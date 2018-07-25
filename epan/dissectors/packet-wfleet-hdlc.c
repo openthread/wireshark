@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -36,6 +24,7 @@ static int hf_wfleet_hdlc_cmd = -1;
 static gint ett_wfleet_hdlc = -1;
 
 static dissector_handle_t eth_withoutfcs_handle;
+static dissector_handle_t wfleet_hdlc_handle;
 
 static const value_string wfleet_hdlc_cmd_vals[] = {
   { 0x03, "Un-numbered I frame"},
@@ -98,16 +87,13 @@ proto_register_wfleet_hdlc(void)
   proto_register_field_array(proto_wfleet_hdlc, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  register_dissector("wfleet_hdlc", dissect_wfleet_hdlc, proto_wfleet_hdlc);
+  wfleet_hdlc_handle = register_dissector("wfleet_hdlc", dissect_wfleet_hdlc, proto_wfleet_hdlc);
 
 }
 
 void
 proto_reg_handoff_wfleet_hdlc(void)
 {
-  dissector_handle_t wfleet_hdlc_handle;
-
-  wfleet_hdlc_handle = find_dissector("wfleet_hdlc");
   dissector_add_uint("wtap_encap", WTAP_ENCAP_WFLEET_HDLC, wfleet_hdlc_handle);
 
   /*

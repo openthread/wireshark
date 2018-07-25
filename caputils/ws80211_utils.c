@@ -9,20 +9,10 @@ Copyright (c) 2007		Andy Lutomirski
 Copyright (c) 2007		Mike Kershaw
 Copyright (c) 2008-2009		Luis R. Rodriguez
 
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+SPDX-License-Identifier: ISC
 */
 
-#include "config.h"
+#include <config.h>
 
 #include <stdio.h>
 
@@ -30,7 +20,6 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <glib/gstdio.h>
 
 #include "ws80211_utils.h"
-#include "wsutil/ws_diag_control.h"
 
 #if defined(HAVE_LIBNL) && defined(HAVE_NL80211)
 #include <string.h>
@@ -40,17 +29,19 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-DIAG_OFF(pedantic)
+DIAG_OFF_PEDANTIC
 #include <netlink/genl/genl.h>
-DIAG_ON(pedantic)
+DIAG_ON_PEDANTIC
 #include <netlink/genl/family.h>
 #include <netlink/genl/ctrl.h>
-DIAG_OFF(pedantic)
+DIAG_OFF_PEDANTIC
 #include <netlink/msg.h>
-DIAG_ON(pedantic)
+DIAG_ON_PEDANTIC
 #include <netlink/attr.h>
 
 #include <linux/nl80211.h>
+
+#include <wsutil/netlink.h>
 
 #ifdef HAVE_NL80211_SPLIT_WIPHY_DUMP
 static int ws80211_get_protocol_features(int* features);
@@ -143,6 +134,25 @@ static int ack_handler(struct nl_msg *msg _U_, void *arg)
 
 static int nl80211_do_cmd(struct nl_msg *msg, struct nl_cb *cb)
 {
+	/*
+	 * XXX - Coverity doesn't understand how libnl works, so it
+	 * doesn't know that nl_recvmsgs() calls the callback, and
+	 * that the callback has had a pointer to err registered
+	 * with it, and therefore that nl_recvmsgs() can change
+	 * err as a side-effect, so it thinks this can loop
+	 * infinitely.
+	 *
+	 * The proper way to address this is to help Coverity to
+	 * understand the behaviour of nl_recvmsgs(), in that it
+	 * does call the callback, setting err. This help would be
+	 * provided through a so called 'model' of this function.
+	 * We declare err to be volatile to work around it.
+	 *
+	 * XXX - that workaround provokes a compiler complaint that
+	 * casting a pointer to it to "void *" discards the
+	 * volatile qualifier.  Perhaps we should just re-close
+	 * Coverity CID 997052 as "false positive".
+	 */
 	volatile int err;
 
 	if (!nl_state.nl_sock)
@@ -186,27 +196,6 @@ static struct ws80211_interface *
 	}
 	return NULL;
 }
-
-/*
- * And now for a steaming heap of suck.
- *
- * The nla_for_each_nested() macro defined by at least some versions of the
- * Linux kernel's headers doesn't do the casting required when compiling
- * with a C++ compiler or with -Wc++-compat, so we get warnings, and those
- * warnings are fatal when we compile this file.
- *
- * So we replace it with our own version, which does the requisite cast.
- */
-
-/**
- * nla_for_each_nested - iterate over nested attributes
- * @pos: loop counter, set to current attribute
- * @nla: attribute containing the nested attributes
- * @rem: initialized to len, holds bytes currently remaining in stream
- */
-#undef nla_for_each_nested
-#define nla_for_each_nested(pos, nla, rem) \
-	nla_for_each_attr(pos, (struct nlattr *)nla_data(nla), nla_len(nla), rem)
 
 #ifdef HAVE_NL80211_SPLIT_WIPHY_DUMP
 static int get_features_handler(struct nl_msg *msg, void *arg)
@@ -729,7 +718,7 @@ out_err:
 }
 
 /* Needed for NLA_PUT_STRING, which passes strlen as an int */
-DIAG_OFF(shorten-64-to-32)
+DIAG_OFF_CLANG(shorten-64-to-32)
 static int ws80211_create_on_demand_interface(const char *name)
 {
 	int devidx, phyidx, err;
@@ -768,9 +757,9 @@ nla_put_failure:
 	fprintf(stderr, "building message failed\n");
 	return 2;
 }
-DIAG_ON(shorten-64-to-32)
+DIAG_ON_CLANG(shorten-64-to-32)
 
-int ws80211_set_freq(const char *name, int freq, int chan_type, int _U_ center_freq, int _U_ center_freq2)
+int ws80211_set_freq(const char *name, guint32 freq, int chan_type, guint32 _U_ center_freq, guint32 _U_ center_freq2)
 {
 	int devidx, err;
 	struct nl_msg *msg;
@@ -1064,7 +1053,7 @@ int ws80211_get_iface_info(const char *name, struct ws80211_iface_info *iface_in
 	return 0;
 }
 
-int ws80211_set_freq(const char *name, int freq, int chan_type, int _U_ center_freq, int _U_ center_freq2)
+int ws80211_set_freq(const char *name, guint32 freq, int chan_type, guint32 _U_ center_freq, guint32 _U_ center_freq2)
 {
 	GList *airpcap_if_list;
 	int err;
@@ -1222,7 +1211,7 @@ int ws80211_get_iface_info(const char *name _U_, struct ws80211_iface_info *ifac
 	return -1;
 }
 
-int ws80211_set_freq(const char *name _U_, int freq _U_, int _U_ chan_type, int _U_ center_freq, int _U_ center_freq2)
+int ws80211_set_freq(const char *name _U_, guint32 freq _U_, int _U_ chan_type, guint32 _U_ center_freq, guint32 _U_ center_freq2)
 {
 	return -1;
 }

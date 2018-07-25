@@ -45,7 +45,16 @@ end
 --
 -- CHANGE THIS TO MATCH HOW MANY TESTS THERE ARE
 --
-local taptests = { [FRAME]=4, [OTHER]=312 }
+-- The number of tests in a specific category (other than FRAME) is the
+-- number of times execute() is called by any function below testing().
+-- From the user's perspective, it can be calculated with the following
+-- formula:
+--
+-- N = number of execute() you call +
+--     number of verifyFields() * (1 + number of fields) +
+--     number of verifyResults() * (1 + 2 * number of values)
+--
+local taptests = { [FRAME]=4, [OTHER]=330 }
 
 local function getResults()
     print("\n-----------------------------\n")
@@ -140,19 +149,22 @@ local testfield =
         STRING         = ProtoField.string ("test.basic.string",  "Basic string"),
         BOOLEAN        = ProtoField.bool   ("test.basic.boolean", "Basic boolean", 16, {"yes","no"}, 0x0001),
         UINT16         = ProtoField.uint16 ("test.basic.uint16",  "Basic uint16"),
+        INT24          = ProtoField.int24  ("test.basic.uint24",  "Basic uint24"),
         BYTES          = ProtoField.bytes  ("test.basic.bytes",   "Basic Bytes"),
         UINT_BYTES     = ProtoField.ubytes ("test.basic.ubytes",  "Basic Uint Bytes"),
         OID            = ProtoField.oid    ("test.basic.oid",     "Basic OID"),
         REL_OID        = ProtoField.rel_oid("test.basic.rel_oid", "Basic Relative OID"),
         ABSOLUTE_LOCAL = ProtoField.absolute_time("test.basic.absolute.local","Basic absolute local"),
-        ABSOLUTE_UTC   = ProtoField.absolute_time("test.basic.absolute.utc",  "Basic absolute utc", 1001),
+        ABSOLUTE_UTC   = ProtoField.absolute_time("test.basic.absolute.utc",  "Basic absolute utc", base.UTC),
+        IPv4           = ProtoField.ipv4   ("test.basic.ipv4",    "Basic ipv4 address"),
+        IPv6           = ProtoField.ipv6   ("test.basic.ipv6",    "Basic ipv6 address"),
         -- GUID           = ProtoField.guid   ("test.basic.guid",    "Basic GUID"),
     },
 
     time =
     {
         ABSOLUTE_LOCAL = ProtoField.absolute_time("test.time.absolute.local","Time absolute local"),
-        ABSOLUTE_UTC   = ProtoField.absolute_time("test.time.absolute.utc",  "Time absolute utc", 1001),
+        ABSOLUTE_UTC   = ProtoField.absolute_time("test.time.absolute.utc",  "Time absolute utc", base.UTC),
     },
 
     bytes =
@@ -186,12 +198,15 @@ local getfield =
         STRING         = Field.new ("test.basic.string"),
         BOOLEAN        = Field.new ("test.basic.boolean"),
         UINT16         = Field.new ("test.basic.uint16"),
+        INT24          = Field.new ("test.basic.uint24"),
         BYTES          = Field.new ("test.basic.bytes"),
         UINT_BYTES     = Field.new ("test.basic.ubytes"),
         OID            = Field.new ("test.basic.oid"),
         REL_OID        = Field.new ("test.basic.rel_oid"),
         ABSOLUTE_LOCAL = Field.new ("test.basic.absolute.local"),
         ABSOLUTE_UTC   = Field.new ("test.basic.absolute.utc"),
+        IPv4           = Field.new ("test.basic.ipv4"),
+        IPv6           = Field.new ("test.basic.ipv6"),
         -- GUID           = Field.new ("test.basic.guid"),
     },
 
@@ -414,6 +429,30 @@ function test_proto.dissector(tvbuf,pktinfo,root)
     verifyFields("basic.UINT16", uint16_match_fields)
 
 ----------------------------------------
+    testing(OTHER, "Basic int24")
+
+    local int24_match_fields = {}
+
+    execute ("basic-int24", pcall (callTreeAdd, tree, testfield.basic.INT24, tvb_bytes:range(0,3)) )
+    addMatchFields(int24_match_fields, 65280)
+
+    execute ("basic-int24", pcall (callTreeAdd, tree, testfield.basic.INT24, tvb_bytes:range(3,3)) )
+    addMatchFields(int24_match_fields, 98304)
+
+    verifyFields("basic.INT24", int24_match_fields)
+
+----------------------------------------
+    testing(OTHER, "Basic int24-le")
+
+    execute ("basic-int24", pcall (callTreeAddLE, tree, testfield.basic.INT24, tvb_bytes:range(0,3)) )
+    addMatchFields(int24_match_fields, 65280)
+
+    execute ("basic-int24", pcall (callTreeAddLE, tree, testfield.basic.INT24, tvb_bytes:range(3,3)) )
+    addMatchFields(int24_match_fields, 32769)
+
+    verifyFields("basic.INT24", int24_match_fields)
+
+----------------------------------------
     testing(OTHER, "Basic bytes")
 
     local bytes_match_fields = {}
@@ -498,6 +537,35 @@ function test_proto.dissector(tvbuf,pktinfo,root)
 
     -- verifyFields("basic.GUID", guid_match_fields)
 
+----------------------------------------
+    testing(OTHER, "tree:add ipv6")
+
+    local tvb = ByteArray.new("20010db8 00000000 0000ff00 00428329"):tvb("IPv6")
+    local IPv6 = testfield.basic.IPv6
+    local ipv6_match_fields = {}
+
+    execute ("ipv6", pcall (callTreeAdd, tree, IPv6, tvb:range(0,16)))
+    addMatchFields(ipv6_match_fields, Address.ipv6('2001:0db8:0000:0000:0000:ff00:0042:8329'))
+
+    verifyFields("basic.IPv6", ipv6_match_fields)
+
+----------------------------------------
+    testing(OTHER, "tree:add ipv4")
+
+    local tvb = ByteArray.new("7f000001"):tvb("IPv4")
+    local IPv4 = testfield.basic.IPv4
+    local ipv4_match_fields = {}
+
+    execute ("ipv4", pcall (callTreeAdd, tree, IPv4, tvb:range(0,4)))
+    addMatchFields(ipv4_match_fields, Address.ip('127.0.0.1'))
+
+    -- TODO: currently, tree:add_le only works for numeric values, not IPv4
+    -- addresses. Test this in the future.
+
+    -- execute ("ipv4", pcall (callTreeAddLE, tree, IPv4, tvb:range(0,4)))
+    -- addMatchFields(ipv4_match_fields, Address.ip('1.0.0.127'))
+
+    verifyFields("basic.IPv4", ipv4_match_fields)
 
 ----------------------------------------
     testing(OTHER, "tree:add_packet_field Bytes")

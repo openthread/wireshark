@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <wsutil/utf8_entities.h>
@@ -32,10 +20,11 @@
 
 #include "ui/tap-sctp-analysis.h"
 
-#include <QFileDialog>
 #include <QMessageBox>
 
-#include "qcustomplot.h"
+#include <ui/qt/utils/qt_ui_utils.h>
+#include <ui/qt/widgets/qcustomplot.h>
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 #include "wireshark_application.h"
 
 SCTPGraphDialog::SCTPGraphDialog(QWidget *parent, sctp_assoc_info_t *assoc, capture_file *cf, int dir) :
@@ -43,7 +32,10 @@ SCTPGraphDialog::SCTPGraphDialog(QWidget *parent, sctp_assoc_info_t *assoc, capt
     ui(new Ui::SCTPGraphDialog),
     selected_assoc(assoc),
     cap_file_(cf),
-    direction(dir)
+    frame_num(0),
+    direction(dir),
+    relative(false),
+    type(1)
 {
     ui->setupUi(this);
     if (!selected_assoc) {
@@ -54,14 +46,14 @@ SCTPGraphDialog::SCTPGraphDialog(QWidget *parent, sctp_assoc_info_t *assoc, capt
             | Qt::WindowMaximizeButtonHint
             | Qt::WindowCloseButtonHint;
     this->setWindowFlags(flags);
-    this->setWindowTitle(QString(tr("SCTP TSNs and SACKs over Time: %1 Port1 %2 Port2 %3")).arg(cf_get_display_name(cap_file_)).arg(selected_assoc->port1).arg(selected_assoc->port2));
+    this->setWindowTitle(QString(tr("SCTP TSNs and SACKs over Time: %1 Port1 %2 Port2 %3")).arg(gchar_free_to_qstring(cf_get_display_name(cap_file_))).arg(selected_assoc->port1).arg(selected_assoc->port2));
     if ((direction == 1 && selected_assoc->n_array_tsn1 == 0) || (direction == 2 && selected_assoc->n_array_tsn2 == 0)) {
         QMessageBox msgBox;
         msgBox.setText(tr("No Data Chunks sent"));
         msgBox.exec();
         return;
     } else {
-        drawGraph(3);
+        drawGraph();
     }
 }
 
@@ -76,7 +68,7 @@ void SCTPGraphDialog::drawNRSACKGraph()
     GList *list=NULL, *tlist;
     guint16 gap_start=0, gap_end=0, i, numberOf_gaps, numberOf_nr_gaps;
     guint8 type;
-    guint32 tsnumber, j, min_tsn;
+    guint32 tsnumber, j = 0, min_tsn, rel = 0;
     struct nr_sack_chunk_header *nr_sack_header;
     struct gaps *nr_gap;
     /* This holds the sum of gap acks and nr gap acks */
@@ -89,13 +81,15 @@ void SCTPGraphDialog::drawNRSACKGraph()
         list = g_list_last(selected_assoc->sack2);
         min_tsn = selected_assoc->min_tsn2;
     }
+    if (relative) {
+        rel = min_tsn;
+    }
     while (list) {
         sack = (tsn_t*) (list->data);
         tlist = g_list_first(sack->tsns);
         while (tlist) {
             type = ((struct chunk_header *)tlist->data)->type;
             if (type == SCTP_NR_SACK_CHUNK_ID) {
-                gIsNRSackChunkPresent = 1;
                 nr_sack_header =(struct nr_sack_chunk_header *)tlist->data;
                 numberOf_nr_gaps=g_ntohs(nr_sack_header->nr_of_nr_gaps);
                 numberOf_gaps=g_ntohs(nr_sack_header->nr_of_gaps);
@@ -109,11 +103,11 @@ void SCTPGraphDialog::drawNRSACKGraph()
                         gap_end = g_ntohs(nr_gap->end);
                         for (j = gap_start; j <= gap_end; j++) {
                             if (i >= numberOf_gaps) {
-                                yn.append(j + tsnumber);
+                                yn.append(j + tsnumber - rel);
                                 xn.append(sack->secs + sack->usecs/1000000.0);
                                 fn.append(sack->frame_number);
                             } else {
-                                yg.append(j + tsnumber);
+                                yg.append(j + tsnumber - rel);
                                 xg.append(sack->secs + sack->usecs/1000000.0);
                                 fg.append(sack->frame_number);
                             }
@@ -123,7 +117,7 @@ void SCTPGraphDialog::drawNRSACKGraph()
                     }
 
                     if (tsnumber>=min_tsn) {
-                        ys.append(j + tsnumber);
+                        ys.append(j + tsnumber - rel);
                         xs.append(sack->secs + sack->usecs/1000000.0);
                         fs.append(sack->frame_number);
                     }
@@ -143,7 +137,7 @@ void SCTPGraphDialog::drawSACKGraph()
     struct gaps *gap;
     tsn_t *tsn;
     guint8 type;
-    guint32 tsnumber=0;
+    guint32 tsnumber=0, rel = 0;
     guint32 minTSN;
     guint32 *dup_list;
     int i, j;
@@ -155,13 +149,15 @@ void SCTPGraphDialog::drawSACKGraph()
         minTSN = selected_assoc->min_tsn2;
         listSACK = g_list_last(selected_assoc->sack2);
     }
+    if (relative) {
+        rel = minTSN;
+    }
     while (listSACK) {
         tsn = (tsn_t*) (listSACK->data);
         tlist = g_list_first(tsn->tsns);
         while (tlist) {
             type = ((struct chunk_header *)tlist->data)->type;
             if (type == SCTP_SACK_CHUNK_ID) {
-                gIsSackChunkPresent = 1;
                 sack_header =(struct sack_chunk_header *)tlist->data;
                 nr=g_ntohs(sack_header->nr_of_gaps);
                 tsnumber = g_ntohl(sack_header->cum_tsn_ack);
@@ -172,7 +168,7 @@ void SCTPGraphDialog::drawSACKGraph()
                         gap_start=g_ntohs(gap->start);
                         gap_end = g_ntohs(gap->end);
                         for (j=gap_start; j<=gap_end; j++) {
-                            yg.append(j+tsnumber);
+                            yg.append(j + tsnumber - rel);
                             xg.append(tsn->secs + tsn->usecs/1000000.0);
                             fg.append(tsn->frame_number);
                         }
@@ -181,7 +177,7 @@ void SCTPGraphDialog::drawSACKGraph()
                     }
                 }
                 if (tsnumber>=minTSN) { // CumTSNAck red
-                    ys.append(tsnumber);
+                    ys.append(tsnumber - rel);
                     xs.append(tsn->secs + tsn->usecs/1000000.0);
                     fs.append(tsn->frame_number);
                 }
@@ -190,7 +186,7 @@ void SCTPGraphDialog::drawSACKGraph()
                     for (i = 0; i < dup_nr; i++) {
                         tsnumber = g_ntohl(dup_list[i]);
                         if (tsnumber >= minTSN) {
-                            yd.append(tsnumber);
+                            yd.append(tsnumber - rel);
                             xd.append(tsn->secs + tsn->usecs/1000000.0);
                             fd.append(tsn->frame_number);
                         }
@@ -266,13 +262,19 @@ void SCTPGraphDialog::drawTSNGraph()
     GList *listTSN = NULL,*tlist;
     tsn_t *tsn;
     guint8 type;
-    guint32 tsnumber=0;
+    guint32 tsnumber=0, rel = 0, minTSN;
 
     if (direction == 1) {
         listTSN = g_list_last(selected_assoc->tsn1);
+         minTSN = selected_assoc->min_tsn1;
     } else {
         listTSN = g_list_last(selected_assoc->tsn2);
+         minTSN = selected_assoc->min_tsn2;
     }
+
+    if (relative) {
+        rel = minTSN;
+     }
 
     while (listTSN) {
         tsn = (tsn_t*) (listTSN->data);
@@ -282,7 +284,7 @@ void SCTPGraphDialog::drawTSNGraph()
             type = ((struct chunk_header *)tlist->data)->type;
             if (type == SCTP_DATA_CHUNK_ID || type == SCTP_I_DATA_CHUNK_ID || type == SCTP_FORWARD_TSN_CHUNK_ID) {
                 tsnumber = g_ntohl(((struct data_chunk_header *)tlist->data)->tsn);
-                yt.append(tsnumber);
+                yt.append(tsnumber - rel);
                 xt.append(tsn->secs + tsn->usecs/1000000.0);
                 ft.append(tsn->frame_number);
             }
@@ -311,13 +313,9 @@ void SCTPGraphDialog::drawTSNGraph()
     }
 }
 
-void SCTPGraphDialog::drawGraph(int which)
+void SCTPGraphDialog::drawGraph()
 {
     guint32 maxTSN, minTSN;
-    gint64 minBound;
-
-    gIsSackChunkPresent = false;
-    gIsNRSackChunkPresent = false;
 
     if (direction == 1) {
         maxTSN = selected_assoc->max_tsn1;
@@ -327,7 +325,23 @@ void SCTPGraphDialog::drawGraph(int which)
         minTSN = selected_assoc->min_tsn2;
     }
     ui->sctpPlot->clearGraphs();
-    switch (which) {
+    xt.clear();
+    yt.clear();
+    xs.clear();
+    ys.clear();
+    xg.clear();
+    yg.clear();
+    xd.clear();
+    yd.clear();
+    xn.clear();
+    yn.clear();
+    ft.clear();
+    fs.clear();
+    fg.clear();
+    fd.clear();
+    fn.clear();
+    typeStrings.clear();
+    switch (type) {
     case 1: drawSACKGraph();
         drawNRSACKGraph();
         break;
@@ -349,39 +363,51 @@ void SCTPGraphDialog::drawGraph(int which)
     connect(ui->sctpPlot, SIGNAL(plottableClick(QCPAbstractPlottable*,QMouseEvent*)), this, SLOT(graphClicked(QCPAbstractPlottable*, QMouseEvent*)));
     // set axes ranges, so we see all data:
     QCPRange myXRange(selected_assoc->min_secs, (selected_assoc->max_secs+1));
-    if (maxTSN - minTSN < 5) {
-        minBound = 0;
+    QCPRange myYRange;
+    if (relative) {
+        QCPRange myYRange(0, maxTSN - minTSN);
+        ui->sctpPlot->yAxis->setRange(myYRange);
     } else {
-        minBound = minTSN;
+        QCPRange myYRange(minTSN, maxTSN);
+        ui->sctpPlot->yAxis->setRange(myYRange);
     }
-    QCPRange myYRange(minBound, maxTSN);
     ui->sctpPlot->xAxis->setRange(myXRange);
-    ui->sctpPlot->yAxis->setRange(myYRange);
     ui->sctpPlot->replot();
 }
 
 void SCTPGraphDialog::on_pushButton_clicked()
 {
-    drawGraph(1);
+    type = 1;
+    drawGraph();
 }
 
 void SCTPGraphDialog::on_pushButton_2_clicked()
 {
-    drawGraph(2);
+    type = 2;
+    drawGraph();
 }
 
 void SCTPGraphDialog::on_pushButton_3_clicked()
 {
-    drawGraph(3);
+    type = 3;
+    drawGraph();
 }
 
 void SCTPGraphDialog::on_pushButton_4_clicked()
 {
     ui->sctpPlot->xAxis->setRange(selected_assoc->min_secs, selected_assoc->max_secs+1);
-    if (direction == 1) {
-        ui->sctpPlot->yAxis->setRange(selected_assoc->min_tsn1, selected_assoc->max_tsn1);
-    } else {
-        ui->sctpPlot->yAxis->setRange(selected_assoc->min_tsn2, selected_assoc->max_tsn2);
+    if (relative) {
+        if (direction == 1) {
+            ui->sctpPlot->yAxis->setRange(0, selected_assoc->max_tsn1 - selected_assoc->min_tsn1);
+        } else {
+            ui->sctpPlot->yAxis->setRange(0, selected_assoc->max_tsn2 - selected_assoc->min_tsn2);
+        }
+   } else {
+        if (direction == 1) {
+            ui->sctpPlot->yAxis->setRange(selected_assoc->min_tsn1, selected_assoc->max_tsn1);
+        } else {
+            ui->sctpPlot->yAxis->setRange(selected_assoc->min_tsn2, selected_assoc->max_tsn2);
+        }
     }
     ui->sctpPlot->replot();
 }
@@ -451,7 +477,7 @@ void SCTPGraphDialog::save_graph(QDialog *dlg, QCustomPlot *plot)
             .arg(bmp_filter)
             .arg(jpeg_filter);
 
-    file_name = QFileDialog::getSaveFileName(dlg, wsApp->windowTitleString(tr("Save Graph As" UTF8_HORIZONTAL_ELLIPSIS)),
+    file_name = WiresharkFileDialog::getSaveFileName(dlg, wsApp->windowTitleString(tr("Save Graph As" UTF8_HORIZONTAL_ELLIPSIS)),
                                              path.canonicalPath(), filter, &extension);
 
     if (file_name.length() > 0) {
@@ -477,6 +503,12 @@ void SCTPGraphDialog::save_graph(QDialog *dlg, QCustomPlot *plot)
 void SCTPGraphDialog::on_saveButton_clicked()
 {
     save_graph(this, ui->sctpPlot);
+}
+
+void SCTPGraphDialog::on_relativeTsn_stateChanged(int arg1)
+{
+    relative = arg1;
+    drawGraph();
 }
 
 /*

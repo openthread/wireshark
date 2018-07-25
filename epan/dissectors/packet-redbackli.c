@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald[AT]wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -46,6 +34,8 @@ static int hf_redbackli_unknownavp = -1;	/* Unknown AVP */
 static int ett_redbackli = -1;
 
 static dissector_handle_t ip_handle;
+static dissector_handle_t redbackli_handle;
+
 
 #define RB_AVP_SEQNO	1
 #define RB_AVP_LIID	2
@@ -276,22 +266,18 @@ void proto_register_redbackli(void) {
 		&ett_redbackli
 	};
 
-	proto_redbackli = proto_register_protocol("Redback Lawful Intercept",
-						  "RedbackLI", "redbackli");
+	proto_redbackli = proto_register_protocol("Redback Lawful Intercept", "RedbackLI", "redbackli");
 
 	proto_register_field_array(proto_redbackli, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	register_dissector("redbackli", redbackli_dissect, proto_redbackli);
+	redbackli_handle = register_dissector("redbackli", redbackli_dissect, proto_redbackli);
 }
 
 void proto_reg_handoff_redbackli(void) {
-	dissector_handle_t redbackli_handle;
-
 	ip_handle = find_dissector_add_dependency("ip", proto_redbackli);
 
-	redbackli_handle = find_dissector("redbackli");
-	dissector_add_for_decode_as("udp.port", redbackli_handle);
+	dissector_add_for_decode_as_with_preference("udp.port", redbackli_handle);
 
 	heur_dissector_add("udp", redbackli_dissect_heur, "Redback Lawful Intercept over UDP", "redbackli_udp", proto_redbackli, HEURISTIC_ENABLE);
 }

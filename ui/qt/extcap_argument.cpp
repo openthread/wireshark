@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <extcap_argument.h>
@@ -25,6 +13,7 @@
 #include <QWidget>
 #include <QLabel>
 #include <QLineEdit>
+#include <QDateTimeEdit>
 #include <QIntValidator>
 #include <QDoubleValidator>
 #include <QCheckBox>
@@ -47,22 +36,92 @@
 
 #include <extcap.h>
 #include <epan/prefs.h>
-#include <color_utils.h>
+#include <epan/prefs-int.h>
+#include <ui/qt/utils/color_utils.h>
 
 #include <extcap_parser.h>
 #include <extcap_argument_file.h>
 #include <extcap_argument_multiselect.h>
 
-ExtArgSelector::ExtArgSelector(extcap_arg * argument) :
-        ExtcapArgument(argument), boxSelection(0) {}
+#include <ui/qt/extcap_options_dialog.h>
+
+ExtArgTimestamp::ExtArgTimestamp(extcap_arg * argument, QObject * parent) :
+    ExtcapArgument(argument, parent) {}
+
+QWidget * ExtArgTimestamp::createEditor(QWidget * parent)
+{
+    QDateTimeEdit * tsBox;
+    QString text = defaultValue();
+
+    if ( _argument->pref_valptr && *_argument->pref_valptr)
+    {
+        QString storeValue(*_argument->pref_valptr);
+
+        if ( storeValue.length() > 0 && storeValue.compare(text) != 0 )
+            text = storeValue.trimmed();
+    }
+
+    ts = QDateTime::fromTime_t(text.toInt());
+    tsBox = new QDateTimeEdit(ts, parent);
+    tsBox->setDisplayFormat(QLocale::system().dateTimeFormat());
+    tsBox->setCalendarPopup(true);
+
+    if ( _argument->tooltip != NULL )
+        tsBox->setToolTip(QString().fromUtf8(_argument->tooltip));
+
+    connect(tsBox, SIGNAL(dateTimeChanged(QDateTime)), SLOT(onDateTimeChanged(QDateTime)));
+
+    return tsBox;
+}
+
+void ExtArgTimestamp::onDateTimeChanged(QDateTime t)
+{
+    ts = t;
+    emit valueChanged();
+}
+
+QString ExtArgTimestamp::defaultValue()
+{
+    return QString::number(QDateTime::currentDateTime().toTime_t());
+}
+
+bool ExtArgTimestamp::isValid()
+{
+    bool valid = true;
+
+    if ( value().length() == 0 && isRequired() )
+        valid = false;
+
+    return valid;
+}
+
+QString ExtArgTimestamp::value()
+{
+    return QString::number(ts.toTime_t());
+}
+
+QString ExtArgTimestamp::prefValue()
+{
+    return value();
+}
+
+ExtArgSelector::ExtArgSelector(extcap_arg * argument, QObject * parent) :
+        ExtcapArgument(argument, parent), boxSelection(0) {}
 
 QWidget * ExtArgSelector::createEditor(QWidget * parent)
 {
     int counter = 0;
     int selected = -1;
-    QString stored = _argument->storeval ? QString(_argument->storeval) : QString();
+    const char *prefval = _argument->pref_valptr ? *_argument->pref_valptr : NULL;
+    QString stored(prefval ? prefval : "");
+
+    QWidget * editor = new QWidget(parent);
+    QHBoxLayout * layout = new QHBoxLayout();
+    QMargins margins = layout->contentsMargins();
+    layout->setContentsMargins(0, margins.top(), 0, margins.bottom());
 
     boxSelection = new QComboBox(parent);
+    layout->addWidget(boxSelection);
 
     if ( values.length() > 0 )
     {
@@ -72,9 +131,9 @@ QWidget * ExtArgSelector::createEditor(QWidget * parent)
         {
             boxSelection->addItem((*iter).value(), (*iter).call());
 
-            if ( ! _argument->storeval && (*iter).isDefault() )
+            if ( !prefval && (*iter).isDefault() )
                 selected = counter;
-            else if ( _argument->storeval && stored.compare((*iter).call()) == 0 )
+            else if ( prefval && stored.compare((*iter).call()) == 0 )
                 selected = counter;
 
             counter++;
@@ -85,9 +144,60 @@ QWidget * ExtArgSelector::createEditor(QWidget * parent)
             boxSelection->setCurrentIndex(selected);
     }
 
+    if ( reload() )
+    {
+        QString btnText(tr("Reload data"));
+        if ( _argument->placeholder )
+            btnText = QString(_argument->placeholder);
+
+        QPushButton * reloadButton = new QPushButton(btnText, editor);
+        layout->addWidget(reloadButton);
+        reloadButton->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+        boxSelection->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Preferred);
+
+        connect(reloadButton, SIGNAL(clicked()), this, SLOT(onReloadTriggered()));
+    }
+
     connect ( boxSelection, SIGNAL(currentIndexChanged(int)), SLOT(onIntChanged(int)) );
 
-    return boxSelection;
+    editor->setLayout(layout);
+
+    return editor;
+}
+
+void ExtArgSelector::onReloadTriggered()
+{
+    int counter = 0;
+    int selected = -1;
+
+    QString call = boxSelection->currentData().toString();
+    const char *prefval = _argument->pref_valptr ? *_argument->pref_valptr : NULL;
+    QString stored(prefval ? prefval : "");
+    if ( call != stored )
+        stored = call;
+
+    if ( reloadValues() && values.length() > 0 )
+    {
+        boxSelection->clear();
+
+        ExtcapValueList::const_iterator iter = values.constBegin();
+
+        while ( iter != values.constEnd() )
+        {
+            boxSelection->addItem((*iter).value(), (*iter).call());
+
+            if ( stored.compare((*iter).call()) == 0 )
+                selected = counter;
+            else if ( (*iter).isDefault() && selected == -1 )
+                selected = counter;
+
+            counter++;
+            ++iter;
+        }
+
+        if ( selected > -1 && selected < boxSelection->count() )
+            boxSelection->setCurrentIndex(selected);
+    }
 }
 
 bool ExtArgSelector::isValid()
@@ -97,9 +207,12 @@ bool ExtArgSelector::isValid()
     if ( value().length() == 0 && isRequired() )
         valid = false;
 
-    QString lblInvalidColor = ColorUtils::fromColorT(prefs.gui_text_invalid).name();
-    QString cmbBoxStyle("QComboBox { background-color: %1; } ");
-    boxSelection->setStyleSheet( cmbBoxStyle.arg(valid ? QString("") : lblInvalidColor) );
+    if ( boxSelection )
+    {
+        QString lblInvalidColor = ColorUtils::fromColorT(prefs.gui_text_invalid).name();
+        QString cmbBoxStyle("QComboBox { background-color: %1; } ");
+        boxSelection->setStyleSheet( cmbBoxStyle.arg(valid ? QString("") : lblInvalidColor) );
+    }
 
     return valid;
 }
@@ -109,17 +222,13 @@ QString ExtArgSelector::value()
     if ( boxSelection == 0 )
         return QString();
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 2, 0)
     QVariant data = boxSelection->currentData();
-#else
-    QVariant data = boxSelection->itemData(boxSelection->currentIndex());
-#endif
 
     return data.toString();
 }
 
-ExtArgRadio::ExtArgRadio(extcap_arg * argument) :
-        ExtcapArgument(argument), selectorGroup(0), callStrings(0) {}
+ExtArgRadio::ExtArgRadio(extcap_arg * argument, QObject * parent) :
+        ExtcapArgument(argument, parent), selectorGroup(0), callStrings(0) {}
 
 QWidget * ExtArgRadio::createEditor(QWidget * parent)
 {
@@ -210,8 +319,8 @@ bool ExtArgRadio::isValid()
     return valid;
 }
 
-ExtArgBool::ExtArgBool(extcap_arg * argument) :
-        ExtcapArgument(argument), boolBox(0) {}
+ExtArgBool::ExtArgBool(extcap_arg * argument, QObject * parent) :
+        ExtcapArgument(argument, parent), boolBox(0) {}
 
 QWidget * ExtArgBool::createLabel(QWidget * parent)
 {
@@ -226,11 +335,12 @@ QWidget * ExtArgBool::createEditor(QWidget * parent)
     if ( _argument->tooltip != NULL )
         boolBox->setToolTip(QString().fromUtf8(_argument->tooltip));
 
-    if ( _argument->storeval )
+    const char *prefval = _argument->pref_valptr ? *_argument->pref_valptr : NULL;
+    if ( prefval )
     {
         QRegExp regexp(EXTCAP_BOOLEAN_REGEX);
 
-        bool savedstate = ( regexp.indexIn(QString(_argument->storeval[0]), 0) != -1 );
+        bool savedstate = ( regexp.indexIn(QString(prefval[0]), 0) != -1 );
         if ( savedstate != state )
             state = savedstate;
     }
@@ -280,11 +390,8 @@ bool ExtArgBool::defaultBool()
 
     if ( _argument )
     {
-        if ( _argument->default_complex )
-        {
-            if ( extcap_complex_get_bool(_argument->default_complex) == (gboolean)TRUE )
-                result = true;
-        }
+        if ( extcap_complex_get_bool(_argument->default_complex) == (gboolean)TRUE )
+            result = true;
     }
 
     return result;
@@ -295,19 +402,18 @@ QString ExtArgBool::defaultValue()
     return defaultBool() ? QString("true") : QString("false");
 }
 
-ExtArgText::ExtArgText(extcap_arg * argument) :
-    ExtcapArgument(argument), textBox(0)
+ExtArgText::ExtArgText(extcap_arg * argument, QObject * parent) :
+    ExtcapArgument(argument, parent), textBox(0)
 {
 }
 
 QWidget * ExtArgText::createEditor(QWidget * parent)
 {
-    QString storeValue;
     QString text = defaultValue();
 
-    if ( _argument->storeval )
+    if ( _argument->pref_valptr && *_argument->pref_valptr)
     {
-        QString storeValue = _argument->storeval;
+        QString storeValue(*_argument->pref_valptr);
 
         if ( storeValue.length() > 0 && storeValue.compare(text) != 0 )
             text = storeValue.trimmed();
@@ -317,6 +423,9 @@ QWidget * ExtArgText::createEditor(QWidget * parent)
 
     if ( _argument->tooltip != NULL )
         textBox->setToolTip(QString().fromUtf8(_argument->tooltip));
+
+    if ( _argument->placeholder != NULL )
+        textBox->setPlaceholderText(QString().fromUtf8(_argument->placeholder));
 
     if (_argument->arg_type == EXTCAP_ARG_PASSWORD)
         textBox->setEchoMode(QLineEdit::Password);
@@ -361,17 +470,16 @@ bool ExtArgText::isValid()
     return valid;
 }
 
-ExtArgNumber::ExtArgNumber(extcap_arg * argument) :
-        ExtArgText(argument) {}
+ExtArgNumber::ExtArgNumber(extcap_arg * argument, QObject * parent) :
+        ExtArgText(argument, parent) {}
 
 QWidget * ExtArgNumber::createEditor(QWidget * parent)
 {
-    QString storeValue;
     QString text = defaultValue();
 
-    if ( _argument->storeval )
+    if ( _argument->pref_valptr && *_argument->pref_valptr)
     {
-        QString storeValue = _argument->storeval;
+        QString storeValue(*_argument->pref_valptr);
 
         if ( storeValue.length() > 0 && storeValue.compare(text) != 0 )
             text = storeValue;
@@ -390,12 +498,14 @@ QWidget * ExtArgNumber::createEditor(QWidget * parent)
                 val = extcap_complex_get_int(_argument->range_start);
             else if ( _argument->arg_type == EXTCAP_ARG_UNSIGNED )
             {
-                val = extcap_complex_get_uint(_argument->range_start);
-                if ( val > G_MAXINT )
+                guint tmp = extcap_complex_get_uint(_argument->range_start);
+                if ( tmp > G_MAXINT )
                 {
                     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_DEBUG, "Defined value for range_start of %s exceeds valid integer range", _argument->call );
                     val = G_MAXINT;
                 }
+                else
+                    val = (gint)tmp;
             }
 
             textValidator->setBottom(val);
@@ -413,12 +523,14 @@ QWidget * ExtArgNumber::createEditor(QWidget * parent)
                 val = extcap_complex_get_int(_argument->range_end);
             else if ( _argument->arg_type == EXTCAP_ARG_UNSIGNED )
             {
-                val = extcap_complex_get_uint(_argument->range_end);
-                if ( val > G_MAXINT )
+                guint tmp = extcap_complex_get_uint(_argument->range_end);
+                if ( tmp > G_MAXINT )
                 {
                     g_log(LOG_DOMAIN_CAPTURE, G_LOG_LEVEL_DEBUG, "Defined value for range_end of %s exceeds valid integer range", _argument->call );
                     val = G_MAXINT;
                 }
+                else
+                    val = (gint)tmp;
             }
 
             textValidator->setTop(val);
@@ -481,10 +593,32 @@ void ExtcapValue::setChildren(ExtcapValueList children)
     _children.append(children);
 }
 
+ExtcapArgument::ExtcapArgument(QObject *parent) :
+        QObject(parent), _argument(0), _label(0), _number(0),
+        label_style(QString("QLabel { color: %1; }"))
+{
+}
+
 ExtcapArgument::ExtcapArgument(extcap_arg * argument, QObject *parent) :
         QObject(parent), _argument(argument), _label(0),
         label_style(QString("QLabel { color: %1; }"))
 {
+    _number = argument->arg_num;
+
+    if ( _argument->values != 0 )
+    {
+        ExtcapValueList elements = loadValues(QString(""));
+        if ( elements.length() > 0 )
+            values.append(elements);
+    }
+}
+
+ExtcapArgument::ExtcapArgument(const ExtcapArgument &obj) :
+        QObject(obj.parent()), _argument(obj._argument), _label(0),
+        label_style(QString("QLabel { color: %1; }"))
+{
+    _number = obj._argument->arg_num;
+
     if ( _argument->values != 0 )
     {
         ExtcapValueList elements = loadValues(QString(""));
@@ -495,7 +629,7 @@ ExtcapArgument::ExtcapArgument(extcap_arg * argument, QObject *parent) :
 
 ExtcapValueList ExtcapArgument::loadValues(QString parent)
 {
-    if (_argument->values == 0 )
+    if (_argument == 0 || _argument->values == 0 )
         return ExtcapValueList();
 
     GList * walker = 0;
@@ -508,7 +642,7 @@ ExtcapValueList ExtcapArgument::loadValues(QString parent)
         if (v == NULL || v->display == NULL || v->call == NULL )
             break;
 
-        QString valParent(v->parent == 0 ? "" : QString().fromUtf8(v->parent));
+        QString valParent = QString().fromUtf8(v->parent);
 
         if ( parent.compare(valParent) == 0 )
         {
@@ -519,7 +653,9 @@ ExtcapValueList ExtcapArgument::loadValues(QString parent)
             ExtcapValue element = ExtcapValue(display, call,
                             v->enabled == (gboolean)TRUE, v->is_default == (gboolean)TRUE);
 
-            element.setChildren(this->loadValues(call));
+            if (!call.isEmpty())
+                element.setChildren(this->loadValues(call));
+
             elements.append(element);
         }
     }
@@ -527,8 +663,26 @@ ExtcapValueList ExtcapArgument::loadValues(QString parent)
     return elements;
 }
 
+bool ExtcapArgument::reloadValues()
+{
+    if ( ! qobject_cast<ExtcapOptionsDialog*> ( parent() ) )
+        return false;
+
+    ExtcapOptionsDialog * dialog = qobject_cast<ExtcapOptionsDialog*>(parent());
+    ExtcapValueList list = dialog->loadValuesFor(_argument->arg_num, _argument->call);
+
+    if ( list.size() > 0 )
+    {
+        values.clear();
+        values << list;
+
+        return true;
+    }
+
+    return false;
+}
+
 ExtcapArgument::~ExtcapArgument() {
-    // TODO Auto-generated destructor stub
 }
 
 QWidget * ExtcapArgument::createLabel(QWidget * parent)
@@ -540,7 +694,10 @@ QWidget * ExtcapArgument::createLabel(QWidget * parent)
 
     QString text = QString().fromUtf8(_argument->display);
 
-    _label = new QLabel(text, parent);
+    if ( _label == 0 )
+        _label = new QLabel(text, parent);
+    else
+        _label->setText(text);
 
     _label->setProperty("isRequired", QString(isRequired() ? "true" : "false"));
 
@@ -549,7 +706,7 @@ QWidget * ExtcapArgument::createLabel(QWidget * parent)
     if ( _argument->tooltip != 0 )
         _label->setToolTip(QString().fromUtf8(_argument->tooltip));
 
-    return _label;
+    return (QWidget *)_label;
 }
 
 QWidget * ExtcapArgument::createEditor(QWidget *)
@@ -570,6 +727,14 @@ QString ExtcapArgument::value()
 QString ExtcapArgument::prefValue()
 {
     return value();
+}
+
+void ExtcapArgument::resetValue()
+{
+    if (_argument->pref_valptr) {
+        g_free(*_argument->pref_valptr);
+        *_argument->pref_valptr = g_strdup("");
+    }
 }
 
 bool ExtcapArgument::isValid()
@@ -593,12 +758,31 @@ QString ExtcapArgument::defaultValue()
     return QString();
 }
 
+QString ExtcapArgument::group() const
+{
+    if ( _argument != 0 && _argument->group != 0 )
+        return QString(_argument->group);
+
+    return QString();
+}
+
+int ExtcapArgument::argNr() const
+{
+    return _number;
+}
+
 QString ExtcapArgument::prefKey(const QString & device_name)
 {
-    if ( ! _argument->save )
+    struct preference * pref = NULL;
+
+    if ( _argument == 0 || ! _argument->save )
         return QString();
 
-    return QString(extcap_settings_key(device_name.toStdString().c_str(), _argument->call));
+    pref = extcap_pref_for_argument(device_name.toStdString().c_str(), _argument);
+    if ( pref != NULL )
+        return QString(prefs_get_name(pref));
+
+    return QString();
 }
 
 bool ExtcapArgument::isRequired()
@@ -607,6 +791,14 @@ bool ExtcapArgument::isRequired()
         return _argument->is_required;
 
     return FALSE;
+}
+
+bool ExtcapArgument::reload()
+{
+    if ( _argument != NULL )
+        return _argument->reload;
+
+    return false;
 }
 
 bool ExtcapArgument::fileExists()
@@ -625,7 +817,7 @@ bool ExtcapArgument::isDefault()
     return false;
 }
 
-ExtcapArgument * ExtcapArgument::create(extcap_arg * argument)
+ExtcapArgument * ExtcapArgument::create(extcap_arg * argument, QObject *parent)
 {
     if ( argument == 0 || argument->display == 0 )
         return 0;
@@ -633,24 +825,26 @@ ExtcapArgument * ExtcapArgument::create(extcap_arg * argument)
     ExtcapArgument * result = 0;
 
     if ( argument->arg_type == EXTCAP_ARG_STRING || argument->arg_type == EXTCAP_ARG_PASSWORD )
-        result = new ExtArgText(argument);
+        result = new ExtArgText(argument, parent);
     else if ( argument->arg_type == EXTCAP_ARG_INTEGER || argument->arg_type == EXTCAP_ARG_LONG ||
             argument->arg_type == EXTCAP_ARG_UNSIGNED || argument->arg_type == EXTCAP_ARG_DOUBLE )
-        result = new ExtArgNumber(argument);
+        result = new ExtArgNumber(argument, parent);
     else if ( argument->arg_type == EXTCAP_ARG_BOOLEAN || argument->arg_type == EXTCAP_ARG_BOOLFLAG )
-        result = new ExtArgBool(argument);
+        result = new ExtArgBool(argument, parent);
     else if ( argument->arg_type == EXTCAP_ARG_SELECTOR )
-        result = new ExtArgSelector(argument);
+        result = new ExtArgSelector(argument, parent);
     else if ( argument->arg_type == EXTCAP_ARG_RADIO )
-        result = new ExtArgRadio(argument);
+        result = new ExtArgRadio(argument, parent);
     else if ( argument->arg_type == EXTCAP_ARG_FILESELECT )
-        result = new ExtcapArgumentFileSelection(argument);
+        result = new ExtcapArgumentFileSelection(argument, parent);
     else if ( argument->arg_type == EXTCAP_ARG_MULTICHECK )
-        result = new ExtArgMultiSelect(argument);
+        result = new ExtArgMultiSelect(argument, parent);
+    else if ( argument->arg_type == EXTCAP_ARG_TIMESTAMP )
+        result = new ExtArgTimestamp(argument, parent);
     else
     {
         /* For everything else, we just print the label */
-        result = new ExtcapArgument(argument);
+        result = new ExtcapArgument(argument, parent);
     }
 
     return result;

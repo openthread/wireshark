@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -53,6 +41,7 @@ static int proto_pkixtsp = -1;
 /*--- Included file: packet-pkixtsp-hf.c ---*/
 #line 1 "./asn1/pkixtsp/packet-pkixtsp-hf.c"
 static int hf_pkixtsp_TSTInfo_PDU = -1;           /* TSTInfo */
+static int hf_pkixtsp_SignatureTimeStampToken_PDU = -1;  /* SignatureTimeStampToken */
 static int hf_pkixtsp_version = -1;               /* T_version */
 static int hf_pkixtsp_messageImprint = -1;        /* MessageImprint */
 static int hf_pkixtsp_reqPolicy = -1;             /* TSAPolicyId */
@@ -86,7 +75,7 @@ static int hf_pkixtsp_PKIFailureInfo_addInfoNotAvailable = -1;
 static int hf_pkixtsp_PKIFailureInfo_systemFailure = -1;
 
 /*--- End of included file: packet-pkixtsp-hf.c ---*/
-#line 45 "./asn1/pkixtsp/packet-pkixtsp-template.c"
+#line 33 "./asn1/pkixtsp/packet-pkixtsp-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_pkixtsp = -1;
@@ -102,7 +91,7 @@ static gint ett_pkixtsp_TSTInfo = -1;
 static gint ett_pkixtsp_Accuracy = -1;
 
 /*--- End of included file: packet-pkixtsp-ett.c ---*/
-#line 49 "./asn1/pkixtsp/packet-pkixtsp-template.c"
+#line 37 "./asn1/pkixtsp/packet-pkixtsp-template.c"
 
 
 
@@ -349,6 +338,15 @@ dissect_pkixtsp_TSTInfo(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset
   return offset;
 }
 
+
+
+static int
+dissect_pkixtsp_SignatureTimeStampToken(gboolean implicit_tag _U_, tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
+  offset = dissect_pkixtsp_TimeStampToken(implicit_tag, tvb, offset, actx, tree, hf_index);
+
+  return offset;
+}
+
 /*--- PDUs ---*/
 
 static int dissect_TSTInfo_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
@@ -358,10 +356,17 @@ static int dissect_TSTInfo_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_
   offset = dissect_pkixtsp_TSTInfo(FALSE, tvb, offset, &asn1_ctx, tree, hf_pkixtsp_TSTInfo_PDU);
   return offset;
 }
+static int dissect_SignatureTimeStampToken_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, void *data _U_) {
+  int offset = 0;
+  asn1_ctx_t asn1_ctx;
+  asn1_ctx_init(&asn1_ctx, ASN1_ENC_BER, TRUE, pinfo);
+  offset = dissect_pkixtsp_SignatureTimeStampToken(FALSE, tvb, offset, &asn1_ctx, tree, hf_pkixtsp_SignatureTimeStampToken_PDU);
+  return offset;
+}
 
 
 /*--- End of included file: packet-pkixtsp-fn.c ---*/
-#line 52 "./asn1/pkixtsp/packet-pkixtsp-template.c"
+#line 40 "./asn1/pkixtsp/packet-pkixtsp-template.c"
 
 
 static int
@@ -417,6 +422,10 @@ void proto_register_pkixtsp(void) {
 #line 1 "./asn1/pkixtsp/packet-pkixtsp-hfarr.c"
     { &hf_pkixtsp_TSTInfo_PDU,
       { "TSTInfo", "pkixtsp.TSTInfo_element",
+        FT_NONE, BASE_NONE, NULL, 0,
+        NULL, HFILL }},
+    { &hf_pkixtsp_SignatureTimeStampToken_PDU,
+      { "SignatureTimeStampToken", "pkixtsp.SignatureTimeStampToken_element",
         FT_NONE, BASE_NONE, NULL, 0,
         NULL, HFILL }},
     { &hf_pkixtsp_version,
@@ -541,7 +550,7 @@ void proto_register_pkixtsp(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-pkixtsp-hfarr.c ---*/
-#line 103 "./asn1/pkixtsp/packet-pkixtsp-template.c"
+#line 91 "./asn1/pkixtsp/packet-pkixtsp-template.c"
   };
 
   /* List of subtrees */
@@ -559,7 +568,7 @@ void proto_register_pkixtsp(void) {
     &ett_pkixtsp_Accuracy,
 
 /*--- End of included file: packet-pkixtsp-ettarr.c ---*/
-#line 109 "./asn1/pkixtsp/packet-pkixtsp-template.c"
+#line 97 "./asn1/pkixtsp/packet-pkixtsp-template.c"
   };
 
   /* Register protocol */
@@ -586,10 +595,11 @@ void proto_reg_handoff_pkixtsp(void) {
 
 /*--- Included file: packet-pkixtsp-dis-tab.c ---*/
 #line 1 "./asn1/pkixtsp/packet-pkixtsp-dis-tab.c"
+  register_ber_oid_dissector("1.2.840.113549.1.9.16.2.14", dissect_SignatureTimeStampToken_PDU, proto_pkixtsp, "id-aa-timeStampToken");
   register_ber_oid_dissector("1.2.840.113549.1.9.16.1.4", dissect_TSTInfo_PDU, proto_pkixtsp, "id-ct-TSTInfo");
 
 
 /*--- End of included file: packet-pkixtsp-dis-tab.c ---*/
-#line 133 "./asn1/pkixtsp/packet-pkixtsp-template.c"
+#line 121 "./asn1/pkixtsp/packet-pkixtsp-template.c"
 }
 

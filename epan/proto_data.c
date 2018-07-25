@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -77,9 +65,11 @@ p_add_proto_data(wmem_allocator_t *tmp_scope, struct _packet_info* pinfo, int pr
   if (tmp_scope == pinfo->pool) {
     scope = tmp_scope;
     proto_list = &pinfo->proto_data;
-  } else {
+  } else if (tmp_scope == wmem_file_scope()) {
     scope = wmem_file_scope();
     proto_list = &pinfo->fd->pfd;
+  } else {
+    DISSECTOR_ASSERT(!"invalid wmem scope");
   }
 
   p1 = (proto_data_t *)wmem_alloc(scope, sizeof(proto_data_t));
@@ -104,8 +94,10 @@ p_get_proto_data(wmem_allocator_t *scope, struct _packet_info* pinfo, int proto,
 
   if (scope == pinfo->pool) {
     item = g_slist_find_custom(pinfo->proto_data, &temp, p_compare);
-  } else {
+  } else if (scope == wmem_file_scope()) {
     item = g_slist_find_custom(pinfo->fd->pfd, &temp, p_compare);
+  } else {
+    DISSECTOR_ASSERT(!"invalid wmem scope");
   }
 
   if (item) {
@@ -128,11 +120,13 @@ p_remove_proto_data(wmem_allocator_t *scope, struct _packet_info* pinfo, int pro
   temp.proto_data = NULL;
 
   if (scope == pinfo->pool) {
-    item = g_slist_find_custom(pinfo->fd->pfd, &temp, p_compare);
+    item = g_slist_find_custom(pinfo->proto_data, &temp, p_compare);
     proto_list = &pinfo->proto_data;
-  } else {
+  } else if (scope == wmem_file_scope()) {
     item = g_slist_find_custom(pinfo->fd->pfd, &temp, p_compare);
     proto_list = &pinfo->fd->pfd;
+  } else {
+    DISSECTOR_ASSERT(!"invalid wmem scope");
   }
 
   if (item) {
@@ -146,8 +140,10 @@ p_get_proto_name_and_key(wmem_allocator_t *scope, struct _packet_info* pinfo, gu
 
   if (scope == pinfo->pool) {
     temp = (proto_data_t *)g_slist_nth_data(pinfo->proto_data, pfd_index);
-  } else {
+  } else if (scope == wmem_file_scope()) {
     temp = (proto_data_t *)g_slist_nth_data(pinfo->fd->pfd, pfd_index);
+  } else {
+    DISSECTOR_ASSERT(!"invalid wmem scope");
   }
 
   return wmem_strdup_printf(wmem_packet_scope(),"[%s, key %u]",proto_get_protocol_name(temp->proto), temp->key);

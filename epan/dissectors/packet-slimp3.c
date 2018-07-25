@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -68,8 +56,9 @@ static int hf_slimp3_data_data = -1;
 
 static gint ett_slimp3 = -1;
 
-#define UDP_PORT_SLIMP3_V1    1069
+#define UDP_PORT_SLIMP3_V1    1069 /* Not IANA registered */
 #define UDP_PORT_SLIMP3_V2    3483
+#define UDP_PORT_SLIMP3_RANGE "1069,3483"
 
 #define SLIMP3_IR       'i'
 #define SLIMP3_CONTROL  's'
@@ -357,9 +346,7 @@ dissect_slimp3(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
                 case 0:
                     in_str = FALSE;
                     lcd_strlen = 0;
-                    value = tvb_get_guint8(tvb, offset + i1 + 1);
-                    proto_tree_add_uint_format_value(slimp3_tree, hf_slimp3_display_delay, tvb, offset + i1, 2,
-                                        value, "%u ms", value);
+                    proto_tree_add_item(slimp3_tree, hf_slimp3_display_delay, tvb, offset + i1, 2, ENC_NA);
                     i1 += 2;
                     break;
                 case 3:
@@ -685,7 +672,7 @@ proto_register_slimp3(void)
             NULL, HFILL }},
 
         /* Generated from convert_proto_tree_add_text.pl */
-        { &hf_slimp3_display_delay, { "Delay", "slimp3.display_delay", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_slimp3_display_delay, { "Delay", "slimp3.display_delay", FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0x0, NULL, HFILL }},
         { &hf_slimp3_display_string, { "String", "slimp3.display_string", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         { &hf_slimp3_display_command, { "Command", "slimp3.display_command", FT_UINT8, BASE_DEC, VALS(slimp3_display_commands), 0x0, NULL, HFILL }},
         { &hf_slimp3_display_unknown, { "Unknown", "slimp3.display_unknown", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -701,8 +688,7 @@ proto_register_slimp3(void)
         &ett_slimp3,
     };
 
-    proto_slimp3 = proto_register_protocol("SliMP3 Communication Protocol",
-                                           "SliMP3", "slimp3");
+    proto_slimp3 = proto_register_protocol("SliMP3 Communication Protocol", "SliMP3", "slimp3");
     proto_register_field_array(proto_slimp3, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 }
@@ -713,8 +699,7 @@ proto_reg_handoff_slimp3(void)
     dissector_handle_t slimp3_handle;
 
     slimp3_handle = create_dissector_handle(dissect_slimp3, proto_slimp3);
-    dissector_add_uint("udp.port", UDP_PORT_SLIMP3_V1, slimp3_handle);
-    dissector_add_uint("udp.port", UDP_PORT_SLIMP3_V2, slimp3_handle);
+    dissector_add_uint_range_with_preference("udp.port", UDP_PORT_SLIMP3_RANGE, slimp3_handle);
 }
 
 /*

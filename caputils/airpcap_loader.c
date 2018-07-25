@@ -7,26 +7,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2000 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <glib.h>
 
-#include <epan/crypt/airpdcap_ws.h>
+#include <epan/crypt/dot11decrypt_ws.h>
 #include <epan/strutil.h>
 #include <wsutil/file_util.h>
 #include <wsutil/frequency-utils.h>
@@ -607,7 +595,7 @@ airpcap_driver_fake_if_info_new(void)
     ad = airpcap_if_open(if_info->name, ebuf);
     if (ad)
     {
-        fake_if_info = (airpcap_if_info_t *)g_malloc(sizeof (airpcap_if_info_t));
+        fake_if_info = (airpcap_if_info_t *)g_malloc0(sizeof (airpcap_if_info_t));
         fake_if_info->name = g_strdup(if_info->name);
         fake_if_info->description = g_strdup(if_info->description);
         fake_if_info->loopback = FALSE;
@@ -642,7 +630,7 @@ airpcap_if_info_print(airpcap_if_info_t* if_info)
     guint i;
     if (if_info == NULL)
     {
-        g_print("\nWARNING : AirPcap Interface pointer is NULL!\n");
+        g_print("\nWARNING : AirPcap Interface pointer is NULL.\n");
         return;
     }
 
@@ -780,11 +768,9 @@ free_airpcap_if_cb(gpointer data, gpointer user_data _U_)
     if (NULL == if_info)
         return;
 
-    if (if_info->name != NULL)
-        g_free(if_info->name);
+    g_free(if_info->name);
 
-    if (if_info->description != NULL)
-        g_free(if_info->description);
+    g_free(if_info->description);
 
     /* XXX - FREE THE WEP KEY LIST HERE!!!*/
     if (if_info->keysCollection != NULL)
@@ -793,8 +779,7 @@ free_airpcap_if_cb(gpointer data, gpointer user_data _U_)
         if_info->keysCollection = NULL;
     }
 
-    if (if_info->ip_addr != NULL)
-        g_slist_free(if_info->ip_addr);
+    g_slist_free(if_info->ip_addr);
 
     g_free(if_info);
 }
@@ -940,9 +925,9 @@ airpcap_get_if_string_number(airpcap_if_info_t* if_info)
     if (a == 0)
     {
         if (g_ascii_strcasecmp(if_info->name,AIRPCAP_DEVICE_ANY_EXTRACT_STRING)!=0)
-            number = g_strdup_printf("??");
+            number = g_strdup("??");
         else
-            number = g_strdup_printf(AIRPCAP_CHANNEL_ANY_NAME);
+            number = g_strdup(AIRPCAP_CHANNEL_ANY_NAME);
     }
     else
     {
@@ -1107,11 +1092,9 @@ airpcap_if_info_free(airpcap_if_info_t *if_info)
 {
     if (if_info != NULL)
     {
-        if (if_info->name != NULL)
-            g_free(if_info->name);
+        g_free(if_info->name);
 
-        if (if_info->description != NULL)
-            g_free(if_info->description);
+        g_free(if_info->description);
 
         if (if_info->keysCollection != NULL)
         {
@@ -1125,10 +1108,7 @@ airpcap_if_info_free(airpcap_if_info_t *if_info)
             if_info->ip_addr = NULL;
         }
 
-        if (if_info != NULL)
-        {
-            g_free(if_info);
-        }
+        g_free(if_info);
     }
 }
 

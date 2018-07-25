@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -384,7 +372,7 @@ proto_register_teredo(void)
 	proto_register_subtree_array(ett, array_length(ett));
 
 /* subdissector code */
-	teredo_dissector_table = register_dissector_table("teredo", "Teredo", proto_teredo, FT_UINT16, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	teredo_dissector_table = register_dissector_table("teredo", "Teredo", proto_teredo, FT_UINT16, BASE_DEC);
 
 	teredo_module = prefs_register_protocol(proto_teredo, NULL);
 
@@ -401,7 +389,7 @@ proto_reg_handoff_teredo(void)
 	data_handle   = find_dissector("ipv6");
 	teredo_tap    = register_tap("teredo");
 
-	dissector_add_uint("udp.port", UDP_PORT_TEREDO, teredo_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_TEREDO, teredo_handle);
 	heur_dissector_add("udp", dissect_teredo_heur, "Teredo over UDP", "teredo_udp", proto_teredo, HEURISTIC_DISABLE);
 }
 

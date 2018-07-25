@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -181,7 +169,7 @@ dfw_append_function(dfwork_t *dfw, stnode_t *node, dfvm_value_t **p_jmp)
 
 	/* Array to hold the instructions that need to jump to
 	 * an instruction if they fail. */
-	jmps = (dfvm_value_t **)g_malloc(num_params * sizeof(dfvm_value_t*));
+	jmps = (dfvm_value_t **)g_malloc0(num_params * sizeof(dfvm_value_t*));
 
 	/* Create the new DFVM instruction */
 	insn = dfvm_insn_new(CALL_FUNCTION);
@@ -197,7 +185,6 @@ dfw_append_function(dfwork_t *dfw, stnode_t *node, dfvm_value_t **p_jmp)
 
 	i = 0;
 	while (params) {
-		jmps[i] = NULL;
 		reg = gen_entity(dfw, (stnode_t *)params->data, &jmps[i]);
 
 		val = dfvm_value_new(REGISTER);
@@ -245,19 +232,16 @@ dfw_append_function(dfwork_t *dfw, stnode_t *node, dfvm_value_t **p_jmp)
 }
 
 
+/**
+ * Adds an instruction for a relation operator where the values are already
+ * loaded in registers.
+ */
 static void
-gen_relation(dfwork_t *dfw, dfvm_opcode_t op, stnode_t *st_arg1, stnode_t *st_arg2)
+gen_relation_regs(dfwork_t *dfw, dfvm_opcode_t op, int reg1, int reg2)
 {
 	dfvm_insn_t	*insn;
 	dfvm_value_t	*val1, *val2;
-	dfvm_value_t	*jmp1 = NULL, *jmp2 = NULL;
-	int		reg1 = -1, reg2 = -1;
 
-    /* Create code for the LHS and RHS of the relation */
-    reg1 = gen_entity(dfw, st_arg1, &jmp1);
-    reg2 = gen_entity(dfw, st_arg2, &jmp2);
-
-    /* Then combine them in a DFVM insruction */
 	insn = dfvm_insn_new(op);
 	val1 = dfvm_value_new(REGISTER);
 	val1->value.numeric = reg1;
@@ -266,9 +250,23 @@ gen_relation(dfwork_t *dfw, dfvm_opcode_t op, stnode_t *st_arg1, stnode_t *st_ar
 	insn->arg1 = val1;
 	insn->arg2 = val2;
 	dfw_append_insn(dfw, insn);
+}
 
-    /* If either of the relation argumnents need an "exit" instruction
-     * to jump to (on failure), mark them */
+static void
+gen_relation(dfwork_t *dfw, dfvm_opcode_t op, stnode_t *st_arg1, stnode_t *st_arg2)
+{
+	dfvm_value_t	*jmp1 = NULL, *jmp2 = NULL;
+	int		reg1 = -1, reg2 = -1;
+
+	/* Create code for the LHS and RHS of the relation */
+	reg1 = gen_entity(dfw, st_arg1, &jmp1);
+	reg2 = gen_entity(dfw, st_arg2, &jmp2);
+
+	/* Then combine them in a DFVM insruction */
+	gen_relation_regs(dfw, op, reg1, reg2);
+
+	/* If either of the relation arguments need an "exit" instruction
+	 * to jump to (on failure), mark them */
 	if (jmp1) {
 		jmp1->value.numeric = dfw->next_insn_id;
 	}
@@ -295,10 +293,10 @@ static void
 gen_relation_in(dfwork_t *dfw, stnode_t *st_arg1, stnode_t *st_arg2)
 {
 	dfvm_insn_t	*insn;
-	dfvm_value_t	*val1, *val2;
-	dfvm_value_t	*jmp1 = NULL, *jmp2 = NULL;
-	int		reg1 = -1, reg2 = -1;
-	stnode_t	*node;
+	dfvm_value_t	*val1, *val2, *val3;
+	dfvm_value_t	*jmp1 = NULL, *jmp2 = NULL, *jmp3 = NULL;
+	int		reg1 = -1, reg2 = -1, reg3 = -1;
+	stnode_t	*node1, *node2;
 	GSList		*nodelist;
 	GSList		*jumplist = NULL;
 
@@ -308,20 +306,35 @@ gen_relation_in(dfwork_t *dfw, stnode_t *st_arg1, stnode_t *st_arg2)
 	/* Create code for the set on the RHS of the relation */
 	nodelist = (GSList*)stnode_data(st_arg2);
 	while (nodelist) {
-		node = (stnode_t*)nodelist->data;
-		reg2 = gen_entity(dfw, node, &jmp2);
-
-		/* Add test to see if the item matches */
-		insn = dfvm_insn_new(ANY_EQ);
-		val1 = dfvm_value_new(REGISTER);
-		val1->value.numeric = reg1;
-		val2 = dfvm_value_new(REGISTER);
-		val2->value.numeric = reg2;
-		insn->arg1 = val1;
-		insn->arg2 = val2;
-		dfw_append_insn(dfw, insn);
-
+		node1 = (stnode_t*)nodelist->data;
 		nodelist = g_slist_next(nodelist);
+		node2 = (stnode_t*)nodelist->data;
+		nodelist = g_slist_next(nodelist);
+
+		if (node2) {
+			/* Range element: add lower/upper bound test. */
+			reg2 = gen_entity(dfw, node1, &jmp2);
+			reg3 = gen_entity(dfw, node2, &jmp3);
+
+			/* Add test to see if the item is in range. */
+			insn = dfvm_insn_new(ANY_IN_RANGE);
+			val1 = dfvm_value_new(REGISTER);
+			val1->value.numeric = reg1;
+			val2 = dfvm_value_new(REGISTER);
+			val2->value.numeric = reg2;
+			val3 = dfvm_value_new(REGISTER);
+			val3->value.numeric = reg3;
+			insn->arg1 = val1;
+			insn->arg2 = val2;
+			insn->arg3 = val3;
+			dfw_append_insn(dfw, insn);
+		} else {
+			/* Normal element: add equality test. */
+			reg2 = gen_entity(dfw, node1, &jmp2);
+
+			/* Add test to see if the item matches */
+			gen_relation_regs(dfw, ANY_EQ, reg1, reg2);
+		}
 
 		/* Exit as soon as we find a match */
 		if (nodelist) {
@@ -336,6 +349,10 @@ gen_relation_in(dfwork_t *dfw, stnode_t *st_arg1, stnode_t *st_arg2)
 		if (jmp2) {
 			jmp2->value.numeric = dfw->next_insn_id;
 			jmp2 = NULL;
+		}
+		if (jmp3) {
+			jmp3->value.numeric = dfw->next_insn_id;
+			jmp3 = NULL;
 		}
 	}
 
@@ -385,7 +402,7 @@ gen_entity(dfwork_t *dfw, stnode_t *st_arg, dfvm_value_t **p_jmp)
 		reg = dfw_append_function(dfw, st_arg, p_jmp);
 	}
 	else {
-		printf("sttype_id is %u\n", (unsigned)e_type);
+		/* printf("sttype_id is %u\n", (unsigned)e_type); */
 		g_assert_not_reached();
 	}
 	return reg;

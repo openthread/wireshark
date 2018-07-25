@@ -13,19 +13,7 @@
  *
  * Copied from packet-quakeworld.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,6 +22,7 @@
 #include <epan/prefs.h>
 
 void proto_register_quake2(void);
+void proto_reg_handoff_quake2(void);
 
 static int proto_quake2 = -1;
 
@@ -79,7 +68,7 @@ static gint ett_quake2_game_clc_cmd_move_bitfield = -1;
 static gint ett_quake2_game_clc_cmd_move_moves = -1;
 
 
-#define PORT_MASTER 27910
+#define PORT_MASTER 27910 /* Not IANA registered */
 static guint gbl_quake2ServerPort=PORT_MASTER;
 
 
@@ -88,7 +77,6 @@ dissect_quake2_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo _U_,
         proto_tree *tree, int direction _U_)
 {
     proto_tree *cl_tree;
-    guint8  *text;
     int  len;
     int  offset;
 
@@ -104,9 +92,8 @@ dissect_quake2_ConnectionlessPacket(tvbuff_t *tvb, packet_info *pinfo _U_,
     offset = 4;
 
     len = tvb_captured_length_remaining(tvb, offset);
-    text = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, len, ENC_ASCII);
-    proto_tree_add_string(cl_tree, hf_quake2_connectionless_text,
-            tvb, offset, len, text);
+    proto_tree_add_item(cl_tree, hf_quake2_connectionless_text,
+            tvb, offset, len, ENC_ASCII|ENC_NA);
     /*offset += len;*/
 
     /* we should analyse the result 'text' a bit further */
@@ -139,7 +126,6 @@ dissect_quake2_client_commands_move(tvbuff_t *tvb, packet_info *pinfo _U_,
 #define BUTTON_USE 2
 #define BUTTON_ANY 128
 
-    guint8  chksum;
     guint32 lastframe;
     int i, offset = 0;
     enum { Q_OFFSET, Q_VALUE, Q_SIZE };
@@ -153,7 +139,6 @@ dissect_quake2_client_commands_move(tvbuff_t *tvb, packet_info *pinfo _U_,
         guint8 impulse[Q_SIZE];
     } move[MOVES+1];
 
-    chksum = tvb_get_guint8(tvb, offset);
     offset++;
     lastframe = tvb_get_letohl(tvb, offset);
     offset += 4;
@@ -214,8 +199,7 @@ dissect_quake2_client_commands_move(tvbuff_t *tvb, packet_info *pinfo _U_,
     if (!tree)
         return offset;
 
-    proto_tree_add_uint(tree, hf_quake2_game_client_command_move_chksum, tvb,
-            0, 1, chksum);
+    proto_tree_add_checksum(tree, tvb, 0, hf_quake2_game_client_command_move_chksum, -1, NULL, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     proto_tree_add_uint(tree, hf_quake2_game_client_command_move_lframe, tvb,
             1, 4, lastframe);
 
@@ -686,8 +670,12 @@ dissect_quake2(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _
     return tvb_captured_length(tvb);
 }
 
-
-void proto_reg_handoff_quake2(void);
+static void
+apply_quake2_prefs(void)
+{
+    /* Port preference used to determine client/server */
+    gbl_quake2ServerPort = prefs_get_uint_value("quake2", "udp.port");
+}
 
 void
 proto_register_quake2(void)
@@ -827,42 +815,22 @@ proto_register_quake2(void)
         &ett_quake2_game_clc_cmd_move_moves,
         &ett_quake2_game_clc_cmd_move_bitfield
     };
-    module_t *quake2_module;
 
-    proto_quake2 = proto_register_protocol("Quake II Network Protocol",
-            "QUAKE2", "quake2");
+    proto_quake2 = proto_register_protocol("Quake II Network Protocol", "QUAKE2", "quake2");
     proto_register_field_array(proto_quake2, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Register a configuration option for port */
-    quake2_module = prefs_register_protocol(proto_quake2,
-            proto_reg_handoff_quake2);
-    prefs_register_uint_preference(quake2_module, "udp.port",
-            "Quake II Server UDP Port",
-            "Set the UDP port for the Quake II Server",
-            10, &gbl_quake2ServerPort);
+    prefs_register_protocol(proto_quake2, apply_quake2_prefs);
 }
-
 
 void
 proto_reg_handoff_quake2(void)
 {
-    static gboolean Initialized=FALSE;
-    static dissector_handle_t quake2_handle;
-    static guint ServerPort;
+    dissector_handle_t quake2_handle;
+    quake2_handle = create_dissector_handle(dissect_quake2, proto_quake2);
 
-    if (!Initialized) {
-        quake2_handle = create_dissector_handle(dissect_quake2,
-                proto_quake2);
-        Initialized=TRUE;
-    } else {
-        dissector_delete_uint("udp.port", ServerPort, quake2_handle);
-    }
-
-    /* set port for future deletes */
-    ServerPort=gbl_quake2ServerPort;
-
-    dissector_add_uint("udp.port", gbl_quake2ServerPort, quake2_handle);
+    dissector_add_uint("udp.port", PORT_MASTER, quake2_handle);
 }
 
 /*

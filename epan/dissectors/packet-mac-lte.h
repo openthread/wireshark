@@ -6,45 +6,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * This header file may also be distributed under
  * the terms of the BSD Licence as follows:
  *
  * Copyright (C) 2009 Martin Mathieson. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL AUTHOR OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "ws_symbol_export.h"
@@ -91,13 +60,28 @@ typedef enum mac_lte_crc_status {
     crc_false_dci = 5
 } mac_lte_crc_status;
 
+/* N.B. for SCellIndex-r13 extends to 31 */
 typedef enum mac_lte_carrier_id {
     carrier_id_primary,
     carrier_id_secondary_1,
     carrier_id_secondary_2,
     carrier_id_secondary_3,
-    carrier_id_secondary_4
+    carrier_id_secondary_4,
+    carrier_id_secondary_5,
+    carrier_id_secondary_6,
+    carrier_id_secondary_7
 } mac_lte_carrier_id;
+
+typedef enum mac_lte_ce_mode {
+    no_ce_mode = 0,
+    ce_mode_a = 1,
+    ce_mode_b = 2
+} mac_lte_ce_mode;
+
+typedef enum mac_lte_nb_mode {
+    no_nb_mode = 0,
+    nb_mode = 1
+} mac_lte_nb_mode;
 
 /* Context info attached to each LTE MAC frame */
 typedef struct mac_lte_info
@@ -149,6 +133,15 @@ typedef struct mac_lte_info
 
     /* DL only.  Is this known to be a retransmission? */
     mac_lte_dl_retx dl_retx;
+
+    /* DL only. CE mode to be used for RAR decoding */
+    mac_lte_ce_mode ceMode;
+
+    /* DL and UL. NB-IoT mode of the UE */
+    mac_lte_nb_mode nbMode;
+
+    /* UL only, for now used for CE mode A RAR decoding */
+    guint8          nUlRb;
 
     /* More Physical layer info (see direction above for which side of union to use) */
     union {
@@ -228,9 +221,9 @@ int is_mac_lte_frame_retx(packet_info *pinfo, guint8 direction);
 /* and implemented by this dissector, using the definitions      */
 /* below. A link to an example program showing you how to encode */
 /* these headers and send LTE MAC PDUs on a UDP socket is        */
-/* provided at https://wiki.wireshark.org/MAC-LTE                 */
+/* provided at https://wiki.wireshark.org/MAC-LTE                */
 /*                                                               */
-/* A heuristic dissecter (enabled by a preference) will          */
+/* A heuristic dissector (enabled by a preference) will          */
 /* recognise a signature at the beginning of these frames.       */
 /*****************************************************************/
 
@@ -287,11 +280,20 @@ int is_mac_lte_frame_retx(packet_info *pinfo, guint8 direction);
           MCS index (1 byte), redundancy version (1 byte), resource block length (1 byte),
           HARQ id (1 byte), NDI (1 byte), TB (1 byte), DL reTx (1 byte) */
 
-#define MAC_LTE_SIMULT_PUCCH_PUSCH_PCELL  0x0C
+#define MAC_LTE_SIMULT_PUCCH_PUSCH_PCELL_TAG  0x0C
 /* 0 byte */
 
-#define MAC_LTE_SIMULT_PUCCH_PUSCH_PSCELL 0x0D
+#define MAC_LTE_SIMULT_PUCCH_PUSCH_PSCELL_TAG 0x0D
 /* 0 byte */
+
+#define MAC_LTE_CE_MODE_TAG         0x0E
+/* 1 byte containing mac_lte_ce_mode enum value */
+
+#define MAC_LTE_NB_MODE_TAG         0x0F
+/* 1 byte containing mac_lte_nb_mode enum value */
+
+#define MAC_LTE_N_UL_RB_TAG         0x10
+/* 1 byte containing the number of UL resource blocks: 6, 15, 25, 50, 75 or 100 */
 
 /* MAC PDU. Following this tag comes the actual MAC PDU (there is no length, the PDU
    continues until the end of the frame) */
@@ -371,5 +373,17 @@ void set_mac_lte_proto_data(packet_info *pinfo, mac_lte_info *p_mac_lte_info);
 
 /* Function to attempt to populate p_mac_lte_info using framing definition above */
 gboolean dissect_mac_lte_context_fields(struct mac_lte_info  *p_mac_lte_info, tvbuff_t *tvb,
-                                        gint *p_offset);
+                                        packet_info *pinfo, proto_tree *tree, gint *p_offset);
 
+/*
+ * Editor modelines  -  http://www.wireshark.org/tools/modelines.html
+ *
+ * Local variables:
+ * c-basic-offset: 4
+ * tab-width: 8
+ * indent-tabs-mode: nil
+ * End:
+ *
+ * vi: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
+ */

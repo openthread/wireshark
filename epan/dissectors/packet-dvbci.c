@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This dissector supports DVB-CI as defined in EN50221 and
@@ -33,7 +21,7 @@
 
 #include <epan/packet.h>
 #include <epan/addr_resolv.h>
-#include <epan/circuit.h>
+#include <epan/conversation.h>
 #include <epan/dvb_chartbl.h>
 #include <epan/exported_pdu.h>
 #include <epan/reassemble.h>
@@ -445,65 +433,65 @@ typedef struct _apdu_info_t {
     guint16 res_class;
     guint8  res_min_ver;
     void (*dissect_payload)(guint32, gint,
-            tvbuff_t *, gint, circuit_t *, packet_info *, proto_tree *);
+            tvbuff_t *, gint, conversation_t *, packet_info *, proto_tree *);
 } apdu_info_t;
 
 
 static void
 dissect_dvbci_payload_rm(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_ap(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_ca(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_aut(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo _U_, proto_tree *tree);
 static void
 dissect_dvbci_payload_hc(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_dt(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_mmi(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_hlc(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_cup(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_cc(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_ami(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_opp(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit _U_,
         packet_info *pinfo, proto_tree *tree);
 static void
 dissect_dvbci_payload_sas(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit,
+        tvbuff_t *tvb, gint offset, conversation_t *circuit,
         packet_info *pinfo, proto_tree *tree);
 
 
@@ -921,6 +909,7 @@ static int hf_dvbci_spdu_tag = -1;
 static int hf_dvbci_sess_status = -1;
 static int hf_dvbci_sess_nb = -1;
 static int hf_dvbci_close_sess_status = -1;
+static int hf_dvbci_res_id = -1;
 static int hf_dvbci_res_id_type = -1;
 static int hf_dvbci_res_class = -1;
 static int hf_dvbci_res_type = -1;
@@ -1104,6 +1093,14 @@ static int hf_dvbci_sas_app_id = -1;
 static int hf_dvbci_sas_sess_state = -1;
 static int hf_dvbci_sas_msg_nb = -1;
 static int hf_dvbci_sas_msg_len = -1;
+
+static const int *dvb_ci_res_id_fields[] = {
+  &hf_dvbci_res_id_type,
+  &hf_dvbci_res_class,
+  &hf_dvbci_res_type,
+  &hf_dvbci_res_ver,
+  NULL
+};
 
 static const int *dvbci_opp_dlv_sys_hint_fields[] = {
     &hf_dvbci_dlv_sys_hint_t,
@@ -1671,8 +1668,7 @@ dvbci_set_addrs(guint8 event, packet_info *pinfo)
     return 1;
 }
 
-
-guint8
+static guint8
 dvbci_get_evt_from_addrs(packet_info *pinfo)
 {
     /* this should be working from C89 on */
@@ -1706,17 +1702,6 @@ dvbci_init(void)
 {
     buf_size_cam  = 0;
     buf_size_host = 0;
-    reassembly_table_init(&tpdu_reassembly_table,
-                          &addresses_reassembly_table_functions);
-    reassembly_table_init(&spdu_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-dvbci_cleanup(void)
-{
-    reassembly_table_destroy(&tpdu_reassembly_table);
-    reassembly_table_destroy(&spdu_reassembly_table);
 }
 
 
@@ -1843,11 +1828,11 @@ dissect_rating(tvbuff_t *tvb, gint offset,
 /* if there's a dissector for the protocol and target port of our
     lsc connection, store it in the lsc session's circuit */
 static void
-store_lsc_msg_dissector(circuit_t *circuit, guint8 ip_proto, guint16 port)
+store_lsc_msg_dissector(conversation_t *conv, guint8 ip_proto, guint16 port)
 {
     dissector_handle_t msg_handle = NULL;
 
-    if (!circuit)
+    if (!conv)
         return;
 
     if (ip_proto==LSC_TCP)
@@ -1855,14 +1840,14 @@ store_lsc_msg_dissector(circuit_t *circuit, guint8 ip_proto, guint16 port)
     else if (ip_proto==LSC_UDP)
         msg_handle = dissector_get_uint_handle(udp_dissector_table, port);
 
-    circuit_set_dissector(circuit, msg_handle);
+    conversation_set_dissector(conv, msg_handle);
 }
 
 
 /* dissect a connection_descriptor for the lsc resource
    returns its length or -1 for error */
 static gint
-dissect_conn_desc(tvbuff_t *tvb, gint offset,  circuit_t *circuit,
+dissect_conn_desc(tvbuff_t *tvb, gint offset, conversation_t *conv,
         packet_info *pinfo, proto_tree *tree)
 {
     proto_item *ti;
@@ -1941,7 +1926,7 @@ dissect_conn_desc(tvbuff_t *tvb, gint offset,  circuit_t *circuit,
                         udp_port_to_display(wmem_packet_scope(), port));
             }
         }
-        store_lsc_msg_dissector(circuit, ip_proto, port);
+        store_lsc_msg_dissector(conv, ip_proto, port);
 
     } else if (conn_desc_type == CONN_DESC_HOSTNAME) {
         proto_tree_add_item(conn_desc_tree, hf_dvbci_lsc_media_tag,
@@ -1968,7 +1953,7 @@ dissect_conn_desc(tvbuff_t *tvb, gint offset,  circuit_t *circuit,
                         udp_port_to_display(wmem_packet_scope(), port));
             }
         }
-        store_lsc_msg_dissector(circuit, ip_proto, port);
+        store_lsc_msg_dissector(conv, ip_proto, port);
 
         /* everything from here to the descriptor's end is a hostname */
         hostname_len = (offset_body+len_field)-offset;
@@ -2013,7 +1998,7 @@ dissect_uri(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree)
 
     offset_start = offset;
 
-    col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "URI");
+    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "URI");
 
     uri_ver = tvb_get_guint8(tvb, offset);
     proto_tree_add_item(tree, hf_dvbci_uri_ver,
@@ -2025,7 +2010,7 @@ dissect_uri(tvbuff_t *tvb, gint offset, packet_info *pinfo, proto_tree *tree)
     emi = (tvb_get_guint8(tvb, offset) & 0x30) >> 4;
     proto_tree_add_item(tree, hf_dvbci_uri_emi,
             tvb, offset, 1, ENC_BIG_ENDIAN);
-    col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
             val_to_str_const(emi, dvbci_cc_uri_emi, "unknown"));
     proto_tree_add_item(tree, hf_dvbci_uri_ict,
             tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -2165,59 +2150,59 @@ add_cc_protocol_name_step(packet_info *pinfo,
 
     switch (req_dat_ids) {
         case CC_ID_DHPH<<24|CC_ID_SIG_A<<16|CC_ID_HOST_DEV_CERT<<8|CC_ID_HOST_BRAND_CERT:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Authentication Step 1)");
             break;
         case CC_ID_STATUS_FIELD:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Authentication Step 3)");
             break;
         case CC_ID_AKH:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(AuthKey Step 1)");
             break;
         case CC_ID_HOST_ID<<8|CC_ID_STATUS_FIELD:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(CC key calculation Step 1)");
             break;
         case CC_ID_HOST_ID<<8|CC_ID_NS_HOST:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(SAC key calculation Step 1)");
             break;
         case CC_ID_URI_CNF:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(URI transmission Step 1)");
             break;
         case CC_ID_URI_VERSIONS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(URI version negotiation Step 1)");
             break;
         case CC_ID_LICENSE_RCV_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(CICAM to Host License Exchange Step 1)");
             break;
         case CC_ID_PROG_NUM<<24|CC_ID_LICENSE_STATUS<<16|CC_ID_URI<<8|CC_ID_CICAM_LICENSE:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Playback License Exchange Step 1)");
             break;
         case CC_ID_LICENSE_STATUS<<8|CC_ID_PLAY_COUNT:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(License Check Exchange Step 1)");
             break;
         case CC_ID_REC_START_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Record Start Step 1)");
             break;
         case CC_ID_MODE_CHG_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Change Operating Mode Step 1)");
             break;
         case CC_ID_REC_STOP_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Record Stop Step 1)");
             break;
         case CC_ID_STATUS_FIELD<<8|CC_ID_SRM_CONFIRM:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(SRM Transmission Step 1)");
             break;
         default:
@@ -2231,59 +2216,59 @@ add_cc_protocol_name_step(packet_info *pinfo,
 
     switch (snd_dat_ids) {
         case CC_ID_DHPH<<24|CC_ID_SIG_A<<16|CC_ID_HOST_DEV_CERT<<8|CC_ID_HOST_BRAND_CERT:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Authentication Step 2)");
             break;
         case CC_ID_STATUS_FIELD:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Authentication Step 4)");
             break;
         case CC_ID_AKH:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(AuthKey Step 2)");
             break;
         case CC_ID_HOST_ID<<8|CC_ID_STATUS_FIELD:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(CC key calculation Step 2)");
             break;
         case CC_ID_HOST_ID<<8|CC_ID_NS_HOST:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(SAC key calculation Step 2)");
             break;
         case CC_ID_URI_CNF:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(URI transmission Step 2)");
             break;
         case CC_ID_URI_VERSIONS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(URI version negotiation Step 2)");
             break;
         case CC_ID_LICENSE_RCV_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(CICAM to Host License Exchange Step 2)");
             break;
         case CC_ID_PROG_NUM<<24|CC_ID_LICENSE_STATUS<<16|CC_ID_URI<<8|CC_ID_CICAM_LICENSE:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Playback License Exchange Step 2)");
             break;
         case CC_ID_LICENSE_STATUS<<8|CC_ID_PLAY_COUNT:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(License Check Exchange Step 2)");
             break;
         case CC_ID_REC_START_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Record Start Step 2)");
             break;
         case CC_ID_MODE_CHG_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Change Operating Mode Step 2)");
             break;
         case CC_ID_REC_STOP_STATUS:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(Record Stop Step 2)");
             break;
         case CC_ID_STATUS_FIELD<<8|CC_ID_SRM_CONFIRM:
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
                     "(SRM Transmission Step 2)");
             break;
     }
@@ -2359,7 +2344,6 @@ dissect_cc_data_payload(guint32 tag, tvbuff_t *tvb, gint offset,
 }
 
 
-#ifdef HAVE_LIBGCRYPT
 /* convert a 0-terminated preference key_string that contains a hex number
  *  into its binary representation
  * e.g. key_string "abcd" will be converted into two bytes 0xab, 0xcd
@@ -2392,7 +2376,7 @@ pref_key_string_to_bin(const gchar *key_string, unsigned char **key_bin)
 
 
 static tvbuff_t *
-decrypt_sac_msg_body(
+decrypt_sac_msg_body(packet_info *pinfo,
         guint8 enc_cip, tvbuff_t *encrypted_tvb, gint offset, gint len)
 {
     gboolean         opened = FALSE;
@@ -2422,7 +2406,7 @@ decrypt_sac_msg_body(
         goto end;
 
     clear_len = len;
-    clear_data = (unsigned char *)g_malloc(clear_len);
+    clear_data = (unsigned char *)wmem_alloc(pinfo->pool, clear_len);
 
     err = gcry_cipher_decrypt (cipher, clear_data, clear_len,
             tvb_memdup(wmem_packet_scope(), encrypted_tvb, offset, len), len);
@@ -2431,32 +2415,12 @@ decrypt_sac_msg_body(
 
     clear_tvb = tvb_new_child_real_data(encrypted_tvb,
                         (const guint8 *)clear_data, clear_len, clear_len);
-    tvb_set_free_cb(clear_tvb, g_free);
 
 end:
     if (opened)
         gcry_cipher_close (cipher);
-    if (!clear_tvb && clear_data)
-       g_free(clear_data);
     return clear_tvb;
 }
-
-#else
-/* HAVE_LIBGCRYPT is not set */
-static gint
-pref_key_string_to_bin(const gchar *key_string _U_, unsigned char **key_bin _U_)
-{
-    return 0;
-}
-
-static tvbuff_t *
-decrypt_sac_msg_body(guint8 enc_cip _U_,
-        tvbuff_t *encrypted_tvb _U_, gint offset _U_, gint len _U_)
-{
-    return NULL;
-}
-
-#endif
 
 
 /* dissect a text string that is encoded according to DVB-SI (EN 300 468) */
@@ -2490,7 +2454,7 @@ dissect_si_string(tvbuff_t *tvb, gint offset, gint str_len,
             tvb, offset, str_len, si_str, "%s: %s", title, si_str);
 
     if (show_col_info)
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "%s", si_str);
+        col_append_sep_str(pinfo->cinfo, COL_INFO, " ", si_str);
 }
 
 
@@ -2661,10 +2625,6 @@ static proto_item *
 dissect_res_id(tvbuff_t *tvb, gint offset, packet_info *pinfo,
         proto_tree *tree, guint32 res_id, gboolean show_col_info)
 {
-    proto_item *ti       = NULL;
-    proto_tree *res_tree = NULL;
-    gint        tvb_data_len;
-
     /* there's two possible inputs for this function
         the resource id is either in a tvbuff_t (tvb!=NULL, res_id==0)
         or in a guint32 (tvb==NULL, res_id!=0) */
@@ -2674,7 +2634,6 @@ dissect_res_id(tvbuff_t *tvb, gint offset, packet_info *pinfo,
         if (res_id!=0)
             return NULL;
         res_id = tvb_get_ntohl(tvb, offset);
-        tvb_data_len = RES_ID_LEN;
     }
     else {
         /* resource id comes in via guint32 */
@@ -2683,7 +2642,6 @@ dissect_res_id(tvbuff_t *tvb, gint offset, packet_info *pinfo,
         /* we'll call proto_tree_add_...( tvb==NULL, offset==0, length==0 )
            this creates a filterable item without any reference to a tvb */
         offset = 0;
-        tvb_data_len = 0;
     }
 
     if (show_col_info) {
@@ -2693,27 +2651,15 @@ dissect_res_id(tvbuff_t *tvb, gint offset, packet_info *pinfo,
                 RES_VER(res_id));
     }
 
-    res_tree = proto_tree_add_subtree_format(tree, tvb, offset, tvb_data_len,
-            ett_dvbci_res, &ti, "Resource ID: 0x%04x", res_id);
-
-    /* parameter "value" == complete resource id,
-       RES_..._MASK will be applied by the hf definition */
-    proto_tree_add_uint(res_tree, hf_dvbci_res_id_type,
-            tvb, offset, tvb_data_len, res_id);
-    proto_tree_add_uint(res_tree, hf_dvbci_res_class,
-            tvb, offset, tvb_data_len, res_id);
-    proto_tree_add_uint(res_tree, hf_dvbci_res_type,
-            tvb, offset, tvb_data_len, res_id);
-    proto_tree_add_uint(res_tree, hf_dvbci_res_ver,
-            tvb, offset, tvb_data_len, res_id);
-
-    return ti;
+    return proto_tree_add_bitmask_value_with_flags(tree, tvb, offset,
+            hf_dvbci_res_id, ett_dvbci_res, dvb_ci_res_id_fields, res_id,
+            BMT_NO_APPEND);
 }
 
 /* dissect the body of a resource manager apdu */
 static void
 dissect_dvbci_payload_rm(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     const gchar *tag_str;
@@ -2736,13 +2682,13 @@ dissect_dvbci_payload_rm(guint32 tag, gint len_field,
 
 static void
 dissect_dvbci_payload_ap(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     guint8          menu_str_len;
     guint           enc_len;
     dvb_encoding_e  encoding;
-    guint8         *menu_string;
+    const guint8   *menu_string;
     guint8          data_rate;
 
     if (tag==T_APP_INFO) {
@@ -2765,18 +2711,16 @@ dissect_dvbci_payload_ap(guint32 tag, gint len_field _U_,
                     tree, hf_dvbci_ap_char_tbl, tvb, offset, enc_len, encoding);
             offset += enc_len;
             menu_str_len -= enc_len;
-            menu_string = tvb_get_string_enc(wmem_packet_scope(),
-                    tvb, offset, menu_str_len, dvb_enc_to_item_enc(encoding));
+            proto_tree_add_item_ret_string(tree, hf_dvbci_menu_str,
+                    tvb, offset, menu_str_len, dvb_enc_to_item_enc(encoding),
+                    wmem_packet_scope(), &menu_string);
             col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL,
                     "Module name %s", menu_string);
-            proto_tree_add_string_format(tree, hf_dvbci_menu_str,
-                    tvb, offset, menu_str_len, menu_string,
-                    "Menu string: %s", menu_string);
         }
     }
     else if (tag== T_DATARATE_INFO) {
         data_rate = tvb_get_guint8(tvb, offset);
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str(data_rate, dvbci_data_rate, "unknown (0x%x)"));
         proto_tree_add_item(tree, hf_dvbci_data_rate, tvb, offset, 1, ENC_BIG_ENDIAN);
     }
@@ -2784,7 +2728,7 @@ dissect_dvbci_payload_ap(guint32 tag, gint len_field _U_,
 
 static void
 dissect_dvbci_payload_ca(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     const gchar *tag_str;
@@ -2862,7 +2806,7 @@ dissect_dvbci_payload_ca(guint32 tag, gint len_field,
                 scrambled = TRUE;
         }
 
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL,
+        col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                 scrambled ? "scrambled service" : "free service");
     }
     else if (tag==T_CA_PMT_REPLY) {
@@ -2890,7 +2834,7 @@ dissect_dvbci_payload_ca(guint32 tag, gint len_field,
             offset++;
         }
         if (desc_ok) {
-            col_append_sep_fstr(
+            col_append_sep_str(
                 pinfo->cinfo, COL_INFO, NULL, "descrambling possible");
         }
      }
@@ -2899,7 +2843,7 @@ dissect_dvbci_payload_ca(guint32 tag, gint len_field,
 
 static void
 dissect_dvbci_payload_aut(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo _U_, proto_tree *tree)
 {
     gint bytes_len;
@@ -2925,7 +2869,7 @@ dissect_dvbci_payload_aut(guint32 tag, gint len_field _U_,
 
 static void
 dissect_dvbci_payload_hc(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     proto_item *pi;
@@ -3012,7 +2956,7 @@ dissect_dvbci_payload_hc(guint32 tag, gint len_field _U_,
             status = tvb_get_guint8(tvb, offset);
             proto_tree_add_item(tree, hf_dvbci_hc_status,
                     tvb, offset, 1, ENC_BIG_ENDIAN);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                         (status == HC_STAT_OK ?  "ok" : "error"));
             break;
         case T_ASK_RELEASE_REPLY:
@@ -3027,7 +2971,7 @@ dissect_dvbci_payload_hc(guint32 tag, gint len_field _U_,
 
 static void
 dissect_dvbci_payload_dt(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     nstime_t     resp_intv;
@@ -3044,7 +2988,7 @@ dissect_dvbci_payload_dt(guint32 tag, gint len_field,
         pi = proto_tree_add_time(tree, hf_dvbci_resp_intv,
                 tvb, offset, 1, &resp_intv);
         if (resp_intv.secs==0) {
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "individual query");
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "individual query");
             proto_item_append_text(pi, " (individual query)");
         }
         else {
@@ -3089,7 +3033,7 @@ dissect_dvbci_payload_dt(guint32 tag, gint len_field,
 
 static void
 dissect_dvbci_payload_mmi(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     gint            offset_start;
@@ -3131,8 +3075,8 @@ dissect_dvbci_payload_mmi(guint32 tag, gint len_field,
             disp_ctl_cmd = tvb_get_guint8(tvb,offset);
             disp_ctl_cmd_str = val_to_str_const(disp_ctl_cmd,
                                                 dvbci_disp_ctl_cmd, "unknown command");
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ",
-                    "%s", disp_ctl_cmd_str);
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
+                    disp_ctl_cmd_str);
             proto_tree_add_item(tree, hf_dvbci_disp_ctl_cmd, tvb,
                     offset, 1, ENC_BIG_ENDIAN);
             offset++;
@@ -3152,8 +3096,8 @@ dissect_dvbci_payload_mmi(guint32 tag, gint len_field,
             disp_rep_id = tvb_get_guint8(tvb,offset);
             disp_rep_id_str = val_to_str_const(disp_rep_id,
                     dvbci_disp_rep_id, "unknown command");
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ",
-                    "%s", disp_rep_id_str);
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
+                    disp_rep_id_str);
             proto_tree_add_item(tree, hf_dvbci_disp_rep_id,
                     tvb, offset, 1, ENC_BIG_ENDIAN);
             offset++;
@@ -3250,7 +3194,7 @@ dissect_dvbci_payload_mmi(guint32 tag, gint len_field,
                     tree, hf_dvbci_choice_ref, tvb, offset, 1, ENC_BIG_ENDIAN);
             if (choice_ref == 0x0) {
                 proto_item_append_text(pi, " (Selection was cancelled)");
-                col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ",
+                col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                         "cancelled");
             }
             else {
@@ -3266,7 +3210,7 @@ dissect_dvbci_payload_mmi(guint32 tag, gint len_field,
 
 static void
 dissect_dvbci_payload_hlc(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
   guint8 *str;
@@ -3287,13 +3231,13 @@ dissect_dvbci_payload_hlc(guint32 tag, gint len_field _U_,
               tvb_reported_length_remaining(tvb, offset),
               ENC_ISO_8859_1|ENC_NA);
   if (str)
-      col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s", str);
+      col_append_sep_str(pinfo->cinfo, COL_INFO, ": ", str);
 }
 
 
 static void
 dissect_dvbci_payload_cup(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
   guint8      upgrade_type;
@@ -3323,7 +3267,7 @@ dissect_dvbci_payload_cup(guint32 tag, gint len_field _U_,
     case T_CAM_FIRMWARE_UPGRADE_REPLY:
       answer = tvb_get_guint8(tvb, offset);
       proto_tree_add_item(tree, hf_dvbci_cup_answer, tvb, offset, 1, ENC_BIG_ENDIAN);
-      col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+      col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str_const(answer, dvbci_cup_answer, "unknown"));
       break;
     case T_CAM_FIRMWARE_UPGRADE_PROGRESS:
@@ -3346,6 +3290,23 @@ dissect_dvbci_payload_cup(guint32 tag, gint len_field _U_,
   }
 }
 
+static int exp_pdu_data_dvbci_size(packet_info *pinfo _U_, void* data _U_)
+{
+  return EXP_PDU_TAG_DVBCI_EVT_LEN + 4;
+}
+
+static int exp_pdu_data_dvbci_populate_data(packet_info *pinfo, void* data, guint8 *tlv_buffer, guint32 buffer_size _U_)
+{
+  tlv_buffer[0] = 0;
+  tlv_buffer[1] = EXP_PDU_TAG_DVBCI_EVT;
+  tlv_buffer[2] = 0;
+  tlv_buffer[3] = EXP_PDU_TAG_DVBCI_EVT_LEN;
+  tlv_buffer[4] = dvbci_get_evt_from_addrs(pinfo);
+
+  return exp_pdu_data_dvbci_size(pinfo, data);
+}
+
+static exp_pdu_data_item_t exp_pdu_dvbci = {exp_pdu_data_dvbci_size, exp_pdu_data_dvbci_populate_data, NULL};
 
 static void
 dissect_sac_msg(guint32 tag, tvbuff_t *tvb, gint offset,
@@ -3394,7 +3355,7 @@ dissect_sac_msg(guint32 tag, tvbuff_t *tvb, gint offset,
     if (tvb_reported_length_remaining(tvb, offset) < 0)
         return;
     if (enc_flag) {
-        clear_sac_body_tvb = decrypt_sac_msg_body(enc_cip,
+        clear_sac_body_tvb = decrypt_sac_msg_body(pinfo, enc_cip,
                 tvb, offset, tvb_reported_length_remaining(tvb, offset));
     }
     else {
@@ -3440,10 +3401,13 @@ dissect_sac_msg(guint32 tag, tvbuff_t *tvb, gint offset,
     /* we call this function also to dissect exported SAC messages,
         don't try to export them a second time */
     if (!exported && is_exportable && have_tap_listener(exported_pdu_tap)) {
+        static const exp_pdu_data_item_t *dvbci_exp_pdu_items[] = {
+            &exp_pdu_dvbci,
+            NULL
+        };
 
         tvbuff_t       *clear_sac_msg_tvb;
         exp_pdu_data_t *exp_pdu_data;
-        guint8          tags[2];
 
         clear_sac_msg_tvb = tvb_new_composite();
         tvb_composite_append(clear_sac_msg_tvb,
@@ -3451,10 +3415,7 @@ dissect_sac_msg(guint32 tag, tvbuff_t *tvb, gint offset,
         tvb_composite_append(clear_sac_msg_tvb, clear_sac_body_tvb);
         tvb_composite_finalize(clear_sac_msg_tvb);
 
-        tags[0] = 0;
-        tags[1] = EXP_PDU_TAG_DVBCI_EVT_BIT;
-        exp_pdu_data = load_export_pdu_tags(
-                pinfo, EXP_PDU_TAG_PROTO_NAME, EXPORTED_SAC_MSG_PROTO, tags, 2);
+        exp_pdu_data = export_pdu_create_tags(pinfo, EXPORTED_SAC_MSG_PROTO, EXP_PDU_TAG_PROTO_NAME, dvbci_exp_pdu_items);
 
         exp_pdu_data->tvb_captured_length = tvb_captured_length(clear_sac_msg_tvb);
         exp_pdu_data->tvb_reported_length = tvb_reported_length(clear_sac_msg_tvb);
@@ -3475,7 +3436,7 @@ dissect_dvbci_exported_sac_msg(
     if (!IS_DATA_TRANSFER(evt))
         return 0;
 
-    col_append_sep_fstr(pinfo->cinfo, COL_PROTOCOL, NULL, EXPORTED_SAC_MSG_PROTO);
+    col_append_sep_str(pinfo->cinfo, COL_PROTOCOL, NULL, EXPORTED_SAC_MSG_PROTO);
     col_clear(pinfo->cinfo, COL_INFO);
 
     /* we only export cc_sac_data_req and _cnf, therefore, the tag can be
@@ -3485,7 +3446,7 @@ dissect_dvbci_exported_sac_msg(
     else
        tag = T_CC_SAC_DATA_CNF;
 
-    col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+    col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
             val_to_str_const(tag, dvbci_apdu_tag, "unknown"));
 
     dissect_sac_msg(tag, tvb, 0, pinfo, tree, TRUE);
@@ -3495,7 +3456,7 @@ dissect_dvbci_exported_sac_msg(
 
 static void
 dissect_dvbci_payload_cc(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     guint8      status;
@@ -3517,7 +3478,7 @@ dissect_dvbci_payload_cc(guint32 tag, gint len_field _U_,
             status = tvb_get_guint8(tvb, offset);
             proto_tree_add_item(
                     tree, hf_dvbci_cc_status_field, tvb, offset, 1, ENC_BIG_ENDIAN);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str_const(status, dvbci_cc_status, "unknown"));
             break;
         case T_CC_SAC_DATA_REQ:
@@ -3555,7 +3516,7 @@ dissect_dvbci_payload_cc(guint32 tag, gint len_field _U_,
             pin_stat = tvb_get_guint8(tvb, offset);
             proto_tree_add_item(tree, hf_dvbci_pincode_status,
                     tvb, offset, 1, ENC_BIG_ENDIAN);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str_const(pin_stat, dvbci_pincode_status, "unknown"));
             break;
         case T_CC_PIN_EVENT:
@@ -3629,7 +3590,7 @@ dissect_dvbci_ami_file_ack(tvbuff_t *tvb, gint offset,
     proto_tree_add_item(tree, hf_dvbci_file_ok, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset++;
     proto_tree_add_item(tree, hf_dvbci_req_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+    col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
             val_to_str_const(req_type, dvbci_req_type, "unknown"));
     offset++;
     if (req_type==REQ_TYPE_FILE || req_type==REQ_TYPE_FILE_HASH) {
@@ -3641,8 +3602,8 @@ dissect_dvbci_ami_file_ack(tvbuff_t *tvb, gint offset,
                 tvb, offset, file_name_len, ENC_ASCII);
         if (!file_name_str)
             return;
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
-                "%s", file_name_str);
+        col_append_sep_str(pinfo->cinfo, COL_INFO, " ",
+                file_name_str);
         proto_tree_add_string_format_value(tree, hf_dvbci_file_name,
                 tvb, offset, file_name_len, file_name_str,
                 "%s", file_name_str);
@@ -3691,7 +3652,7 @@ dissect_dvbci_ami_file_ack(tvbuff_t *tvb, gint offset,
     }
 
     if (req_type==REQ_TYPE_FILE_HASH && req_ok && !file_ok) {
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL,
+        col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                 "cached copy is valid");
     }
 }
@@ -3699,14 +3660,14 @@ dissect_dvbci_ami_file_ack(tvbuff_t *tvb, gint offset,
 
 static void
 dissect_dvbci_payload_ami(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     guint8  app_dom_id_len, init_obj_len;
-    guint8 *app_dom_id;
+    const guint8 *app_dom_id;
     guint8  ack_code;
     guint8  req_type;
-    guint8 *req_str;
+    const guint8 *req_str;
 
     switch(tag) {
         case T_REQUEST_START:
@@ -3719,9 +3680,8 @@ dissect_dvbci_payload_ami(guint32 tag, gint len_field _U_,
             proto_tree_add_item(tree, hf_dvbci_init_obj_len,
                     tvb, offset, 1, ENC_BIG_ENDIAN);
             offset++;
-            proto_tree_add_item(tree, hf_dvbci_app_dom_id,
-                    tvb, offset, app_dom_id_len, ENC_ASCII|ENC_NA);
-            app_dom_id = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, app_dom_id_len, ENC_ASCII);
+            proto_tree_add_item_ret_string(tree, hf_dvbci_app_dom_id,
+                    tvb, offset, app_dom_id_len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &app_dom_id);
             if (app_dom_id) {
                 col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ",
                         "for %s", app_dom_id);
@@ -3734,13 +3694,13 @@ dissect_dvbci_payload_ami(guint32 tag, gint len_field _U_,
             ack_code = tvb_get_guint8(tvb, offset);
             proto_tree_add_item(
                     tree, hf_dvbci_ack_code, tvb, offset, 1, ENC_BIG_ENDIAN);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str_const(ack_code, dvbci_ack_code, "unknown"));
             break;
         case T_FILE_REQUEST:
             req_type = tvb_get_guint8(tvb, offset);
             proto_tree_add_item(tree, hf_dvbci_req_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str_const(req_type, dvbci_req_type, "unknown"));
             offset++;
             if (req_type==REQ_TYPE_FILE_HASH) {
@@ -3751,14 +3711,10 @@ dissect_dvbci_payload_ami(guint32 tag, gint len_field _U_,
             if (tvb_reported_length_remaining(tvb, offset) <= 0)
               break;
             if (req_type==REQ_TYPE_FILE || req_type==REQ_TYPE_FILE_HASH) {
-                req_str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset,
-                        tvb_reported_length_remaining(tvb, offset), ENC_ASCII);
-                if (!req_str)
-                    break;
-                col_append_sep_fstr(pinfo->cinfo, COL_INFO, " ", "%s", req_str);
-                proto_tree_add_string_format_value(tree, hf_dvbci_file_name,
+                proto_tree_add_item_ret_string(tree, hf_dvbci_file_name,
                         tvb, offset, tvb_reported_length_remaining(tvb, offset),
-                        req_str, "%s", req_str);
+                        ENC_ASCII, wmem_packet_scope(), &req_str);
+                col_append_sep_str(pinfo->cinfo, COL_INFO, " ", req_str);
             }
             else if (req_type==REQ_TYPE_DATA) {
                 proto_tree_add_item(tree, hf_dvbci_ami_priv_data, tvb, offset,
@@ -3788,7 +3744,7 @@ dissect_dvbci_payload_ami(guint32 tag, gint len_field _U_,
 
 static void
 dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit,
+        tvbuff_t *tvb, gint offset, conversation_t *conv,
         packet_info *pinfo, proto_tree *tree)
 {
     gint                offset_start;
@@ -3808,13 +3764,13 @@ dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
             proto_tree_add_item(tree, hf_dvbci_comms_cmd_id,
                     tvb, offset, 1, ENC_BIG_ENDIAN);
             id = tvb_get_guint8(tvb, offset);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
                     val_to_str(id, dvbci_comms_cmd_id, "Unknown: %d"));
             offset++;
             switch(id) {
                 case COMMS_CMD_ID_CONNECT_ON_CHANNEL:
                     conn_desc_len = dissect_conn_desc(tvb, offset,
-                            circuit, pinfo, tree);
+                            conv, pinfo, tree);
                     if (conn_desc_len < 0)
                         break;
                     offset += conn_desc_len;
@@ -3877,7 +3833,7 @@ dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
             proto_tree_add_item(tree, hf_dvbci_comms_rep_id,
                     tvb, offset, 1, ENC_BIG_ENDIAN);
             id = tvb_get_guint8(tvb,offset);
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s",
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                     val_to_str(id, dvbci_comms_rep_id, "Unknown: %d"));
             offset++;
             ret_val = tvb_get_guint8(tvb,offset);
@@ -3903,8 +3859,8 @@ dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
                     break;
             }
             if (ret_val_str) {
-                col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ",
-                            "%s", ret_val_str);
+                col_append_sep_str(pinfo->cinfo, COL_INFO, ": ",
+                            ret_val_str);
                 proto_item_append_text(pi, " (%s)", ret_val_str);
             }
             break;
@@ -3924,8 +3880,8 @@ dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
             msg_tvb = tvb_new_subset_remaining(tvb, offset);
             if (!msg_tvb)
                 break;
-            if (dvbci_dissect_lsc_msg && circuit && circuit->dissector_handle) {
-                msg_handle = circuit->dissector_handle;
+            if (dvbci_dissect_lsc_msg && conv && conversation_get_dissector(conv, 0)) {
+                msg_handle = conversation_get_dissector(conv, 0);
                 col_append_str(pinfo->cinfo, COL_INFO, ", ");
                 col_set_fence(pinfo->cinfo, COL_INFO);
                 col_append_str(pinfo->cinfo, COL_PROTOCOL, ", ");
@@ -3945,7 +3901,7 @@ dissect_dvbci_payload_lsc(guint32 tag, gint len_field,
 
 static void
 dissect_dvbci_payload_opp(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit _U_,
+        tvbuff_t *tvb, gint offset, conversation_t *conv _U_,
         packet_info *pinfo, proto_tree *tree)
 {
     guint16         nit_loop_len, nit_loop_offset;
@@ -4115,7 +4071,7 @@ dissect_dvbci_payload_opp(guint32 tag, gint len_field _U_,
 
 static void
 dissect_dvbci_payload_sas(guint32 tag, gint len_field _U_,
-        tvbuff_t *tvb, gint offset, circuit_t *circuit,
+        tvbuff_t *tvb, gint offset, conversation_t *conv,
         packet_info *pinfo, proto_tree *tree)
 {
     gchar   app_id_str[2+16+1]; /* "0x", string of 16 hex digits, trailing 0 */
@@ -4130,27 +4086,27 @@ dissect_dvbci_payload_sas(guint32 tag, gint len_field _U_,
         case T_SAS_CONNECT_CNF:
             g_snprintf(app_id_str, sizeof(app_id_str),
                     "0x%016" G_GINT64_MODIFIER "x", tvb_get_ntoh64(tvb, offset));
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s", app_id_str);
+            col_append_sep_str(pinfo->cinfo, COL_INFO, ": ", app_id_str);
             proto_tree_add_item(tree, hf_dvbci_sas_app_id,
                     tvb, offset, 8, ENC_BIG_ENDIAN);
             offset += 8;
             if (tag == T_SAS_CONNECT_CNF) {
                 sas_status = tvb_get_guint8(tvb, offset);
-                col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL,
+                col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                         (sas_status == SAS_SESS_STATE_CONNECTED ?
                          "Ok" : "Error"));
                 proto_tree_add_item(tree, hf_dvbci_sas_sess_state,
                         tvb, offset, 1, ENC_BIG_ENDIAN);
-                if (!circuit)
+                if (!conv)
                     break;
                 if (sas_status == SAS_SESS_STATE_CONNECTED) {
                     msg_handle = dissector_get_string_handle(
                             sas_msg_dissector_table, app_id_str);
                     /* this clears the dissector for msg_handle==NULL */
-                    circuit_set_dissector(circuit, msg_handle);
+                    conversation_set_dissector(conv, msg_handle);
                 }
                 else
-                    circuit_set_dissector(circuit, NULL);
+                    conversation_set_dissector(conv, NULL);
             }
             break;
         case T_SAS_ASYNC_MSG:
@@ -4165,8 +4121,9 @@ dissect_dvbci_payload_sas(guint32 tag, gint len_field _U_,
                     tvb, offset, 2, ENC_BIG_ENDIAN);
             offset += 2;
             msg_tvb = tvb_new_subset_length(tvb, offset, msg_len);
-            msg_handle = (circuit && circuit->dissector_handle) ?
-                circuit->dissector_handle : data_handle;
+            msg_handle = conv ? conversation_get_dissector(conv, 0) : NULL;
+            if (msg_handle == NULL)
+                msg_handle = data_handle;
             call_dissector(msg_handle, msg_tvb, pinfo, tree);
             break;
         default:
@@ -4176,7 +4133,7 @@ dissect_dvbci_payload_sas(guint32 tag, gint len_field _U_,
 
 
 static void
-dissect_dvbci_apdu(tvbuff_t *tvb, circuit_t *circuit,
+dissect_dvbci_apdu(tvbuff_t *tvb, conversation_t *conv,
         packet_info *pinfo, proto_tree *tree, guint8 direction)
 {
     proto_tree  *app_tree;
@@ -4242,9 +4199,8 @@ dissect_dvbci_apdu(tvbuff_t *tvb, circuit_t *circuit,
                 "Invalid APDU length field, length field for %s must be %d", tag_str, ai->len_field);
         return;
     }
-    if (circuit) {
-        apdu_res_id = GPOINTER_TO_UINT(
-                (gpointer)circuit_get_proto_data(circuit, proto_dvbci));
+    if (conv) {
+        apdu_res_id = GPOINTER_TO_UINT(conversation_get_proto_data(conv, proto_dvbci));
 
         ai_res_class_str = val_to_str_const(ai->res_class, dvbci_res_class, "Unknown");
 
@@ -4267,7 +4223,7 @@ dissect_dvbci_apdu(tvbuff_t *tvb, circuit_t *circuit,
             return;
         }
         ai->dissect_payload(
-                tag, len_field, tvb, offset, circuit, pinfo, app_tree);
+                tag, len_field, tvb, offset, conv, pinfo, app_tree);
     }
 }
 
@@ -4280,7 +4236,7 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     proto_tree        *sess_tree;
     guint8             tag;
     const gchar       *tag_str;
-    circuit_t         *circuit     = NULL;
+    conversation_t    *conv     = NULL;
     proto_item        *pi;
     gint               offset;
     guint32            len_field;
@@ -4354,13 +4310,10 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                 break;
             }
             col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, "Session opened");
-            circuit = circuit_new(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->num);
-            if (circuit) {
-                /* we always add the resource id immediately after the circuit
-                   was created */
-                circuit_add_proto_data(
-                        circuit, proto_dvbci, GUINT_TO_POINTER(res_id));
-            }
+            conv = conversation_new_by_id(pinfo->num, ENDPOINT_DVBCI, CT_ID(ssnb, tcid), 0);
+            /* we always add the resource id immediately after the circuit
+                was created */
+            conversation_add_proto_data(conv, proto_dvbci, GUINT_TO_POINTER(res_id));
             break;
         case T_CLOSE_SESSION_REQUEST:
             ssnb = tvb_get_ntohs(tvb, offset);
@@ -4378,9 +4331,9 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             ssnb = tvb_get_ntohs(tvb, offset+1);
             proto_tree_add_item(sess_tree, hf_dvbci_sess_nb,
                     tvb, offset+1, 2, ENC_BIG_ENDIAN);
-            circuit = find_circuit(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->num);
-            if (circuit)
-                close_circuit(circuit, pinfo->num);
+            conv = find_conversation_by_id(pinfo->num, ENDPOINT_DVBCI, CT_ID(ssnb, tcid), 0);
+            if (conv)
+                conv->last_frame = pinfo->num;
             break;
         case T_SESSION_NUMBER:
             ssnb = tvb_get_ntohs(tvb, offset);
@@ -4394,23 +4347,22 @@ dissect_dvbci_spdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             break;
     }
 
-    if (ssnb && !circuit)
-        circuit = find_circuit(CT_DVBCI, CT_ID(ssnb, tcid), pinfo->num);
+    if (ssnb && !conv)
+        conv = find_conversation_by_id(pinfo->num, ENDPOINT_DVBCI, CT_ID(ssnb, tcid), 0);
 
     /* if the packet contains no resource id, we add the cached id from
        the circuit so that each packet has a resource id that can be
        used for filtering */
-    if (circuit && !res_id_it) {
+    if (conv&& !res_id_it) {
         /* when a circuit is found, it always contains a valid resource id */
-        res_id = GPOINTER_TO_UINT(
-                (gpointer)circuit_get_proto_data(circuit, proto_dvbci));
+        res_id = GPOINTER_TO_UINT(conversation_get_proto_data(conv, proto_dvbci));
         res_id_it = dissect_res_id(NULL, 0, pinfo, sess_tree, res_id, TRUE);
         PROTO_ITEM_SET_GENERATED(res_id_it);
     }
 
     if (payload_tvb) {
         proto_item_set_len(ti, spdu_len-tvb_reported_length(payload_tvb));
-        dissect_dvbci_apdu(payload_tvb, circuit, pinfo, tree, direction);
+        dissect_dvbci_apdu(payload_tvb, conv, pinfo, tree, direction);
     }
     else {
         proto_item_set_len(ti, spdu_len);
@@ -4472,7 +4424,7 @@ dissect_dvbci_tpdu_status(tvbuff_t *tvb, gint offset,
     pi = proto_tree_add_item(tree, hf_dvbci_sb_value, tvb,
             offset_new, 1, ENC_BIG_ENDIAN);
     if (sb_str) {
-        col_append_sep_fstr(pinfo->cinfo, COL_INFO, ": ", "%s", sb_str);
+        col_append_sep_str(pinfo->cinfo, COL_INFO, ": ", sb_str);
     }
     else {
         expert_add_info(pinfo, pi, &ei_dvbci_sb_value);
@@ -4503,10 +4455,10 @@ dissect_dvbci_tpdu_hdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         c_tpdu_str = try_val_to_str(c_tpdu_tag, dvbci_c_tpdu);
         pi = proto_tree_add_item(tree, hf_dvbci_c_tpdu_tag, tvb, 0, 1, ENC_BIG_ENDIAN);
         if (c_tpdu_str) {
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s", c_tpdu_str);
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, c_tpdu_str);
         }
         else {
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL,
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                     "Invalid Command-TPDU tag");
             expert_add_info(pinfo, pi, &ei_dvbci_c_tpdu_tag);
             return -1;
@@ -4528,10 +4480,10 @@ dissect_dvbci_tpdu_hdr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         r_tpdu_str = try_val_to_str(r_tpdu_tag, dvbci_r_tpdu);
         pi = proto_tree_add_item(tree, hf_dvbci_r_tpdu_tag, tvb, 0, 1, ENC_BIG_ENDIAN);
         if (r_tpdu_str) {
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%s", r_tpdu_str);
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL, r_tpdu_str);
         }
         else {
-            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL,
+            col_append_sep_str(pinfo->cinfo, COL_INFO, NULL,
                     "Invalid Response-TPDU tag");
             expert_add_info(pinfo, pi, &ei_dvbci_r_tpdu_tag);
             return -1;
@@ -4930,7 +4882,7 @@ dissect_dvbci_cis_payload_device(tvbuff_t *data_tvb,
 
     return offset;
 }
- 
+
 static void
 dissect_dvbci_cis(tvbuff_t *tvb, gint offset,
         packet_info *pinfo, proto_tree *tree)
@@ -5117,6 +5069,14 @@ dissect_dvbci(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
     return packet_len;
 }
 
+static void
+dvbci_shutdown(void)
+{
+    if (spdu_table)
+        g_hash_table_destroy(spdu_table);
+    if (apdu_table)
+        g_hash_table_destroy(apdu_table);
+}
 
 void
 proto_register_dvbci(void)
@@ -5437,6 +5397,10 @@ proto_register_dvbci(void)
         { &hf_dvbci_close_sess_status,
           { "Session Status", "dvb-ci.close_session_status",
             FT_UINT8, BASE_HEX, VALS(dvbci_close_sess_status), 0, NULL, HFILL }
+        },
+        { &hf_dvbci_res_id,
+          { "Resource ID", "dvb-ci.res.id",
+            FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }
         },
         { &hf_dvbci_res_id_type,
           { "Resource ID Type", "dvb-ci.res.id_type",
@@ -6337,16 +6301,22 @@ proto_register_dvbci(void)
             &dvbci_dissect_lsc_msg);
 
     sas_msg_dissector_table = register_dissector_table("dvb-ci.sas.app_id_str",
-                "SAS application id", proto_dvbci, FT_STRING, STR_ASCII, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                "SAS application id", proto_dvbci, FT_STRING, STR_ASCII);
 
     register_init_routine(dvbci_init);
-    register_cleanup_routine(dvbci_cleanup);
+    reassembly_table_register(&tpdu_reassembly_table,
+                          &addresses_reassembly_table_functions);
+    reassembly_table_register(&spdu_reassembly_table,
+                          &addresses_reassembly_table_functions);
+
 
     /* the dissector for decrypted CI+ SAC messages which we can export */
     register_dissector(EXPORTED_SAC_MSG_PROTO,
         dissect_dvbci_exported_sac_msg, proto_dvbci);
 
     exported_pdu_tap = register_export_pdu_tap("DVB-CI");
+
+    register_shutdown_routine(dvbci_shutdown);
 }
 
 
@@ -6365,14 +6335,8 @@ proto_reg_handoff_dvbci(void)
     tcp_dissector_table = find_dissector_table("tcp.port");
     udp_dissector_table = find_dissector_table("udp.port");
 
-    if (dvbci_sek_bin) {
-        g_free(dvbci_sek_bin);
-        dvbci_sek_bin = NULL;
-    }
-    if (dvbci_siv_bin) {
-        g_free(dvbci_siv_bin);
-        dvbci_siv_bin = NULL;
-    }
+    g_free(dvbci_sek_bin);
+    g_free(dvbci_siv_bin);
     pref_key_string_to_bin(dvbci_sek, &dvbci_sek_bin);
     pref_key_string_to_bin(dvbci_siv, &dvbci_siv_bin);
 }

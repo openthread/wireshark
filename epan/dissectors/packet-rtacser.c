@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  ************************************************************************************************
  * Dissector Notes:
@@ -120,12 +108,6 @@ rtacser_ppi_prompt(packet_info *pinfo _U_, gchar* result)
     g_snprintf(result, MAX_DECODE_AS_PROMPT_LEN, "Payload as");
 }
 
-static gpointer
-rtacser_ppi_value(packet_info *pinfo _U_)
-{
-    return 0;
-}
-
 /******************************************************************************************************/
 /* Code to dissect RTAC Serial-Line Protocol packets */
 /******************************************************************************************************/
@@ -137,7 +119,6 @@ dissect_rtacser_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     proto_tree    *rtacser_tree, *cl_tree;
     int           offset = 0, len;
     guint         event_type;
-    nstime_t      tv;
     gboolean      cts, dcd, dsr, rts, dtr, ring, mbok;
     tvbuff_t      *payload_tvb;
 
@@ -152,9 +133,7 @@ dissect_rtacser_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     /* Time-stamp is stored as 2 x 32-bit unsigned integers, the left and right-hand side of the decimal point respectively */
     /* The format mirrors the timeval struct - absolute Epoch time (seconds since 1/1/1970) with an added microsecond component */
-    tv.secs = tvb_get_ntohl(tvb, offset);
-    tv.nsecs = tvb_get_ntohl(tvb, offset+4)*1000;
-    proto_tree_add_time(rtacser_tree, hf_rtacser_timestamp, tvb, offset, 8, &tv);
+    proto_tree_add_item(rtacser_tree, hf_rtacser_timestamp, tvb, offset, 8, ENC_TIME_SECS_USECS|ENC_BIG_ENDIAN);
     offset += 8;
 
     /* Set INFO column with RTAC Serial Event Type */
@@ -213,9 +192,8 @@ dissect_rtacser_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
     if (tvb_reported_length_remaining(tvb, offset) > 0) {
         payload_tvb = tvb_new_subset_remaining(tvb, RTACSER_HEADER_LEN);
-        /* Functionality for choosing subdissector is controlled through Decode As as CAN doesn't
-           have a unique identifier to determine subdissector */
-        if (!dissector_try_uint(subdissector_table, 0, payload_tvb, pinfo, tree)){
+
+        if (!dissector_try_payload(subdissector_table, payload_tvb, pinfo, tree)){
             call_data_dissector(payload_tvb, pinfo, tree);
         }
     }
@@ -280,11 +258,6 @@ proto_register_rtacser(void)
         &ett_rtacser_cl,
     };
 
-    static build_valid_func rtacser_da_ppi_build_value[1] = {rtacser_ppi_value};
-    static decode_as_value_t rtacser_da_ppi_values[1] = {{rtacser_ppi_prompt, 1, rtacser_da_ppi_build_value}};
-    static decode_as_t rtacser_da_ppi = {"rtacser", "RTAC Serial", "rtacser.data", 1, 0, rtacser_da_ppi_values, "RTAC Serial", NULL,
-                                    decode_as_default_populate_list, decode_as_default_reset, decode_as_default_change, NULL};
-
     module_t *rtacser_module;
 
     /* Register the protocol name and description */
@@ -292,8 +265,6 @@ proto_register_rtacser(void)
 
     /* Registering protocol to be called by another dissector */
     rtacser_handle = register_dissector("rtacser", dissect_rtacser, proto_rtacser);
-
-    subdissector_table = register_dissector_table("rtacser.data", "RTAC Serial Data Subdissector", proto_rtacser, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
 
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_rtacser, rtacser_hf, array_length(rtacser_hf));
@@ -305,7 +276,8 @@ proto_register_rtacser(void)
     /* RTAC Serial Preference - Payload Protocol in use */
     prefs_register_obsolete_preference(rtacser_module, "rtacserial_payload_proto");
 
-    register_decode_as(&rtacser_da_ppi);
+    subdissector_table = register_decode_as_next_proto(proto_rtacser, "RTAC Serial", "rtacser.data",
+                                                       "RTAC Serial Data Subdissector", rtacser_ppi_prompt);
 }
 
 /******************************************************************************************************/

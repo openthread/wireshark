@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Information sources:
@@ -163,9 +151,7 @@ static gint    ett_rdt_bw_probing_flags         = -1;
 
 static expert_field ei_rdt_packet_length = EI_INIT;
 
-/* Port preference settings */
-static gboolean global_rdt_register_udp_port = FALSE;
-static guint    global_rdt_udp_port = 6970;
+#define RDT_UDP_PORT        6970
 
 void proto_register_rdt(void);
 void proto_reg_handoff_rdt(void);
@@ -246,13 +232,13 @@ void rdt_add_address(packet_info *pinfo,
 
     /* Check if the ip address and port combination is not already registered
        as a conversation. */
-    p_conv = find_conversation(pinfo->num, addr, &null_addr, PT_UDP, port, other_port,
+    p_conv = find_conversation(pinfo->num, addr, &null_addr, ENDPOINT_UDP, port, other_port,
                                NO_ADDR_B | (!other_port ? NO_PORT_B : 0));
 
     /* If not, create a new conversation. */
     if ( !p_conv || p_conv->setup_frame != pinfo->num)
     {
-        p_conv = conversation_new(pinfo->num, addr, &null_addr, PT_UDP,
+        p_conv = conversation_new(pinfo->num, addr, &null_addr, ENDPOINT_UDP,
                                   (guint32)port, (guint32)other_port,
                                   NO_ADDR2 | (!other_port ? NO_PORT2 : 0));
     }
@@ -1235,7 +1221,7 @@ static void show_setup_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
         /* First time, get info from conversation */
         p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
-                                   pinfo->ptype,
+                                   conversation_pt_to_endpoint_type(pinfo->ptype),
                                    pinfo->destport, pinfo->srcport, NO_ADDR_B);
         if (p_conv)
         {
@@ -2162,65 +2148,22 @@ void proto_register_rdt(void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_rdt = expert_register_protocol(proto_rdt);
     expert_register_field_array(expert_rdt, ei, array_length(ei));
-    register_dissector("rdt", dissect_rdt, proto_rdt);
+    rdt_handle = register_dissector("rdt", dissect_rdt, proto_rdt);
 
     /* Preference settings */
-    rdt_module = prefs_register_protocol(proto_rdt, proto_reg_handoff_rdt);
+    rdt_module = prefs_register_protocol(proto_rdt, NULL);
     prefs_register_bool_preference(rdt_module, "show_setup_info",
                                    "Show stream setup information",
                                    "Where available, show which protocol and frame caused "
                                    "this RDT stream to be created",
                                    &global_rdt_show_setup_info);
 
-    prefs_register_bool_preference(rdt_module, "register_udp_port",
-                                   "Register default UDP client port",
-                                   "Register a client UDP port for RDT traffic",
-                                   &global_rdt_register_udp_port);
-
-    /* TODO: better to specify a range of ports instead? */
-    prefs_register_uint_preference(rdt_module, "default_udp_port",
-                                   "Default UDP client port",
-                                   "Set the UDP port for clients",
-                                   10, &global_rdt_udp_port);
-
+    prefs_register_obsolete_preference(rdt_module, "register_udp_port");
 }
 
 void proto_reg_handoff_rdt(void)
 {
-    static gboolean rdt_prefs_initialized = FALSE;
-    /* Also store this so can delete registered setting properly */
-    static gboolean  rdt_register_udp_port;
-    static guint     rdt_udp_port;
-
-    if (!rdt_prefs_initialized)
-    {
-        /* Register this dissector as one that can be selected by a
-           UDP port number. */
-        rdt_handle = find_dissector("rdt");
-        dissector_add_for_decode_as("udp.port", rdt_handle);
-        rdt_prefs_initialized = TRUE;
-    }
-    else
-    {
-        /* Undo any current port registrations */
-        if (rdt_register_udp_port)
-        {
-            dissector_delete_uint("udp.port", rdt_udp_port, rdt_handle);
-        }
-    }
-
-    /* Remember whether a port is set for next time */
-    rdt_register_udp_port = global_rdt_register_udp_port;
-
-    /* Add any new port registration */
-    if (global_rdt_register_udp_port)
-    {
-        /* Set our port number for future use */
-        rdt_udp_port = global_rdt_udp_port;
-
-        /* And register with this port */
-        dissector_add_uint("udp.port", global_rdt_udp_port, rdt_handle);
-    }
+    dissector_add_uint_with_preference("udp.port", RDT_UDP_PORT, rdt_handle);
 }
 
 /*

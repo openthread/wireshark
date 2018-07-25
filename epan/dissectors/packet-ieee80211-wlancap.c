@@ -7,19 +7,7 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -71,8 +59,10 @@ static int hf_wlancap_padding = -1;
 static gint ett_wlancap = -1;
 
 static dissector_handle_t wlancap_handle;
+static capture_dissector_handle_t wlancap_cap_handle;
+static capture_dissector_handle_t ieee80211_cap_handle;
 
-gboolean
+static gboolean
 capture_wlancap(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
   guint32 length;
@@ -88,7 +78,7 @@ capture_wlancap(const guchar *pd, int offset, int len, capture_packet_info_t *cp
   offset += length;
 
   /* 802.11 header follows */
-  return capture_ieee80211(pd, offset, len, cpinfo, pseudo_header);
+  return call_capture_dissector(ieee80211_cap_handle, pd, offset, len, cpinfo, pseudo_header);
 }
 
 /*
@@ -842,12 +832,16 @@ void proto_register_ieee80211_wlancap(void)
   dissector_add_uint("wtap_encap", WTAP_ENCAP_IEEE_802_11_AVS,
                      wlancap_handle);
   proto_register_subtree_array(tree_array, array_length(tree_array));
+
+  wlancap_cap_handle = register_capture_dissector("wlancap", capture_wlancap, proto_wlancap);
 }
 
 void proto_reg_handoff_ieee80211_wlancap(void)
 {
   ieee80211_radio_handle = find_dissector_add_dependency("wlan_radio", proto_wlancap);
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_IEEE_802_11_AVS, capture_wlancap, proto_wlancap);
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_IEEE_802_11_AVS, wlancap_cap_handle);
+
+  ieee80211_cap_handle = find_capture_dissector("ieee80211");
 }
 
 /*

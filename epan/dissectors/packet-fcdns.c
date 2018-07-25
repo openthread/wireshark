@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -555,7 +543,7 @@ typedef struct _fcdns_conv_data {
     guint32 opcode;
 } fcdns_conv_data_t;
 
-static GHashTable *fcdns_req_hash = NULL;
+static wmem_map_t *fcdns_req_hash = NULL;
 
 /*
  * Hash Functions
@@ -580,22 +568,6 @@ fcdns_hash (gconstpointer v)
     return val;
 }
 
-/*
- * Protocol initialization
- */
-static void
-fcdns_init_protocol(void)
-{
-    fcdns_req_hash = g_hash_table_new(fcdns_hash, fcdns_equal);
-}
-
-static void
-fcdns_cleanup_protocol(void)
-{
-    g_hash_table_destroy(fcdns_req_hash);
-}
-
-
 static void
 dissect_cos_flags (proto_tree *parent_tree, tvbuff_t *tvb, int offset, const header_field_info *hfinfo)
 {
@@ -609,7 +581,7 @@ dissect_cos_flags (proto_tree *parent_tree, tvbuff_t *tvb, int offset, const hea
         NULL
     };
 
-    proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hfinfo->id,
+    proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hfinfo,
                                 ett_cos_flags, flags, ENC_BIG_ENDIAN, BMT_NO_FALSE|BMT_NO_TFS);
 }
 
@@ -631,7 +603,7 @@ dissect_fc4features_and_type (proto_tree *parent_tree, tvbuff_t *tvb, int offset
     type = tvb_get_guint8(tvb, offset+1);
 
     if(type==FC_TYPE_SCSI){
-        proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hfi_fcdns_fc4features.id,
+        proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, &hfi_fcdns_fc4features,
                                 ett_fc4features, flags, ENC_NA, BMT_NO_FALSE|BMT_NO_TFS);
     } else {
         proto_tree_add_item(parent_tree, &hfi_fcdns_fc4features, tvb, offset, 1, ENC_NA);
@@ -651,7 +623,7 @@ dissect_fc4features (proto_tree *parent_tree, tvbuff_t *tvb, int offset)
         NULL
     };
 
-    proto_tree_add_bitmask(parent_tree, tvb, offset, hfi_fcdns_fc4features_i.id,
+    proto_tree_add_bitmask(parent_tree, tvb, offset, &hfi_fcdns_fc4features_i,
                            ett_fc4features, flags, ENC_NA);
 }
 
@@ -1729,17 +1701,17 @@ dissect_fcdns (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 
     if ((opcode != FCCT_MSG_ACC) && (opcode != FCCT_MSG_RJT)) {
         conversation = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
-                                          pinfo->ptype, fchdr->oxid,
+                                          conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                           fchdr->rxid, NO_PORT2);
         if (!conversation) {
             conversation = conversation_new (pinfo->num, &pinfo->src, &pinfo->dst,
-                                             pinfo->ptype, fchdr->oxid,
+                                             conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                              fchdr->rxid, NO_PORT2);
         }
 
-        ckey.conv_idx = conversation->index;
+        ckey.conv_idx = conversation->conv_index;
 
-        cdata = (fcdns_conv_data_t *)g_hash_table_lookup (fcdns_req_hash,
+        cdata = (fcdns_conv_data_t *)wmem_map_lookup (fcdns_req_hash,
                                                             &ckey);
         if (cdata) {
             /* Since we never free the memory used by an exchange, this maybe a
@@ -1750,12 +1722,12 @@ dissect_fcdns (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
         }
         else {
             req_key = wmem_new(wmem_file_scope(), fcdns_conv_key_t);
-            req_key->conv_idx = conversation->index;
+            req_key->conv_idx = conversation->conv_index;
 
             cdata = wmem_new(wmem_file_scope(), fcdns_conv_data_t);
             cdata->opcode = opcode;
 
-            g_hash_table_insert (fcdns_req_hash, req_key, cdata);
+            wmem_map_insert (fcdns_req_hash, req_key, cdata);
         }
         col_add_str (pinfo->cinfo, COL_INFO, val_to_str (opcode, fc_dns_opcode_val,
                                                           "0x%x"));
@@ -1763,7 +1735,7 @@ dissect_fcdns (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
     else {
         /* Opcode is ACC or RJT */
         conversation = find_conversation (pinfo->num, &pinfo->src, &pinfo->dst,
-                                          pinfo->ptype, fchdr->oxid,
+                                          conversation_pt_to_endpoint_type(pinfo->ptype), fchdr->oxid,
                                           fchdr->rxid, NO_PORT2);
         isreq = 0;
         if (!conversation) {
@@ -1777,9 +1749,9 @@ dissect_fcdns (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             }
         }
         else {
-            ckey.conv_idx = conversation->index;
+            ckey.conv_idx = conversation->conv_index;
 
-            cdata = (fcdns_conv_data_t *)g_hash_table_lookup (fcdns_req_hash, &ckey);
+            cdata = (fcdns_conv_data_t *)wmem_map_lookup (fcdns_req_hash, &ckey);
 
             if (cdata != NULL) {
                 if (opcode == FCCT_MSG_ACC) {
@@ -2059,8 +2031,8 @@ proto_register_fcdns (void)
     proto_register_subtree_array(ett, array_length(ett));
     expert_fcdns = expert_register_protocol(proto_fcdns);
     expert_register_field_array(expert_fcdns, ei, array_length(ei));
-    register_init_routine (&fcdns_init_protocol);
-    register_cleanup_routine (&fcdns_cleanup_protocol);
+
+    fcdns_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), fcdns_hash, fcdns_equal);
 
     dns_handle = create_dissector_handle (dissect_fcdns, proto_fcdns);
 }

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -51,6 +39,7 @@ static int hf_dvb_nit_transport_descriptors_length = -1;
 static gint ett_dvb_nit = -1;
 static gint ett_dvb_nit_ts = -1;
 
+static dissector_handle_t dvb_nit_handle;
 
 #define DVB_NIT_RESERVED1_MASK                            0xC0
 #define DVB_NIT_VERSION_NUMBER_MASK                       0x3E
@@ -232,16 +221,12 @@ proto_register_dvb_nit(void)
     proto_register_field_array(proto_dvb_nit, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    register_dissector("dvb_nit", dissect_dvb_nit, proto_dvb_nit);
+    dvb_nit_handle = register_dissector("dvb_nit", dissect_dvb_nit, proto_dvb_nit);
 }
 
 
 void proto_reg_handoff_dvb_nit(void)
 {
-    dissector_handle_t dvb_nit_handle;
-
-    dvb_nit_handle = find_dissector("dvb_nit");
-
     dissector_add_uint("mpeg_sect.tid", DVB_NIT_TID, dvb_nit_handle);
     dissector_add_uint("mpeg_sect.tid", DVB_NIT_TID_OTHER, dvb_nit_handle);
 }

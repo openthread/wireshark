@@ -21,19 +21,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -44,7 +32,6 @@
 #include "packet-rmt-common.h"
 
 void proto_register_rmt_fec(void);
-void proto_reg_handoff_rmt_fec(void);
 
 static int proto_rmt_fec = -1;
 
@@ -130,7 +117,7 @@ void fec_decode_ext_fti(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
     else {
         proto_tree_add_uint64(tree, hf_fti_transfer_length, tvb, offset+2, 6, transfer_length);
         ti = proto_tree_add_item(tree, hf_instance_id, tvb,  offset+8, 2, ENC_BIG_ENDIAN);
-        if ((encoding_id < 128) && (instance_id != 0)) {
+        if ((encoding_id < 128) && (encoding_id != 0)) {
             expert_add_info(pinfo, ti, &ei_fec_encoding_id);
         }
     }

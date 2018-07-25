@@ -3,19 +3,7 @@
  * MIDI SysEx dissector
  * Tomasz Mon 2012
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -89,6 +77,7 @@ static int hf_digitech_ack_request_proc_id = -1;
 static int hf_digitech_nack_request_proc_id = -1;
 
 static int hf_digitech_checksum = -1;
+static int hf_digitech_checksum_status = -1;
 
 static gint ett_sysex = -1;
 
@@ -619,7 +608,7 @@ static const value_string digitech_parameter_ids_reverb[] = {
     {1927, "Reverb Decay"},
     {1928, "Reverb Balance"},
     {1933, "Reverb Liveliness"},
-    {9, NULL}
+    {0, NULL}
 };
 
 static const value_string digitech_parameter_ids_volume_post_fx[] = {
@@ -734,7 +723,7 @@ static value_string_ext digitech_parameter_positions_ext =
     VALUE_STRING_EXT_INIT(digitech_parameter_positions);
 
 static tvbuff_t *
-unpack_digitech_message(tvbuff_t *tvb, gint offset)
+unpack_digitech_message(packet_info *pinfo, tvbuff_t *tvb, gint offset)
 {
     tvbuff_t *next_tvb;
     gint length = tvb_reported_length(tvb);
@@ -754,7 +743,7 @@ unpack_digitech_message(tvbuff_t *tvb, gint offset)
     }
 
     data_ptr = tvb_get_ptr(tvb, offset, data_len);
-    unpacked = (guchar*)g_malloc(unpacked_size);
+    unpacked = (guchar*)wmem_alloc(pinfo->pool, unpacked_size);
     unpacked_ptr = unpacked;
 
     while (remaining > 0)
@@ -772,7 +761,6 @@ unpack_digitech_message(tvbuff_t *tvb, gint offset)
 
     /* Create new tvb with unpacked data */
     next_tvb = tvb_new_child_real_data(tvb, unpacked, unpacked_size, unpacked_size);
-    tvb_set_free_cb(next_tvb, g_free);
 
     return next_tvb;
 }
@@ -979,7 +967,7 @@ dissect_digitech_procedure(guint8 procedure, const gint offset,
         return;
     }
 
-    data_tvb = unpack_digitech_message(tvb, offset);
+    data_tvb = unpack_digitech_message(pinfo, tvb, offset);
     add_new_data_source(pinfo, data_tvb, "Unpacked Procedure Data");
 
     data_offset = 0;
@@ -1187,16 +1175,8 @@ dissect_sysex_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree
                 digitech_helper ^= *data_ptr++;
             }
 
-            item = proto_tree_add_item(tree, hf_digitech_checksum, tvb, offset, 1, ENC_BIG_ENDIAN);
-            if (digitech_helper == 0)
-            {
-                proto_item_append_text(item, " (correct)");
-            }
-            else
-            {
-                proto_item_append_text(item, " (NOT correct)");
-                expert_add_info(pinfo, item, &ei_digitech_checksum_bad);
-            }
+            proto_tree_add_checksum(tree, tvb, offset, hf_digitech_checksum, hf_digitech_checksum_status, &ei_digitech_checksum_bad, pinfo, digitech_helper,
+                                    ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_ZERO);
             offset++;
             break;
         }
@@ -1391,6 +1371,9 @@ proto_register_sysex(void)
         { &hf_digitech_checksum,
             { "Checksum", "sysex.digitech.checksum", FT_UINT8, BASE_HEX,
               NULL, 0, NULL, HFILL }},
+        { &hf_digitech_checksum_status,
+            { "Checksum Status", "sysex.digitech.checksum.status", FT_UINT8, BASE_NONE,
+              VALS(proto_checksum_vals), 0, NULL, HFILL }},
     };
 
     static gint *sysex_subtrees[] = {
@@ -1399,7 +1382,7 @@ proto_register_sysex(void)
 
     static ei_register_info ei[] = {
         { &ei_sysex_message_start_byte, { "sysex.message_start_byte", PI_PROTOCOL, PI_WARN, "SYSEX Error: Wrong start byte", EXPFILL }},
-        { &ei_digitech_checksum_bad, { "sysex.digitech.checksum_bad", PI_CHECKSUM, PI_WARN, "ARP packet storm detected", EXPFILL }},
+        { &ei_digitech_checksum_bad, { "sysex.digitech.checksum_bad", PI_CHECKSUM, PI_WARN, "Bad checksum", EXPFILL }},
         { &ei_sysex_message_end_byte, { "sysex.message_end_byte", PI_PROTOCOL, PI_WARN, "SYSEX Error: Wrong end byte", EXPFILL }},
         { &ei_sysex_undecoded, { "sysex.undecoded", PI_UNDECODED, PI_WARN, "Not dissected yet (report to wireshark.org)", EXPFILL }},
     };

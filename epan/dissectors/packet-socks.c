@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  *
  * The Version 4 decode is based on SOCKS4.protocol and SOCKS4A.protocol.
@@ -117,6 +105,7 @@ static int hf_client_port = -1;
 static int hf_server_accepted_auth_method = -1;
 static int hf_server_auth_status = -1;
 static int hf_server_remote_host_port = -1;
+static int hf_socks_subnegotiation_version = -1;
 static int hf_socks_username = -1;
 static int hf_socks_password = -1;
 static int hf_socks_remote_name = -1;
@@ -335,8 +324,7 @@ socks_udp_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
     proto_tree         *socks_tree;
     proto_item         *ti;
 
-    conversation = find_conversation( pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
-        pinfo->srcport, pinfo->destport, 0);
+    conversation = find_conversation_pinfo( pinfo, 0);
 
     DISSECTOR_ASSERT( conversation);    /* should always find a conversation */
 
@@ -388,7 +376,7 @@ socks_udp_dissector(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* d
 static void
 new_udp_conversation( socks_hash_entry_t *hash_info, packet_info *pinfo){
 
-    conversation_t *conversation = conversation_new( pinfo->num, &pinfo->src, &pinfo->dst,  PT_UDP,
+    conversation_t *conversation = conversation_new( pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
             hash_info->udp_port, hash_info->port, 0);
 
     DISSECTOR_ASSERT( conversation);
@@ -505,20 +493,22 @@ client_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo,
     unsigned int  i;
     const char   *AuthMethodStr;
     sock_state_t  new_state_info;
+    proto_item *ti;
 
     /* Either there is an error, or we're done with the state machine
       (so there's nothing to display) */
     if (state_info == NULL)
         return;
 
-    proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
     if (state_info->client == clientStart)
     {
         proto_tree      *AuthTree;
-        proto_item      *ti;
         guint8 num_auth_methods, auth;
+
+        col_append_str(pinfo->cinfo, COL_INFO, " Connect to server request");
+
+        proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
 
         AuthTree = proto_tree_add_subtree( tree, tvb, offset, -1, ett_socks_auth, &ti, "Client Authentication Methods");
 
@@ -546,6 +536,11 @@ client_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo,
         }
     }
     else if (state_info->client == clientV5Command) {
+        col_append_fstr(pinfo->cinfo, COL_INFO, " Command Request - %s",
+                val_to_str_const(hash_info->command, cmd_strings, "Unknown"));
+
+        proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
 
         proto_tree_add_item( tree, hf_socks_cmd, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
@@ -561,11 +556,19 @@ client_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo,
         guint16 len;
         gchar* str;
 
+        ti = proto_tree_add_uint( tree, hf_socks_ver, tvb, offset, 0, 5);
+        PROTO_ITEM_SET_GENERATED(ti);
+
+        proto_tree_add_item( tree, hf_socks_subnegotiation_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
         switch(hash_info->authentication_method)
         {
         case NO_AUTHENTICATION:
             break;
         case USER_NAME_AUTHENTICATION:
+            col_append_str(pinfo->cinfo, COL_INFO, " User authentication request");
+
             /* process user name */
             len = tvb_get_guint8(tvb, offset);
             str = tvb_get_string_enc(wmem_packet_scope(), tvb, offset+1, len, ENC_ASCII);
@@ -578,6 +581,8 @@ client_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo,
             /* offset += (len+1); */
             break;
         case GSS_API_AUTHENTICATION:
+            col_append_str(pinfo->cinfo, COL_INFO, " GSSAPI authentication request");
+
             proto_tree_add_item( tree, hf_gssapi_command, tvb, offset, 1, ENC_BIG_ENDIAN);
             proto_tree_add_item( tree, hf_gssapi_length, tvb, offset+1, 2, ENC_BIG_ENDIAN);
             len = tvb_get_ntohs(tvb, offset+1);
@@ -587,6 +592,11 @@ client_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo,
         default:
             break;
         }
+    }
+    else {
+        if (hash_info->port != 0)
+            col_append_fstr(pinfo->cinfo, COL_INFO, ", Remote Port: %u",
+                hash_info->port);
     }
 }
 
@@ -609,12 +619,14 @@ server_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
     if (state_info == NULL)
         return;
 
-    proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
     switch(state_info->server)
     {
     case serverStart:
+        col_append_str(pinfo->cinfo, COL_INFO, " Connect to server response");
+
+        proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
         auth = tvb_get_guint8( tvb, offset);
         AuthMethodStr = get_auth_method_name(auth);
 
@@ -623,6 +635,14 @@ server_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         break;
 
     case serverUserReply:
+        col_append_str(pinfo->cinfo, COL_INFO, " User authentication reply");
+
+        ti = proto_tree_add_uint( tree, hf_socks_ver, tvb, offset, 0, 5);
+        PROTO_ITEM_SET_GENERATED(ti);
+
+        proto_tree_add_item( tree, hf_socks_subnegotiation_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
         auth_status = tvb_get_guint8(tvb, offset);
         ti = proto_tree_add_item(tree, hf_server_auth_status, tvb, offset, 1, ENC_BIG_ENDIAN);
         if(auth_status != 0)
@@ -632,6 +652,14 @@ server_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         break;
 
     case serverGssApiReply:
+        col_append_str(pinfo->cinfo, COL_INFO, " GSSAPI authentication reply");
+
+        ti = proto_tree_add_uint( tree, hf_socks_ver, tvb, offset, 0, 5);
+        PROTO_ITEM_SET_GENERATED(ti);
+
+        proto_tree_add_item( tree, hf_socks_subnegotiation_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
         auth_status = tvb_get_guint8(tvb, offset);
         proto_tree_add_item( tree, hf_gssapi_command, tvb, offset, 1, ENC_BIG_ENDIAN);
         if (auth_status != 0xFF) {
@@ -645,6 +673,12 @@ server_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         break;
 
     case serverCommandReply:
+        col_append_fstr(pinfo->cinfo, COL_INFO, " Command Response - %s",
+                val_to_str_const(hash_info->command, cmd_strings, "Unknown"));
+
+        proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
         proto_tree_add_item( tree, hf_socks_results_5, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
@@ -656,6 +690,11 @@ server_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         break;
 
     case serverBindReply:
+        col_append_str(pinfo->cinfo, COL_INFO, " Command Response: Bind remote host info");
+
+        proto_tree_add_item( tree, hf_socks_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+
         proto_tree_add_item( tree, hf_socks_results_5, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
 
@@ -665,7 +704,12 @@ server_display_socks_v5(tvbuff_t *tvb, int offset, packet_info *pinfo _U_,
         offset = display_address(tvb, offset, tree);
         proto_tree_add_item( tree, hf_server_remote_host_port, tvb, offset, 2, ENC_BIG_ENDIAN);
         break;
+
     default:
+        if ( hash_info->port != 0)
+            col_append_fstr(pinfo->cinfo, COL_INFO, ", Remote Port: %u",
+                hash_info->port);
+
         break;
     }
 }
@@ -723,13 +767,14 @@ client_state_machine_v5( socks_hash_entry_t *hash_info, tvbuff_t *tvb,
 /* list.  Based upon the current state, decode the packet and determine */
 /* what the next state should be. */
 
-    if (start_of_frame)
+    if (start_of_frame) {
         save_client_state(pinfo, hash_info->clientState);
+        save_server_state(pinfo, hash_info->serverState);
+    }
 
     if (hash_info->clientState == clientStart)
     {
         guint8 num_auth_methods;
-        col_append_str(pinfo->cinfo, COL_INFO, " Connect to server request");
 
         num_auth_methods = tvb_get_guint8(tvb, offset + 1);
                         /* skip past auth methods */
@@ -767,11 +812,7 @@ client_state_machine_v5( socks_hash_entry_t *hash_info, tvbuff_t *tvb,
             break;
         }
     } else if (hash_info->clientState == clientV5Command) {
-
         hash_info->command = tvb_get_guint8(tvb, offset + 1); /* get command */
-
-        col_append_fstr(pinfo->cinfo, COL_INFO, " Command Request - %s",
-                val_to_str_const(hash_info->command, cmd_strings, "Unknown"));
 
         offset += 3;            /* skip to address type */
 
@@ -801,23 +842,19 @@ server_state_machine_v5( socks_hash_entry_t *hash_info, tvbuff_t *tvb,
 
     switch (hash_info->serverState) {
     case serverStart:
-        col_append_str(pinfo->cinfo, COL_INFO, " Connect to server response");
-
         hash_info->authentication_method = tvb_get_guint8(tvb, offset + 1);
-        hash_info->serverState = serverInitReply;
-
         switch (hash_info->authentication_method)
         {
         case NO_AUTHENTICATION:
-            hash_info->serverState = serverCommandReply;
             /* If there is no authentication, client should expect command immediately */
+            hash_info->serverState = serverCommandReply;
             hash_info->clientState = clientV5Command;
             break;
         case USER_NAME_AUTHENTICATION:
-            hash_info->serverState = serverUserReply;
+            hash_info->serverState = serverInitReply;
             break;
         case GSS_API_AUTHENTICATION:
-            hash_info->serverState = serverGssApiReply;
+            hash_info->serverState = serverInitReply;
             break;
         default:
             hash_info->serverState = serverError;
@@ -825,22 +862,17 @@ server_state_machine_v5( socks_hash_entry_t *hash_info, tvbuff_t *tvb,
         }
         break;
     case serverUserReply:
-        col_append_str(pinfo->cinfo, COL_INFO, " User authentication reply");
+        hash_info->serverState = serverCommandReply;
         break;
     case serverGssApiReply:
         if (tvb_get_guint8(tvb, offset+1) == 0xFF) {
-            col_append_str(pinfo->cinfo, COL_INFO, " GSSAPI Authentication failure");
             hash_info->serverState = serverError;
         } else {
-            col_append_str(pinfo->cinfo, COL_INFO, " GSSAPI Authentication reply");
             if (tvb_get_ntohs(tvb, offset+2) == 0)
                 hash_info->serverState = serverCommandReply;
         }
         break;
     case serverCommandReply:
-        col_append_fstr(pinfo->cinfo, COL_INFO, " Command Response - %s",
-                val_to_str_const(hash_info->command, cmd_strings, "Unknown"));
-
         switch(hash_info->command)
         {
         case CONNECT_COMMAND:
@@ -872,7 +904,6 @@ server_state_machine_v5( socks_hash_entry_t *hash_info, tvbuff_t *tvb,
         }
         break;
     case serverBindReply:
-        col_append_str(pinfo->cinfo, COL_INFO, " Command Response: Bind remote host info");
         break;
     default:
         break;
@@ -1003,8 +1034,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
     if (state_info->in_socks_dissector_flag)
         return 0;
 
-    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                     pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+    conversation = find_conversation_pinfo(pinfo, 0);
     if (conversation == NULL) {
         /* If we don't already have a conversation, make sure the first
            byte is a valid version number */
@@ -1013,7 +1043,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
             return 0;
 
         conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                                        pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+                                        conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport, pinfo->destport, 0);
     }
 
     hash_info = (socks_hash_entry_t *)conversation_get_proto_data(conversation,proto_socks);
@@ -1048,10 +1078,6 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
         col_append_str(pinfo->cinfo, COL_INFO, ", Ping Req");
     if ( hash_info->command == TRACERT_COMMAND)
         col_append_str(pinfo->cinfo, COL_INFO, ", Traceroute Req");
-
-    if ( hash_info->port != 0)
-        col_append_fstr(pinfo->cinfo, COL_INFO, ", Remote Port: %u",
-            hash_info->port);
 
     /* run state machine if needed */
     if ((!pinfo->fd->flags.visited) &&
@@ -1090,23 +1116,12 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
         ti = proto_tree_add_item( tree, proto_socks, tvb, offset, -1, ENC_NA );
         socks_tree = proto_item_add_subtree(ti, ett_socks);
 
-        if (hash_info->server_port == pinfo->destport) {
-            if ( hash_info->version == 4) {
-                display_socks_v4(tvb, offset, pinfo, socks_tree, hash_info, state_info);
-            } else if ( hash_info->version == 5) {
-                client_display_socks_v5(tvb, offset, pinfo, socks_tree, hash_info, state_info);
-            }
-        } else {
-            if ( hash_info->version == 4) {
-                display_socks_v4(tvb, offset, pinfo, socks_tree, hash_info, state_info);
-            } else if ( hash_info->version == 5) {
-                server_display_socks_v5(tvb, offset, pinfo, socks_tree, hash_info, state_info);
-            }
-        }
-
         /* if past startup, add the faked stuff */
         if ( pinfo->num > hash_info->start_done_frame){
                         /*  add info to tree */
+            ti = proto_tree_add_uint( socks_tree, hf_socks_ver, tvb, offset, 0, hash_info->version);
+            PROTO_ITEM_SET_GENERATED(ti);
+
             ti = proto_tree_add_uint( socks_tree, hf_socks_cmd, tvb, offset, 0, hash_info->command);
             PROTO_ITEM_SET_GENERATED(ti);
 
@@ -1116,7 +1131,7 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
                 PROTO_ITEM_SET_GENERATED(ti);
             } else if (hash_info->dst_addr.type == AT_IPv6) {
                 ti = proto_tree_add_ipv6( socks_tree, hf_socks_ip6_dst, tvb,
-                    offset, 0, (const struct e_in6_addr *)hash_info->dst_addr.data);
+                    offset, 0, (const ws_in6_addr *)hash_info->dst_addr.data);
                 PROTO_ITEM_SET_GENERATED(ti);
             }
 
@@ -1126,6 +1141,20 @@ dissect_socks(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data) {
                 ( hash_info->command != TRACERT_COMMAND)){
                 ti = proto_tree_add_uint( socks_tree, hf_socks_dstport, tvb, offset, 0, hash_info->port);
                 PROTO_ITEM_SET_GENERATED(ti);
+            }
+        } else {
+            if (hash_info->server_port == pinfo->destport) {
+                if ( hash_info->version == 4) {
+                    display_socks_v4(tvb, offset, pinfo, socks_tree, hash_info, state_info);
+                } else if ( hash_info->version == 5) {
+                    client_display_socks_v5(tvb, offset, pinfo, socks_tree, hash_info, state_info);
+                }
+            } else {
+                if ( hash_info->version == 4) {
+                    display_socks_v4(tvb, offset, pinfo, socks_tree, hash_info, state_info);
+                } else if ( hash_info->version == 5) {
+                    server_display_socks_v5(tvb, offset, pinfo, socks_tree, hash_info, state_info);
+                }
             }
         }
 
@@ -1250,6 +1279,11 @@ proto_register_socks( void){
                 BASE_DEC, NULL, 0x0, NULL, HFILL
             }
         },
+        { &hf_socks_subnegotiation_version,
+            { "Subnegotiation Version", "socks.subnegotation_version", FT_UINT8, BASE_DEC, NULL,
+                0x0, NULL, HFILL
+            }
+        },
         { &hf_socks_username,
             { "User name", "socks.username", FT_STRING, BASE_NONE,
                 NULL, 0x0, NULL, HFILL
@@ -1311,7 +1345,7 @@ proto_reg_handoff_socks(void) {
     socks_udp_handle = create_dissector_handle(socks_udp_dissector, proto_socks);
     socks_handle = create_dissector_handle(dissect_socks, proto_socks);
 
-    dissector_add_uint("tcp.port", TCP_PORT_SOCKS, socks_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_SOCKS, socks_handle);
 }
 
 /*

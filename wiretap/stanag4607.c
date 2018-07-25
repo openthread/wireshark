@@ -3,20 +3,12 @@
  * STANAG 4607 file reading
  *
  * http://www.nato.int/structur/AC/224/standard/4607/4607e_JAS_ED3.pdf
+ * (that is now missing from that site, but is available on the Wayback
+ * Machine)
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * https://nso.nato.int/nso/zPublic/ap/aedp-7(2).pdf
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -32,6 +24,9 @@ typedef struct {
   time_t base_secs;
 } stanag4607_t;
 
+#define PKT_HDR_SIZE  32 /* size of a packet header */
+#define SEG_HDR_SIZE  5  /* size of a segment header */
+
 static gboolean is_valid_id(guint16 version_id)
 {
 #define VERSION_21 0x3231
@@ -43,13 +38,13 @@ static gboolean is_valid_id(guint16 version_id)
   return TRUE;
 }
 
-static gboolean stanag4607_read_file(wtap *wth, FILE_T fh, struct wtap_pkthdr *phdr,
+static gboolean stanag4607_read_file(wtap *wth, FILE_T fh, wtap_rec *rec,
                                Buffer *buf, int *err, gchar **err_info)
 {
   stanag4607_t *stanag4607 = (stanag4607_t *)wth->priv;
   guint32 millisecs, secs, nsecs;
   gint64 offset = 0;
-  guint8 stanag_pkt_hdr[37];
+  guint8 stanag_pkt_hdr[PKT_HDR_SIZE+SEG_HDR_SIZE];
   guint32 packet_size;
 
   *err = 0;
@@ -65,30 +60,40 @@ static gboolean stanag4607_read_file(wtap *wth, FILE_T fh, struct wtap_pkthdr *p
     return FALSE;
   }
 
-  phdr->rec_type = REC_TYPE_PACKET;
+  rec->rec_type = REC_TYPE_PACKET;
 
   /* The next 4 bytes are the packet length */
   packet_size = pntoh32(&stanag_pkt_hdr[2]);
-  if (packet_size > WTAP_MAX_PACKET_SIZE) {
+  if (packet_size > WTAP_MAX_PACKET_SIZE_STANDARD) {
     /*
      * Probably a corrupt capture file; don't blow up trying
      * to allocate space for an immensely-large packet.
      */
     *err = WTAP_ERR_BAD_FILE;
     *err_info = g_strdup_printf("stanag4607: File has %" G_GUINT32_FORMAT "d-byte packet, "
-      "bigger than maximum of %u", packet_size, WTAP_MAX_PACKET_SIZE);
+      "bigger than maximum of %u", packet_size, WTAP_MAX_PACKET_SIZE_STANDARD);
     return FALSE;
   }
-  phdr->caplen = packet_size;
-  phdr->len = packet_size;
+  if (packet_size < PKT_HDR_SIZE+SEG_HDR_SIZE) {
+    /*
+     * Probably a corrupt capture file; don't, for example, loop
+     * infinitely if the size is zero.
+     */
+    *err = WTAP_ERR_BAD_FILE;
+    *err_info = g_strdup_printf("stanag4607: File has %" G_GUINT32_FORMAT "d-byte packet, "
+      "smaller than minimum of %u", packet_size, PKT_HDR_SIZE+SEG_HDR_SIZE);
+    return FALSE;
+  }
+  rec->rec_header.packet_header.caplen = packet_size;
+  rec->rec_header.packet_header.len = packet_size;
 
   /* Sadly, the header doesn't contain times; but some segments do */
   /* So, get the segment header, which is just past the 32-byte header. */
-  phdr->presence_flags = WTAP_HAS_TS;
+  rec->presence_flags = WTAP_HAS_TS;
 
   /* If no time specified, it's the last baseline time */
-  phdr->ts.secs = stanag4607->base_secs;
-  phdr->ts.nsecs = 0;
+  rec->ts.secs = stanag4607->base_secs;
+  rec->ts.nsecs = 0;
   millisecs = 0;
 
 #define MISSION_SEGMENT 1
@@ -111,7 +116,7 @@ static gboolean stanag4607_read_file(wtap *wth, FILE_T fh, struct wtap_pkthdr *p
     tm.tm_sec = 0;
     tm.tm_isdst = -1;
     stanag4607->base_secs = mktime(&tm);
-    phdr->ts.secs = stanag4607->base_secs;
+    rec->ts.secs = stanag4607->base_secs;
   }
   else if (PLATFORM_LOCATION_SEGMENT == stanag_pkt_hdr[32]) {
     if (!wtap_read_bytes(fh, &millisecs, sizeof millisecs, err, err_info))
@@ -129,8 +134,8 @@ static gboolean stanag4607_read_file(wtap *wth, FILE_T fh, struct wtap_pkthdr *p
   if (0 != millisecs) {
     secs = millisecs/1000;
     nsecs = (millisecs - 1000 * secs) * 1000000;
-    phdr->ts.secs = stanag4607->base_secs + secs;
-    phdr->ts.nsecs = nsecs;
+    rec->ts.secs = stanag4607->base_secs + secs;
+    rec->ts.nsecs = nsecs;
   }
 
   /* wind back to the start of the packet ... */
@@ -150,17 +155,17 @@ static gboolean stanag4607_read(wtap *wth, int *err, gchar **err_info, gint64 *d
 
   *data_offset = offset;
 
-  return stanag4607_read_file(wth, wth->fh, &wth->phdr, wth->frame_buffer, err, err_info);
+  return stanag4607_read_file(wth, wth->fh, &wth->rec, wth->rec_data, err, err_info);
 }
 
 static gboolean stanag4607_seek_read(wtap *wth, gint64 seek_off,
-                               struct wtap_pkthdr *phdr,
+                               wtap_rec *rec,
                                Buffer *buf, int *err, gchar **err_info)
 {
   if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
     return FALSE;
 
-  return stanag4607_read_file(wth, wth->random_fh, phdr, buf, err, err_info);
+  return stanag4607_read_file(wth, wth->random_fh, rec, buf, err, err_info);
 }
 
 wtap_open_return_val stanag4607_open(wtap *wth, int *err, gchar **err_info)

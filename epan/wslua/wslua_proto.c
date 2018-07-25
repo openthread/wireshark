@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -77,7 +65,7 @@ void clear_outstanding_FuncSavers(void) {
 }
 
 
-WSLUA_CLASS_DEFINE(Proto,FAIL_ON_NULL("Proto"),NOP);
+WSLUA_CLASS_DEFINE(Proto,FAIL_ON_NULL("Proto"));
 /*
   A new protocol in Wireshark. Protocols have more uses, the main one is to dissect
   a protocol. But they can also be just dummies used to register preferences for
@@ -112,8 +100,8 @@ WSLUA_CONSTRUCTOR Proto_new(lua_State* L) {
 
     loname = g_ascii_strdown(name, -1);
     if (proto_check_field_name(loname)) {
-        WSLUA_ARG_ERROR(Proto_new,NAME,"invalid character in name");
         g_free(loname);
+        WSLUA_ARG_ERROR(Proto_new,NAME,"invalid character in name");
         return 0;
     }
 
@@ -121,9 +109,9 @@ WSLUA_CONSTRUCTOR Proto_new(lua_State* L) {
     if ((proto_get_id_by_short_name(hiname) != -1) ||
         (proto_get_id_by_filter_name(loname) != -1))
     {
-        WSLUA_ARG_ERROR(Proto_new,NAME,"there cannot be two protocols with the same name");
         g_free(loname);
         g_free(hiname);
+        WSLUA_ARG_ERROR(Proto_new,NAME,"there cannot be two protocols with the same name");
         return 0;
     }
 
@@ -186,7 +174,7 @@ WSLUA_FUNCTION wslua_register_postdissector(lua_State* L) {
        It will be called for every frame after dissection. */
 #define WSLUA_ARG_register_postdissector_PROTO 1 /* the protocol to be used as post-dissector. */
 #define WSLUA_OPTARG_register_postdissector_ALLFIELDS 2 /* Whether to generate all fields.
-                                                           Note: this impacts performance (default=false). */
+                                                           Note: This impacts performance (default=false). */
 
     Proto proto = checkProto(L,WSLUA_ARG_register_postdissector_PROTO);
     const gboolean all_fields = wslua_optbool(L, WSLUA_OPTARG_register_postdissector_ALLFIELDS, FALSE);
@@ -203,6 +191,16 @@ WSLUA_FUNCTION wslua_register_postdissector(lua_State* L) {
     }
 
     if (all_fields) {
+        /*
+         * XXX - are there any Lua postdissectors that need "all fields",
+         * i.e. the entire protocol tree, or do they just look for
+         * *particular* fields, with field extractors?
+         *
+         * And do all of them require the actual *displayed* format of
+         * the fields they need?
+         *
+         * If not, this is overkill.
+         */
         epan_set_always_visible(TRUE);
     }
 
@@ -242,6 +240,7 @@ WSLUA_METHOD Proto_register_heuristic(lua_State* L) {
     const gchar *listname = luaL_checkstring(L, WSLUA_ARG_Proto_register_heuristic_LISTNAME);
     const gchar *proto_name = proto->name;
     const int top = lua_gettop(L);
+    gchar *short_name;
 
     if (!proto_name || proto->hfid == -1) {
         /* this shouldn't happen - internal bug if it does */
@@ -255,10 +254,15 @@ WSLUA_METHOD Proto_register_heuristic(lua_State* L) {
         return 0;
     }
 
+    short_name = wmem_strconcat(NULL, proto->loname, "_", listname, NULL);
+
     /* verify that this is not already registered */
-    if (find_heur_dissector_by_unique_short_name(proto->loname)) {
+    if (find_heur_dissector_by_unique_short_name(short_name)) {
+        wmem_free(NULL, short_name);
         luaL_error(L, "'%s' is already registered as heuristic", proto->loname);
+        return 0;
     }
+    wmem_free(NULL, short_name);
 
     /* we'll check if the second form of this function was called: when the second arg is
        a Dissector obejct. The truth is we don't need the Dissector object to do this
@@ -318,10 +322,13 @@ WSLUA_METHOD Proto_register_heuristic(lua_State* L) {
         lua_pop(L,2); /* pop the lists table and the listname table */
         g_assert(top == lua_gettop(L));
 
+        short_name = wmem_strconcat(NULL, proto->loname, "_", listname, NULL);
+
         /* now register the single/common heur_dissect_lua function */
         /* XXX - ADD PARAMETERS FOR NEW heur_dissector_add PARAMETERS!!! */
-        heur_dissector_add(listname, heur_dissect_lua, proto_name, proto->loname, proto->hfid, HEURISTIC_ENABLE);
+        heur_dissector_add(listname, heur_dissect_lua, proto_name, short_name, proto->hfid, HEURISTIC_ENABLE);
 
+        wmem_free(NULL, short_name);
     } else {
         luaL_argerror(L,3,"The heuristic dissector must be a function");
     }
@@ -736,9 +743,6 @@ int Proto_commit(lua_State* L) {
             eiri.eiinfo.severity = e->severity;
             eiri.eiinfo.summary  = e->text;
 
-            /* Copy this because it will be free'd when deregistering fields */
-            eiri.eiinfo.hf_info.hfinfo.name = g_strdup(eiri.eiinfo.hf_info.hfinfo.name);
-
             if (e->ids.ei != EI_INIT_EI || e->ids.hf != EI_INIT_HF) {
                 return luaL_error(L,"expert fields can be registered only once");
             }
@@ -760,6 +764,7 @@ static guint
 wslua_dissect_tcp_get_pdu_len(packet_info *pinfo, tvbuff_t *tvb,
                               int offset, void *data)
 {
+    /* WARNING: called from a TRY block, do not call luaL_error! */
     func_saver_t* fs = (func_saver_t*)data;
     lua_State* L = fs->state;
     int pdu_len = 0;
@@ -774,7 +779,7 @@ wslua_dissect_tcp_get_pdu_len(packet_info *pinfo, tvbuff_t *tvb,
         lua_pushinteger(L,offset);
 
         if  ( lua_pcall(L,3,1,0) ) {
-            luaL_error(L, "Lua Error in dissect_tcp_pdus get_len_func: %s", lua_tostring(L,-1));
+            THROW_LUA_ERROR("Lua Error in dissect_tcp_pdus get_len_func: %s", lua_tostring(L,-1));
         } else {
             /* if the Lua dissector reported the consumed bytes, pass it to our caller */
             if (lua_isnumber(L, -1)) {
@@ -782,12 +787,12 @@ wslua_dissect_tcp_get_pdu_len(packet_info *pinfo, tvbuff_t *tvb,
                 pdu_len = wslua_togint(L, -1);
                 lua_pop(L, 1);
             } else {
-                luaL_error(L,"Lua Error dissect_tcp_pdus: get_len_func did not return a Lua number of the PDU length");
+                THROW_LUA_ERROR("Lua Error dissect_tcp_pdus: get_len_func did not return a Lua number of the PDU length");
             }
         }
 
     } else {
-        luaL_error(L,"Lua Error in dissect_tcp_pdus: did not find the get_len_func dissector");
+        REPORT_DISSECTOR_BUG("Lua Error in dissect_tcp_pdus: did not find the get_len_func dissector");
     }
 
     return pdu_len;

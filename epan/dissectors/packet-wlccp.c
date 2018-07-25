@@ -11,19 +11,7 @@
  *
  * The CISCOWL dissector was merged into this one.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Version 0x00 was reverse engineered */
@@ -69,7 +57,7 @@ void proto_reg_handoff_wlccp(void);
 
 /* The UDP port that WLCCP is expected to ride on */
 /* WLCCP also uses an LLC OUI type and an ethertype */
-#define WLCCP_UDP_PORT 2887
+#define WLCCP_UDP_PORT 2887 /* Not IANA registered */
 
 
 /* SAP is 2-bit version and 6-bit Type */
@@ -1315,7 +1303,7 @@ static guint dissect_wlccp_ccm_msg(proto_tree *_tree, tvbuff_t *_tvb, guint _off
 					    _tvb, _offset, 6, ENC_NA);
 			_offset += 6;
 
-			/*kan - according to the patent applicatoin these fields vary based
+			/*kan - according to the patent application these fields vary based
 			on one another.
 			For now we decode what we know about and then we'll come back and add
 			the rest */
@@ -1976,7 +1964,8 @@ static guint dissect_wlccp_tlvs( proto_tree *_tree, tvbuff_t *_tvb, guint _offse
 
 		default:
 		{
-			_offset = _tlv_end;
+			if (_offset < _tlv_end)
+				_offset = _tlv_end;
 			break;
 		} /* case default for switch _group_id */
 
@@ -2013,7 +2002,7 @@ static guint dissect_wlccp_tlvs( proto_tree *_tree, tvbuff_t *_tvb, guint _offse
 
 	/* done with decoding the contained TLVs */
 
-	return(_tlv_end);
+	return(_tlv_end > _offset ? _tlv_end : _offset);
 
 } /* dissect_wlccp_tlvs */
 
@@ -4114,7 +4103,7 @@ proto_reg_handoff_wlccp(void)
 	wlccp_handle = create_dissector_handle(dissect_wlccp, proto_wlccp);
 
 	dissector_add_uint("ethertype", ETHERTYPE_WLCCP, wlccp_handle);
-	dissector_add_uint("udp.port", WLCCP_UDP_PORT, wlccp_handle);
+	dissector_add_uint_with_preference("udp.port", WLCCP_UDP_PORT, wlccp_handle);
 	dissector_add_uint("llc.wlccp_pid", 0x0000, wlccp_handle);
 
 }

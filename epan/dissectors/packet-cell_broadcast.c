@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -159,18 +147,6 @@ static const fragment_items gsm_page_items = {
    NULL,
    "pages"
 };
-
-
-static void gsm_cbs_message_reassembly_init(void)
-{
-  reassembly_table_init(&gsm_cbs_reassembly_table,
-                        &addresses_reassembly_table_functions);
-}
-
-static void gsm_cbs_message_reassembly_cleanup(void)
-{
-  reassembly_table_destroy(&gsm_cbs_reassembly_table);
-}
 
 guint dissect_cbs_serial_number(tvbuff_t *tvb, proto_tree *tree, guint offset)
 {
@@ -338,13 +314,11 @@ dissect_gsm_cell_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
          proto_tree *cbs_page_subtree = proto_tree_add_subtree(cbs_page_tree, tvb, offset, -1,
                                         ett_gsm_cbs_page_content, NULL, "Cell Broadcast Page Contents");
          len = tvb_reported_length(cbs_page_tvb);
-         proto_tree_add_string(cbs_page_subtree, hf_gsm_cbs_page_content, cbs_page_tvb, 0,
-                               text_len, tvb_get_string_enc(wmem_packet_scope(), cbs_page_tvb, 0, text_len, ENC_ASCII));
+         proto_tree_add_item(cbs_page_subtree, hf_gsm_cbs_page_content, cbs_page_tvb, 0, text_len, ENC_UTF_8|ENC_NA);
          len -= text_len;
          if (len)
          {
-            proto_tree_add_string(cbs_page_subtree, hf_gsm_cbs_page_content_padding, cbs_page_tvb, text_len, len,
-                                  tvb_get_string_enc(wmem_packet_scope(), cbs_page_tvb, text_len, len, ENC_ASCII));
+            proto_tree_add_item(cbs_page_subtree, hf_gsm_cbs_page_content_padding, cbs_page_tvb, text_len, len, ENC_UTF_8|ENC_NA);
          }
       }
       if (text_len)
@@ -380,7 +354,7 @@ dissect_gsm_cell_broadcast(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
       cbs_msg_item = proto_tree_add_protocol_format(proto_tree_get_root(tree), proto_cell_broadcast, cbs_msg_tvb, 0, len, "GSM Cell Broadcast Message");
       cbs_msg_tree = proto_item_add_subtree(cbs_msg_item, ett_cbs_msg);
 
-      proto_tree_add_string(cbs_msg_tree, hf_gsm_cbs_message_content, cbs_msg_tvb, 0, len, tvb_get_string_enc(wmem_packet_scope(), cbs_msg_tvb, 0, len, ENC_ASCII));
+      proto_tree_add_item(cbs_msg_tree, hf_gsm_cbs_message_content, cbs_msg_tvb, 0, len, ENC_UTF_8|ENC_NA);
    }
 
    return tvb_captured_length(tvb);
@@ -412,7 +386,7 @@ int dissect_umts_cell_broadcast_message(tvbuff_t *tvb, packet_info *pinfo, proto
    msg_len = tvb_reported_length(cbs_msg_tvb);
    cbs_subtree = proto_tree_add_subtree_format(cbs_tree, tvb, offset, -1,
                     ett_cbs_msg, NULL, "Cell Broadcast Message Contents (length: %d)", msg_len);
-   msg = tvb_get_string_enc(wmem_packet_scope(), cbs_msg_tvb, 0, msg_len, ENC_ASCII);
+   msg = tvb_get_string_enc(wmem_packet_scope(), cbs_msg_tvb, 0, msg_len, ENC_UTF_8|ENC_NA);
    proto_tree_add_string_format(cbs_subtree, hf_gsm_cbs_message_content, cbs_msg_tvb, 0, -1, msg, "%s", msg);
    return tvb_captured_length(tvb);
 }
@@ -534,21 +508,21 @@ proto_register_cbs(void)
          { &hf_gsm_cbs_page_content,
            { "CBS Page Content",
              "gsm_cbs.page_content",
-             FT_STRING, BASE_NONE, NULL, 0x0,
+             FT_STRING, STR_UNICODE, NULL, 0x0,
              NULL, HFILL
            }
          },
          { &hf_gsm_cbs_page_content_padding,
            { "CBS Page Content Padding",
              "gsm_cbs.page_content_padding",
-             FT_STRING, BASE_NONE, NULL, 0x0,
+             FT_STRING, STR_UNICODE, NULL, 0x0,
              NULL, HFILL
            }
          },
          { &hf_gsm_cbs_message_content,
            { "CBS Message Content",
              "gsm_cbs.message_content",
-             FT_STRING, BASE_NONE, NULL, 0x0,
+             FT_STRING, STR_UNICODE, NULL, 0x0,
              NULL, HFILL
            }
          }
@@ -573,8 +547,9 @@ proto_register_cbs(void)
    proto_cell_broadcast = proto_register_protocol("GSM Cell Broadcast Service", "GSM Cell Broadcast Service", "gsm_cbs");
 
    proto_register_field_array(proto_cell_broadcast, hf_cbs, array_length(hf_cbs));
-   register_init_routine(gsm_cbs_message_reassembly_init);
-   register_cleanup_routine(gsm_cbs_message_reassembly_cleanup);
+
+   reassembly_table_register(&gsm_cbs_reassembly_table,
+                        &addresses_reassembly_table_functions);
 
    /* subdissector code */
    register_dissector("gsm_cbs", dissect_gsm_cell_broadcast, proto_cell_broadcast);

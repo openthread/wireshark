@@ -1,5 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<!--
+    This file allows freedesktop.org-compliant desktops (such as GNOME and
+    KDE) to know which files should be opened by what program (and what icon
+    to show for the file in a file browser).
+
+    Both magic and file name glob patterns are supported; glob patterns are
+    preferred since they don't require require opening and reading part of
+    the file to determine its type.
+
+    The specification for this file can be found here:
+    https://standards.freedesktop.org/shared-mime-info-spec/latest/
+
+
+    Note that ideally the MIME types listed here should be IANA-registered:
+
+    https://www.iana.org/assignments/media-types/media-types.xhtml
+
+    If your file type is not registered then using one of the
+    (not-really-a-good-idea and deprecated) x- media types is the only option
+    if you want files to be associated with Wireshark in
+    freedesktop.org-compliant file browsers.
+
+
+    NOTE: if you do add a MIME type here, don't forget to add it to the list
+    of MIME types handled by Wireshark in wireshark.desktop.
+-->
+
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/vnd.tcpdump.pcap">
     <comment>Packet Capture (PCAP)</comment>
@@ -91,11 +118,13 @@
     <magic>
       <match type="string" offset="0" value="\177ver"/>
     </magic>
-    <glob pattern="*.tpc"/>
     <glob pattern="*.apc"/>
+    <glob pattern="*.pkt"/>
+    <glob pattern="*.tpc"/>
     <glob pattern="*.wpz"/>
-    <glob pattern="*.tpc.gz"/>
     <glob pattern="*.apc.gz"/>
+    <glob pattern="*.pkt.gz"/>
+    <glob pattern="*.tpc.gz"/>
     <glob pattern="*.wpz.gz"/>
   </mime-type>
 
@@ -135,5 +164,44 @@
     </magic>
     <glob pattern="*.rf5"/>
     <glob pattern="*.rf5.gz"/>
+  </mime-type>
+
+  <mime-type type="application/x-micropross-mplog">
+    <comment>Packet Capture (Micropross mplog)</comment>
+    <generic-icon name="application-wireshark-doc"/>
+    <magic>
+      <match type="string" offset="0" value="MPCSII"/>
+    </magic>
+    <glob pattern="*.mplog"/>
+    <glob pattern="*.mplog.gz"/>
+  </mime-type>
+
+  <mime-type type="application/x-apple-packetlogger">
+    <comment>Packet Capture (macOS PacketLogger)</comment>
+    <generic-icon name="application-wireshark-doc"/>
+    <glob pattern="*.pklg"/>
+    <glob pattern="*.pklg.gz"/>
+  </mime-type>
+
+  <mime-type type="application/x-endace-erf">
+    <comment>Packet Capture (Endace ERF)</comment>
+    <generic-icon name="application-wireshark-doc"/>
+    <glob pattern="*.erf"/>
+    <glob pattern="*.erf.gz"/>
+  </mime-type>
+
+  <mime-type type="application/ipfix">
+    <comment>Packet Capture (IPFIX)</comment>
+    <generic-icon name="application-wireshark-doc"/>
+    <glob pattern="*.ipfix"/>
+    <glob pattern="*.ipfix.gz"/>
+    <!-- Don't register for .pfx: that extension has another (more common) use -->
+  </mime-type>
+
+  <mime-type type="application/x-ixia-vwr">
+    <comment>Packet Capture (Ixia IxVeriWave)</comment>
+    <generic-icon name="application-wireshark-doc"/>
+    <glob pattern="*.vwr"/>
+    <glob pattern="*.vwr.gz"/>
   </mime-type>
 </mime-info>

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * References:
  * https://tools.ietf.org/html/rfc4975
@@ -32,10 +20,12 @@
 #include <epan/conversation.h>
 #include <epan/prefs.h>
 #include <epan/proto_data.h>
-
+#include <epan/expert.h>
+#include <wsutil/strtoi.h>
 #include <wsutil/str_util.h>
 
 #include "packet-msrp.h"
+#include "packet-http.h"
 
 void proto_register_msrp(void);
 void proto_reg_handoff_msrp(void);
@@ -68,6 +58,8 @@ static int hf_msrp_end_line         = -1;
 static int hf_msrp_cnt_flg          = -1;
 
 static int hf_msrp_data             = -1;
+
+static expert_field ei_msrp_status_code_invalid = EI_INIT;
 
 /* MSRP setup fields */
 static int hf_msrp_setup        = -1;
@@ -173,14 +165,14 @@ msrp_add_address( packet_info *pinfo,
      * Check if the ip address and port combination is not
      * already registered as a conversation.
      */
-    p_conv = find_conversation( pinfo->num, addr, &null_addr, PT_TCP, port, 0,
+    p_conv = find_conversation( pinfo->num, addr, &null_addr, ENDPOINT_TCP, port, 0,
                                 NO_ADDR_B | NO_PORT_B);
 
     /*
      * If not, create a new conversation.
      */
     if (!p_conv) {
-        p_conv = conversation_new( pinfo->num, addr, &null_addr, PT_TCP,
+        p_conv = conversation_new( pinfo->num, addr, &null_addr, ENDPOINT_TCP,
                                    (guint32)port, 0,
                                    NO_ADDR2 | NO_PORT2);
     }
@@ -227,7 +219,7 @@ show_setup_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     {
         /* First time, get info from conversation */
         p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
-                                   PT_TCP,
+                                   ENDPOINT_TCP,
                                    pinfo->destport, pinfo->srcport, 0);
 
         if (p_conv)
@@ -422,15 +414,9 @@ dissect_msrp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
          */
         if (pinfo->fd->flags.visited){
             /* Look for existing conversation */
-            conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, pinfo->ptype,
-                pinfo->srcport, pinfo->destport, 0);
-            /* Create new one if not found */
-            if (conversation == NULL){
-                conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst,
-                    pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
-                /* Set dissector */
-                conversation_set_dissector(conversation, msrp_handle);
-            }
+            conversation = find_or_create_conversation(pinfo);
+            /* Set dissector */
+            conversation_set_dissector(conversation, msrp_handle);
         }
         dissect_msrp(tvb, pinfo, tree, NULL);
         return TRUE;
@@ -471,7 +457,7 @@ dissect_msrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
     int found_match = 0;
     gint content_type_len, content_type_parameter_str_len;
     gchar *media_type_str_lower_case = NULL;
-    char *content_type_parameter_str = NULL;
+    http_message_info_t message_info = { HTTP_OTHERS, NULL };
     tvbuff_t *next_tvb;
     gint parameter_offset;
     gint semi_colon_offset;
@@ -558,12 +544,18 @@ dissect_msrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
         msrp_tree = proto_item_add_subtree(ti, ett_msrp);
 
         if (is_msrp_response){
+            guint32 msrp_status_code = -1;
+            gboolean msrp_status_code_valid;
+            proto_item* pi;
             th = proto_tree_add_item(msrp_tree,hf_msrp_response_line,tvb,0,linelen,ENC_UTF_8|ENC_NA);
             reqresp_tree = proto_item_add_subtree(th, ett_msrp_reqresp);
             proto_tree_add_item(reqresp_tree,hf_msrp_transactionID,tvb,token_2_start,token_2_len,ENC_UTF_8|ENC_NA);
-            proto_tree_add_uint(reqresp_tree,hf_msrp_status_code,tvb,token_3_start,token_3_len,
-                                atoi(tvb_get_string_enc(wmem_packet_scope(), tvb, token_3_start, token_3_len, ENC_UTF_8|ENC_NA)));
-
+            msrp_status_code_valid = ws_strtou32(
+                tvb_get_string_enc(wmem_packet_scope(), tvb, token_3_start, token_3_len, ENC_UTF_8|ENC_NA),
+                NULL, & msrp_status_code);
+            pi = proto_tree_add_uint(reqresp_tree,hf_msrp_status_code,tvb,token_3_start,token_3_len,msrp_status_code);
+            if (!msrp_status_code_valid)
+                expert_add_info(pinfo, pi, &ei_msrp_status_code_invalid);
         }else{
             th = proto_tree_add_item(msrp_tree,hf_msrp_request_line,tvb,0,linelen,ENC_UTF_8|ENC_NA);
             reqresp_tree = proto_item_add_subtree(th, ett_msrp_reqresp);
@@ -655,7 +647,7 @@ dissect_msrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                                     parameter_offset++;
                                 content_type_len = semi_colon_offset - value_offset;
                                 content_type_parameter_str_len = line_end_offset - parameter_offset;
-                                content_type_parameter_str = tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                message_info.media_str = tvb_get_string_enc(wmem_packet_scope(), tvb,
                                              parameter_offset, content_type_parameter_str_len, ENC_UTF_8|ENC_NA);
                             }
                             media_type_str_lower_case = ascii_strdown_inplace(
@@ -689,7 +681,7 @@ dissect_msrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
                 found_match = dissector_try_string(media_type_dissector_table,
                                                media_type_str_lower_case,
                                                next_tvb, pinfo,
-                                               msrp_data_tree, content_type_parameter_str);
+                                               msrp_data_tree, &message_info);
                 /* If no match dump as text */
             }
             if ( found_match == 0 )
@@ -731,7 +723,9 @@ dissect_msrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
 void
 proto_register_msrp(void)
 {
-/* Setup protocol subtree array */
+    expert_module_t* expert_msrp;
+
+    /* Setup protocol subtree array */
     static gint *ett[] = {
         &ett_msrp,
         &ett_raw_text,
@@ -742,7 +736,7 @@ proto_register_msrp(void)
         &ett_msrp_setup
     };
 
-        /* Setup list of header fields */
+    /* Setup list of header fields */
     static hf_register_info hf[] = {
         { &hf_msrp_request_line,
             { "Request Line",       "msrp.request.line",
@@ -886,6 +880,11 @@ proto_register_msrp(void)
         },
     };
 
+    static ei_register_info ei[] = {
+        { &ei_msrp_status_code_invalid, { "msrp.status.code.invalid", PI_MALFORMED, PI_ERROR,
+            "Invalid status code", EXPFILL }}
+    };
+
     module_t *msrp_module;
     /* Register the protocol name and description */
     proto_msrp = proto_register_protocol("Message Session Relay Protocol","MSRP", "msrp");
@@ -914,7 +913,10 @@ proto_register_msrp(void)
      * Register the dissector by name, so other dissectors can
      * grab it by name rather than just referring to it directly.
      */
-    register_dissector("msrp", dissect_msrp, proto_msrp);
+    msrp_handle = register_dissector("msrp", dissect_msrp, proto_msrp);
+
+    expert_msrp = expert_register_protocol(proto_msrp);
+    expert_register_field_array(expert_msrp, ei, array_length(ei));
 }
 
 
@@ -922,10 +924,8 @@ proto_register_msrp(void)
 void
 proto_reg_handoff_msrp(void)
 {
-    msrp_handle = find_dissector("msrp");
-    dissector_add_for_decode_as("tcp.port", msrp_handle);   /* for "decode-as" */
     heur_dissector_add("tcp", dissect_msrp_heur, "MSRP over TCP", "msrp_tcp", proto_msrp, HEURISTIC_ENABLE);
-    dissector_add_uint("tcp.port", TCP_PORT_MSRP, msrp_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_MSRP, msrp_handle);
     media_type_dissector_table = find_dissector_table("media_type");
 }
 

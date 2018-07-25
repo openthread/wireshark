@@ -3,19 +3,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,13 +19,11 @@
 #include <epan/epan_dissect.h>
 #include "dfilter.h"
 #include "dfilter-macro.h"
+#include "scanner_lex.h"
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
+
 
 #define DFILTER_TOKEN_ID_OFFSET	1
-
-/* From scanner.c */
-void df_scanner_text(const char *text);
-void    df_scanner_cleanup(void);
-int     df_lex(void);
 
 /* Holds the singular instance of our Lemon parser object */
 static void*	ParserObj = NULL;
@@ -92,6 +78,8 @@ dfilter_init(void)
 void
 dfilter_cleanup(void)
 {
+	dfilter_macro_cleanup();
+
 	/* Free the Lemon Parser object */
 	if (ParserObj) {
 		DfilterFree(ParserObj, g_free);
@@ -145,11 +133,10 @@ dfilter_free(dfilter_t *df)
 
 	g_free(df->interesting_fields);
 
-	/* clear registers */
-	for (i = 0; i < df->max_registers; i++) {
-		if (df->registers[i]) {
-			g_list_free(df->registers[i]);
-		}
+	/* Clear registers with constant values (as set by dfvm_init_const).
+	 * Other registers were cleared on RETURN by free_register_overhead. */
+	for (i = df->num_registers; i < df->max_registers; i++) {
+		g_list_free(df->registers[i]);
 	}
 
 	if (df->deprecated) {
@@ -162,6 +149,7 @@ dfilter_free(dfilter_t *df)
 
 	g_free(df->registers);
 	g_free(df->attempted_load);
+	g_free(df->owns_memory);
 	g_free(df);
 }
 
@@ -214,6 +202,9 @@ dfilter_compile(const gchar *text, dfilter_t **dfp, gchar **err_msg)
 	int		token;
 	dfilter_t	*dfilter;
 	dfwork_t	*dfw;
+	df_scanner_state_t state;
+	yyscan_t	scanner;
+	YY_BUFFER_STATE in_buffer;
 	gboolean failure = FALSE;
 	const char	*depr_test;
 	guint		i;
@@ -233,21 +224,30 @@ dfilter_compile(const gchar *text, dfilter_t **dfp, gchar **err_msg)
 		return FALSE;
 	}
 
+	if (df_lex_init(&scanner) != 0) {
+		wmem_free(NULL, expanded_text);
+		*dfp = NULL;
+		if (err_msg != NULL)
+			*err_msg = g_strdup_printf("Can't initialize scanner: %s",
+			    g_strerror(errno));
+		return FALSE;
+	}
+
+	in_buffer = df__scan_string(expanded_text, scanner);
+
 	dfw = dfwork_new();
 
-	/*
-	 * XXX - if we're using a version of Flex that supports reentrant lexical
-	 * analyzers, we should put this into the lexical analyzer's state.
-	 */
-	global_dfw = dfw;
+	state.dfw = dfw;
+	state.quoted_string = NULL;
+	state.in_set = FALSE;
 
-	df_scanner_text(expanded_text);
+	df_set_extra(&state, scanner);
 
 	deprecated = g_ptr_array_new();
 
 	while (1) {
 		df_lval = stnode_new(STTYPE_UNINITIALIZED, NULL);
-		token = df_lex();
+		token = df_lex(scanner);
 
 		/* Check for scanner failure */
 		if (token == SCAN_FAILED) {
@@ -307,8 +307,11 @@ dfilter_compile(const gchar *text, dfilter_t **dfp, gchar **err_msg)
 	if (dfw->syntax_error)
 		failure = TRUE;
 
-	/* Reset flex */
-	df_scanner_cleanup();
+	/* Free scanner state */
+	if (state.quoted_string != NULL)
+		g_string_free(state.quoted_string, TRUE);
+	df__delete_buffer(in_buffer, scanner);
+	df_lex_destroy(scanner);
 
 	if (failure)
 		goto FAILURE;
@@ -347,6 +350,7 @@ dfilter_compile(const gchar *text, dfilter_t **dfp, gchar **err_msg)
 		dfilter->max_registers = dfw->next_register;
 		dfilter->registers = g_new0(GList*, dfilter->max_registers);
 		dfilter->attempted_load = g_new0(gboolean, dfilter->max_registers);
+		dfilter->owns_memory = g_new0(gboolean, dfilter->max_registers);
 
 		/* Initialize constants */
 		dfvm_init_const(dfilter);
@@ -387,6 +391,7 @@ FAILURE:
 		if (*err_msg == NULL)
 			*err_msg = g_strdup_printf("Unable to parse filter string \"%s\".", expanded_text);
 	}
+	wmem_free(NULL, expanded_text);
 	*dfp = NULL;
 	return FALSE;
 }
@@ -411,7 +416,7 @@ dfilter_prime_proto_tree(const dfilter_t *df, proto_tree *tree)
 	int i;
 
 	for (i = 0; i < df->num_interesting_fields; i++) {
-		proto_tree_prime_hfid(tree, df->interesting_fields[i]);
+		proto_tree_prime_with_hfid(tree, df->interesting_fields[i]);
 	}
 }
 
@@ -438,12 +443,12 @@ dfilter_dump(dfilter_t *df)
 	dfvm_dump(stdout, df);
 
 	if (df->deprecated && df->deprecated->len) {
-		printf("\nDeprecated tokens: ");
+		ws_debug_printf("\nDeprecated tokens: ");
 		for (i = 0; i < df->deprecated->len; i++) {
-			printf("%s\"%s\"", sep, (char *) g_ptr_array_index(df->deprecated, i));
+			ws_debug_printf("%s\"%s\"", sep, (char *) g_ptr_array_index(df->deprecated, i));
 			sep = ", ";
 		}
-		printf("\n");
+		ws_debug_printf("\n");
 	}
 }
 

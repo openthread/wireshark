@@ -6,25 +6,12 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
-#include <epan/prefs.h>
 
 #include "packet-tcp.h"
 
@@ -123,9 +110,6 @@ static int hf_lsc_scale_num = -1;
 static int hf_lsc_scale_denom = -1;
 static int hf_lsc_mode = -1;
 
-/* Preferences */
-static guint global_lsc_port = 0;
-
 /* Initialize the subtree pointers */
 static gint ett_lsc = -1;
 
@@ -139,16 +123,13 @@ dissect_lsc_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
   guint32 stream;
   guint expected_len;
 
+  /* Too little data? */
+  if (tvb_captured_length(tvb) < LSC_MIN_LEN)
+    return 0;
+
   /* Protocol is LSC, packet summary is not yet known */
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "LSC");
   col_clear(pinfo->cinfo, COL_INFO);
-
-  /* Too little data? */
-  if (tvb_captured_length(tvb) < LSC_MIN_LEN)
-  {
-    col_set_str(pinfo->cinfo, COL_INFO, "[Too short]");
-    return 0;
-  }
 
   /* Get the op code */
   op_code = tvb_get_guint8(tvb, 2);
@@ -212,41 +193,32 @@ dissect_lsc_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
                                      stream, "%.8u", stream);
 
     /* Add rest of LSC header */
-    proto_tree_add_uint(lsc_tree, hf_lsc_version, tvb, 0, 1,
-                        tvb_get_guint8(tvb, 0));
-    proto_tree_add_uint(lsc_tree, hf_lsc_trans_id, tvb, 1, 1,
-                        tvb_get_guint8(tvb, 1));
+    proto_tree_add_item(lsc_tree, hf_lsc_version, tvb, 0, 1, ENC_NA);
+    proto_tree_add_item(lsc_tree, hf_lsc_trans_id, tvb, 1, 1, ENC_NA);
 
     /* Only replies contain a status code */
     if (isReply(op_code))
-      proto_tree_add_uint(lsc_tree, hf_lsc_status_code, tvb, 3, 1,
-                          tvb_get_guint8(tvb, 3));
+      proto_tree_add_item(lsc_tree, hf_lsc_status_code, tvb, 3, 1,
+                          ENC_NA);
 
     /* Add op code specific parts */
     switch (op_code)
       {
         case LSC_PAUSE:
-          proto_tree_add_int(lsc_tree, hf_lsc_stop_npt, tvb, 8, 4,
-                             tvb_get_ntohl(tvb, 8));
+          proto_tree_add_item(lsc_tree, hf_lsc_stop_npt, tvb, 8, 4,
+                             ENC_BIG_ENDIAN);
           break;
         case LSC_RESUME:
-          proto_tree_add_int(lsc_tree, hf_lsc_start_npt, tvb, 8, 4,
-                             tvb_get_ntohl(tvb, 8));
-          proto_tree_add_int(lsc_tree, hf_lsc_scale_num, tvb, 12, 2,
-                             tvb_get_ntohs(tvb, 12));
-          proto_tree_add_uint(lsc_tree, hf_lsc_scale_denom, tvb, 14, 2,
-                              tvb_get_ntohs(tvb, 14));
+          proto_tree_add_item(lsc_tree, hf_lsc_start_npt, tvb, 8, 4, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_scale_num, tvb, 12, 2, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_scale_denom, tvb, 14, 2, ENC_BIG_ENDIAN);
           break;
         case LSC_JUMP:
         case LSC_PLAY:
-          proto_tree_add_int(lsc_tree, hf_lsc_start_npt, tvb, 8, 4,
-                             tvb_get_ntohl(tvb, 8));
-          proto_tree_add_int(lsc_tree, hf_lsc_stop_npt, tvb, 12, 4,
-                             tvb_get_ntohl(tvb, 12));
-          proto_tree_add_int(lsc_tree, hf_lsc_scale_num, tvb, 16, 2,
-                             tvb_get_ntohs(tvb, 16));
-          proto_tree_add_uint(lsc_tree, hf_lsc_scale_denom, tvb, 18, 2,
-                              tvb_get_ntohs(tvb, 18));
+          proto_tree_add_item(lsc_tree, hf_lsc_start_npt, tvb, 8, 4, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_stop_npt, tvb, 12, 4, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_scale_num, tvb, 16, 2, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_scale_denom, tvb, 18, 2, ENC_BIG_ENDIAN);
           break;
         case LSC_DONE:
         case LSC_PAUSE_REPLY:
@@ -255,14 +227,10 @@ dissect_lsc_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* da
         case LSC_RESET_REPLY:
         case LSC_JUMP_REPLY:
         case LSC_PLAY_REPLY:
-          proto_tree_add_int(lsc_tree, hf_lsc_current_npt, tvb, 8, 4,
-                             tvb_get_ntohl(tvb, 8));
-          proto_tree_add_int(lsc_tree, hf_lsc_scale_num, tvb, 12, 2,
-                             tvb_get_ntohs(tvb, 12));
-          proto_tree_add_uint(lsc_tree, hf_lsc_scale_denom, tvb, 14, 2,
-                              tvb_get_ntohs(tvb, 14));
-          proto_tree_add_uint(lsc_tree, hf_lsc_mode, tvb, 16, 1,
-                              tvb_get_guint8(tvb, 16));
+          proto_tree_add_item(lsc_tree, hf_lsc_current_npt, tvb, 8, 4, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_scale_num, tvb, 12, 2, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_scale_denom, tvb, 14, 2, ENC_BIG_ENDIAN);
+          proto_tree_add_item(lsc_tree, hf_lsc_mode, tvb, 16, 1, ENC_BIG_ENDIAN);
           break;
         default:
           break;
@@ -340,8 +308,6 @@ dissect_lsc_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 void
 proto_register_lsc(void)
 {
-  module_t *lsc_module;
-
   /* Setup list of header fields */
   static hf_register_info hf[] = {
     { &hf_lsc_version,
@@ -407,50 +373,23 @@ proto_register_lsc(void)
   };
 
   /* Register the protocol name and description */
-  proto_lsc = proto_register_protocol("Pegasus Lightweight Stream Control",
-                                      "LSC", "lsc");
+  proto_lsc = proto_register_protocol("Pegasus Lightweight Stream Control", "LSC", "lsc");
 
   /* Required function calls to register the header fields and subtrees used */
   proto_register_field_array(proto_lsc, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
-
-  /* Register preferences module */
-  lsc_module = prefs_register_protocol(proto_lsc, proto_reg_handoff_lsc);
-
-  /* Register preferences */
-  prefs_register_uint_preference(lsc_module, "port",
-                                 "LSC Port",
-                                 "Set the TCP or UDP port for Pegasus LSC messages",
-                                 10, &global_lsc_port);
 }
 
 void
 proto_reg_handoff_lsc(void)
 {
-  static gboolean initialized = FALSE;
-  static dissector_handle_t lsc_udp_handle;
-  static dissector_handle_t lsc_tcp_handle;
-  static guint saved_lsc_port;
+  dissector_handle_t lsc_udp_handle;
+  dissector_handle_t lsc_tcp_handle;
 
-  if (!initialized) {
-    lsc_udp_handle = create_dissector_handle(dissect_lsc_udp, proto_lsc);
-    lsc_tcp_handle = create_dissector_handle(dissect_lsc_tcp, proto_lsc);
-    dissector_add_for_decode_as("udp.port", lsc_udp_handle);
-    dissector_add_for_decode_as("tcp.port", lsc_tcp_handle);
-    initialized = TRUE;
-  } else {
-    if (saved_lsc_port != 0) {
-      dissector_delete_uint("udp.port", saved_lsc_port, lsc_udp_handle);
-      dissector_delete_uint("tcp.port", saved_lsc_port, lsc_tcp_handle);
-    }
-  }
-
-  /* Set the port number */
-  if (global_lsc_port != 0) {
-    dissector_add_uint("udp.port", global_lsc_port, lsc_udp_handle);
-    dissector_add_uint("tcp.port", global_lsc_port, lsc_tcp_handle);
-  }
-  saved_lsc_port = global_lsc_port;
+  lsc_udp_handle = create_dissector_handle(dissect_lsc_udp, proto_lsc);
+  lsc_tcp_handle = create_dissector_handle(dissect_lsc_tcp, proto_lsc);
+  dissector_add_for_decode_as_with_preference("udp.port", lsc_udp_handle);
+  dissector_add_for_decode_as_with_preference("tcp.port", lsc_tcp_handle);
 }
 
 /*

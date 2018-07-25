@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*  Include Files */
@@ -63,8 +51,6 @@ static guint   dissect_zbee_t2                 (tvbuff_t *tvb, proto_tree *tree,
 /* Helper routine. */
 static guint   zbee_apf_transaction_len    (tvbuff_t *tvb, guint offset, guint8 type);
 
-static void proto_init_zbee_aps(void);
-static void proto_cleanup_zbee_aps(void);
 void proto_register_zbee_aps(void);
 
 /********************
@@ -148,7 +134,6 @@ static int hf_zbee_aps_t2_cluster = -1;
 static int hf_zbee_aps_t2_btres_octet_sequence = -1;
 static int hf_zbee_aps_t2_btres_octet_sequence_length_requested = -1;
 static int hf_zbee_aps_t2_btres_status = -1;
-static int hf_zbee_aps_t2_btreq_octet_sequence = -1;
 static int hf_zbee_aps_t2_btreq_octet_sequence_length = -1;
 
 /* ZDP indices. */
@@ -205,6 +190,7 @@ static const value_string zbee_aps_frame_types[] = {
     { ZBEE_APS_FCF_DATA,            "Data" },
     { ZBEE_APS_FCF_CMD,             "Command" },
     { ZBEE_APS_FCF_ACK,             "Ack" },
+    { ZBEE_APS_FCF_INTERPAN,        "Interpan" },
     { 0, NULL }
 };
 
@@ -355,6 +341,7 @@ const range_string zbee_aps_apid_names[] = {
     { ZBEE_PROFILE_STD_MIN, ZBEE_PROFILE_STD_MAX,           "Unknown ZigBee Standard" },
 
     { ZBEE_PROFILE_T2,      ZBEE_PROFILE_T2,                "Test Profile #2" },
+    { ZBEE_PROFILE_GP,      ZBEE_PROFILE_GP,                "Green Power" },
     { ZBEE_PROFILE_RSVD0_MIN,   ZBEE_PROFILE_RSVD0_MAX,     "Unknown ZigBee Reserved" },
     { ZBEE_PROFILE_RSVD1_MIN,   ZBEE_PROFILE_RSVD1_MAX,     "Unknown ZigBee Reserved" },
 
@@ -378,6 +365,7 @@ const range_string zbee_aps_apid_names[] = {
     { ZBEE_PROFILE_BM_MIN,          ZBEE_PROFILE_BM_MAX,            ZBEE_MFG_BM },
     { ZBEE_PROFILE_AWAREPOINT_MIN,  ZBEE_PROFILE_AWAREPOINT_MAX,    ZBEE_MFG_AWAREPOINT },
     { ZBEE_PROFILE_SAN_JUAN_1_MIN,  ZBEE_PROFILE_SAN_JUAN_1_MAX,    ZBEE_MFG_SAN_JUAN },
+    { ZBEE_PROFILE_ZLL,             ZBEE_PROFILE_ZLL,               "ZLL" },
     { ZBEE_PROFILE_PHILIPS_MIN,     ZBEE_PROFILE_PHILIPS_MAX,       ZBEE_MFG_PHILIPS },
     { ZBEE_PROFILE_LUXOFT_MIN,      ZBEE_PROFILE_LUXOFT_MAX,        ZBEE_MFG_LUXOFT },
     { ZBEE_PROFILE_KORWIN_MIN,      ZBEE_PROFILE_KORWIN_MAX,        ZBEE_MFG_KORWIN },
@@ -536,6 +524,7 @@ const range_string zbee_aps_apid_abbrs[] = {
     { ZBEE_PROFILE_SE,      ZBEE_PROFILE_SE,        "SE" },
     { ZBEE_PROFILE_RS,      ZBEE_PROFILE_RS,        "RS" },
     { ZBEE_PROFILE_T2,      ZBEE_PROFILE_T2,        "T2" },
+    { ZBEE_PROFILE_GP,      ZBEE_PROFILE_GP,        "GP" },
     /* Manufacturer Allocations */
     { ZBEE_PROFILE_C4_MIN,  ZBEE_PROFILE_C4_MAX,    "C4" },
 
@@ -572,6 +561,7 @@ const value_string zbee_aps_cid_names[] = {
     { ZBEE_ZCL_CID_PARTITION,                       "Partition"},
     { ZBEE_ZCL_CID_OTA_UPGRADE,                     "OTA Upgrade"},
     { ZBEE_ZCL_CID_POLL_CONTROL,                    "Poll Control"},
+    { ZBEE_ZCL_CID_GP,                              "Green Power"},
     /* */
     { ZBEE_ZCL_CID_POWER_PROFILE,                    "Power Profile"},
     { ZBEE_ZCL_CID_APPLIANCE_CONTROL,                "Appliance Control"},
@@ -628,6 +618,7 @@ const value_string zbee_aps_cid_names[] = {
     { ZBEE_ZCL_CID_BACNET_MULTISTATE_VALUE_EXT,     "BACnet Multistage Value (Extended)"},
 
 /* ZCL Cluster IDs - Smart Energy */
+    { ZBEE_ZCL_CID_KEEP_ALIVE,                      "Keep-Alive"},
     { ZBEE_ZCL_CID_PRICE,                           "Price"},
     { ZBEE_ZCL_CID_DEMAND_RESPONSE_LOAD_CONTROL,    "Demand Response and Load Control"},
     { ZBEE_ZCL_CID_SIMPLE_METERING,                 "Simple Metering"},
@@ -639,6 +630,7 @@ const value_string zbee_aps_cid_names[] = {
     { ZBEE_ZCL_CID_DEVICE_MANAGEMENT,               "Device Management"},
     { ZBEE_ZCL_CID_EVENTS,                          "Events"},
     { ZBEE_ZCL_CID_MDU_PAIRING,                     "MDU Pairing"},
+    { ZBEE_ZCL_CID_SUB_GHZ,                         "Sub-Ghz"},
 
 /* ZCL Cluster IDs - Key Establishment */
     { ZBEE_ZCL_CID_KE,                              "Key Establishment"},
@@ -649,6 +641,7 @@ const value_string zbee_aps_cid_names[] = {
     {ZBEE_ZCL_CID_APPLIANCE_EVENTS_AND_ALERT,       "Appliance Events And Alerts"},
     {ZBEE_ZCL_CID_APPLIANCE_STATISTICS,             "Appliance Statistics"},
 
+    {ZBEE_ZCL_CID_ZLL,                              "ZLL Commissioning"},
     { 0, NULL }
 };
 
@@ -805,57 +798,64 @@ dissect_zbee_aps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
             }
             break;
 
+        case ZBEE_APS_FCF_INTERPAN:
+            packet.dst_present = FALSE;
+            packet.src_present = FALSE;
+            break;
+
         default:
         case ZBEE_APS_FCF_CMD:
             /* Endpoint addressing does not exist for these frames. */
             goto dissect_zbee_aps_no_endpt;
     } /* switch */
 
-    /* Determine whether the source and/or destination endpoints are present.
-     * We should only get here for endpoint-addressed data or ack frames.
-     */
-    if ((packet.delivery == ZBEE_APS_FCF_UNICAST) || (packet.delivery == ZBEE_APS_FCF_BCAST)) {
-        /* Source and destination endpoints exist. (Although, I strongly
-         * disagree with the presence of the endpoint in broadcast delivery
-         * mode).
+    if (packet.type != ZBEE_APS_FCF_INTERPAN) {
+        /* Determine whether the source and/or destination endpoints are present.
+         * We should only get here for endpoint-addressed data or ack frames.
          */
-        packet.dst_present = TRUE;
-        packet.src_present = TRUE;
-    }
-    else if ((packet.delivery == ZBEE_APS_FCF_INDIRECT) && (nwk->version <= ZBEE_VERSION_2004)) {
-        /* Indirect addressing was removed in ZigBee 2006, basically because it
-         * was a useless, broken feature which only complicated things. Treat
-         * this mode as invalid for ZigBee 2006 and later. When using indirect
-         * addressing, only one of the source and destination endpoints exist,
-         * and is controlled by the setting of indirect_mode.
-         */
-        packet.dst_present = (!packet.indirect_mode);
-        packet.src_present = (packet.indirect_mode);
-    }
-    else if ((packet.delivery == ZBEE_APS_FCF_GROUP) && (nwk->version >= ZBEE_VERSION_2007)) {
-        /* Group addressing was added in ZigBee 2006, and contains only the
-         * source endpoint. (IMO, Broacast deliveries should do the same).
-         */
-        packet.dst_present = FALSE;
-        packet.src_present = TRUE;
-    }
-    else {
-        /* Illegal Delivery Mode. */
-        expert_add_info(pinfo, proto_root, &ei_zbee_aps_invalid_delivery_mode);
-        return tvb_captured_length(tvb);
+        if ((packet.delivery == ZBEE_APS_FCF_UNICAST) || (packet.delivery == ZBEE_APS_FCF_BCAST)) {
+            /* Source and destination endpoints exist. (Although, I strongly
+             * disagree with the presence of the endpoint in broadcast delivery
+             * mode).
+             */
+            packet.dst_present = TRUE;
+            packet.src_present = TRUE;
+        }
+        else if ((packet.delivery == ZBEE_APS_FCF_INDIRECT) && (nwk->version <= ZBEE_VERSION_2004)) {
+            /* Indirect addressing was removed in ZigBee 2006, basically because it
+             * was a useless, broken feature which only complicated things. Treat
+             * this mode as invalid for ZigBee 2006 and later. When using indirect
+             * addressing, only one of the source and destination endpoints exist,
+             * and is controlled by the setting of indirect_mode.
+             */
+            packet.dst_present = (!packet.indirect_mode);
+            packet.src_present = (packet.indirect_mode);
+        }
+        else if ((packet.delivery == ZBEE_APS_FCF_GROUP) && (nwk->version >= ZBEE_VERSION_2007)) {
+            /* Group addressing was added in ZigBee 2006, and contains only the
+             * source endpoint. (IMO, Broacast deliveries should do the same).
+             */
+            packet.dst_present = FALSE;
+            packet.src_present = TRUE;
+        }
+        else {
+            /* Illegal Delivery Mode. */
+            expert_add_info(pinfo, proto_root, &ei_zbee_aps_invalid_delivery_mode);
+            return tvb_captured_length(tvb);
 
-    }
+        }
 
-    /* If the destination endpoint is present, get and display it. */
-    if (packet.dst_present) {
-        packet.dst = tvb_get_guint8(tvb, offset);
-        proto_tree_add_uint(aps_tree, hf_zbee_aps_dst, tvb, offset, 1, packet.dst);
-        proto_item_append_text(proto_root, ", Dst Endpt: %d", packet.dst);
-        offset += 1;
+        /* If the destination endpoint is present, get and display it. */
+        if (packet.dst_present) {
+            packet.dst = tvb_get_guint8(tvb, offset);
+            proto_tree_add_uint(aps_tree, hf_zbee_aps_dst, tvb, offset, 1, packet.dst);
+            proto_item_append_text(proto_root, ", Dst Endpt: %d", packet.dst);
+            offset += 1;
 
-        /* Update the info column. */
-        col_append_fstr(pinfo->cinfo, COL_INFO, ", Dst Endpt: %d", packet.dst);
-    }
+            /* Update the info column. */
+            col_append_fstr(pinfo->cinfo, COL_INFO, ", Dst Endpt: %d", packet.dst);
+        }
+    } /* if !interpan */
 
     /* If the group address is present, display it. */
     if (packet.delivery == ZBEE_APS_FCF_GROUP) {
@@ -880,6 +880,11 @@ dissect_zbee_aps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
                 break;
             case ZBEE_PROFILE_T2:
                 proto_tree_add_item(aps_tree, hf_zbee_aps_t2_cluster, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                if (packet.type == ZBEE_APS_FCF_DATA)
+                {
+                    col_set_str(pinfo->cinfo, COL_INFO,
+                                val_to_str_const(nwk->cluster_id, zbee_aps_t2_cid_names, "Unknown T2 cluster"));
+                }
                 break;
             default:
                 proto_tree_add_item(aps_tree, hf_zbee_aps_cluster, tvb, offset, 2, ENC_LITTLE_ENDIAN);
@@ -906,7 +911,8 @@ dissect_zbee_aps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
     offset +=2;
 
     /* The source endpoint is present for all cases except indirect /w indirect_mode == FALSE */
-    if ((packet.delivery != ZBEE_APS_FCF_INDIRECT) || (!packet.indirect_mode)) {
+    if (packet.type != ZBEE_APS_FCF_INTERPAN &&
+        ((packet.delivery != ZBEE_APS_FCF_INDIRECT) || (!packet.indirect_mode))) {
         packet.src = tvb_get_guint8(tvb, offset);
         proto_tree_add_uint(aps_tree, hf_zbee_aps_src, tvb, offset, 1, packet.src);
         proto_item_append_text(proto_root, ", Src Endpt: %d", packet.src);
@@ -926,7 +932,7 @@ dissect_zbee_aps(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 dissect_zbee_aps_no_endpt:
 
     /* Get and display the APS counter. Only present on ZigBee 2007 and later. */
-    if (nwk->version >= ZBEE_VERSION_2007) {
+    if (nwk->version >= ZBEE_VERSION_2007 && packet.type != ZBEE_APS_FCF_INTERPAN) {
         packet.counter = tvb_get_guint8(tvb, offset);
         proto_tree_add_uint(aps_tree, hf_zbee_aps_counter, tvb, offset, 1, packet.counter);
         offset += 1;
@@ -980,7 +986,7 @@ dissect_zbee_aps_no_endpt:
     if ((payload_tvb) && (packet.fragmentation != ZBEE_APS_EXT_FCF_FRAGMENT_NONE)) {
         guint32         msg_id;
         guint32         block_num;
-        guint32         num_blocks = -1;
+        guint32         num_blocks;
         fragment_head   *frag_msg = NULL;
         tvbuff_t        *new_tvb;
 
@@ -1003,6 +1009,7 @@ dissect_zbee_aps_no_endpt:
         }
         else {
             block_num = packet.block_number;
+            num_blocks = 0;
         }
 
         /* Add this fragment to the reassembly handler. */
@@ -1032,6 +1039,7 @@ dissect_zbee_aps_no_endpt:
     /* Handle the packet type. */
     switch (packet.type) {
         case ZBEE_APS_FCF_DATA:
+        case ZBEE_APS_FCF_INTERPAN:
             if (!payload_tvb) {
                 break;
             }
@@ -1044,9 +1052,16 @@ dissect_zbee_aps_no_endpt:
                 profile_handle = zbee_apf_handle;
             }
             else if (profile_handle == NULL) {
-                /* Could not locate a profile dissector, but there may
-                   be profile-wide commands so try to dissect them */
-                zcl_handle = find_dissector(ZBEE_PROTOABBREV_ZCL);
+                if (payload_tvb && (packet.profile == ZBEE_PROFILE_T2)) {
+                    /* Move T2 dissect here: don't want to show T2 contents as
+                     * ZCL mess, broken packets etc */
+                    payload_tvb = tvb_new_subset_remaining(payload_tvb, dissect_zbee_t2(payload_tvb, aps_tree, nwk->cluster_id));
+                }
+                else {
+                    /* Could not locate a profile dissector, but there may
+                       be profile-wide commands so try to dissect them */
+                    zcl_handle = find_dissector(ZBEE_PROTOABBREV_ZCL);
+                }
                 if (zcl_handle) {
                     call_dissector_with_data(zcl_handle, payload_tvb, pinfo, tree, nwk);
                 }
@@ -1059,7 +1074,6 @@ dissect_zbee_aps_no_endpt:
             if (!payload_tvb) {
                 /* Command packets MUST contain a payload. */
                 expert_add_info(pinfo, proto_root, &ei_zbee_aps_missing_payload);
-                THROW(BoundsError);
                 return tvb_captured_length(tvb);
             }
             dissect_zbee_aps_cmd(payload_tvb, pinfo, aps_tree, nwk->version, data);
@@ -1077,10 +1091,6 @@ dissect_zbee_aps_no_endpt:
      * If we get this far, then no subdissectors have been called, use the data
      * dissector to display the leftover bytes, if any.
      */
-
-    if (payload_tvb && (packet.profile == ZBEE_PROFILE_T2)) {
-        payload_tvb = tvb_new_subset_remaining(payload_tvb, dissect_zbee_t2(payload_tvb, aps_tree, nwk->cluster_id));
-    }
 
     if (payload_tvb) {
         call_data_dissector(payload_tvb, pinfo, tree);
@@ -1272,9 +1282,6 @@ dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
 {
     guint8              key_type;
     guint8              key[ZBEE_APS_CMD_KEY_LENGTH];
-    GSList            **nwk_keyring;
-    key_record_t        key_record;
-    zbee_nwk_hints_t   *nwk_hints;
     guint               i;
 
     /* Get and display the key type. */
@@ -1292,28 +1299,7 @@ dissect_zbee_aps_transport_key(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
     offset += ZBEE_APS_CMD_KEY_LENGTH;
 
     /* Update the key ring for this pan */
-    if ( !pinfo->fd->flags.visited && (nwk_hints = (zbee_nwk_hints_t *)p_get_proto_data(wmem_file_scope(), pinfo,
-                    proto_get_id_by_filter_name(ZBEE_PROTOABBREV_NWK), 0))) {
-
-        nwk_keyring = (GSList **)g_hash_table_lookup(zbee_table_nwk_keyring, &nwk_hints->src_pan);
-        if ( !nwk_keyring ) {
-            nwk_keyring = (GSList **)g_malloc0(sizeof(GSList*));
-            g_hash_table_insert(zbee_table_nwk_keyring,
-                    g_memdup(&nwk_hints->src_pan, sizeof(nwk_hints->src_pan)), nwk_keyring);
-        }
-
-        if ( nwk_keyring ) {
-            if ( !*nwk_keyring ||
-                    memcmp( ((key_record_t *)((GSList *)(*nwk_keyring))->data)->key, &key,
-                        ZBEE_APS_CMD_KEY_LENGTH) ) {
-                /* Store a new or different key in the key ring */
-                key_record.frame_num = pinfo->num;
-                key_record.label = NULL;
-                memcpy(&key_record.key, &key, ZBEE_APS_CMD_KEY_LENGTH);
-                *nwk_keyring = g_slist_prepend(*nwk_keyring, g_memdup(&key_record, sizeof(key_record_t)));
-            }
-        }
-    }
+    zbee_sec_add_key_to_keyring(pinfo, key);
 
     /* Parse the rest of the key descriptor. */
     switch (key_type) {
@@ -1749,8 +1735,6 @@ dissect_zbee_t2(tvbuff_t *tvb, proto_tree *tree, guint16 cluster_id)
             payload_length = tvb_get_guint8(tvb, offset);
             proto_tree_add_uint(t2_tree, hf_zbee_aps_t2_btreq_octet_sequence_length, tvb, offset, 1, payload_length);
             offset += 1;
-            proto_tree_add_item(t2_tree, hf_zbee_aps_t2_btreq_octet_sequence, tvb, offset, payload_length, ENC_NA);
-            offset += payload_length;
             break;
     }
     return offset;
@@ -1837,6 +1821,18 @@ zbee_apf_transaction_len(tvbuff_t *tvb, guint offset, guint8 type)
         return (tvb_get_guint8(tvb, offset+1) + 2);
     }
 } /* zbee_apf_transaction_len */
+
+/* The ZigBee Smart Energy version in enum_val_t for the ZigBee Smart Energy version preferences. */
+static const enum_val_t zbee_zcl_protocol_version_enums[] = {
+    { "se1.1b",     "SE 1.1b",     ZBEE_SE_VERSION_1_1B },
+    { "se1.2",      "SE 1.2",      ZBEE_SE_VERSION_1_2 },
+    { "se1.2a",     "SE 1.2a",     ZBEE_SE_VERSION_1_2A },
+    { "se1.2b",     "SE 1.2b",     ZBEE_SE_VERSION_1_2B },
+    { "se1.4",      "SE 1.4",      ZBEE_SE_VERSION_1_4 },
+    { NULL, NULL, 0 }
+};
+
+gint gPREF_zbee_se_protocol_version = ZBEE_SE_VERSION_1_4;
 
 /**
  *ZigBee APS protocol registration routine.
@@ -2075,9 +2071,6 @@ void proto_register_zbee_aps(void)
                 { "Status", "zbee_aps.t2.btres.status", FT_UINT8, BASE_HEX, VALS(zbee_aps_t2_btres_status_names), 0x0,
                     NULL, HFILL }},
 
-            { &hf_zbee_aps_t2_btreq_octet_sequence,
-                { "Octet Sequence", "zbee_aps.t2.btreq.octet_sequence", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
-
             { &hf_zbee_aps_t2_btreq_octet_sequence_length,
                 { "Octet Sequence Length", "zbee_aps.t2.btreq.octet_sequence_length", FT_UINT8, BASE_DEC, NULL, 0x0,
                     NULL, HFILL }},
@@ -2127,12 +2120,20 @@ void proto_register_zbee_aps(void)
     expert_register_field_array(expert_zbee_aps, ei, array_length(ei));
 
     /* Register the APS dissector and subdissector list. */
-    zbee_aps_dissector_table = register_dissector_table("zbee.profile", "ZigBee Profile ID", proto_zbee_aps, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+    zbee_aps_dissector_table = register_dissector_table("zbee.profile", "ZigBee Profile ID", proto_zbee_aps, FT_UINT16, BASE_HEX);
     zbee_aps_handle = register_dissector(ZBEE_PROTOABBREV_APS, dissect_zbee_aps, proto_zbee_aps);
 
-    /* Register the init routine. */
-    register_init_routine(proto_init_zbee_aps);
-    register_cleanup_routine(proto_cleanup_zbee_aps);
+    /* Register preferences */
+    module_t* zbee_se_prefs = prefs_register_protocol(proto_zbee_aps, NULL);
+
+    prefs_register_enum_preference(zbee_se_prefs, "zbeeseversion", "ZigBee Smart Energy Version",
+            "Specifies the ZigBee Smart Energy version used when dissecting "
+            "ZigBee APS messages within the Smart Energy Profile",
+            &gPREF_zbee_se_protocol_version, zbee_zcl_protocol_version_enums, FALSE);
+
+    /* Register reassembly table. */
+    reassembly_table_register(&zbee_aps_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
     /* Register the ZigBee Application Framework protocol with Wireshark. */
     proto_zbee_apf = proto_register_protocol("ZigBee Application Framework", "ZigBee APF", "zbee_apf");
@@ -2142,21 +2143,6 @@ void proto_register_zbee_aps(void)
     /* Register the App dissector. */
     zbee_apf_handle = register_dissector("zbee_apf", dissect_zbee_apf, proto_zbee_apf);
 } /* proto_register_zbee_aps */
-
-/**
- *Initializes the APS dissectors prior to beginning protocol
- *
-*/
-static void proto_init_zbee_aps(void)
-{
-    reassembly_table_init(&zbee_aps_reassembly_table,
-                          &addresses_reassembly_table_functions);
-} /* proto_init_zbee_aps */
-
-static void proto_cleanup_zbee_aps(void)
-{
-    reassembly_table_destroy(&zbee_aps_reassembly_table);
-}
 
 /*
  * Editor modelines  -  http://www.wireshark.org/tools/modelines.html

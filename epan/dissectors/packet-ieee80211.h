@@ -10,19 +10,7 @@
  *
  * Copied from README.developer
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "ws_symbol_export.h"
@@ -31,27 +19,32 @@
 extern "C" {
 #endif /* __cplusplus */
 
-extern
-gboolean capture_ieee80211 (const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
-gboolean capture_ieee80211_datapad (const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
+typedef struct {
+  gboolean association_has_mobility_domain_element;
+  gboolean has_ft_akm_suite;
+  gboolean has_non_ft_akm_suite;
+  proto_node *rsn_first_ft_akm_suite;
+  proto_node *rsn_first_non_ft_akm_suite;
+} association_sanity_check_t;
 
-extern
-gboolean capture_wlancap(const guchar *, int, int, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header);
+typedef struct ieee80211_tagged_field_data
+{
+  int ftype;
+  association_sanity_check_t* sanity_check;
+  gboolean isDMG;
+  proto_item* item_tag;
+  proto_item* item_tag_length;
+} ieee80211_tagged_field_data_t;
 
-void dissect_wifi_p2p_ie(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
-                         int offset, gint size);
-int dissect_wifi_p2p_public_action(packet_info *pinfo, proto_tree *tree,
-                                   tvbuff_t *tvb, int offset);
-int dissect_wifi_p2p_action(proto_tree *tree, tvbuff_t *tvb, int offset);
-void dissect_wifi_p2p_anqp(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
-                           int offset, gboolean request);
-
-void dissect_wifi_display_ie(packet_info *pinfo, proto_tree *tree,
-                             tvbuff_t *tvb, int offset, gint size);
 
 int add_tagged_field(packet_info *pinfo, proto_tree *tree,
-                            tvbuff_t *tvb, int offset, int ftype);
+                            tvbuff_t *tvb, int offset, int ftype,
+                            const guint8 *valid_element_ids,
+                            guint valid_element_ids_count,
+                            association_sanity_check_t *association_sanity_check);
 
+int dissect_wifi_dpp_config_proto(packet_info *pinfo, proto_tree *query,
+                                  tvbuff_t *tvb, int offset);
 #define MAX_SSID_LEN    32
 #define MAX_PROTECT_LEN 10
 
@@ -189,6 +182,7 @@ gboolean is_broadcast_bssid(const address *bssid);
  * COMPOSE_FRAME_TYPE() values for control frames.
  * 0x160 - 0x16A are for control frame extension where type = 1 and subtype =6.
  */
+#define CTRL_TRIGGER           0x12  /* HE Trigger                     */
 #define CTRL_BEAMFORM_RPT_POLL 0x14  /* Beamforming Report             */
 #define CTRL_VHT_NDP_ANNC      0x15  /* VHT NDP Announcement           */
 #define CTRL_POLL              0x162  /* Poll                          */
@@ -240,6 +234,7 @@ typedef struct _wlan_stats {
   guint8 ssid_len;
   guchar ssid[MAX_SSID_LEN];
   gchar protection[MAX_PROTECT_LEN];
+  gboolean fc_retry;
 } wlan_stats_t;
 
 typedef struct _wlan_hdr {
@@ -259,6 +254,28 @@ typedef struct {
   guint8    key;
   gchar    *string;
 } uat_wep_key_record_t;
+
+#define ADV_PROTO_ID_ANQP      0
+#define ANV_PROTO_ID_MIH_IS    1
+#define ADV_PROTO_ID_MIH_CESCD 2
+#define ADV_PROTO_ID_EAS       3
+#define ADV_PROTO_ID_VS        221
+
+typedef struct anqp_info_dissector_data {
+  gboolean request;
+  int idx;
+} anqp_info_dissector_data_t;
+
+/* WFA vendor specific subtypes */
+#define WFA_SUBTYPE_SUBSCRIPTION_REMEDIATION   0
+#define WFA_SUBTYPE_DEAUTHENTICATION_IMMINENT  1
+#define WFA_SUBTYPE_P2P                        9
+#define WFA_SUBTYPE_WIFI_DISPLAY               10
+#define WFA_SUBTYPE_HS20_INDICATION            16
+#define WFA_SUBTYPE_HS20_ANQP                  17
+#define WFA_SUBTYPE_OSEN                       18
+#define WFA_SUBTYPE_DPP                        26
+#define WFA_SUBTYPE_IEEE1905_MULTI_AP          27 /* ox1B */
 
 /*
  * Editor modelines

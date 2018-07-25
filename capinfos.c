@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -69,31 +57,24 @@
 
 #include <glib.h>
 
-#ifdef HAVE_LIBZ
-#include <zlib.h>     /* to get the libz version number */
-#endif
-
 #include <wiretap/wtap.h>
 
+#include <wsutil/cmdarg_err.h>
 #include <wsutil/crash_info.h>
 #include <wsutil/filesystem.h>
 #include <wsutil/privileges.h>
-#include <wsutil/ws_diag_control.h>
-#include <wsutil/ws_version_info.h>
+#include <version_info.h>
 #include <wiretap/wtap_opttypes.h>
-#include <wiretap/pcapng.h>
 
 #ifdef HAVE_PLUGINS
 #include <wsutil/plugins.h>
 #endif
 
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 #include <wsutil/str_util.h>
 #include <wsutil/file_util.h>
 
-#ifdef HAVE_LIBGCRYPT
 #include <wsutil/wsgcrypt.h>
-#endif
 
 #ifndef HAVE_GETOPT_LONG
 #include "wsutil/wsgetopt.h"
@@ -102,6 +83,11 @@
 #ifdef _WIN32
 #include <wsutil/unicode-utils.h>
 #endif /* _WIN32 */
+
+#include "ui/failure_message.h"
+
+#define INVALID_OPTION 1
+#define BAD_FLAG 1
 
 /*
  * By default capinfos now continues processing
@@ -159,25 +145,20 @@ static gboolean cap_packet_size    = TRUE;  /* Report average packet size */
 static gboolean cap_packet_rate    = TRUE;  /* Report average packet rate */
 static gboolean cap_order          = TRUE;  /* Report if packets are in chronological order (True/False) */
 
-#ifdef HAVE_LIBGCRYPT
 static gboolean cap_file_hashes    = TRUE;  /* Calculate file hashes */
 
-#define HASH_SIZE_SHA1   20
+// Strongest to weakest
+#define HASH_SIZE_SHA256 32
 #define HASH_SIZE_RMD160 20
-#define HASH_SIZE_MD5    16
+#define HASH_SIZE_SHA1   20
 
-#define HASH_STR_SIZE (41) /* Max hash size * 2 + '\0' */
+#define HASH_STR_SIZE (65) /* Max hash size * 2 + '\0' */
 #define HASH_BUF_SIZE (1024 * 1024)
 
 
-static gchar file_sha1[HASH_STR_SIZE];
+static gchar file_sha256[HASH_STR_SIZE];
 static gchar file_rmd160[HASH_STR_SIZE];
-static gchar file_md5[HASH_STR_SIZE];
-
-#define FILE_HASH_OPT "H"
-#else
-#define FILE_HASH_OPT ""
-#endif /* HAVE_LIBGCRYPT */
+static gchar file_sha1[HASH_STR_SIZE];
 
 /*
  * If we have at least two packets with time stamps, and they're not in
@@ -202,11 +183,7 @@ typedef struct _capture_info {
   int            file_encap;
   int            file_tsprec;
   gint64         filesize;
-  gchar         *comment;
-  gchar         *hardware;
-  gchar         *os;
-  gchar         *usr_appl;
-
+  wtap_block_t   shb;
   guint64        packet_bytes;
   gboolean       times_known;
   nstime_t       start_time;
@@ -231,12 +208,13 @@ typedef struct _capture_info {
 
   int           *encap_counts;           /* array of per_packet encap counts; array has one entry per wtap_encap type */
 
-  guint          num_interfaces;         /* number of IDBs, and thus size of interface_ids array */
-  guint32       *interface_ids;          /* array of per_packet interface_id counts; one entry per file IDB */
+  guint          num_interfaces;         /* number of IDBs, and thus size of interface_packet_counts array */
+  GArray        *interface_packet_counts;  /* array of per_packet interface_id counts; one entry per file IDB */
   guint32        pkt_interface_id_unknown; /* counts if packet interface_id didn't match a known one */
   GArray        *idb_info_strings;       /* array of IDB info strings */
 } capture_info;
 
+static char *decimal_point;
 
 static void
 enable_all_infos(void)
@@ -263,9 +241,7 @@ enable_all_infos(void)
   cap_packet_size    = TRUE;
   cap_packet_rate    = TRUE;
 
-#ifdef HAVE_LIBGCRYPT
   cap_file_hashes    = TRUE;
-#endif /* HAVE_LIBGCRYPT */
 }
 
 static void
@@ -293,9 +269,7 @@ disable_all_infos(void)
   cap_packet_size    = FALSE;
   cap_packet_rate    = FALSE;
 
-#ifdef HAVE_LIBGCRYPT
   cap_file_hashes    = FALSE;
-#endif /* HAVE_LIBGCRYPT */
 }
 
 static const gchar *
@@ -335,36 +309,41 @@ absolute_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info)
 
       case WTAP_TSPREC_DSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%lu.%01d",
+                   "%lu%s%01d",
                    (unsigned long)timer->secs,
+                   decimal_point,
                    timer->nsecs / 100000000);
         break;
 
       case WTAP_TSPREC_CSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%lu.%02d",
+                   "%lu%s%02d",
                    (unsigned long)timer->secs,
+                   decimal_point,
                    timer->nsecs / 10000000);
         break;
 
       case WTAP_TSPREC_MSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%lu.%03d",
+                   "%lu%s%03d",
                    (unsigned long)timer->secs,
+                   decimal_point,
                    timer->nsecs / 1000000);
         break;
 
       case WTAP_TSPREC_USEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%lu.%06d",
+                   "%lu%s%06d",
                    (unsigned long)timer->secs,
+                   decimal_point,
                    timer->nsecs / 1000);
         break;
 
       case WTAP_TSPREC_NSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%lu.%09d",
+                   "%lu%s%09d",
                    (unsigned long)timer->secs,
+                   decimal_point,
                    timer->nsecs);
         break;
 
@@ -396,61 +375,66 @@ absolute_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info)
 
       case WTAP_TSPREC_DSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%04d-%02d-%02d %02d:%02d:%02d.%01d",
+                   "%04d-%02d-%02d %02d:%02d:%02d%s%01d",
                    ti_tm->tm_year + 1900,
                    ti_tm->tm_mon + 1,
                    ti_tm->tm_mday,
                    ti_tm->tm_hour,
                    ti_tm->tm_min,
                    ti_tm->tm_sec,
+                   decimal_point,
                    timer->nsecs / 100000000);
         break;
 
       case WTAP_TSPREC_CSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%04d-%02d-%02d %02d:%02d:%02d.%02d",
+                   "%04d-%02d-%02d %02d:%02d:%02d%s%02d",
                    ti_tm->tm_year + 1900,
                    ti_tm->tm_mon + 1,
                    ti_tm->tm_mday,
                    ti_tm->tm_hour,
                    ti_tm->tm_min,
                    ti_tm->tm_sec,
+                   decimal_point,
                    timer->nsecs / 10000000);
         break;
 
       case WTAP_TSPREC_MSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+                   "%04d-%02d-%02d %02d:%02d:%02d%s%03d",
                    ti_tm->tm_year + 1900,
                    ti_tm->tm_mon + 1,
                    ti_tm->tm_mday,
                    ti_tm->tm_hour,
                    ti_tm->tm_min,
                    ti_tm->tm_sec,
+                   decimal_point,
                    timer->nsecs / 1000000);
         break;
 
       case WTAP_TSPREC_USEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%04d-%02d-%02d %02d:%02d:%02d.%06d",
+                   "%04d-%02d-%02d %02d:%02d:%02d%s%06d",
                    ti_tm->tm_year + 1900,
                    ti_tm->tm_mon + 1,
                    ti_tm->tm_mday,
                    ti_tm->tm_hour,
                    ti_tm->tm_min,
                    ti_tm->tm_sec,
+                   decimal_point,
                    timer->nsecs / 1000);
         break;
 
       case WTAP_TSPREC_NSEC:
         g_snprintf(time_string_buf, sizeof time_string_buf,
-                   "%04d-%02d-%02d %02d:%02d:%02d.%09d",
+                   "%04d-%02d-%02d %02d:%02d:%02d%s%09d",
                    ti_tm->tm_year + 1900,
                    ti_tm->tm_mon + 1,
                    ti_tm->tm_mday,
                    ti_tm->tm_hour,
                    ti_tm->tm_min,
                    ti_tm->tm_sec,
+                   decimal_point,
                    timer->nsecs);
         break;
 
@@ -488,8 +472,9 @@ relative_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info, gb
 
     case WTAP_TSPREC_DSEC:
       g_snprintf(time_string_buf, sizeof time_string_buf,
-                 "%lu.%01d%s%s",
+                 "%lu%s%01d%s%s",
                  (unsigned long)timer->secs,
+                 decimal_point,
                  timer->nsecs / 100000000,
                  second,
                  (timer->secs == 1 && timer->nsecs == 0) ? "" : plural);
@@ -497,8 +482,9 @@ relative_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info, gb
 
     case WTAP_TSPREC_CSEC:
       g_snprintf(time_string_buf, sizeof time_string_buf,
-                 "%lu.%02d%s%s",
+                 "%lu%s%02d%s%s",
                  (unsigned long)timer->secs,
+                 decimal_point,
                  timer->nsecs / 10000000,
                  second,
                  (timer->secs == 1 && timer->nsecs == 0) ? "" : plural);
@@ -506,8 +492,9 @@ relative_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info, gb
 
     case WTAP_TSPREC_MSEC:
       g_snprintf(time_string_buf, sizeof time_string_buf,
-                 "%lu.%03d%s%s",
+                 "%lu%s%03d%s%s",
                  (unsigned long)timer->secs,
+                 decimal_point,
                  timer->nsecs / 1000000,
                  second,
                  (timer->secs == 1 && timer->nsecs == 0) ? "" : plural);
@@ -515,8 +502,9 @@ relative_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info, gb
 
     case WTAP_TSPREC_USEC:
       g_snprintf(time_string_buf, sizeof time_string_buf,
-                 "%lu.%06d%s%s",
+                 "%lu%s%06d%s%s",
                  (unsigned long)timer->secs,
+                 decimal_point,
                  timer->nsecs / 1000,
                  second,
                  (timer->secs == 1 && timer->nsecs == 0) ? "" : plural);
@@ -524,8 +512,9 @@ relative_time_string(nstime_t *timer, int tsprecision, capture_info *cf_info, gb
 
     case WTAP_TSPREC_NSEC:
       g_snprintf(time_string_buf, sizeof time_string_buf,
-                 "%lu.%09d%s%s",
+                 "%lu%s%09d%s%s",
                  (unsigned long)timer->secs,
+                 decimal_point,
                  timer->nsecs,
                  second,
                  (timer->secs == 1 && timer->nsecs == 0) ? "" : plural);
@@ -549,6 +538,38 @@ static void print_value(const gchar *text_p1, gint width, const gchar *text_p2, 
     printf("%s%.*f%s\n", text_p1, width, value, text_p2);
   else
     printf("%sn/a\n", text_p1);
+}
+
+/* multi-line comments would conflict with the formatting that capinfos uses
+   we replace linefeeds with spaces */
+static void
+string_replace_newlines(gchar *str)
+{
+  gchar *p;
+
+  if (str) {
+    p = str;
+    while (*p != '\0') {
+      if (*p == '\n')
+        *p = ' ';
+      if (*p == '\r')
+        *p = ' ';
+      p++;
+    }
+  }
+}
+
+static void
+show_option_string(const char *prefix, const char *option_str)
+{
+  char *str;
+
+  if (option_str != NULL && option_str[0] != '\0') {
+    str = g_strdup(option_str);
+    string_replace_newlines(str);
+    printf("%s%s\n", prefix, str);
+    g_free(str);
+  }
 }
 
 static void
@@ -665,34 +686,46 @@ print_stats(const gchar *filename, capture_info *cf_info)
       }
     }
   }
-#ifdef HAVE_LIBGCRYPT
   if (cap_file_hashes) {
-    printf     ("SHA1:                %s\n", file_sha1);
+    printf     ("SHA256:              %s\n", file_sha256);
     printf     ("RIPEMD160:           %s\n", file_rmd160);
-    printf     ("MD5:                 %s\n", file_md5);
+    printf     ("SHA1:                %s\n", file_sha1);
   }
-#endif /* HAVE_LIBGCRYPT */
   if (cap_order)          printf     ("Strict time order:   %s\n", order_string(cf_info->order));
-  if (cap_comment && cf_info->comment)
-    printf     ("Capture comment:     %s\n", cf_info->comment);
-  if (cap_file_more_info) {
-    if (cf_info->hardware)
-      printf   ("Capture hardware:    %s\n", cf_info->hardware);
-    if (cf_info->os)
-      printf   ("Capture oper-sys:    %s\n", cf_info->os);
-    if (cf_info->usr_appl)
-      printf   ("Capture application: %s\n", cf_info->usr_appl);
-  }
 
-  if (cap_file_idb && cf_info->num_interfaces != 0) {
-    guint i;
-    g_assert(cf_info->num_interfaces == cf_info->idb_info_strings->len);
-    printf     ("Number of interfaces in file: %u\n", cf_info->num_interfaces);
-    for (i = 0; i < cf_info->idb_info_strings->len; i++) {
-      gchar *s = g_array_index(cf_info->idb_info_strings, gchar*, i);
-      printf   ("Interface #%u info:\n", i);
-      printf   ("%s", s);
-      printf   ("                     Number of packets = %u\n", cf_info->interface_ids[i]);
+  if (cf_info->shb != NULL) {
+    if (cap_file_more_info) {
+      char *str;
+
+      if (wtap_block_get_string_option_value(cf_info->shb, OPT_SHB_HARDWARE, &str) == WTAP_OPTTYPE_SUCCESS)
+        show_option_string("Capture hardware:    ", str);
+      if (wtap_block_get_string_option_value(cf_info->shb, OPT_SHB_OS, &str) == WTAP_OPTTYPE_SUCCESS)
+        show_option_string("Capture oper-sys:    ", str);
+      if (wtap_block_get_string_option_value(cf_info->shb, OPT_SHB_USERAPPL, &str) == WTAP_OPTTYPE_SUCCESS)
+        show_option_string("Capture application: ", str);
+    }
+    if (cap_comment) {
+      unsigned int i;
+      char *str;
+
+      for (i = 0; wtap_block_get_nth_string_option_value(cf_info->shb, OPT_COMMENT, i, &str) == WTAP_OPTTYPE_SUCCESS; i++) {
+        show_option_string("Capture comment:     ", str);
+      }
+    }
+
+    if (cap_file_idb && cf_info->num_interfaces != 0) {
+      guint i;
+      g_assert(cf_info->num_interfaces == cf_info->idb_info_strings->len);
+      printf     ("Number of interfaces in file: %u\n", cf_info->num_interfaces);
+      for (i = 0; i < cf_info->idb_info_strings->len; i++) {
+        gchar *s = g_array_index(cf_info->idb_info_strings, gchar*, i);
+        guint32 packet_count = 0;
+        if (i < cf_info->interface_packet_counts->len)
+          packet_count = g_array_index(cf_info->interface_packet_counts, guint32, i);
+        printf   ("Interface #%u info:\n", i);
+        printf   ("%s", s);
+        printf   ("                     Number of packets = %u\n", packet_count);
+      }
     }
   }
 }
@@ -741,20 +774,18 @@ print_stats_table_header(void)
   if (cap_data_rate_bit)  print_stats_table_header_label("Data bit rate (bits/sec)");
   if (cap_packet_size)    print_stats_table_header_label("Average packet size (bytes)");
   if (cap_packet_rate)    print_stats_table_header_label("Average packet rate (packets/sec)");
-#ifdef HAVE_LIBGCRYPT
   if (cap_file_hashes) {
-    print_stats_table_header_label("SHA1");
+    print_stats_table_header_label("SHA256");
     print_stats_table_header_label("RIPEMD160");
-    print_stats_table_header_label("MD5");
+    print_stats_table_header_label("SHA1");
   }
-#endif /* HAVE_LIBGCRYPT */
   if (cap_order)          print_stats_table_header_label("Strict time order");
-  if (cap_comment)        print_stats_table_header_label("Capture comment");
   if (cap_file_more_info) {
     print_stats_table_header_label("Capture hardware");
     print_stats_table_header_label("Capture oper-sys");
     print_stats_table_header_label("Capture application");
   }
+  if (cap_comment)        print_stats_table_header_label("Capture comment");
 
   printf("\n");
 }
@@ -909,11 +940,10 @@ print_stats_table(const gchar *filename, capture_info *cf_info)
     putquote();
   }
 
-#ifdef HAVE_LIBGCRYPT
   if (cap_file_hashes) {
     putsep();
     putquote();
-    printf("%s", file_sha1);
+    printf("%s", file_sha256);
     putquote();
 
     putsep();
@@ -923,10 +953,9 @@ print_stats_table(const gchar *filename, capture_info *cf_info)
 
     putsep();
     putquote();
-    printf("%s", file_md5);
+    printf("%s", file_sha1);
     putquote();
   }
-#endif /* HAVE_LIBGCRYPT */
 
   if (cap_order) {
     putsep();
@@ -935,29 +964,63 @@ print_stats_table(const gchar *filename, capture_info *cf_info)
     putquote();
   }
 
-  /* this is silly to put into a table format, but oh well */
-  if (cap_comment) {
-    putsep();
-    putquote();
-    printf("%s", cf_info->comment);
-    putquote();
-  }
+  if (cf_info->shb != NULL) {
+    if (cap_file_more_info) {
+      char *str;
 
-  if (cap_file_more_info) {
-    putsep();
-    putquote();
-    printf("%s", cf_info->hardware);
-    putquote();
+      putsep();
+      putquote();
+      if (wtap_block_get_string_option_value(cf_info->shb, OPT_SHB_HARDWARE, &str) == WTAP_OPTTYPE_SUCCESS) {
+        printf("%s", str);
+      }
+      putquote();
 
-    putsep();
-    putquote();
-    printf("%s", cf_info->os);
-    putquote();
+      putsep();
+      putquote();
+      if (wtap_block_get_string_option_value(cf_info->shb, OPT_SHB_OS, &str) == WTAP_OPTTYPE_SUCCESS) {
+        printf("%s", str);
+      }
+      putquote();
 
-    putsep();
-    putquote();
-    printf("%s", cf_info->usr_appl);
-    putquote();
+      putsep();
+      putquote();
+      if (wtap_block_get_string_option_value(cf_info->shb, OPT_SHB_USERAPPL, &str) == WTAP_OPTTYPE_SUCCESS) {
+        printf("%s", str);
+      }
+      putquote();
+    }
+
+    /*
+     * One might argue that the following is silly to put into a table format,
+     * but oh well note that there may be *more than one* of each of these types
+     * of options.  To mitigate some of the potential silliness the if(cap_comment)
+     * block is moved AFTER the if(cap_file_more_info) block.  This will make any
+     * comments the last item(s) in each row.  We now have a new -K option to
+     * disable cap_comment to more easily manage the potential silliness.
+     * Potential silliness includes multiple comments (therefore resulting in
+     * more than one additional column and/or comments with embeded newlines
+     * and/or possible delimiters).
+     */
+    if (cap_comment) {
+      unsigned int i;
+      char *opt_comment;
+      gboolean have_cap = FALSE;
+
+      for (i = 0; wtap_block_get_nth_string_option_value(cf_info->shb, OPT_COMMENT, i, &opt_comment) == WTAP_OPTTYPE_SUCCESS; i++) {
+        have_cap = TRUE;
+        putsep();
+        putquote();
+        printf("%s", opt_comment);
+        putquote();
+      }
+      if(!have_cap) {
+        /* Maintain column alignment when we have no OPT_COMMENT */
+        putsep();
+        putquote();
+        putquote();
+      }
+    }
+
   }
 
   printf("\n");
@@ -969,23 +1032,11 @@ cleanup_capture_info(capture_info *cf_info)
   guint i;
   g_assert(cf_info != NULL);
 
-  g_free(cf_info->comment);
-  cf_info->comment = NULL;
-
-  g_free(cf_info->hardware);
-  cf_info->hardware = NULL;
-
-  g_free(cf_info->os);
-  cf_info->os = NULL;
-
-  g_free(cf_info->usr_appl);
-  cf_info->usr_appl = NULL;
-
   g_free(cf_info->encap_counts);
   cf_info->encap_counts = NULL;
 
-  g_free(cf_info->interface_ids);
-  cf_info->interface_ids = NULL;
+  g_array_free(cf_info->interface_packet_counts, TRUE);
+  cf_info->interface_packet_counts = NULL;
 
   if (cf_info->idb_info_strings) {
     for (i = 0; i < cf_info->idb_info_strings->len; i++) {
@@ -996,26 +1047,6 @@ cleanup_capture_info(capture_info *cf_info)
   }
   cf_info->idb_info_strings = NULL;
 }
-
-/* multi-line comments would conflict with the formatting that capinfos uses
-   we replace linefeeds with spaces */
-static void
-string_replace_newlines(gchar *str)
-{
-  gchar *p;
-
-  if (str) {
-    p = str;
-    while (*p != '\0') {
-      if (*p == '\n')
-        *p = ' ';
-      if (*p == '\r')
-        *p = ' ';
-      p++;
-    }
-  }
-}
-
 
 static int
 process_cap_file(wtap *wth, const char *filename)
@@ -1030,7 +1061,7 @@ process_cap_file(wtap *wth, const char *filename)
   gint64                bytes  = 0;
   guint32               snaplen_min_inferred = 0xffffffff;
   guint32               snaplen_max_inferred =          0;
-  const struct wtap_pkthdr *phdr;
+  wtap_rec             *rec;
   capture_info          cf_info;
   gboolean              have_times = TRUE;
   nstime_t              start_time;
@@ -1041,10 +1072,8 @@ process_cap_file(wtap *wth, const char *filename)
   nstime_t              prev_time;
   gboolean              know_order = FALSE;
   order_t               order = IN_ORDER;
-  wtap_optionblock_t    shb_inf;
   guint                 i;
   wtapng_iface_descriptions_t *idb_info;
-  char                  *shb_str;
 
   g_assert(wth != NULL);
   g_assert(filename != NULL);
@@ -1056,10 +1085,7 @@ process_cap_file(wtap *wth, const char *filename)
   nstime_set_zero(&cur_time);
   nstime_set_zero(&prev_time);
 
-  cf_info.comment  = NULL;
-  cf_info.hardware = NULL;
-  cf_info.os       = NULL;
-  cf_info.usr_appl = NULL;
+  cf_info.shb = wtap_file_get_shb(wth);
 
   cf_info.encap_counts = g_new0(int,WTAP_NUM_ENCAP_TYPES);
 
@@ -1068,44 +1094,36 @@ process_cap_file(wtap *wth, const char *filename)
   g_assert(idb_info->interface_data != NULL);
 
   cf_info.num_interfaces = idb_info->interface_data->len;
-  cf_info.interface_ids  = g_new0(guint32, cf_info.num_interfaces);
+  cf_info.interface_packet_counts  = g_array_sized_new(FALSE, TRUE, sizeof(guint32), cf_info.num_interfaces);
+  g_array_set_size(cf_info.interface_packet_counts, cf_info.num_interfaces);
   cf_info.pkt_interface_id_unknown = 0;
-
-  cf_info.idb_info_strings = g_array_sized_new(FALSE, FALSE, sizeof(gchar*), cf_info.num_interfaces);
-
-  /* get IDB info strings */
-  for (i = 0; i < cf_info.num_interfaces; i++) {
-    const wtap_optionblock_t if_descr = g_array_index(idb_info->interface_data, wtap_optionblock_t, i);
-    gchar *s = wtap_get_debug_if_descr(if_descr, 21, "\n");
-    g_array_append_val(cf_info.idb_info_strings, s);
-  }
 
   g_free(idb_info);
   idb_info = NULL;
 
   /* Tally up data that we need to parse through the file to find */
   while (wtap_read(wth, &err, &err_info, &data_offset))  {
-    phdr = wtap_phdr(wth);
-    if (phdr->presence_flags & WTAP_HAS_TS) {
+    rec = wtap_get_rec(wth);
+    if (rec->presence_flags & WTAP_HAS_TS) {
       prev_time = cur_time;
-      cur_time = phdr->ts;
+      cur_time = rec->ts;
       if (packet == 0) {
-        start_time = phdr->ts;
-        start_time_tsprec = phdr->pkt_tsprec;
-        stop_time  = phdr->ts;
-        stop_time_tsprec = phdr->pkt_tsprec;
-        prev_time  = phdr->ts;
+        start_time = rec->ts;
+        start_time_tsprec = rec->tsprec;
+        stop_time  = rec->ts;
+        stop_time_tsprec = rec->tsprec;
+        prev_time  = rec->ts;
       }
       if (nstime_cmp(&cur_time, &prev_time) < 0) {
         order = NOT_IN_ORDER;
       }
       if (nstime_cmp(&cur_time, &start_time) < 0) {
         start_time = cur_time;
-        start_time_tsprec = phdr->pkt_tsprec;
+        start_time_tsprec = rec->tsprec;
       }
       if (nstime_cmp(&cur_time, &stop_time) > 0) {
         stop_time = cur_time;
-        stop_time_tsprec = phdr->pkt_tsprec;
+        stop_time_tsprec = rec->tsprec;
       }
     } else {
       have_times = FALSE; /* at least one packet has no time stamp */
@@ -1113,36 +1131,50 @@ process_cap_file(wtap *wth, const char *filename)
         order = ORDER_UNKNOWN;
     }
 
-    if (phdr->rec_type == REC_TYPE_PACKET) {
-      bytes+=phdr->len;
+    if (rec->rec_type == REC_TYPE_PACKET) {
+      bytes += rec->rec_header.packet_header.len;
       packet++;
 
       /* If caplen < len for a rcd, then presumably           */
       /* 'Limit packet capture length' was done for this rcd. */
       /* Keep track as to the min/max actual snapshot lengths */
       /*  seen for this file.                                 */
-      if (phdr->caplen < phdr->len) {
-        if (phdr->caplen < snaplen_min_inferred)
-          snaplen_min_inferred = phdr->caplen;
-        if (phdr->caplen > snaplen_max_inferred)
-          snaplen_max_inferred = phdr->caplen;
+      if (rec->rec_header.packet_header.caplen < rec->rec_header.packet_header.len) {
+        if (rec->rec_header.packet_header.caplen < snaplen_min_inferred)
+          snaplen_min_inferred = rec->rec_header.packet_header.caplen;
+        if (rec->rec_header.packet_header.caplen > snaplen_max_inferred)
+          snaplen_max_inferred = rec->rec_header.packet_header.caplen;
       }
 
-      /* Per-packet encapsulation */
-      if (wtap_file_encap(wth) == WTAP_ENCAP_PER_PACKET) {
-        if ((phdr->pkt_encap > 0) && (phdr->pkt_encap < WTAP_NUM_ENCAP_TYPES)) {
-          cf_info.encap_counts[phdr->pkt_encap] += 1;
-        } else {
-          fprintf(stderr, "capinfos: Unknown per-packet encapsulation %d in frame %u of file \"%s\"\n",
-                  phdr->pkt_encap, packet, filename);
-        }
+      if ((rec->rec_header.packet_header.pkt_encap > 0) &&
+          (rec->rec_header.packet_header.pkt_encap < WTAP_NUM_ENCAP_TYPES)) {
+        cf_info.encap_counts[rec->rec_header.packet_header.pkt_encap] += 1;
+      } else {
+        fprintf(stderr, "capinfos: Unknown packet encapsulation %d in frame %u of file \"%s\"\n",
+                rec->rec_header.packet_header.pkt_encap, packet, filename);
       }
 
       /* Packet interface_id info */
-      if (phdr->presence_flags & WTAP_HAS_INTERFACE_ID) {
+      if (rec->presence_flags & WTAP_HAS_INTERFACE_ID) {
         /* cf_info.num_interfaces is size, not index, so it's one more than max index */
-        if (phdr->interface_id < cf_info.num_interfaces) {
-          cf_info.interface_ids[phdr->interface_id] += 1;
+        if (rec->rec_header.packet_header.interface_id >= cf_info.num_interfaces) {
+          /*
+           * OK, re-fetch the number of interfaces, as there might have
+           * been an interface that was in the middle of packets, and
+           * grow the array to be big enough for the new number of
+           * interfaces.
+           */
+          idb_info = wtap_file_get_idb_info(wth);
+
+          cf_info.num_interfaces = idb_info->interface_data->len;
+          g_array_set_size(cf_info.interface_packet_counts, cf_info.num_interfaces);
+
+          g_free(idb_info);
+          idb_info = NULL;
+        }
+        if (rec->rec_header.packet_header.interface_id < cf_info.num_interfaces) {
+          g_array_index(cf_info.interface_packet_counts, guint32,
+                        rec->rec_header.packet_header.interface_id) += 1;
         }
         else {
           cf_info.pkt_interface_id_unknown += 1;
@@ -1151,7 +1183,7 @@ process_cap_file(wtap *wth, const char *filename)
       else {
         /* it's for interface_id 0 */
         if (cf_info.num_interfaces != 0) {
-          cf_info.interface_ids[0] += 1;
+          g_array_index(cf_info.interface_packet_counts, guint32, 0) += 1;
         }
         else {
           cf_info.pkt_interface_id_unknown += 1;
@@ -1161,21 +1193,35 @@ process_cap_file(wtap *wth, const char *filename)
 
   } /* while */
 
+  /*
+   * Get IDB info strings.
+   * We do this at the end, so we can get information for all IDBs in
+   * the file, even those that come after packet records.
+   */
+  idb_info = wtap_file_get_idb_info(wth);
+
+  cf_info.idb_info_strings = g_array_sized_new(FALSE, FALSE, sizeof(gchar*), cf_info.num_interfaces);
+  cf_info.num_interfaces = idb_info->interface_data->len;
+  for (i = 0; i < cf_info.num_interfaces; i++) {
+    const wtap_block_t if_descr = g_array_index(idb_info->interface_data, wtap_block_t, i);
+    gchar *s = wtap_get_debug_if_descr(if_descr, 21, "\n");
+    g_array_append_val(cf_info.idb_info_strings, s);
+  }
+
+  g_free(idb_info);
+  idb_info = NULL;
+
   if (err != 0) {
     fprintf(stderr,
-        "capinfos: An error occurred after reading %u packets from \"%s\": %s.\n",
-        packet, filename, wtap_strerror(err));
+        "capinfos: An error occurred after reading %u packets from \"%s\".\n",
+        packet, filename);
+    cfile_read_failure_message("capinfos", filename, err, err_info);
     if (err == WTAP_ERR_SHORT_READ) {
         /* Don't give up completely with this one. */
         status = 1;
         fprintf(stderr,
           "  (will continue anyway, checksums might be incorrect)\n");
     } else {
-        if (err_info != NULL) {
-            fprintf(stderr, "(%s)\n", err_info);
-            g_free(err_info);
-        }
-
         cleanup_capture_info(&cf_info);
         return 1;
     }
@@ -1246,24 +1292,6 @@ process_cap_file(wtap *wth, const char *filename)
     cf_info.packet_size = (double)bytes / packet;                  /* Avg packet size      */
   }
 
-  shb_inf = wtap_file_get_shb(wth);
-  if (shb_inf) {
-    /* opt_comment is always 0-terminated by pcapng_read_section_header_block */
-    wtap_optionblock_get_option_string(shb_inf, OPT_COMMENT, &shb_str);
-    cf_info.comment  = g_strdup(shb_str);
-    wtap_optionblock_get_option_string(shb_inf, OPT_SHB_HARDWARE, &shb_str);
-    cf_info.hardware = g_strdup(shb_str);
-    wtap_optionblock_get_option_string(shb_inf, OPT_SHB_OS, &shb_str);
-    cf_info.os       = g_strdup(shb_str);
-    wtap_optionblock_get_option_string(shb_inf, OPT_SHB_USERAPPL, &shb_str);
-    cf_info.usr_appl = g_strdup(shb_str);
-  }
-
-  string_replace_newlines(cf_info.comment);
-  string_replace_newlines(cf_info.hardware);
-  string_replace_newlines(cf_info.os);
-  string_replace_newlines(cf_info.usr_appl);
-
   if (long_report) {
     print_stats(filename, &cf_info);
   } else {
@@ -1286,9 +1314,7 @@ print_usage(FILE *output)
   fprintf(output, "  -E display the capture file encapsulation\n");
   fprintf(output, "  -I display the capture file interface information\n");
   fprintf(output, "  -F display additional capture file information\n");
-#ifdef HAVE_LIBGCRYPT
-  fprintf(output, "  -H display the SHA1, RMD160, and MD5 hashes of the file\n");
-#endif
+  fprintf(output, "  -H display the SHA256, RMD160, and SHA1 hashes of the file\n");
   fprintf(output, "  -k display the capture comment\n");
   fprintf(output, "\n");
   fprintf(output, "Size infos:\n");
@@ -1331,31 +1357,37 @@ print_usage(FILE *output)
   fprintf(output, "  -h display this help and exit\n");
   fprintf(output, "  -C cancel processing if file open fails (default is to continue)\n");
   fprintf(output, "  -A generate all infos (default)\n");
+  fprintf(output, "  -K disable displaying the capture comment\n");
   fprintf(output, "\n");
   fprintf(output, "Options are processed from left to right order with later options superceding\n");
   fprintf(output, "or adding to earlier options.\n");
   fprintf(output, "\n");
   fprintf(output, "If no options are given the default is to display all infos in long report\n");
   fprintf(output, "output format.\n");
-#ifndef HAVE_LIBGCRYPT
-  fprintf(output, "\nFile hashing support (-H) is not present.\n");
-#endif
 }
 
-#ifdef HAVE_PLUGINS
 /*
- *  Don't report failures to load plugins because most (non-wiretap) plugins
- *  *should* fail to load (because we're not linked against libwireshark and
- *  dissector plugins need libwireshark).
+ * General errors and warnings are reported with an console message
+ * in capinfos.
  */
 static void
-failure_message(const char *msg_format _U_, va_list ap _U_)
+failure_warning_message(const char *msg_format, va_list ap)
 {
-  return;
+  fprintf(stderr, "capinfos: ");
+  vfprintf(stderr, msg_format, ap);
+  fprintf(stderr, "\n");
 }
-#endif
 
-#ifdef HAVE_LIBGCRYPT
+/*
+ * Report additional information for an error in command-line arguments.
+ */
+static void
+failure_message_cont(const char *msg_format, va_list ap)
+{
+  vfprintf(stderr, msg_format, ap);
+  fprintf(stderr, "\n");
+}
+
 static void
 hash_to_str(const unsigned char *hash, size_t length, char *str) {
   int i;
@@ -1364,49 +1396,18 @@ hash_to_str(const unsigned char *hash, size_t length, char *str) {
     g_snprintf(str+(i*2), 3, "%02x", hash[i]);
   }
 }
-#endif /* HAVE_LIBGCRYPT */
-
-static void
-get_capinfos_compiled_info(GString *str)
-{
-  /* LIBZ */
-  g_string_append(str, ", ");
-#ifdef HAVE_LIBZ
-  g_string_append(str, "with libz ");
-#ifdef ZLIB_VERSION
-  g_string_append(str, ZLIB_VERSION);
-#else /* ZLIB_VERSION */
-  g_string_append(str, "(version unknown)");
-#endif /* ZLIB_VERSION */
-#else /* HAVE_LIBZ */
-  g_string_append(str, "without libz");
-#endif /* HAVE_LIBZ */
-}
-
-static void
-get_capinfos_runtime_info(
-#if defined(HAVE_LIBZ) && !defined(_WIN32)
-    GString *str)
-#else
-    GString *str _U_)
-#endif
-{
-  /* zlib */
-#if defined(HAVE_LIBZ) && !defined(_WIN32)
-  g_string_append_printf(str, ", with libz %s", zlibVersion());
-#endif
-}
 
 int
 main(int argc, char *argv[])
 {
   GString *comp_info_str;
   GString *runtime_info_str;
+  char  *init_progfile_dir_error;
   wtap  *wth;
   int    err;
   gchar *err_info;
   int    opt;
-  int    overall_error_status;
+  int    overall_error_status = EXIT_SUCCESS;
   static const struct option long_options[] = {
       {"help", no_argument, NULL, 'h'},
       {"version", no_argument, NULL, 'v'},
@@ -1414,24 +1415,24 @@ main(int argc, char *argv[])
   };
 
   int status = 0;
-#ifdef HAVE_PLUGINS
-  char  *init_progfile_dir_error;
-#endif
-#ifdef HAVE_LIBGCRYPT
   FILE  *fh;
   char  *hash_buf = NULL;
   gcry_md_hd_t hd = NULL;
   size_t hash_bytes;
-#endif
 
   /* Set the C-language locale to the native environment. */
   setlocale(LC_ALL, "");
 
+  cmdarg_err_init(failure_warning_message, failure_message_cont);
+
+  /* Get the decimal point. */
+  decimal_point = g_strdup(localeconv()->decimal_point);
+
   /* Get the compile-time version information string */
-  comp_info_str = get_compiled_version_info(NULL, get_capinfos_compiled_info);
+  comp_info_str = get_compiled_version_info(NULL, NULL);
 
   /* Get the run-time version information string */
-  runtime_info_str = get_runtime_version_info(get_capinfos_runtime_info);
+  runtime_info_str = get_runtime_version_info(NULL);
 
   /* Add it to the information to be reported on a crash. */
   ws_add_crash_info("Capinfos (Wireshark) %s\n"
@@ -1440,6 +1441,8 @@ main(int argc, char *argv[])
          "\n"
          "%s",
       get_ws_vcs_version_info(), comp_info_str->str, runtime_info_str->str);
+  g_string_free(comp_info_str, TRUE);
+  g_string_free(runtime_info_str, TRUE);
 
 #ifdef _WIN32
   arg_list_utf_16to8(argc, argv);
@@ -1450,30 +1453,26 @@ main(int argc, char *argv[])
    * Get credential information for later use.
    */
   init_process_policies();
-  init_open_routines();
 
-#ifdef HAVE_PLUGINS
-  if ((init_progfile_dir_error = init_progfile_dir(argv[0], main))) {
-    g_warning("capinfos: init_progfile_dir(): %s", init_progfile_dir_error);
+  /*
+   * Attempt to get the pathname of the directory containing the
+   * executable file.
+   */
+  init_progfile_dir_error = init_progfile_dir(argv[0]);
+  if (init_progfile_dir_error != NULL) {
+    fprintf(stderr,
+            "capinfos: Can't get pathname of directory containing the capinfos program: %s.\n",
+            init_progfile_dir_error);
     g_free(init_progfile_dir_error);
-  } else {
-    /* Register all the plugin types we have. */
-    wtap_register_plugin_types(); /* Types known to libwiretap */
-
-    init_report_err(failure_message, NULL, NULL, NULL);
-
-    /* Scan for plugins.  This does *not* call their registration routines;
-       that's done later. */
-    scan_plugins();
-
-    /* Register all libwiretap plugin modules. */
-    register_all_wiretap_modules();
   }
-#endif
+
+  init_report_message(failure_warning_message, failure_warning_message,
+                      NULL, NULL, NULL);
+
+  wtap_init(TRUE);
 
   /* Process the options */
-  /* FILE_HASH_OPT will be "H" if libgcrypt is compiled in, so don't use "H" */
-  while ((opt = getopt_long(argc, argv, "abcdehiklmoqrstuvxyzABCEF" FILE_HASH_OPT "ILMNQRST", long_options, NULL)) !=-1) {
+  while ((opt = getopt_long(argc, argv, "abcdehiklmoqrstuvxyzABCEFHIKLMNQRST", long_options, NULL)) !=-1) {
 
     switch (opt) {
 
@@ -1546,12 +1545,10 @@ main(int argc, char *argv[])
         cap_packet_rate = TRUE;
         break;
 
-#ifdef HAVE_LIBGCRYPT
       case 'H':
         if (report_all_infos) disable_all_infos();
         cap_file_hashes = TRUE;
         break;
-#endif
 
       case 'o':
         if (report_all_infos) disable_all_infos();
@@ -1561,6 +1558,10 @@ main(int argc, char *argv[])
       case 'k':
         if (report_all_infos) disable_all_infos();
         cap_comment = TRUE;
+        break;
+
+      case 'K':
+        cap_comment = FALSE;
         break;
 
       case 'F':
@@ -1631,52 +1632,53 @@ main(int argc, char *argv[])
                "See https://www.wireshark.org for more information.\n",
                get_ws_vcs_version_info());
         print_usage(stdout);
-        exit(0);
+        goto exit;
         break;
 
       case 'v':
+        comp_info_str = get_compiled_version_info(NULL, NULL);
+        runtime_info_str = get_runtime_version_info(NULL);
         show_version("Capinfos (Wireshark)", comp_info_str, runtime_info_str);
         g_string_free(comp_info_str, TRUE);
         g_string_free(runtime_info_str, TRUE);
-        exit(0);
+        goto exit;
         break;
 
       case '?':              /* Bad flag - print usage message */
         print_usage(stderr);
-        exit(1);
+        overall_error_status = BAD_FLAG;
+        goto exit;
         break;
     }
   }
 
   if ((argc - optind) < 1) {
     print_usage(stderr);
-    exit(1);
+    overall_error_status = INVALID_OPTION;
+    goto exit;
   }
 
   if (!long_report && table_report_header) {
     print_stats_table_header();
   }
 
-#ifdef HAVE_LIBGCRYPT
   if (cap_file_hashes) {
     gcry_check_version(NULL);
-    gcry_md_open(&hd, GCRY_MD_SHA1, 0);
+    gcry_md_open(&hd, GCRY_MD_SHA256, 0);
     if (hd) {
       gcry_md_enable(hd, GCRY_MD_RMD160);
-      gcry_md_enable(hd, GCRY_MD_MD5);
+      gcry_md_enable(hd, GCRY_MD_SHA1);
     }
     hash_buf = (char *)g_malloc(HASH_BUF_SIZE);
   }
-#endif
 
   overall_error_status = 0;
 
   for (opt = optind; opt < argc; opt++) {
 
-#ifdef HAVE_LIBGCRYPT
-    g_strlcpy(file_sha1, "<unknown>", HASH_STR_SIZE);
+    g_strlcpy(file_sha256, "<unknown>", HASH_STR_SIZE);
     g_strlcpy(file_rmd160, "<unknown>", HASH_STR_SIZE);
-    g_strlcpy(file_md5, "<unknown>", HASH_STR_SIZE);
+    g_strlcpy(file_sha1, "<unknown>", HASH_STR_SIZE);
 
     if (cap_file_hashes) {
       fh = ws_fopen(argv[opt], "rb");
@@ -1685,27 +1687,21 @@ main(int argc, char *argv[])
           gcry_md_write(hd, hash_buf, hash_bytes);
         }
         gcry_md_final(hd);
-        hash_to_str(gcry_md_read(hd, GCRY_MD_SHA1), HASH_SIZE_SHA1, file_sha1);
+        hash_to_str(gcry_md_read(hd, GCRY_MD_SHA256), HASH_SIZE_SHA256, file_sha256);
         hash_to_str(gcry_md_read(hd, GCRY_MD_RMD160), HASH_SIZE_RMD160, file_rmd160);
-        hash_to_str(gcry_md_read(hd, GCRY_MD_MD5), HASH_SIZE_MD5, file_md5);
+        hash_to_str(gcry_md_read(hd, GCRY_MD_SHA1), HASH_SIZE_SHA1, file_sha1);
       }
       if (fh) fclose(fh);
       if (hd) gcry_md_reset(hd);
     }
-#endif /* HAVE_LIBGCRYPT */
 
     wth = wtap_open_offline(argv[opt], WTAP_TYPE_AUTO, &err, &err_info, FALSE);
 
     if (!wth) {
-      fprintf(stderr, "capinfos: Can't open %s: %s\n", argv[opt],
-          wtap_strerror(err));
-      if (err_info != NULL) {
-        fprintf(stderr, "(%s)\n", err_info);
-        g_free(err_info);
-      }
-      overall_error_status = 1; /* remember that an error has occurred */
+      cfile_open_failure_message("capinfos", argv[opt], err, err_info);
+      overall_error_status = 2; /* remember that an error has occurred */
       if (!continue_after_wtap_open_offline_failure)
-        exit(1); /* error status */
+        goto exit;
     }
 
     if (wth) {
@@ -1714,11 +1710,18 @@ main(int argc, char *argv[])
       status = process_cap_file(wth, argv[opt]);
 
       wtap_close(wth);
-      if (status)
-        exit(status);
+      if (status) {
+        overall_error_status = status;
+        goto exit;
+      }
     }
   }
 
+exit:
+  g_free(hash_buf);
+  gcry_md_close(hd);
+  wtap_cleanup();
+  free_progdirs();
   return overall_error_status;
 }
 

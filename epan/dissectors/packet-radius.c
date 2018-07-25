@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * References:
  *
@@ -34,6 +22,7 @@
  * RFC 2869 - RADIUS Extensions
  * RFC 3162 - RADIUS and IPv6
  * RFC 3576 - Dynamic Authorization Extensions to RADIUS
+ * RFC 6929 - Remote Authentication Dial-In User Service (RADIUS) Protocol Extensions
  *
  * See also
  *
@@ -67,8 +56,8 @@
 #include <epan/rtd_table.h>
 #include <epan/addr_resolv.h>
 #include <wsutil/filesystem.h>
-#include <wsutil/report_err.h>
-#include <wsutil/md5.h>
+#include <wsutil/report_message.h>
+#include <wsutil/wsgcrypt.h>
 
 
 #include "packet-radius.h"
@@ -186,6 +175,11 @@ static int hf_radius_eap_fragment = -1;
 static int hf_radius_avp = -1;
 static int hf_radius_avp_length = -1;
 static int hf_radius_avp_type = -1;
+static int hf_radius_avp_vendor_id = -1;
+static int hf_radius_avp_vendor_type = -1;
+static int hf_radius_avp_vendor_len = -1;
+static int hf_radius_avp_extended_type = -1;
+static int hf_radius_avp_extended_more = -1;
 static int hf_radius_3gpp_ms_tmime_zone = -1;
 
 static int hf_radius_egress_vlanid_tag = -1;
@@ -214,15 +208,16 @@ static int radius_tap = -1;
 
 static radius_vendor_info_t no_vendor = {"Unknown Vendor", 0, NULL, -1, 1, 1, FALSE};
 
-static radius_attr_info_t no_dictionary_entry = {"Unknown-Attribute", 0, FALSE, FALSE, radius_octets, NULL, NULL, -1, -1, -1, -1, -1, NULL };
+static radius_attr_info_t no_dictionary_entry = {"Unknown-Attribute", { { 0, 0 } }, FALSE, FALSE, radius_octets, NULL, NULL, -1, -1, -1, -1, -1, NULL };
 
 static dissector_handle_t eap_handle;
+static dissector_handle_t radius_handle;
+
 
 static const gchar *shared_secret = "";
 static gboolean validate_authenticator = FALSE;
 static gboolean show_length = FALSE;
-static guint alt_port_pref = 0;
-static range_t *global_ports_range;
+static gboolean disable_extended_attributes = FALSE;
 
 static guint8 authenticator[AUTHENTICATOR_LENGTH];
 
@@ -573,7 +568,7 @@ radius_call_hash(gconstpointer k)
 {
 	const radius_call_info_key *key = (const radius_call_info_key *) k;
 
-	return key->ident + key->conversation->index;
+	return key->ident + key->conversation->conv_index;
 }
 
 
@@ -894,6 +889,7 @@ dissect_rfc4675_egress_vlan_name(proto_tree *tree, tvbuff_t *tvb, packet_info *p
 {
 	int len;
 	guint8 tag;
+	const guint8 *name;
 
 	len = tvb_reported_length(tvb);
 	if (len < 2)
@@ -902,17 +898,17 @@ dissect_rfc4675_egress_vlan_name(proto_tree *tree, tvbuff_t *tvb, packet_info *p
 	proto_tree_add_item(tree, hf_radius_egress_vlan_name_tag, tvb, 0, 1, ENC_BIG_ENDIAN);
 	tag = tvb_get_guint8(tvb, 0);
 	len -= 1;
-	proto_tree_add_item(tree, hf_radius_egress_vlan_name, tvb, 1, len, ENC_ASCII|ENC_NA);
+	proto_tree_add_item_ret_string(tree, hf_radius_egress_vlan_name, tvb, 1, len, ENC_ASCII|ENC_NA, wmem_packet_scope(), &name);
 
 	return wmem_strdup_printf(wmem_packet_scope(), "%s, Vlan Name: %s",
-				   val_to_str_const(tag, egress_vlan_tag_vals, "Unknown"), tvb_get_string_enc(wmem_packet_scope(), tvb, 1, len, ENC_ASCII|ENC_NA));
+				   val_to_str_const(tag, egress_vlan_tag_vals, "Unknown"), name);
 }
 
 static void
 radius_decrypt_avp(gchar *dest, int dest_len, tvbuff_t *tvb, int offset, int length)
 {
-	md5_state_t md_ctx, old_md_ctx;
-	md5_byte_t digest[AUTHENTICATOR_LENGTH];
+	gcry_md_hd_t md5_handle, old_md5_handle;
+	guint8 digest[HASH_MD5_LENGTH];
 	int i, j;
 	gint totlen = 0, returned_length, padded_length;
 	guint8 *pd;
@@ -931,11 +927,17 @@ radius_decrypt_avp(gchar *dest, int dest_len, tvbuff_t *tvb, int offset, int len
 	if (length > 128)
 		length = 128;
 
-	md5_init(&md_ctx);
-	md5_append(&md_ctx, (const guint8 *)shared_secret, (int)strlen(shared_secret));
-	old_md_ctx = md_ctx;
-	md5_append(&md_ctx, authenticator, AUTHENTICATOR_LENGTH);
-	md5_finish(&md_ctx, digest);
+	if (gcry_md_open(&md5_handle, GCRY_MD_MD5, 0)) {
+		return;
+	}
+	gcry_md_write(md5_handle, (const guint8 *)shared_secret, (int)strlen(shared_secret));
+	if (gcry_md_copy(&old_md5_handle, md5_handle)) {
+		gcry_md_close(md5_handle);
+		return;
+	}
+	gcry_md_write(md5_handle, authenticator, AUTHENTICATOR_LENGTH);
+	memcpy(digest, gcry_md_read(md5_handle, 0), HASH_MD5_LENGTH);
+	gcry_md_close(md5_handle);
 
 	padded_length = length + ((length % AUTHENTICATOR_LENGTH) ?
 		(AUTHENTICATOR_LENGTH - (length % AUTHENTICATOR_LENGTH)) : 0);
@@ -957,11 +959,20 @@ radius_decrypt_avp(gchar *dest, int dest_len, tvbuff_t *tvb, int offset, int len
 			}
 		}
 
-		md_ctx = old_md_ctx;
-		md5_append(&md_ctx, &pd[i], AUTHENTICATOR_LENGTH);
-		md5_finish(&md_ctx, digest);
+		if (gcry_md_copy(&md5_handle, old_md5_handle)) {
+			gcry_md_close(old_md5_handle);
+			return;
+		}
+		gcry_md_write(md5_handle, &pd[i], AUTHENTICATOR_LENGTH);
+		memcpy(digest, gcry_md_read(md5_handle, 0), HASH_MD5_LENGTH);
+		gcry_md_close(md5_handle);
 	}
+
+	gcry_md_close(old_md5_handle);
 }
+
+static void
+add_avp_to_tree_with_dissector(proto_tree *avp_tree, proto_item *avp_item, packet_info *pinfo, tvbuff_t *tvb, radius_avp_dissector_t *avp_dissector, guint32 avp_length, guint32 offset);
 
 
 void
@@ -1112,7 +1123,7 @@ radius_ipv6addr(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U_,
 void
 radius_ipv6prefix(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U_, tvbuff_t *tvb, int offset, int len, proto_item *avp_item)
 {
-	struct e_in6_addr ipv6_buff;
+	ws_in6_addr ipv6_buff;
 	gchar txtbuf[256];
 	guint8 n;
 
@@ -1139,7 +1150,7 @@ radius_ipv6prefix(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U
 	/* cannot use tvb_get_ipv6() here, since the prefix most likely is truncated */
 	memset(&ipv6_buff, 0, sizeof ipv6_buff);
 	tvb_memcpy(tvb, &ipv6_buff, offset + 2,  len - 2);
-	ip6_to_str_buf(&ipv6_buff, txtbuf);
+	ip6_to_str_buf(&ipv6_buff, txtbuf, sizeof(txtbuf));
 	proto_item_append_text(avp_item, "%s/%u", txtbuf, n);
 }
 
@@ -1200,6 +1211,10 @@ radius_date(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U_, tvb
 void
 radius_abinary(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U_, tvbuff_t *tvb, int offset, int len, proto_item *avp_item)
 {
+	if (a->code.u8_code[0] == 242) {
+		add_avp_to_tree_with_dissector(tree, avp_item, pinfo, tvb, dissect_ascend_data_filter, len, offset);
+		return;
+	}
 	proto_tree_add_item(tree, a->hf, tvb, offset, len, ENC_NA);
 	proto_item_append_text(avp_item, "%s", tvb_bytes_to_str(wmem_packet_scope(), tvb, offset, len));
 }
@@ -1273,8 +1288,8 @@ radius_tlv(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U_, tvbu
 		}
 
 		tlv_tree = proto_tree_add_subtree_format(tree, tvb, offset, tlv_length,
-					       dictionary_entry->ett, &tlv_item, "TLV: l=%u t=%s(%u)", tlv_length,
-					       dictionary_entry->name, tlv_type);
+					       dictionary_entry->ett, &tlv_item, "TLV: t=%s(%u) l=%u ", dictionary_entry->name, tlv_type,
+					       tlv_length);
 
 		tlv_length -= 2;
 		offset += 2;
@@ -1293,6 +1308,17 @@ radius_tlv(radius_attr_info_t *a, proto_tree *tree, packet_info *pinfo _U_, tvbu
 	}
 
 	proto_item_append_text(avp_item, "%d TLV(s) inside", tlv_num);
+}
+
+static void
+add_avp_to_tree_with_dissector(proto_tree *avp_tree, proto_item *avp_item, packet_info *pinfo, tvbuff_t *tvb, radius_avp_dissector_t *avp_dissector, guint32 avp_length, guint32 offset)
+{
+	tvbuff_t *tvb_value;
+	const gchar *str;
+
+	tvb_value = tvb_new_subset_length(tvb, offset, avp_length);
+	str = avp_dissector(avp_tree, tvb_value, pinfo);
+	proto_item_append_text(avp_item, "%s", str);
 }
 
 static void
@@ -1323,20 +1349,14 @@ add_avp_to_tree(proto_tree *avp_tree, proto_item *avp_item, packet_info *pinfo, 
 		}
 	}
 
+	proto_item_append_text(avp_item, " val=");
+
 	if (dictionary_entry->dissector) {
-		tvbuff_t *tvb_value;
-		const gchar *str;
-
-		tvb_value = tvb_new_subset_length(tvb, offset, avp_length);
-
-		str = dictionary_entry->dissector(avp_tree, tvb_value, pinfo);
-
-		proto_item_append_text(avp_item, ": %s", str);
-	} else {
-		proto_item_append_text(avp_item, ": ");
-
-		dictionary_entry->type(dictionary_entry, avp_tree, pinfo, tvb, offset, avp_length, avp_item);
+		add_avp_to_tree_with_dissector(avp_tree, avp_item, pinfo, tvb, dictionary_entry->dissector, avp_length, offset);
+		return;
 	}
+
+	dictionary_entry->type(dictionary_entry, avp_tree, pinfo, tvb, offset, avp_length, avp_item);
 }
 
 static gboolean
@@ -1349,14 +1369,21 @@ vsa_buffer_destroy(gpointer k _U_, gpointer v, gpointer p _U_)
 }
 
 static void
-vsa_buffer_table_destroy(void *table)
+eap_buffer_free_indirect(void *context)
 {
-	if (table) {
-		g_hash_table_foreach_remove((GHashTable *)table, vsa_buffer_destroy, NULL);
-		g_hash_table_destroy((GHashTable *)table);
-	}
+	guint8 *eap_buffer = *(guint8 **)context;
+	g_free(eap_buffer);
 }
 
+static void
+vsa_buffer_table_destroy_indirect(void *context)
+{
+	GHashTable *vsa_buffer_table = *(GHashTable **)context;
+	if (vsa_buffer_table) {
+		g_hash_table_foreach_remove(vsa_buffer_table, vsa_buffer_destroy, NULL);
+		g_hash_table_destroy(vsa_buffer_table);
+	}
+}
 
 void
 dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tvb, int offset, guint length)
@@ -1371,22 +1398,24 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 
 	GHashTable *vsa_buffer_table = NULL;
 
-	/* Forces load of header fields, if not already done so */
-	DISSECTOR_ASSERT(proto_registrar_get_byname("radius.code"));
+	if (hf_radius_code == -1)
+		proto_registrar_get_byname("radius.code");
 
 	/*
 	 * In case we throw an exception, clean up whatever stuff we've
 	 * allocated (if any).
 	 */
-	CLEANUP_PUSH_PFX(la, g_free, eap_buffer);
-	CLEANUP_PUSH_PFX(lb, vsa_buffer_table_destroy, (void *)vsa_buffer_table);
+	CLEANUP_PUSH_PFX(la, eap_buffer_free_indirect, &eap_buffer);
+	CLEANUP_PUSH_PFX(lb, vsa_buffer_table_destroy_indirect, &vsa_buffer_table);
 
 	while (length > 0) {
 		radius_attr_info_t *dictionary_entry = NULL;
-		gint tvb_len;
-		guint32 avp_type;
+		guint32 avp_type0 = 0, avp_type1 = 0;
+		radius_attr_type_t avp_type;
 		guint32 avp_length;
 		guint32 vendor_id;
+		gboolean avp_is_extended = FALSE;
+		int avp_offset_start = offset;
 
 		proto_item *avp_item;
 		proto_item *avp_len_item;
@@ -1397,12 +1426,31 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 						   "Not enough room in packet for AVP header");
 			break;  /* exit outer loop, then cleanup & return */
 		}
-		avp_type = tvb_get_guint8(tvb, offset);
+
+		avp_type0 = tvb_get_guint8(tvb, offset);
 		avp_length = tvb_get_guint8(tvb, offset+1);
+		avp_is_extended = RADIUS_ATTR_TYPE_IS_EXTENDED(avp_type0);
+		if (avp_is_extended) {
+			avp_type1 = tvb_get_guint8(tvb, offset+2);
+		}
+		memset(&avp_type, 0, sizeof(avp_type));
+		avp_type.u8_code[0] = avp_type0;
+		avp_type.u8_code[1] = avp_type1;
+
+		if (disable_extended_attributes) {
+			avp_is_extended = FALSE;
+			avp_type.u8_code[1] = 0;
+		}
 
 		if (avp_length < 2) {
 			proto_tree_add_expert_format(tree, pinfo, &ei_radius_invalid_length, tvb, offset, 0,
 						   "AVP too short: length %u < 2", avp_length);
+			break;  /* exit outer loop, then cleanup & return */
+		}
+
+		if (avp_is_extended && avp_length < 3) {
+			proto_tree_add_expert_format(tree, pinfo, &ei_radius_invalid_length, tvb, offset, 0,
+						   "Extended AVP too short: length %u < 3", avp_length);
 			break;  /* exit outer loop, then cleanup & return */
 		}
 
@@ -1414,24 +1462,38 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 
 		length -= avp_length;
 
-		dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(dict->attrs_by_id, GUINT_TO_POINTER(avp_type));
+		dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(dict->attrs_by_id, GUINT_TO_POINTER(avp_type.value));
 
 		if (!dictionary_entry) {
 			dictionary_entry = &no_dictionary_entry;
 		}
 
 		avp_item = proto_tree_add_bytes_format_value(tree, hf_radius_avp, tvb, offset, avp_length,
-					       NULL, "l=%u t=%s(%u)", avp_length,
-					       dictionary_entry->name, avp_type);
+					       NULL, "t=%s", dictionary_entry->name);
+		if (avp_is_extended)
+			proto_item_append_text(avp_item, "(%u.%u)", avp_type0, avp_type1);
+		else
+			proto_item_append_text(avp_item, "(%u)", avp_type0);
+
+		proto_item_append_text(avp_item, " l=%u", avp_length);
 
 		avp_length -= 2;
 		offset += 2;
+		if (avp_is_extended) {
+			avp_length -= 1;
+			offset += 1;
+			if (RADIUS_ATTR_TYPE_IS_EXTENDED_LONG(avp_type0)) {
+				avp_length -= 1;
+				offset += 1;
+			}
+		}
 
-		if (avp_type == RADIUS_ATTR_TYPE_VENDOR_SPECIFIC) {
+		if (avp_type0 == RADIUS_ATTR_TYPE_VENDOR_SPECIFIC || (avp_is_extended && avp_type1 == RADIUS_ATTR_TYPE_VENDOR_SPECIFIC)) {
 			radius_vendor_info_t *vendor;
 			proto_tree *vendor_tree;
 			gint max_offset = offset + avp_length;
 			const gchar *vendor_str;
+			int vendor_offset;
 
 			/* XXX TODO: handle 2 byte codes for USR */
 
@@ -1446,23 +1508,36 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 			offset += 4;
 
 			vendor = (radius_vendor_info_t *)g_hash_table_lookup(dict->vendors_by_id, GUINT_TO_POINTER(vendor_id));
-			vendor_str = val_to_str_ext_const(vendor_id, &sminmpec_values_ext, "Unknown");
+			vendor_str = enterprises_lookup(vendor_id, "Unknown");
 			if (!vendor) {
 				vendor = &no_vendor;
 			}
-			proto_item_append_text(avp_item, " v=%s(%u)", vendor_str,
+			proto_item_append_text(avp_item, " vnd=%s(%u)", vendor_str,
 					       vendor_id);
 
 			vendor_tree = proto_item_add_subtree(avp_item, vendor->ett);
 
-			proto_tree_add_item(vendor_tree, hf_radius_avp_type, tvb, offset-6, 1, ENC_BIG_ENDIAN);
-			proto_tree_add_item(vendor_tree, hf_radius_avp_length, tvb, offset-5, 1, ENC_BIG_ENDIAN);
+			vendor_offset = avp_offset_start;
+			proto_tree_add_item(vendor_tree, hf_radius_avp_type, tvb, vendor_offset, 1, ENC_BIG_ENDIAN);
+			proto_tree_add_item(vendor_tree, hf_radius_avp_length, tvb, vendor_offset+1, 1, ENC_BIG_ENDIAN);
+			vendor_offset += 2;
+			if (avp_is_extended) {
+				proto_tree_add_item(vendor_tree, hf_radius_avp_extended_type, tvb, vendor_offset, 1, ENC_BIG_ENDIAN);
+				vendor_offset += 1;
+				if (RADIUS_ATTR_TYPE_IS_EXTENDED_LONG(avp_type0)) {
+					proto_tree_add_item(vendor_tree, hf_radius_avp_extended_more, tvb, vendor_offset, 1, ENC_BIG_ENDIAN);
+					vendor_offset += 1;
+				}
+			}
+			proto_tree_add_uint_format_value(vendor_tree, hf_radius_avp_vendor_id, tvb, vendor_offset, 4, vendor_id, "%s (%u)", vendor_str, vendor_id);
+			vendor_offset += 4;
 
 			while (offset < max_offset) {
+				radius_attr_type_t vendor_type;
 				guint32 avp_vsa_type;
 				guint32 avp_vsa_len;
 				guint8 avp_vsa_flags = 0;
-				guint32 avp_vsa_header_len = vendor->type_octets + vendor->length_octets + (vendor->has_flags ? 1 : 0);
+				guint32 avp_vsa_header_len;
 
 				switch (vendor->type_octets) {
 					case 1:
@@ -1477,22 +1552,32 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 						offset += 4;
 						break;
 					default:
-						avp_vsa_type = tvb_get_guint8(tvb, offset++);
+						/* vendor->type_octets = 1; */
+						DISSECTOR_ASSERT_NOT_REACHED();
+						break;
 				}
 
-				switch (vendor->length_octets) {
-					case 1:
-						avp_vsa_len = tvb_get_guint8(tvb, offset++);
-						break;
-					case 0:
-						avp_vsa_len = avp_length;
-						break;
-					case 2:
-						avp_vsa_len = tvb_get_ntohs(tvb, offset);
-						offset += 2;
-						break;
-					default:
-						avp_vsa_len = tvb_get_guint8(tvb, offset++);
+				if (!avp_is_extended) {
+					switch (vendor->length_octets) {
+						case 1:
+							avp_vsa_len = tvb_get_guint8(tvb, offset++);
+							break;
+						case 0:
+							avp_vsa_len = avp_length;
+							break;
+						case 2:
+							avp_vsa_len = tvb_get_ntohs(tvb, offset);
+							offset += 2;
+							break;
+						default:
+							/* vendor->length_octets = 1; */
+							DISSECTOR_ASSERT_NOT_REACHED();
+							break;
+					}
+					avp_vsa_header_len = vendor->type_octets + vendor->length_octets + (vendor->has_flags ? 1 : 0);
+				} else {
+					avp_vsa_len = avp_length;
+					avp_vsa_header_len = vendor->type_octets + (vendor->has_flags ? 1 : 0);
 				}
 
 				if (vendor->has_flags) {
@@ -1507,7 +1592,19 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 
 				avp_vsa_len -= avp_vsa_header_len;
 
-				dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(vendor->attrs_by_id, GUINT_TO_POINTER(avp_vsa_type));
+				memset(&vendor_type, 0, sizeof(vendor_type));
+				if (avp_is_extended) {
+					vendor_type.u8_code[0] = avp_type.u8_code[0];
+					vendor_type.u8_code[1] = avp_vsa_type;
+				} else {
+					vendor_type.u8_code[0] = avp_vsa_type;
+					vendor_type.u8_code[1] = 0;
+				}
+				if (vendor->attrs_by_id) {
+					dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(vendor->attrs_by_id, GUINT_TO_POINTER(vendor_type.value));
+				} else {
+					dictionary_entry = NULL;
+				}
 
 				if (!dictionary_entry) {
 					dictionary_entry = &no_dictionary_entry;
@@ -1515,12 +1612,23 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 
 				if (vendor->has_flags) {
 					avp_tree = proto_tree_add_subtree_format(vendor_tree, tvb, offset-avp_vsa_header_len, avp_vsa_len+avp_vsa_header_len,
-								       dictionary_entry->ett, &avp_item, "VSA: l=%u t=%s(%u) C=0x%02x",
-								       avp_vsa_len+avp_vsa_header_len, dictionary_entry->name, avp_vsa_type, avp_vsa_flags);
+								       dictionary_entry->ett, &avp_item, "VSA: t=%s(%u) l=%u C=0x%02x",
+								       dictionary_entry->name, avp_vsa_type, avp_vsa_len+avp_vsa_header_len, avp_vsa_flags);
+				} else if (avp_is_extended) {
+					avp_tree = proto_tree_add_subtree_format(vendor_tree, tvb, offset-avp_vsa_header_len, avp_vsa_len+avp_vsa_header_len,
+								       dictionary_entry->ett, &avp_item, "EVS: t=%s(%u) l=%u",
+								        dictionary_entry->name, avp_vsa_type, avp_vsa_len+avp_vsa_header_len);
 				} else {
 					avp_tree = proto_tree_add_subtree_format(vendor_tree, tvb, offset-avp_vsa_header_len, avp_vsa_len+avp_vsa_header_len,
-								       dictionary_entry->ett, &avp_item, "VSA: l=%u t=%s(%u)",
-								       avp_vsa_len+avp_vsa_header_len, dictionary_entry->name, avp_vsa_type);
+								       dictionary_entry->ett, &avp_item, "VSA: t=%s(%u) l=%u",
+								       dictionary_entry->name, avp_vsa_type, avp_vsa_len+avp_vsa_header_len);
+				}
+
+				proto_tree_add_item(avp_tree, hf_radius_avp_vendor_type, tvb, vendor_offset, vendor->type_octets, ENC_BIG_ENDIAN);
+				vendor_offset += vendor->type_octets;
+				if (!avp_is_extended && vendor->length_octets) {
+					proto_tree_add_item(avp_tree, hf_radius_avp_vendor_len, tvb, vendor_offset, vendor->length_octets, ENC_BIG_ENDIAN);
+					/* vendor_offset += vendor->length_octets; */
 				}
 
 				if (show_length) {
@@ -1531,6 +1639,20 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 				}
 
 				if (vendor->has_flags) {
+					/*
+					 *       WiMAX VSA's have a non-standard format:
+					 *
+					 *               type            1 octet
+					 *               length          1 octet
+					 *               continuation    1 octet      0bcrrrrrrr
+					 *               value           1+ octets
+					 *
+					 *       If the high bit of the "continuation" field is set, then
+					 *       the next attribute of the same WiMAX type should have it's
+					 *       value concatenated to this one.
+					 *
+					 *       See "dictionary.wimax" from FreeRADIUS for details and references.
+					 */
 					radius_vsa_buffer_key key;
 					radius_vsa_buffer *vsa_buffer = NULL;
 					key.vendor_id = vendor_id;
@@ -1588,8 +1710,8 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 
 		avp_tree = proto_item_add_subtree(avp_item, dictionary_entry->ett);
 
-		proto_tree_add_item(avp_tree, hf_radius_avp_type, tvb, offset-2, 1, ENC_BIG_ENDIAN);
-		proto_tree_add_item(avp_tree, hf_radius_avp_length, tvb, offset-1, 1, ENC_BIG_ENDIAN);
+		proto_tree_add_item(avp_tree, hf_radius_avp_type, tvb, avp_offset_start, 1, ENC_BIG_ENDIAN);
+		proto_tree_add_item(avp_tree, hf_radius_avp_length, tvb, avp_offset_start+1, 1, ENC_BIG_ENDIAN);
 
 		if (show_length) {
 			avp_len_item = proto_tree_add_uint(avp_tree,
@@ -1598,13 +1720,22 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 			PROTO_ITEM_SET_GENERATED(avp_len_item);
 		}
 
-		tvb_len = tvb_captured_length_remaining(tvb, offset);
+		if (avp_is_extended) {
+			proto_tree_add_item(avp_tree, hf_radius_avp_extended_type, tvb, avp_offset_start+2, 1, ENC_BIG_ENDIAN);
+			if (RADIUS_ATTR_TYPE_IS_EXTENDED_LONG(avp_type0)) {
+				proto_tree_add_item(avp_tree, hf_radius_avp_extended_more, tvb, avp_offset_start+3, 1, ENC_BIG_ENDIAN);
+			}
+		}
 
-		if ((gint)avp_length < tvb_len)
-			tvb_len = avp_length;
+		if (avp_type0 == RADIUS_ATTR_TYPE_EAP_MESSAGE) {
+			gint tvb_len;
 
-		if (avp_type == RADIUS_ATTR_TYPE_EAP_MESSAGE) {
 			eap_seg_num++;
+
+			tvb_len = tvb_captured_length_remaining(tvb, offset);
+
+			if ((gint)avp_length < tvb_len)
+				tvb_len = avp_length;
 
 			/* Show this as an EAP fragment. */
 			proto_tree_add_item(avp_tree, hf_radius_eap_fragment, tvb, offset, tvb_len, ENC_NA);
@@ -1702,12 +1833,12 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 					 * this as an RADIUS packet, not
 					 * as an EAP packet.
 					 */
-					save_writable = col_get_writable(pinfo->cinfo);
-					col_set_writable(pinfo->cinfo, FALSE);
+					save_writable = col_get_writable(pinfo->cinfo, -1);
+					col_set_writable(pinfo->cinfo, -1, FALSE);
 
 					call_dissector(eap_handle, eap_tvb, pinfo, eap_tree);
 
-					col_set_writable(pinfo->cinfo, save_writable);
+					col_set_writable(pinfo->cinfo, -1, save_writable);
 				} else {
 					proto_item_append_text(avp_item, " Segment[%u]",
 							       eap_seg_num);
@@ -1715,21 +1846,22 @@ dissect_attribute_value_pairs(proto_tree *tree, packet_info *pinfo, tvbuff_t *tv
 			}
 
 			offset += avp_length;
-		} else {
-			add_avp_to_tree(avp_tree, avp_item, pinfo, tvb, dictionary_entry,
-					avp_length, offset);
-			offset += avp_length;
+			continue;
 		}
+
+		add_avp_to_tree(avp_tree, avp_item, pinfo, tvb, dictionary_entry,
+				avp_length, offset);
+		offset += avp_length;
 
 	}  /* while (length > 0) */
 
-	CLEANUP_CALL_AND_POP_PFX(lb); /* vsa_buffer_table_destroy(vsa_buffer_table) */
+	CLEANUP_CALL_AND_POP_PFX(lb); /* vsa_buffer_table_destroy_indirect(&vsa_buffer_table) */
 
 	/*
 	 * Call the cleanup handler to free any reassembled data we haven't
 	 * attached to a tvbuff, and pop the handler.
 	 */
-	CLEANUP_CALL_AND_POP_PFX(la);
+	CLEANUP_CALL_AND_POP_PFX(la); /* eap_buffer_free_indirect(&eap_buffer); */
 }
 
 /* This function tries to determine whether a packet is radius or not */
@@ -1763,11 +1895,9 @@ is_radius(tvbuff_t *tvb)
 	return TRUE;
 }
 
-static void register_radius_fields(const char *);
-
 /*
  * returns true if the response authenticator is valid
- * input: tvb of the reponse, corresponding request authenticator
+ * input: tvb of the response, corresponding request authenticator
  * uses the shared secret to calculate the Response authenticator
  * and checks with the current.
  * see RFC 2865, packet format page 16
@@ -1775,8 +1905,9 @@ static void register_radius_fields(const char *);
 static gboolean
 valid_authenticator(tvbuff_t *tvb, guint8 request_authenticator[])
 {
-	md5_state_t md_ctx;
-	md5_byte_t digest[16];
+	gcry_md_hd_t md5_handle;
+	guint8 *digest;
+	gboolean result;
 	guint tvb_length;
 	guint8 *payload;
 
@@ -1789,12 +1920,16 @@ valid_authenticator(tvbuff_t *tvb, guint8 request_authenticator[])
 	memcpy(payload+4, request_authenticator, AUTHENTICATOR_LENGTH);
 
 	/* calculate MD5 hash (payload+shared_secret) */
-	md5_init(&md_ctx);
-	md5_append(&md_ctx, payload, tvb_length);
-	md5_append(&md_ctx, shared_secret, strlen(shared_secret));
-	md5_finish(&md_ctx, digest);
+	if (gcry_md_open(&md5_handle, GCRY_MD_MD5, 0)) {
+		return FALSE;
+	}
+	gcry_md_write(md5_handle, payload, tvb_length);
+	gcry_md_write(md5_handle, shared_secret, strlen(shared_secret));
+	digest = gcry_md_read(md5_handle, 0);
 
-	return !memcmp(digest, authenticator, AUTHENTICATOR_LENGTH);
+	result = !memcmp(digest, authenticator, AUTHENTICATOR_LENGTH);
+	gcry_md_close(md5_handle);
+	return result;
 }
 
 static int
@@ -1829,8 +1964,6 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 
 	/* Initialise stat info for passing to tap */
 	rad_info = wmem_new(wmem_packet_scope(), radius_info_t);
-	rad_info->code = 0;
-	rad_info->ident = 0;
 	rad_info->req_time.secs = 0;
 	rad_info->req_time.nsecs = 0;
 	rad_info->is_duplicate = FALSE;
@@ -1842,20 +1975,19 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 	rad_info->ident = rh.rh_ident;
 	tap_queue_packet(radius_tap, pinfo, rad_info);
 
-	col_add_fstr(pinfo->cinfo, COL_INFO,"%s(%d) (id=%d, l=%d)",
+	col_add_fstr(pinfo->cinfo, COL_INFO, "%s id=%d",
 			val_to_str_ext_const(rh.rh_code, &radius_pkt_type_codes_ext, "Unknown Packet"),
-			rh.rh_code, rh.rh_ident, rh.rh_pktlength);
+			rh.rh_ident);
 
-	if (tree) {
-		/* Forces load of header fields, if not already done so */
-		DISSECTOR_ASSERT(proto_registrar_get_byname("radius.code"));
+	/* Load header fields if not already done */
+	if (hf_radius_code == -1)
+		proto_registrar_get_byname("radius.code");
 
-		ti = proto_tree_add_item(tree, proto_radius, tvb, 0, rh.rh_pktlength, ENC_NA);
-		radius_tree = proto_item_add_subtree(ti, ett_radius);
-		proto_tree_add_uint(radius_tree, hf_radius_code, tvb, 0, 1, rh.rh_code);
-		proto_tree_add_uint_format(radius_tree, hf_radius_id, tvb, 1, 1, rh.rh_ident,
-			"Packet identifier: 0x%01x (%d)", rh.rh_ident, rh.rh_ident);
-	}
+	ti = proto_tree_add_item(tree, proto_radius, tvb, 0, rh.rh_pktlength, ENC_NA);
+	radius_tree = proto_item_add_subtree(ti, ett_radius);
+	proto_tree_add_uint(radius_tree, hf_radius_code, tvb, 0, 1, rh.rh_code);
+	proto_tree_add_uint_format(radius_tree, hf_radius_id, tvb, 1, 1, rh.rh_ident,
+		"Packet identifier: 0x%01x (%d)", rh.rh_ident, rh.rh_ident);
 
 	/*
 	 * Make sure the length is sane.
@@ -1909,13 +2041,13 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			 * if you do that.
 			 */
 			conversation = find_conversation(pinfo->num, &pinfo->src,
-				&null_address, pinfo->ptype, pinfo->srcport,
+				&null_address, conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
 				pinfo->destport, 0);
 			if (conversation == NULL)
 			{
 				/* It's not part of any conversation - create a new one. */
 				conversation = conversation_new(pinfo->num, &pinfo->src,
-					&null_address, pinfo->ptype, pinfo->srcport,
+					&null_address, conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport,
 					pinfo->destport, 0);
 			}
 
@@ -1979,7 +2111,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 				wmem_tree_insert32(radius_call_tree, pinfo->num, radius_call);
 			}
 
-			if (tree && radius_call->rsp_num) {
+			if (radius_call && radius_call->rsp_num) {
 				proto_item *item;
 				item = proto_tree_add_uint_format(radius_tree,
 					hf_radius_rsp_frame, tvb, 0, 0, radius_call->rsp_num,
@@ -2029,7 +2161,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 			 * if you do that.
 			 */
 			conversation = find_conversation(pinfo->num, &null_address,
-				&pinfo->dst, pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+				&pinfo->dst, conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport, pinfo->destport, 0);
 			if (conversation == NULL) {
 				/* Nothing more to do here */
 				break;
@@ -2087,7 +2219,7 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 					PROTO_ITEM_SET_GENERATED(item);
 
 					if (!valid) {
-						col_append_fstr(pinfo->cinfo, COL_INFO," [incorrect authenticator]");
+						col_append_fstr(pinfo->cinfo, COL_INFO, " [incorrect authenticator]");
 					}
 				}
 			}
@@ -2139,6 +2271,37 @@ dissect_radius(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
 	return tvb_captured_length(tvb);
 }
 
+void
+free_radius_attr_info(gpointer data)
+{
+	radius_attr_info_t* attr = (radius_attr_info_t*)data;
+	value_string *vs = (value_string *)attr->vs;
+
+	g_free(attr->name);
+	if (attr->tlvs_by_id) {
+		g_hash_table_destroy(attr->tlvs_by_id);
+	}
+	if (vs) {
+		for (; vs->strptr; vs++) {
+			g_free((gpointer)vs->strptr);
+		}
+		g_free((gpointer)attr->vs);
+	}
+
+	g_free(attr);
+}
+
+static void
+free_radius_vendor_info(gpointer data)
+{
+	radius_vendor_info_t* vendor = (radius_vendor_info_t*)data;
+
+	g_free(vendor->name);
+	if (vendor->attrs_by_id)
+		g_hash_table_destroy(vendor->attrs_by_id);
+
+	g_free(vendor);
+}
 
 static void
 register_attrs(gpointer k _U_, gpointer v, gpointer p)
@@ -2253,9 +2416,11 @@ register_attrs(gpointer k _U_, gpointer v, gpointer p)
 		hfri[2].hfinfo.display = BASE_NONE;
 
 		len_hf++;
+#if 0 /* Fix -Wduplicated-branches */
 	} else if (a->type == radius_tlv) {
 		hfri[0].hfinfo.type = FT_BYTES;
 		hfri[0].hfinfo.display = BASE_NONE;
+#endif
 	} else {
 		hfri[0].hfinfo.type = FT_BYTES;
 		hfri[0].hfinfo.display = BASE_NONE;
@@ -2297,13 +2462,16 @@ register_vendors(gpointer k _U_, gpointer v, gpointer p)
 }
 
 extern void
-radius_register_avp_dissector(guint32 vendor_id, guint32 attribute_id, radius_avp_dissector_t radius_avp_dissector)
+radius_register_avp_dissector(guint32 vendor_id, guint32 _attribute_id, radius_avp_dissector_t radius_avp_dissector)
 {
 	radius_vendor_info_t *vendor;
 	radius_attr_info_t *dictionary_entry;
 	GHashTable *by_id;
+	radius_attr_type_t attribute_id;
 
 	DISSECTOR_ASSERT(radius_avp_dissector != NULL);
+	memset(&attribute_id, 0, sizeof(attribute_id));
+	attribute_id.u8_code[0] = _attribute_id;
 
 	if (vendor_id) {
 		vendor = (radius_vendor_info_t *)g_hash_table_lookup(dict->vendors_by_id, GUINT_TO_POINTER(vendor_id));
@@ -2312,10 +2480,10 @@ radius_register_avp_dissector(guint32 vendor_id, guint32 attribute_id, radius_av
 			vendor = (radius_vendor_info_t *)g_malloc(sizeof(radius_vendor_info_t));
 
 			vendor->name = g_strdup_printf("%s-%u",
-						       val_to_str_ext_const(vendor_id, &sminmpec_values_ext, "Unknown"),
+						       enterprises_lookup(vendor_id, "Unknown"),
 						       vendor_id);
 			vendor->code = vendor_id;
-			vendor->attrs_by_id = g_hash_table_new(g_direct_hash, g_direct_equal);
+			vendor->attrs_by_id = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, free_radius_attr_info);
 			vendor->ett = no_vendor.ett;
 
 			/* XXX: Default "standard" values: Should be parameters ?  */
@@ -2327,17 +2495,17 @@ radius_register_avp_dissector(guint32 vendor_id, guint32 attribute_id, radius_av
 			g_hash_table_insert(dict->vendors_by_name, (gpointer)(vendor->name), vendor);
 		}
 
-		dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(vendor->attrs_by_id, GUINT_TO_POINTER(attribute_id));
+		dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(vendor->attrs_by_id, GUINT_TO_POINTER(attribute_id.value));
 		by_id = vendor->attrs_by_id;
 	} else {
-		dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(dict->attrs_by_id, GUINT_TO_POINTER(attribute_id));
+		dictionary_entry = (radius_attr_info_t *)g_hash_table_lookup(dict->attrs_by_id, GUINT_TO_POINTER(attribute_id.value));
 		by_id = dict->attrs_by_id;
 	}
 
 	if (!dictionary_entry) {
 		dictionary_entry = (radius_attr_info_t *)g_malloc(sizeof(radius_attr_info_t));
 
-		dictionary_entry->name = g_strdup_printf("Unknown-Attribute-%u", attribute_id);
+		dictionary_entry->name = g_strdup_printf("Unknown-Attribute-%u", attribute_id.value);
 		dictionary_entry->code = attribute_id;
 		dictionary_entry->encrypt = 0;
 		dictionary_entry->type = NULL;
@@ -2349,7 +2517,7 @@ radius_register_avp_dissector(guint32 vendor_id, guint32 attribute_id, radius_av
 		dictionary_entry->ett = no_dictionary_entry.ett;
 		dictionary_entry->tlvs_by_id = NULL;
 
-		g_hash_table_insert(by_id, GUINT_TO_POINTER(dictionary_entry->code), dictionary_entry);
+		g_hash_table_insert(by_id, GUINT_TO_POINTER(dictionary_entry->code.value), dictionary_entry);
 	}
 
 	dictionary_entry->dissector = radius_avp_dissector;
@@ -2369,11 +2537,41 @@ radius_init_protocol(void)
 		if (! prefs_get_preference_obsolete(alternate_port))
 			prefs_set_preference_obsolete(alternate_port);
 	}
-
-	radius_calls = wmem_map_new(wmem_file_scope(), radius_call_hash, radius_call_equal);
 }
 
-static void register_radius_fields(const char *unused _U_) {
+static void
+radius_shutdown(void)
+{
+	if (dict != NULL) {
+		g_hash_table_destroy(dict->attrs_by_id);
+		g_hash_table_destroy(dict->attrs_by_name);
+		g_hash_table_destroy(dict->vendors_by_id);
+		g_hash_table_destroy(dict->vendors_by_name);
+		g_hash_table_destroy(dict->tlvs_by_name);
+		g_free(dict);
+	}
+}
+
+static void
+_radius_load_dictionary(gchar* dir)
+{
+	gchar *dict_err_str = NULL;
+
+	if (!dir || test_for_directory(dir) != EISDIR) {
+		return;
+	}
+
+	radius_load_dictionary(dict, dir, "dictionary", &dict_err_str);
+
+	if (dict_err_str) {
+		report_failure("radius: %s", dict_err_str);
+		g_free(dict_err_str);
+	}
+}
+
+static void
+register_radius_fields(const char *unused _U_)
+{
 	hf_register_info base_hf[] = {
 		{ &hf_radius_req,
 		{ "Request", "radius.req", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
@@ -2391,7 +2589,7 @@ static void register_radius_fields(const char *unused _U_) {
 		{ "Time from request", "radius.time", FT_RELATIVE_TIME, BASE_NONE, NULL, 0,
 			"Timedelta between Request and Response", HFILL }},
 		{ &hf_radius_code,
-		{ "Code","radius.code", FT_UINT8, BASE_DEC|BASE_EXT_STRING, &radius_pkt_type_codes_ext, 0x0,
+		{ "Code", "radius.code", FT_UINT8, BASE_DEC|BASE_EXT_STRING, &radius_pkt_type_codes_ext, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_id,
 		{ "Identifier",	"radius.id", FT_UINT8, BASE_DEC, NULL, 0x0,
@@ -2406,37 +2604,37 @@ static void register_radius_fields(const char *unused _U_) {
 		{ "Invalid Authenticator", "radius.authenticator.invalid", FT_BOOLEAN, BASE_NONE, NULL, 0x0,
 			"TRUE if Authenticator is invalid", HFILL }},
 		{ &hf_radius_length,
-		{ "Length","radius.length", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "Length", "radius.length", FT_UINT16, BASE_DEC, NULL, 0x0,
 			NULL, HFILL }},
 		{ &(no_dictionary_entry.hf),
-		{ "Unknown-Attribute","radius.Unknown_Attribute", FT_BYTES, BASE_NONE, NULL, 0x0,
+		{ "Unknown-Attribute", "radius.Unknown_Attribute", FT_BYTES, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &(no_dictionary_entry.hf_len),
-		{ "Unknown-Attribute Length","radius.Unknown_Attribute.length", FT_UINT8, BASE_DEC, NULL, 0x0,
+		{ "Unknown-Attribute Length", "radius.Unknown_Attribute.length", FT_UINT8, BASE_DEC, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_chap_password,
-		{ "CHAP-Password","radius.CHAP_Password", FT_BYTES, BASE_NONE, NULL, 0x0,
+		{ "CHAP-Password", "radius.CHAP_Password", FT_BYTES, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_chap_ident,
-		{ "CHAP Ident","radius.CHAP_Ident", FT_UINT8, BASE_HEX, NULL, 0x0,
+		{ "CHAP Ident", "radius.CHAP_Ident", FT_UINT8, BASE_HEX, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_chap_string,
-		{ "CHAP String","radius.CHAP_String", FT_BYTES, BASE_NONE, NULL, 0x0,
+		{ "CHAP String", "radius.CHAP_String", FT_BYTES, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_framed_ip_address,
-		{ "Framed-IP-Address","radius.Framed-IP-Address", FT_IPv4, BASE_NONE, NULL, 0x0,
+		{ "Framed-IP-Address", "radius.Framed-IP-Address", FT_IPv4, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_login_ip_host,
-		{ "Login-IP-Host","radius.Login-IP-Host", FT_IPv4, BASE_NONE, NULL, 0x0,
+		{ "Login-IP-Host", "radius.Login-IP-Host", FT_IPv4, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_framed_ipx_network,
-		{ "Framed-IPX-Network","radius.Framed-IPX-Network", FT_IPXNET, BASE_NONE, NULL, 0x0,
+		{ "Framed-IPX-Network", "radius.Framed-IPX-Network", FT_IPXNET, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_cosine_vpi,
-		{ "Cosine-VPI","radius.Cosine-Vpi", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "Cosine-VPI", "radius.Cosine-Vpi", FT_UINT16, BASE_DEC, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_cosine_vci,
-		{ "Cosine-VCI","radius.Cosine-Vci", FT_UINT16, BASE_DEC, NULL, 0x0,
+		{ "Cosine-VCI", "radius.Cosine-Vci", FT_UINT16, BASE_DEC, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_dup,
 		{ "Duplicate Message ID", "radius.dup", FT_UINT32, BASE_DEC, NULL, 0x0,
@@ -2511,10 +2709,25 @@ static void register_radius_fields(const char *unused _U_) {
 		{ "AVP", "radius.avp", FT_BYTES, BASE_NONE, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_avp_length,
-		{ "AVP Length", "radius.avp.length", FT_UINT8, BASE_DEC, NULL, 0x0,
+		{ "Length", "radius.avp.length", FT_UINT8, BASE_DEC, NULL, 0x0,
 			NULL, HFILL }},
 		{ &hf_radius_avp_type,
-		{ "AVP Type", "radius.avp.type", FT_UINT8, BASE_DEC, NULL, 0x0,
+		{ "Type", "radius.avp.type", FT_UINT8, BASE_DEC, NULL, 0x0,
+			NULL, HFILL }},
+		{ &hf_radius_avp_vendor_id,
+		{ "Vendor ID", "radius.avp.vendor_id", FT_UINT32, BASE_ENTERPRISES, STRINGS_ENTERPRISES, 0x0,
+			NULL, HFILL }},
+		{ &hf_radius_avp_vendor_type,
+		{ "Type", "radius.avp.vendor_type", FT_UINT8, BASE_DEC, NULL, 0x0,
+			NULL, HFILL }},
+		{ &hf_radius_avp_vendor_len,
+		{ "Length", "radius.avp.vendor_len", FT_UINT8, BASE_DEC, NULL, 0x0,
+			NULL, HFILL }},
+		{ &hf_radius_avp_extended_type,
+		{ "Extended Type", "radius.avp.extended_type", FT_UINT8, BASE_DEC, NULL, 0x0,
+			NULL, HFILL }},
+		{ &hf_radius_avp_extended_more,
+		{ "Extended More", "radius.avp.extended_more", FT_BOOLEAN, 8, TFS(&tfs_true_false), 0x80,
 			NULL, HFILL }},
 		{ &hf_radius_egress_vlanid_tag,
 		{ "Tag", "radius.egress_vlanid_tag", FT_UINT32, BASE_HEX, VALS(egress_vlan_tag_vals), 0xFF000000,
@@ -2555,7 +2768,6 @@ static void register_radius_fields(const char *unused _U_) {
 	expert_module_t *expert_radius;
 	hfett_t ri;
 	char *dir = NULL;
-	gchar *dict_err_str = NULL;
 
 	ri.hf = wmem_array_new(wmem_epan_scope(), sizeof(hf_register_info));
 	ri.ett = wmem_array_new(wmem_epan_scope(), sizeof(gint *));
@@ -2564,40 +2776,21 @@ static void register_radius_fields(const char *unused _U_) {
 	wmem_array_append(ri.hf, base_hf, array_length(base_hf));
 	wmem_array_append(ri.ett, base_ett, array_length(base_ett));
 
-	dir = get_persconffile_path("radius", FALSE);
 
-	if (test_for_directory(dir) != EISDIR) {
-		/* Although dir isn't a directory it may still use memory */
-		g_free(dir);
-
-		dir = get_datafile_path("radius");
-
-		if (test_for_directory(dir) != EISDIR) {
-			g_free(dir);
-			dir = NULL;
-		}
-	}
-
-	if (dir) {
-		radius_load_dictionary(dict, dir, "dictionary", &dict_err_str);
-
-		if (dict_err_str) {
-			report_failure("radius: %s", dict_err_str);
-			g_free(dict_err_str);
-		}
-
-		g_hash_table_foreach(dict->attrs_by_id, register_attrs, &ri);
-		g_hash_table_foreach(dict->vendors_by_id, register_vendors, &ri);
-	}
-
+	dir = get_datafile_path("radius");
+	_radius_load_dictionary(dir);
 	g_free(dir);
+	dir = get_persconffile_path("radius", FALSE);
+	_radius_load_dictionary(dir);
+	g_free(dir);
+
+	g_hash_table_foreach(dict->attrs_by_id, register_attrs, &ri);
+	g_hash_table_foreach(dict->vendors_by_id, register_vendors, &ri);
 
 	proto_register_field_array(proto_radius, (hf_register_info *)wmem_array_get_raw(ri.hf), wmem_array_get_count(ri.hf));
 	proto_register_subtree_array((gint **)wmem_array_get_raw(ri.ett), wmem_array_get_count(ri.ett));
 	expert_radius = expert_register_protocol(proto_radius);
 	expert_register_field_array(expert_radius, ei, array_length(ei));
-
-	no_vendor.attrs_by_id = g_hash_table_new(g_direct_hash, g_direct_equal);
 
 	/*
 	 * Handle attributes that have a special format.
@@ -2610,15 +2803,6 @@ static void register_radius_fields(const char *unused _U_) {
 	radius_register_avp_dissector(0, 58, dissect_rfc4675_egress_vlan_name);
 
 	radius_register_avp_dissector(VENDOR_COSINE, 5, dissect_cosine_vpvc);
-	/*
-	 * XXX - should we just call dissect_ascend_data_filter()
-	 * in radius_abinary()?
-	 *
-	 * Note that there is no attribute 242 in dictionary.redback.
-	 */
-	radius_register_avp_dissector(VENDOR_ASCEND, 242, dissect_ascend_data_filter);
-	radius_register_avp_dissector(VENDOR_REDBACK, 242, dissect_ascend_data_filter);
-	radius_register_avp_dissector(0, 242, dissect_ascend_data_filter);
 
 	/*
 	 * XXX - we should special-case Cisco attribute 252; see the comment in
@@ -2634,35 +2818,44 @@ proto_register_radius(void)
 	module_t *radius_module;
 
 	proto_radius = proto_register_protocol("RADIUS Protocol", "RADIUS", "radius");
-	register_dissector("radius", dissect_radius, proto_radius);
+	radius_handle = register_dissector("radius", dissect_radius, proto_radius);
 	register_init_routine(&radius_init_protocol);
-	radius_module = prefs_register_protocol(proto_radius, proto_reg_handoff_radius);
-	prefs_register_string_preference(radius_module,"shared_secret","Shared Secret",
+	register_shutdown_routine(radius_shutdown);
+	radius_module = prefs_register_protocol(proto_radius, NULL);
+	prefs_register_string_preference(radius_module, "shared_secret", "Shared Secret",
 					 "Shared secret used to decode User Passwords and validate Response Authenticators",
 					 &shared_secret);
-	prefs_register_bool_preference(radius_module,"validate_authenticator","Validate Reponse Authenticator",
+	prefs_register_bool_preference(radius_module, "validate_authenticator", "Validate Response Authenticator",
 				       "Whether to check or not if Response Authenticator is correct. You need to define shared secret for this to work.",
 				       &validate_authenticator);
-	prefs_register_bool_preference(radius_module,"show_length","Show AVP Lengths",
+	prefs_register_bool_preference(radius_module, "show_length", "Show AVP Lengths",
 				       "Whether to add or not to the tree the AVP's payload length",
 				       &show_length);
-	prefs_register_uint_preference(radius_module, "alternate_port","Alternate Port",
-				       "An alternate UDP port to decode as RADIUS", 10, &alt_port_pref);
-
-	range_convert_str(&global_ports_range, DEFAULT_RADIUS_PORT_RANGE, MAX_UDP_PORT);
-	prefs_register_range_preference(radius_module, "ports","RADIUS ports",
-				       "A list of UDP ports to decode as RADIUS", &global_ports_range, MAX_UDP_PORT);
+	/*
+	 * For now this preference allows supporting legacy Ascend AVPs and others
+	 * who might use these attribute types (not complying with IANA allocation).
+	 */
+	prefs_register_bool_preference(radius_module, "disable_extended_attributes", "Disable extended attribute space (RFC 6929)",
+				       "Whether to interpret 241-246 as extended attributes according to RFC 6929",
+				       &disable_extended_attributes);
 	prefs_register_obsolete_preference(radius_module, "request_ttl");
 
 	radius_tap = register_tap("radius");
 	proto_register_prefix("radius", register_radius_fields);
 
 	dict = (radius_dictionary_t *)g_malloc(sizeof(radius_dictionary_t));
-	dict->attrs_by_id     = g_hash_table_new(g_direct_hash, g_direct_equal);
+	/*
+	 * IDs map to names and vice versa. The attribute and vendor is stored
+	 * only once, but referenced by both name and ID mappings.
+	 * See also radius_dictionary_t in packet-radius.h
+	 */
+	dict->attrs_by_id     = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, free_radius_attr_info);
 	dict->attrs_by_name   = g_hash_table_new(g_str_hash, g_str_equal);
-	dict->vendors_by_id   = g_hash_table_new(g_direct_hash, g_direct_equal);
+	dict->vendors_by_id   = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, free_radius_vendor_info);
 	dict->vendors_by_name = g_hash_table_new(g_str_hash, g_str_equal);
 	dict->tlvs_by_name    = g_hash_table_new(g_str_hash, g_str_equal);
+
+	radius_calls = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), radius_call_hash, radius_call_equal);
 
 	register_rtd_table(proto_radius, NULL, RADIUS_CAT_NUM_TIMESTATS, 1, radius_message_code, radiusstat_packet, NULL);
 }
@@ -2670,34 +2863,8 @@ proto_register_radius(void)
 void
 proto_reg_handoff_radius(void)
 {
-	static gboolean initialized = FALSE;
-	static dissector_handle_t radius_handle;
-	static range_t *ports_range;
-
-	if (!initialized) {
-		radius_handle = find_dissector("radius");
-		eap_handle = find_dissector_add_dependency("eap", proto_radius);
-
-		initialized = TRUE;
-	} else {
-		dissector_delete_uint_range("udp.port", ports_range, radius_handle);
-		g_free(ports_range);
-	}
-
-	if (alt_port_pref != 0) {
-		/* Append it to the range of ports but only if necessary */
-		if (!value_is_in_range(global_ports_range, alt_port_pref)) {
-			global_ports_range = (range_t *)g_realloc(global_ports_range,
-					/* see epan/range.c:range_copy function */
-					sizeof (range_t) - sizeof (range_admin_t) + (global_ports_range->nranges + 1) * sizeof (range_admin_t));
-			global_ports_range->ranges[global_ports_range->nranges].low = alt_port_pref;
-			global_ports_range->ranges[global_ports_range->nranges].high = alt_port_pref;
-			global_ports_range->nranges++;
-		}
-	}
-
-	ports_range = range_copy(global_ports_range);
-	dissector_add_uint_range("udp.port", ports_range, radius_handle);
+	eap_handle = find_dissector_add_dependency("eap", proto_radius);
+	dissector_add_uint_range_with_preference("udp.port", DEFAULT_RADIUS_PORT_RANGE, radius_handle);
 }
 
 /*

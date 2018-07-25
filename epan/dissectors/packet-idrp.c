@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 /* Supports:
  * ISO 10747 Inter Domain Routing Protocol October 18, 1993
@@ -1223,7 +1211,7 @@ dissect_idrp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_
             break;
     }
 
-    col_append_fstr(pinfo->cinfo, COL_INFO, "%s",
+    col_append_str(pinfo->cinfo, COL_INFO,
             val_to_str(pdu_type, idrp_pdu_types, "Unknown (%u)"));
 
     return offset;
@@ -1506,12 +1494,12 @@ void proto_register_idrp(void)
                 HFILL}},
         {&hf_idrp_update_nlri_addr_length,
             {"NLRI Address Length",
-                "idrp.update.nlri.addr-length.", FT_UINT16, BASE_DEC,
+                "idrp.update.nlri.addr-length", FT_UINT16, BASE_DEC,
                 NULL, 0, NULL ,
                 HFILL}},
         {&hf_idrp_update_nlri_addr_info_nb_bits,
             {"NLRI Address Info Bits",
-                "idrp.update.nlri.addr-info-bits.", FT_UINT8, BASE_DEC,
+                "idrp.update.nlri.addr-info-bits", FT_UINT8, BASE_DEC,
                 NULL, 0, NULL ,
                 HFILL}},
         {&hf_idrp_update_nlri_addr_info,

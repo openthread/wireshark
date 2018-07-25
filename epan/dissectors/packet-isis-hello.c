@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -106,6 +94,7 @@ static int hf_isis_hello_mcid = -1;
 static int hf_isis_hello_is_neighbor = -1;
 static int hf_isis_hello_mtid = -1;
 static int hf_isis_hello_checksum = -1;
+static int hf_isis_hello_checksum_status = -1;
 static int hf_isis_hello_trill_neighbor_sf = -1;
 static int hf_isis_hello_trill_neighbor_lf = -1;
 static int hf_isis_hello_trill_neighbor_ff = -1;
@@ -169,6 +158,7 @@ static expert_field ei_isis_hello_authentication = EI_INIT;
 static expert_field ei_isis_hello_subtlv = EI_INIT;
 static expert_field ei_isis_hello_clv_mt = EI_INIT;
 static expert_field ei_isis_hello_clv_unknown = EI_INIT;
+static expert_field ei_isis_hello_checksum = EI_INIT;
 
 static const value_string isis_hello_circuit_type_vals[] = {
     { ISIS_HELLO_TYPE_RESERVED,    "Reserved 0 (discard PDU)"},
@@ -661,7 +651,7 @@ static void
 dissect_hello_authentication_clv(tvbuff_t *tvb, packet_info* pinfo,
     proto_tree *tree, int offset, int id_length _U_, int length)
 {
-    isis_dissect_authentication_clv(tree, pinfo, tvb, hf_isis_hello_authentication, &ei_isis_hello_authentication, offset, length);
+    isis_dissect_authentication_clv(tree, pinfo, tvb, hf_isis_hello_authentication, hf_isis_clv_key_id, &ei_isis_hello_authentication, offset, length);
 }
 
 /*
@@ -765,29 +755,18 @@ dissect_hello_checksum_clv(tvbuff_t *tvb, packet_info* pinfo,
         * which is offseted 17 bytes in IIHs (relative to the beginning of the IS-IS packet) */
     pdu_length = tvb_get_ntohs(tvb, 17);
 
-    /* unlike the LSP checksum verification which starts at an offset of 12 we start at offset 0*/
-    switch (check_and_get_checksum(tvb, 0, pdu_length, checksum, offset, &cacl_checksum))
-    {
-        case NO_CKSUM :
-            proto_tree_add_uint_format_value( tree, hf_isis_hello_checksum, tvb, offset, length, checksum,
-                                            "0x%04x [unused]", checksum);
-        break;
-        case DATA_MISSING :
+    if (checksum == 0) {
+        /* No checksum present */
+        proto_tree_add_checksum(tree, tvb, offset, hf_isis_hello_checksum, hf_isis_hello_checksum_status, &ei_isis_hello_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NOT_PRESENT);
+    } else {
+        if (osi_check_and_get_checksum(tvb, 0, pdu_length, offset, &cacl_checksum)) {
+            /* Successfully processed checksum, verify it */
+            proto_tree_add_checksum(tree, tvb, offset, hf_isis_hello_checksum, hf_isis_hello_checksum_status, &ei_isis_hello_checksum, pinfo, cacl_checksum, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
+        } else {
+            proto_tree_add_checksum(tree, tvb, offset, hf_isis_hello_checksum, hf_isis_hello_checksum_status, &ei_isis_hello_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
             proto_tree_add_expert_format(tree, pinfo, &ei_isis_hello_long_packet, tvb, offset, -1,
                     "Packet length %d went beyond packet", tvb_captured_length(tvb) );
-        break;
-        case CKSUM_NOT_OK :
-            proto_tree_add_uint_format_value( tree, hf_isis_hello_checksum, tvb, offset, length, checksum,
-                                            "0x%04x [incorrect, should be 0x%04x]",
-                                            checksum,
-                                            cacl_checksum);
-        break;
-        case CKSUM_OK :
-            proto_tree_add_uint_format_value( tree, hf_isis_hello_checksum, tvb, offset, length, checksum,
-                                            "0x%04x [correct]", checksum);
-        break;
-        default :
-            g_message("'check_and_get_checksum' returned an invalid value");
+        }
     }
 }
 
@@ -1416,7 +1395,7 @@ proto_register_isis_hello(void)
       { &hf_isis_hello_area_address, { "Area address", "isis.hello.area_address", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_instance_identifier, { "Instance Identifier", "isis.hello.iid", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_supported_itid, { "Supported ITID", "isis.hello.supported_itid", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-      { &hf_isis_hello_clv_nlpid, { "NLPID", "isis.hello.clv_nlpid", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_isis_hello_clv_nlpid, { "NLPID", "isis.hello.clv_nlpid", FT_BYTES, BASE_NONE|BASE_ALLOW_ZERO, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_clv_ip_authentication, { "NLPID", "isis.hello.clv_ip_authentication", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_authentication, { "Authentication", "isis.hello.clv_authentication", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_mtid, { "Topology ID", "isis.hello.mtid", FT_UINT16, BASE_DEC|BASE_RANGE_STRING, RVALS(mtid_strings), 0xfff, NULL, HFILL }},
@@ -1429,6 +1408,7 @@ proto_register_isis_hello(void)
       { &hf_isis_hello_trill_neighbor_mtu, { "Tested MTU", "isis.hello.trill_neighbor.mtu", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_trill_neighbor_snpa, { "SNPA", "isis.hello.trill_neighbor.snpa", FT_SYSTEM_ID, BASE_NONE, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_checksum, { "Checksum", "isis.hello.checksum", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+      { &hf_isis_hello_checksum_status, { "Checksum Status", "isis.hello.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
       { &hf_isis_hello_adjacency_state, { "Adjacency State", "isis.hello.adjacency_state", FT_UINT8, BASE_DEC, VALS(adj_state_vals), 0x0, NULL, HFILL }},
       { &hf_isis_hello_extended_local_circuit_id, { "Extended Local circuit ID", "isis.hello.extended_local_circuit_id", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
       { &hf_isis_hello_neighbor_systemid, { "Neighbor SystemID", "isis.hello.neighbor_systemid", FT_SYSTEM_ID, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -1492,6 +1472,7 @@ proto_register_isis_hello(void)
         { &ei_isis_hello_authentication, { "isis.hello.authentication.unknown", PI_PROTOCOL, PI_WARN, "Unknown authentication type", EXPFILL }},
         { &ei_isis_hello_clv_mt, { "isis.hello.clv_mt.malformed", PI_MALFORMED, PI_ERROR, "malformed MT-ID", EXPFILL }},
         { &ei_isis_hello_clv_unknown, { "isis.hello.clv.unknown", PI_UNDECODED, PI_NOTE, "Unknown option", EXPFILL }},
+        { &ei_isis_hello_checksum, { "isis.hello.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
     };
 
     expert_module_t* expert_isis_hello;

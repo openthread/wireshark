@@ -1,6 +1,4 @@
-++++++++++++++++++++++++++++++++++++++
-<!-- WSUG Chapter IO -->
-++++++++++++++++++++++++++++++++++++++
+// WSUG Chapter IO
 
 [[ChapterIO]]
 
@@ -28,17 +26,17 @@ This chapter will describe input and output of capture data.
 
 Wireshark can read in previously saved capture files. To read them, simply
 select the menu:File[Open] menu or toolbar item. Wireshark will then pop up
-the ``File Open'' dialog box, which is discussed in more detail in <<ChIOOpen>>.
+the “File Open” dialog box, which is discussed in more detail in <<ChIOOpen>>.
 
 [TIP]
-.It's convenient to use drag-and-drop
+.It’s convenient to use drag-and-drop
 ====
 You can open a file by simply dragging it in your file manager and dropping it
-onto Wireshark's main window. However, drag-and-drop may not be available in all
+onto Wireshark’s main window. However, drag-and-drop may not be available in all
 desktop environments.
 ====
 
-If you haven't previously saved the current capture file you will be asked to
+If you haven’t previously saved the current capture file you will be asked to
 do so to prevent data loss. This warning can be disabled in the preferences.
 
 In addition to its native file format (pcapng), Wireshark can read and write
@@ -48,11 +46,11 @@ understands.
 
 [[ChIOOpen]]
 
-==== The ``Open Capture File'' dialog box
+==== The “Open Capture File” dialog box
 
-The ``Open Capture File'' dialog box allows you to search for a capture file
+The “Open Capture File” dialog box allows you to search for a capture file
 containing previously captured packets for display in Wireshark. The following
-sections show some examples of the Wireshark ``Open File'' dialog box. The
+sections show some examples of the Wireshark “Open File” dialog box. The
 appearance of this dialog depends on the system. However, the functionality
 should be the same across systems.
 
@@ -60,26 +58,26 @@ Common dialog behaviour on all systems:
 
 * Select files and directories.
 
-* Click the button:[Open] or button:[OK] button to accept your selected file and
+* Click the btn:[Open] or btn:[OK] button to accept your selected file and
   open it.
 
-* Click the button:[Cancel] button to go back to Wireshark and not load a capture file.
+* Click the btn:[Cancel] button to go back to Wireshark and not load a capture file.
 
 Wireshark extensions to the standard behaviour of these dialogs:
 
 * View file preview information such as the filesize and the number of packets
   in a selected a capture file.
 
-* Specify a display filter with the button:[Filter] button and filter field.
+* Specify a display filter with the btn:[Filter] button and filter field.
   This filter will be used when opening the new file. The text field background
   becomes green for a valid filter string and red for an invalid one. Clicking
-  on the button:[Filter] button causes Wireshark to pop up the ``Filters''
+  on the btn:[Filter] button causes Wireshark to pop up the “Filters”
   dialog box (which is discussed further in <<ChWorkDisplayFilterSection>>).
 +
 // XXX - we need a better description of these read filters
 
 * Specify which type of name resolution is to be performed for all packets by
-  clicking on one of the ``... name resolution'' check buttons. Details about name
+  clicking on one of the “... name resolution” check buttons. Details about name
   resolution can be found in <<ChAdvNameResolutionSection>>.
 
 [TIP]
@@ -93,35 +91,35 @@ it can be a good idea to set at least the filter in advance here.
 
 [[ChIOOpenFileDialogWin32]]
 
-.``Open'' on Microsoft Windows
-image::wsug_graphics/ws-open-win32.png[]
+.“Open” on Microsoft Windows
+image::wsug_graphics/ws-open-win32.png[{screenshot-attrs}]
 
 This is the common Windows file open dialog - plus some Wireshark extensions.
 
 Specific for this dialog:
 
-* The button:[Help] button will lead you to this section of this ``User's Guide''.
+* The btn:[Help] button will lead you to this section of this “User’s Guide”.
 
 [[ChIOOpenFileDialog]]
 
-.``Open'' - Linux and UNIX
-image::wsug_graphics/ws-open-gtk24.png[]
+.“Open” - Linux and UNIX
+image::wsug_graphics/ws-open-gtk24.png[{screenshot-attrs}]
 
 This is the common Gimp/GNOME file open dialog plus some Wireshark extensions.
 
 Specific for this dialog:
 
-* The button:[+] button allows you to add a directory selected in the
+* The btn:[+] button allows you to add a directory selected in the
   right-hand pane to the favorites list on the left. These changes are
   persistent.
 
-* The button:[-] button allows you to remove a selected directory from the list.
-  Some items (such as ``Desktop'') cannot be removed from the favorites list.
+* The btn:[-] button allows you to remove a selected directory from the list.
+  Some items (such as “Desktop”) cannot be removed from the favorites list.
 
-* If Wireshark doesn't recognize the selected file as a capture file it will
-  grey out the button:[Open] button.
+* If Wireshark doesn’t recognize the selected file as a capture file it will
+  grey out the btn:[Open] button.
 
-// XXX Add OS X
+// XXX Add macOS
 
 
 [[ChIOInputFormatsSection]]
@@ -155,15 +153,15 @@ The following file formats from other capture tools can be opened by Wireshark:
 
 * AG Group/WildPackets/Savvius EtherPeek/TokenPeek/AiroPeek/EtherHelp/PacketGrabber captures
 
-* RADCOM's WAN/LAN Analyzer captures
+* RADCOM’s WAN/LAN Analyzer captures
 
 * Network Instruments Observer version 9 captures
 
 * Lucent/Ascend router debug output
 
-* HP-UX's nettl
+* HP-UX’s nettl
 
-* Toshiba's ISDN routers dump output
+* Toshiba’s ISDN routers dump output
 
 * ISDN4BSD _i4btrace_ utility
 
@@ -173,17 +171,17 @@ The following file formats from other capture tools can be opened by Wireshark:
 
 * pppd logs (pppdump format)
 
-* the output from VMS's TCPIPtrace/TCPtrace/UCX$TRACE utilities
+* the output from VMS’s TCPIPtrace/TCPtrace/UCX$TRACE utilities
 
 * the text output from the DBS Etherwatch VMS utility
 
-* Visual Networks' Visual UpTime traffic capture
+* Visual Networks’ Visual UpTime traffic capture
 
 * the output from CoSine L2 debug
 
-* the output from Accellent's 5Views LAN agents
+* the output from Accellent’s 5Views LAN agents
 
-* Endace Measurement Systems' ERF format captures
+* Endace Measurement Systems’ ERF format captures
 
 * Linux Bluez Bluetooth stack hcidump -w traces
 
@@ -205,7 +203,7 @@ The following file formats from other capture tools can be opened by Wireshark:
 
 * Apple PacketLogger captures
 
-* Captures from Aethra Telecommunications' PC108 software for their test instruments
+* Captures from Aethra Telecommunications’ PC108 software for their test instruments
 
 New file formats are added from time to time.
 
@@ -222,44 +220,44 @@ You can save captured packets simply by using the menu:File[Save As...] menu
 item. You can choose which packets to save and which file format to be used.
 
 Not all information will be saved in a capture file. For example, most file
-formats don't record the number of dropped packets. See
+formats don’t record the number of dropped packets. See
 <<ChAppFilesCaptureFilesSection>> for details.
 
 [[ChIOSaveAs]]
 
-==== The ``Save Capture File As'' dialog box
+==== The “Save Capture File As” dialog box
 
-The ``Save Capture File As'' dialog box allows you to save the current capture
+The “Save Capture File As” dialog box allows you to save the current capture
 to a file. The following sections show some examples of this dialog box. The
 appearance of this dialog depends on the system. However, the functionality
 should be the same across systems.
 
 [[ChIOSaveAsFileWin32]]
 
-.``Save'' on Microsoft Windows
-image::wsug_graphics/ws-save-as-win32.png[]
+.“Save” on Microsoft Windows
+image::wsug_graphics/ws-save-as-win32.png[{screenshot-attrs}]
 
 This is the common Windows file save dialog with some additional Wireshark extensions.
 
 Specific behavior for this dialog:
 
-* If available, the ``Help'' button will lead you to this section of this "User's Guide".
+* If available, the “Help” button will lead you to this section of this “User’s Guide”.
 
-* If you don't provide a file extension to the filename (e.g. `.pcap`) Wireshark
+* If you don’t provide a file extension to the filename (e.g. `.pcap`) Wireshark
   will append the standard file extension for that file format.
 
 [[ChIOSaveAsFile2]]
 
-.``Save'' on Linux and UNIX
-image::wsug_graphics/ws-save-as-gtk24.png[]
+.“Save” on Linux and UNIX
+image::wsug_graphics/ws-save-as-gtk24.png[{screenshot-attrs}]
 
 This is the common Gimp/GNOME file save dialog with additional Wireshark extensions.
 
 Specific for this dialog:
 
-* Clicking on the + at "Browse for other folders" will allow you to browse files and folders in your file system.
+* Clicking on the + at “Browse for other folders” will allow you to browse files and folders in your file system.
 
-// XXX Add OS X
+// XXX Add macOS
 
 With this dialog box, you can perform the following actions:
 
@@ -283,12 +281,12 @@ You can convert capture files from one format to another by reading in a capture
 file and writing it out using a different format.
 ====
 
-. Click the button:[Save] or button:[OK] button to accept your selected file and
+. Click the btn:[Save] or btn:[OK] button to accept your selected file and
   save to it. If Wireshark has a problem saving the captured packets to the file
-  you specified it will display an error dialog box. After clicking button:[OK]
+  you specified it will display an error dialog box. After clicking btn:[OK]
   on that error dialog box you can try again.
 
-. Click on the button:[Cancel] button to go back to Wireshark without saving any
+. Click on the btn:[Cancel] button to go back to Wireshark without saving any
   packets.
 
 [[ChIOOutputFormatsSection]]
@@ -309,29 +307,30 @@ time stamp accuracy; see the <<ChAdvTimestamps>> for details.
 
 The following file formats can be saved by Wireshark (with the known file extensions):
 
-* pcapng ($$*$$.pcapng). A flexible, etensible successor to the libpcap format.
-  Wireshark 1.8 and later save files as pcapng by default. Versions prior to 1.8
-  used libpcap.
+* pcapng ({asterisk}.pcapng). A flexible, etensible successor to the
+  libpcap format. Wireshark 1.8 and later save files as pcapng by
+  default. Versions prior to 1.8 used libpcap.
 
-* libpcap, tcpdump and various other tools using tcpdump's capture format ($$*$$.pcap,$$*$$.cap,$$*$$.dmp)
+* libpcap, tcpdump and various other tools using tcpdump’s capture
+  format ({asterisk}.pcap,{asterisk}.cap,{asterisk}.dmp)
 
-* Accellent 5Views ($$*$$.5vw)
+* Accellent 5Views ({asterisk}.5vw)
 
-* HP-UX's nettl ($$*$$.TRC0,$$*$$.TRC1)
+* HP-UX’s nettl ({asterisk}.TRC0,{asterisk}.TRC1)
 
-* Microsoft Network Monitor - NetMon ($$*$$.cap)
+* Microsoft Network Monitor - NetMon ({asterisk}.cap)
 
-* Network Associates Sniffer - DOS ($$*$$.cap,$$*$$.enc,$$*$$.trc,*fdc,$$*$$.syc)
+* Network Associates Sniffer - DOS ({asterisk}.cap,{asterisk}.enc,{asterisk}.trc,*fdc,{asterisk}.syc)
 
-* Network Associates Sniffer - Windows ($$*$$.cap)
+* Network Associates Sniffer - Windows ({asterisk}.cap)
 
-* Network Instruments Observer version 9 ($$*$$.bfr)
+* Network Instruments Observer version 9 ({asterisk}.bfr)
 
-* Novell LANalyzer ($$*$$.tr1)
+* Novell LANalyzer ({asterisk}.tr1)
 
-* Oracle (previously Sun) snoop ($$*$$.snoop,$$*$$.cap)
+* Oracle (previously Sun) snoop ({asterisk}.snoop,{asterisk}.cap)
 
-* Visual Networks Visual UpTime traffic ($$*.*$$)
+* Visual Networks Visual UpTime traffic ({asterisk}.{asterisk})
 
 New file formats are added from time to time.
 
@@ -341,7 +340,7 @@ Whether or not the above tools will be more helpful than Wireshark is a differen
 [NOTE]
 .Third party protocol analyzers may require specific file extensions
 ====
-Wireshark examines a file's contents to determine its type. Some other protocol
+Wireshark examines a file’s contents to determine its type. Some other protocol
 analyzers only look at a filename extensions. For example, you might need to use
 the `.cap` extension in order to open a file using _Sniffer_.
 ====
@@ -356,7 +355,7 @@ be useful if you have captured simultaneously from multiple interfaces at once
 
 There are three ways to merge capture files using Wireshark:
 
-* Use the menu:File[Merge] menu to open the ``Merge'' dialog. See
+* Use the menu:File[Merge] menu to open the “Merge” dialog. See
   <<ChIOMergeDialog>>. This menu item will be disabled unless you have loaded a
   capture file.
 
@@ -371,14 +370,14 @@ There are three ways to merge capture files using Wireshark:
 
 [[ChIOMergeDialog]]
 
-==== The ``Merge with Capture File'' dialog box
+==== The “Merge with Capture File” dialog box
 
 This dialog box let you select a file to be merged into the currently loaded
 file. If your current data has not been saved you will be asked to save it
 first.
 
-Most controls of this dialog will work the same way as described in the ``Open
-Capture File'' dialog box, see <<ChIOOpen>>.
+Most controls of this dialog will work the same way as described in the “Open
+Capture File” dialog box, see <<ChIOOpen>>.
 
 Specific controls of this merge dialog are:
 
@@ -394,19 +393,19 @@ Append the packets from the selected file after the currently loaded packets.
 
 [[ChIOMergeFileTab]]
 
-.The system specific ``Merge Capture File As'' dialog box
+.The system specific “Merge Capture File As” dialog box
 
 [[ChIOMergeFileWin32]]
 
-.``Merge'' on Microsoft Windows
-image::wsug_graphics/ws-merge-win32.png[]
+.“Merge” on Microsoft Windows
+image::wsug_graphics/ws-merge-win32.png[{screenshot-attrs}]
 
 This is the common Windows file open dialog with additional Wireshark extensions.
 
 [[ChIOMergeFile2]]
 
-.``Merge'' on Linux and UNIX
-image::wsug_graphics/ws-merge-gtk24.png[]
+.“Merge” on Linux and UNIX
+image::wsug_graphics/ws-merge-gtk24.png[{screenshot-attrs}]
 
 This is the common Gimp/GNOME file open dialog with additional Wireshark extensions.
 
@@ -440,7 +439,7 @@ Here is a sample dump that can be imported:
 There is no limit on the width or number of bytes per line. Also the text dump
 at the end of the line is ignored. Byte and hex numbers can be uppercase or
 lowercase. Any text before the offset is ignored, including email forwarding
-characters '&gt;'. Any lines of text between the bytestring lines are ignored.
+characters _>_. Any lines of text between the bytestring lines are ignored.
 The offsets are used to track the bytes, so offsets must be correct. Any line
 which has only bytes without a leading offset is ignored. An offset is
 recognized as being a hex number longer than two characters. Any text after the
@@ -469,15 +468,15 @@ handle these dumps.
 
 [[ChIOImportDialog]]
 
-==== The ``Import from Hex Dump'' dialog box
+==== The “Import from Hex Dump” dialog box
 
 This dialog box lets you select a text file, containing a hex dump of packet
 data, to be imported and set import parameters.
 
 [[ChIOFileImportDialog]]
 
-.The ``Import from Hex Dump'' dialog
-image::wsug_graphics/ws-file-import.png[]
+.The “Import from Hex Dump” dialog
+image::wsug_graphics/ws-file-import.png[{screenshot-attrs}]
 
 Specific controls of this import dialog are split in two sections:
 
@@ -528,8 +527,8 @@ You may not be interested in the full frames from the text file, just the first
 part. Here you can define how much data from the start of the frame you want to
 import. If you leave this open the maximum is set to 65535 bytes.
 
-Once all input and import parameters are setup click button:[OK] to start the
-import. If your current data wasn't saved before you will be asked to save it
+Once all input and import parameters are setup click btn:[OK] to start the
+import. If your current data wasn’t saved before you will be asked to save it
 first.
 
 When completed there will be a new capture file loaded with the frames imported
@@ -539,7 +538,7 @@ from the text file.
 
 === File Sets
 
-When using the "Multiple Files" option while doing a capture (see:
+When using the “Multiple Files” option while doing a capture (see:
 <<ChCapCaptureFiles>>), the capture data is spread over several capture files,
 called a file set.
 
@@ -550,7 +549,7 @@ some features to handle these file sets in a convenient way.
 ****
 A filename in a file set uses the format Prefix_Number_DateTimeSuffix which
 might look something like `test_00001_20060420183910.pcap`. All files of a file
-set share the same prefix (e.g. ``test'') and suffix (e.g. ``.pcap'') and a
+set share the same prefix (e.g. “test”) and suffix (e.g. “.pcap”) and a
 varying middle part.
 
 To find the files of a file set, Wireshark scans the directory where the
@@ -566,21 +565,21 @@ the mechanism will fail to find all files of a set.
 The following features in the menu:File[File Set] submenu are available to work
 with file sets in a convenient way:
 
-*  The ``List Files'' dialog box will list the files Wireshark has recognized as
+*  The “List Files” dialog box will list the files Wireshark has recognized as
    being part of the current file set.
 
-*  button:[Next File] closes the current and opens the next file in the file
+*  btn:[Next File] closes the current and opens the next file in the file
    set.
 
-*  button:[Previous File] closes the current and opens the previous file in the
+*  btn:[Previous File] closes the current and opens the previous file in the
    file set.
 
 [[ChIOFileSetListDialog]]
 
-==== The ``List Files'' dialog box
+==== The “List Files” dialog box
 
-.The "List Files" dialog box
-image::wsug_graphics/ws-file-set-dialog.png[]
+.The “List Files” dialog box
+image::wsug_graphics/ws-file-set-dialog.png[{screenshot-attrs}]
 
 Each line contains information about a file of the file set:
 
@@ -600,7 +599,7 @@ the files in the file set can be found.
 The content of this dialog box is updated each time a capture file is
 opened/closed.
 
-The button:[Close] button will, well, close the dialog box.
+The btn:[Close] button will, well, close the dialog box.
 
 [[ChIOExportSection]]
 
@@ -617,7 +616,7 @@ elsewhere.
 
 [[ChIOExportPlainDialog]]
 
-==== The ``Export as Plain Text File'' dialog box
+==== The “Export as Plain Text File” dialog box
 
 [[ChIOExportPlain]]
 
@@ -628,12 +627,12 @@ Export packet data into a plain ASCII text file, much like the format used to pr
 If you would like to be able to import any previously exported packets from a
 plain text file it is recommended that you:
 
-*  Add the ``Absolute date and time'' column.
+*  Add the “Absolute date and time” column.
 
 *  Temporarily hide all other columns.
 
-*  Disable the menu:Edit[Preferences,Protocols,Data] ``Show not dissected data
-   on new Packet Bytes pane'' preference. More details are provided in
+*  Disable the menu:Edit[Preferences,Protocols,Data] “Show not dissected data
+   on new Packet Bytes pane” preference. More details are provided in
    <<ChCustPreferencesSection>>
 
 *  Include the packet summary line.
@@ -645,21 +644,21 @@ plain text file it is recommended that you:
 *  Include the packet bytes.
 ====
 
-.The ``Export as Plain Text File'' dialog box
-image::wsug_graphics/ws-export-plain.png[]
+.The “Export as Plain Text File” dialog box
+image::wsug_graphics/ws-export-plain.png[{screenshot-attrs}]
 
-*  The ``Export to file:'' frame chooses the file to export the packet data to.
+*  The “Export to file:” frame chooses the file to export the packet data to.
 
-*  The ``Packet Range'' frame is described in <<ChIOPacketRangeSection>>.
+*  The “Packet Range” frame is described in <<ChIOPacketRangeSection>>.
 
-*  The ``Packet Details'' frame is described in <<ChIOPacketFormatSection>>.
+*  The “Packet Details” frame is described in <<ChIOPacketFormatSection>>.
 
 [[ChIOExportPSDialog]]
 
-==== The ``Export as PostScript File'' dialog box
+==== The “Export as PostScript File” dialog box
 
-.The "Export as PostScript File" dialog box
-image::wsug_graphics/ws-export-ps.png[]
+.The “Export as PostScript File” dialog box
+image::wsug_graphics/ws-export-ps.png[{screenshot-attrs}]
 
 *  _Export to file:_ frame chooses the file to export the packet data to.
 
@@ -669,14 +668,14 @@ image::wsug_graphics/ws-export-ps.png[]
 
 [[ChIOExportCSVDialog]]
 
-==== The "Export as CSV (Comma Separated Values) File" dialog box
+==== The “Export as CSV (Comma Separated Values) File” dialog box
 
 // XXX - add screenshot
 
 Export packet summary into CSV, used e.g. by spreadsheet programs to im-/export data.
 
 //<!--<figure>
-//      <title>The "Export as Comma Separated Values File" dialog box</title>
+//      <title>The “Export as Comma Separated Values File” dialog box</title>
 //      <graphic entityref="WiresharkExportCSVDialog" format="PNG"/>
 //    </figure>-->
 
@@ -686,14 +685,14 @@ Export packet summary into CSV, used e.g. by spreadsheet programs to im-/export 
 
 [[ChIOExportCArraysDialog]]
 
-==== The "Export as C Arrays (packet bytes) file" dialog box
+==== The “Export as C Arrays (packet bytes) file” dialog box
 
 // XXX - add screenshot
 
 Export packet bytes into C arrays so you can import the stream data into your own C program.
 
 //        <figure>
-//        <title>The "Export as C Arrays (packet bytes) file" dialog box</title>
+//        <title>The “Export as C Arrays (packet bytes) file” dialog box</title>
 //        <graphic entityref="WiresharkExportCArraysDialog" format="PNG"/>
 //        </figure>
 
@@ -703,55 +702,55 @@ Export packet bytes into C arrays so you can import the stream data into your ow
 
 [[ChIOExportPSMLDialog]]
 
-==== The "Export as PSML File" dialog box
+==== The “Export as PSML File” dialog box
 
 Export packet data into PSML. This is an XML based format including only the
 packet summary. The PSML file specification is available at:
-link:$$http://www.nbee.org/doku.php?id=netpdl:psml_specification$$[].
+link:http://www.nbee.org/doku.php?id=netpdl:psml_specification[].
 
-.The "Export as PSML File" dialog box
-image::wsug_graphics/ws-export-psml.png[]
+.The “Export as PSML File” dialog box
+image::wsug_graphics/ws-export-psml.png[{screenshot-attrs}]
 
 *  _Export to file:_ frame chooses the file to export the packet data to.
 
 *  The _Packet Range_ frame is described in <<ChIOPacketRangeSection>>.
 
-There's no such thing as a packet details frame for PSML export, as the packet
+There’s no such thing as a packet details frame for PSML export, as the packet
 format is defined by the PSML specification.
 
 [[ChIOExportPDMLDialog]]
 
-==== The "Export as PDML File" dialog box
+==== The “Export as PDML File” dialog box
 
 Export packet data into PDML. This is an XML based format including the packet
 details. The PDML file specification is available at:
-link:$$http://www.nbee.org/doku.php?id=netpdl:pdml_specification$$[].
+link:http://www.nbee.org/doku.php?id=netpdl:pdml_specification[].
 
 [NOTE]
 ====
-The PDML specification is not officially released and Wireshark's implementation
+The PDML specification is not officially released and Wireshark’s implementation
 of it is still in an early beta state, so please expect changes in future
 Wireshark versions.
 ====
 
-.The "Export as PDML File" dialog box
-image::wsug_graphics/ws-export-pdml.png[]
+.The “Export as PDML File” dialog box
+image::wsug_graphics/ws-export-pdml.png[{screenshot-attrs}]
 
 *  _Export to file:_ frame chooses the file to export the packet data to.
 
 *  The _Packet Range_ frame is described in <<ChIOPacketRangeSection>>.
 
-There's no such thing as a packet details frame for PDML export, as the packet
+There’s no such thing as a packet details frame for PDML export, as the packet
 format is defined by the PDML specification.
 
 [[ChIOExportSelectedDialog]]
 
-==== The "Export selected packet bytes" dialog box
+==== The “Export selected packet bytes” dialog box
 
-Export the bytes selected in the "Packet Bytes" pane into a raw binary file.
+Export the bytes selected in the “Packet Bytes” pane into a raw binary file.
 
-.The "Export Selected Packet Bytes" dialog box
-image::wsug_graphics/ws-export-selected.png[]
+.The “Export Selected Packet Bytes” dialog box
+image::wsug_graphics/ws-export-selected.png[{screenshot-attrs}]
 
 *  _Name:_ the filename to export the packet data to.
 
@@ -761,63 +760,61 @@ image::wsug_graphics/ws-export-selected.png[]
 
 [[ChIOExportObjectsDialog]]
 
-==== The "Export Objects" dialog box
+==== The “Export Objects” dialog box
 
-This feature scans through HTTP streams in the currently open capture file or
-running capture and takes reassembled objects such as HTML documents, image
-files, executables and anything else that can be transferred over HTTP and lets
-you save them to disk. If you have a capture running, this list is automatically
+This feature scans through the selected protocol's streams in the currently
+open capture file or running capture and allows the user to export reassembled
+objects to the disk. For example, if you select HTTP, you can export HTML
+documents, images, executables, and any other files transferred over HTTP
+to the disk. If you have a capture running, this list is automatically
 updated every few seconds with any new objects seen. The saved objects can then
-be opened with the proper viewer or executed in the case of executables (if it
-is for the same platform you are running Wireshark on) without any further work
-on your part. This feature is not available when using GTK2 versions below 2.4.
+be opened or examined independently of Wireshark.
 
-.The "Export Objects" dialog box
-image::wsug_graphics/ws-export-objects.png[]
+.The “Export Objects” dialog box
+image::wsug_graphics/ws-export-objects.png[{screenshot-attrs}]
 
-*  _Packet num:_ The packet number in which this object was found. In some
+Columns:
+
+*  _Packet:_ The packet number in which this object was found. In some
    cases, there can be multiple objects in the same packet.
 
-*  _Hostname:_ The hostname of the server that sent the object as a response to
-   an HTTP request.
+*  _Hostname:_ The hostname of the server that sent this object.
 
-*  _Content Type:_ The HTTP content type of this object.
+*  _Content Type:_ The content type of this object.
 
-*  _Bytes:_ The size of this object in bytes.
+*  _Size:_ The size of this object in bytes.
 
-*  _Filename:_ The final part of the URI (after the last slash). This is
-   typically a filename, but may be a long complex looking string, which
-   typically indicates that the file was received in response to a HTTP POST
-   request.
+*  _Filename:_ The filename for this object. Each protocol generates
+   the filename differently. For example, HTTP uses the
+   final part of the URI and IMF uses the subject of the email.
 
-*  _Help:_ Opens this section in the user's guide.
+Buttons:
 
-*  _Close:_ Closes this dialog.
-
-*  _Save As:_ Saves the currently selected object as a filename you specify. The
-   default filename to save as is taken from the filename column of the objects
-   list.
+*  _Help:_ Opens the “Export Objects” section in the user’s guide.
 
 *  _Save All:_ Saves all objects in the list using the filename from the
    filename column. You will be asked what directory / folder to save them in.
-   If the filename is invalid for the operating system / file system you are
-   running Wireshark on, then an error will appear and that object will not be
-   saved (but all of the others will be).
+
+*  _Close:_ Closes the “Export Objects” dialog.
+
+*  _Save:_ Saves the currently selected object as a filename you specify. The
+   default filename to save as is taken from the filename column of the objects
+   list.
 
 [[ChIOPrintSection]]
 
 === Printing packets
 
 To print packets, select the menu:File[Print...] menu item. When you
-do this Wireshark pops up the ``Print'' dialog box as shown in
+do this Wireshark pops up the “Print” dialog box as shown in
 <<ChIOPrintDialogBox>>.
 
-==== The ``Print'' dialog box
+==== The “Print” dialog box
 
 [[ChIOPrintDialogBox]]
 
-.The ``Print'' dialog box
-image::wsug_graphics/ws-print.png[]
+.The “Print” dialog box
+image::wsug_graphics/ws-print.png[{screenshot-attrs}]
 
 The following fields are available in the Print dialog box: _Printer_::
 This field contains a pair of mutually exclusive radio buttons:
@@ -861,7 +858,7 @@ packet is printed, see <<ChIOPacketFormatFrame>>
 
 [[ChIOPacketRangeSection]]
 
-=== The ``Packet Range'' frame
+=== The “Packet Range” frame
 
 The packet range frame is a part of various output related dialog boxes. It
 provides options to select which packets should be processed by the output
@@ -869,11 +866,11 @@ function.
 
 [[ChIOPacketRangeFrame]]
 
-.The ``Packet Range'' frame
-image::wsug_graphics/ws-packet-range.png[]
+.The “Packet Range” frame
+image::wsug_graphics/ws-packet-range.png[{screenshot-attrs}]
 
-If the button:[Captured] button is set (default), all packets from the selected rule
-will be processed. If the button:[Displayed] button is set, only the currently
+If the btn:[Captured] button is set (default), all packets from the selected rule
+will be processed. If the btn:[Displayed] button is set, only the currently
 displayed packets are taken into account to the selected rule.
 
 * _All packets_ will process all packets.
@@ -900,29 +897,27 @@ function.
 
 [[ChIOPacketFormatFrame]]
 
-.The ``Packet Format'' frame
-image::wsug_graphics/ws-packet-format.png[]
+.The “Packet Format” frame
+image::wsug_graphics/ws-packet-format.png[{screenshot-attrs}]
 
 * _Packet summary line_ enable the output of the summary line, just as in the
-  ``Packet List'' pane.
+  “Packet List” pane.
 
 * _Packet details_ enable the output of the packet details tree.
 
-* _All collapsed_ the info from the ``Packet Details'' pane in ``all collapsed''
+* _All collapsed_ the info from the “Packet Details” pane in “all collapsed”
   state.
 
-* _As displayed_ the info from the ``Packet Details'' pane in the current state.
+* _As displayed_ the info from the “Packet Details” pane in the current state.
 
-* _All expanded_ the info from the ``Packet Details'' pane in ``all expanded''
+* _All expanded_ the info from the “Packet Details” pane in “all expanded”
   state.
 
-* _Packet bytes_ enable the output of the packet bytes, just as in the ``Packet
-  Bytes'' pane.
+* _Packet bytes_ enable the output of the packet bytes, just as in the “Packet
+  Bytes” pane.
 
 * _Each packet on a new page_ put each packet on a separate page (e.g. when
   saving/printing to a text file, this will put a form feed character between
   the packets).
 
-++++++++++++++++++++++++++++++++++++++
-<!-- End of WSUG Chapter IO -->
-++++++++++++++++++++++++++++++++++++++
+// End of WSUG Chapter IO

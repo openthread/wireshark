@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,6 +22,8 @@
 #include <epan/bridged_pids.h>
 #include <epan/ppptypes.h>
 #include <epan/arcnet_pids.h>
+#include <epan/nlpid.h>
+#include <epan/addr_resolv.h>
 #include "packet-fc.h"
 #include "packet-ip.h"
 #include "packet-ipx.h"
@@ -47,11 +37,7 @@ void proto_register_basicxid(void);
 void proto_register_llc(void);
 void proto_reg_handoff_llc(void);
 
-#define UDP_PORT_LLC1   12000
-#define UDP_PORT_LLC2   12001
-#define UDP_PORT_LLC3   12002
-#define UDP_PORT_LLC4   12003
-#define UDP_PORT_LLC5   12004
+#define UDP_PORT_LLC_RANGE   "12000-12004"
 
 static int proto_llc = -1;
 static int hf_llc_dsap = -1;
@@ -101,6 +87,8 @@ static dissector_handle_t fddi_handle;
 static dissector_handle_t tr_handle;
 static dissector_handle_t turbo_handle;
 static dissector_handle_t mesh_handle;
+static dissector_handle_t llc_handle;
+
 
 /*
  * Group/Individual bit, in the DSAP.
@@ -201,7 +189,7 @@ static const value_string type_vals[] = {
 /*
  * Hash table for translating OUIs to an oui_info_t.
  */
-static GHashTable *oui_info_table = NULL;
+static wmem_map_t *oui_info_table = NULL;
 
 /*
  * Decode the SAP value as a bitfield into a string, skipping the GI/CR bit.
@@ -234,9 +222,9 @@ llc_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
 {
 	oui_info_t *new_info;
 
-	new_info = (oui_info_t *)g_malloc(sizeof (oui_info_t));
+	new_info = wmem_new(wmem_epan_scope(), oui_info_t);
 	new_info->table = register_dissector_table(table_name,
-	    table_ui_name, proto, FT_UINT16, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	    table_ui_name, proto, FT_UINT16, BASE_HEX);
 	new_info->field_info = hf_item;
 
 	/*
@@ -244,47 +232,13 @@ llc_add_oui(guint32 oui, const char *table_name, const char *table_ui_name,
 	 * already exist.
 	 */
 	if (oui_info_table == NULL) {
-		oui_info_table = g_hash_table_new(g_direct_hash,
+		oui_info_table = wmem_map_new(wmem_epan_scope(), g_direct_hash,
 		    g_direct_equal);
 	}
-	g_hash_table_insert(oui_info_table, GUINT_TO_POINTER(oui), new_info);
+	wmem_map_insert(oui_info_table, GUINT_TO_POINTER(oui), new_info);
 }
 
-gboolean
-capture_llc(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_) {
-
-	int		is_snap;
-	guint16		control;
-	int		llc_header_len;
-
-	if (!BYTES_ARE_IN_FRAME(offset, len, 2))
-		return FALSE;
-
-	is_snap = (pd[offset] == SAP_SNAP) && (pd[offset+1] == SAP_SNAP);
-	llc_header_len = 2;	/* DSAP + SSAP */
-
-	/*
-	 * XXX - the page referred to in the comment above about the
-	 * Command/Response bit also implies that LLC Type 2 always
-	 * uses extended operation, so we don't need to determine
-	 * whether it's basic or extended operation; is that the case?
-	 */
-	control = get_xdlc_control(pd, offset+2, pd[offset+1] & SSAP_CR_BIT);
-	llc_header_len += XDLC_CONTROL_LEN(control, TRUE);
-	if (!BYTES_ARE_IN_FRAME(offset, len, llc_header_len))
-		return FALSE;
-
-	if (!XDLC_IS_INFORMATION(control))
-		return FALSE;
-
-	if (is_snap)
-		return capture_snap(pd, offset+llc_header_len, len, cpinfo, pseudo_header);
-
-	/* non-SNAP */
-	return try_capture_dissector("llc.dsap", pd[offset], pd, offset + llc_header_len, len, cpinfo, pseudo_header);
-}
-
-gboolean
+static gboolean
 capture_snap(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_)
 {
 	guint32		oui;
@@ -323,6 +277,40 @@ capture_snap(const guchar *pd, int offset, int len, capture_packet_info_t *cpinf
 	}
 
 	return FALSE;
+}
+
+static gboolean
+capture_llc(const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header _U_) {
+
+	int		is_snap;
+	guint16		control;
+	int		llc_header_len;
+
+	if (!BYTES_ARE_IN_FRAME(offset, len, 2))
+		return FALSE;
+
+	is_snap = (pd[offset] == SAP_SNAP) && (pd[offset+1] == SAP_SNAP);
+	llc_header_len = 2;	/* DSAP + SSAP */
+
+	/*
+	 * XXX - the page referred to in the comment above about the
+	 * Command/Response bit also implies that LLC Type 2 always
+	 * uses extended operation, so we don't need to determine
+	 * whether it's basic or extended operation; is that the case?
+	 */
+	control = get_xdlc_control(pd, offset+2, pd[offset+1] & SSAP_CR_BIT);
+	llc_header_len += XDLC_CONTROL_LEN(control, TRUE);
+	if (!BYTES_ARE_IN_FRAME(offset, len, llc_header_len))
+		return FALSE;
+
+	if (!XDLC_IS_INFORMATION(control))
+		return FALSE;
+
+	if (is_snap)
+		return capture_snap(pd, offset+llc_header_len, len, cpinfo, pseudo_header);
+
+	/* non-SNAP */
+	return try_capture_dissector("llc.dsap", pd[offset], pd, offset + llc_header_len, len, cpinfo, pseudo_header);
 }
 
 /* Used only for U frames */
@@ -500,6 +488,7 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 	     int bridge_pad)
 {
 	guint32		oui;
+	const gchar *oui_str;
 	guint16		etype;
 	tvbuff_t	*next_tvb;
 	oui_info_t	*oui_info;
@@ -510,14 +499,14 @@ dissect_snap(tvbuff_t *tvb, int offset, packet_info *pinfo, proto_tree *tree,
 	/*
 	 * XXX - what about non-UI frames?
 	 */
-	oui =	tvb_get_ntoh24(tvb, offset);
 	etype = tvb_get_ntohs(tvb, offset+3);
+
+	proto_tree_add_item_ret_uint(snap_tree, hf_oui, tvb, offset, 3, ENC_BIG_ENDIAN, &oui);
+	oui_str = uint_get_manuf_name_if_known(oui);
 
 	col_append_fstr(pinfo->cinfo, COL_INFO,
 		    "; SNAP, OUI 0x%06X (%s), PID 0x%04X",
-		    oui, val_to_str_const(oui, oui_vals, "Unknown"), etype);
-
-	proto_tree_add_uint(snap_tree, hf_oui, tvb, offset, 3, oui);
+		    oui, oui_str ? oui_str : "Unknown", etype);
 
 	switch (oui) {
 
@@ -698,7 +687,7 @@ oui_info_t *
 get_snap_oui_info(guint32 oui)
 {
 	if (oui_info_table != NULL) {
-		return (oui_info_t *)g_hash_table_lookup(oui_info_table,
+		return (oui_info_t *)wmem_map_lookup(oui_info_table,
 		    GUINT_TO_POINTER(oui));
 	} else
 		return NULL;
@@ -793,8 +782,8 @@ proto_register_llc(void)
 			VALS(etype_vals), 0x0, NULL, HFILL }},
 
 		{ &hf_llc_oui,
-		{ "Organization Code",	"llc.oui", FT_UINT24, BASE_HEX,
-			VALS(oui_vals), 0x0, NULL, HFILL }},
+		{ "Organization Code",	"llc.oui", FT_UINT24, BASE_OUI,
+			NULL, 0x0, NULL, HFILL }},
 
 		{ &hf_llc_pid,
 		{ "Protocol ID", "llc.pid", FT_UINT16, BASE_HEX,
@@ -813,12 +802,14 @@ proto_register_llc(void)
 
 	/* subdissector code */
 	dsap_subdissector_table = register_dissector_table("llc.dsap",
-	  "LLC SAP", proto_llc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	  "LLC SAP", proto_llc, FT_UINT8, BASE_HEX);
 	xid_subdissector_table = register_dissector_table("llc.xid_dsap",
-	  "LLC XID SAP", proto_llc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	  "LLC XID SAP", proto_llc, FT_UINT8, BASE_HEX);
 	register_capture_dissector_table("llc.dsap", "LLC");
 
-	register_dissector("llc", dissect_llc, proto_llc);
+	llc_handle = register_dissector("llc", dissect_llc, proto_llc);
+
+	register_capture_dissector("llc", capture_llc, proto_llc);
 }
 
 void
@@ -859,7 +850,8 @@ register_hf(gpointer key _U_, gpointer value, gpointer user_data _U_)
 void
 proto_reg_handoff_llc(void)
 {
-	dissector_handle_t llc_handle;
+	capture_dissector_handle_t llc_cap_handle;
+	capture_dissector_handle_t llc_snap_handle;
 
 	/*
 	 * Get handles for the BPDU, Ethernet, FDDI, Token Ring and
@@ -879,17 +871,12 @@ proto_reg_handoff_llc(void)
 	ethertype_subdissector_table = find_dissector_table("ethertype");
 	hpteam_subdissector_table = find_dissector_table("llc.hpteam_pid");
 
-	llc_handle = find_dissector("llc");
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_ATM_RFC1483, llc_handle);
 	dissector_add_uint("sll.ltype", LINUX_SLL_P_802_2, llc_handle);
 	/* RFC 2043 */
 	dissector_add_uint("ppp.protocol", PPP_LLC, llc_handle);
 	/* RFC 2353 */
-	dissector_add_uint("udp.port", UDP_PORT_LLC1, llc_handle);
-	dissector_add_uint("udp.port", UDP_PORT_LLC2, llc_handle);
-	dissector_add_uint("udp.port", UDP_PORT_LLC3, llc_handle);
-	dissector_add_uint("udp.port", UDP_PORT_LLC4, llc_handle);
-	dissector_add_uint("udp.port", UDP_PORT_LLC5, llc_handle);
+	dissector_add_uint_range_with_preference("udp.port", UDP_PORT_LLC_RANGE, llc_handle);
 	/* IP-over-FC when we have the full FC frame */
 	dissector_add_uint("fc.ftype", FC_FTYPE_IP, llc_handle);
 
@@ -905,15 +892,20 @@ proto_reg_handoff_llc(void)
 	dissector_add_uint("juniper.proto", JUNIPER_PROTO_LLC, llc_handle);
 	dissector_add_uint("juniper.proto", JUNIPER_PROTO_LLC_SNAP, llc_handle);
 
-	register_capture_dissector("ethertype", ETHERTYPE_JUMBO_LLC, capture_llc, proto_llc);
-	register_capture_dissector("atm.aal5.type", TRAF_LLCMX, capture_llc, proto_llc);
-	register_capture_dissector("sll.ltype", LINUX_SLL_P_802_2, capture_llc, proto_llc);
+	llc_cap_handle = find_capture_dissector("llc");
+	capture_dissector_add_uint("ethertype", ETHERTYPE_JUMBO_LLC, llc_cap_handle);
+	capture_dissector_add_uint("atm.aal5.type", TRAF_LLCMX, llc_cap_handle);
+	capture_dissector_add_uint("sll.ltype", LINUX_SLL_P_802_2, llc_cap_handle);
+
+	llc_snap_handle = register_capture_dissector("llc_snap", capture_snap, proto_llc);
+	capture_dissector_add_uint("fr.nlpid", NLPID_SNAP, llc_snap_handle);
+
 
 	/*
 	 * Register all the fields for PIDs for various OUIs.
 	 */
 	if (oui_info_table != NULL)
-		g_hash_table_foreach(oui_info_table, register_hf, NULL);
+		wmem_map_foreach(oui_info_table, register_hf, NULL);
 }
 
 /*

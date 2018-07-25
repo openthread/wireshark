@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* This module provides udp and tcp follow stream capabilities to tshark.
@@ -51,8 +39,10 @@ typedef struct _cli_follow_info {
   int           stream_index;
   int           port[2];
   address       addr[2];
-  guint8        addrBuf[2][16];
-
+  union {
+    guint32           addrBuf_v4;
+    ws_in6_addr addrBuf_v6;
+  }             addrBuf[2];
 } cli_follow_info_t;
 
 
@@ -63,7 +53,7 @@ typedef struct _cli_follow_info {
 #define STR_EBCDIC      ",ebcdic"
 #define STR_RAW         ",raw"
 
-static void follow_exit(const char *strp)
+WS_NORETURN static void follow_exit(const char *strp)
 {
   fprintf(stderr, "tshark: follow - %s\n", strp);
   exit(1);
@@ -93,8 +83,7 @@ follow_free(follow_info_t *follow_info)
   cli_follow_info_t* cli_follow_info = (cli_follow_info_t*)follow_info->gui_data;
 
   g_free(cli_follow_info);
-  g_free(follow_info->filter_out_filter);
-  g_free(follow_info);
+  follow_info_free(follow_info);
 }
 
 #define BYTES_PER_LINE  16
@@ -170,7 +159,7 @@ static void follow_draw(void *contextp)
 
   follow_info_t *follow_info = (follow_info_t*)contextp;
   cli_follow_info_t* cli_follow_info = (cli_follow_info_t*)follow_info->gui_data;
-  gchar             buf[MAX_IP6_STR_LEN];
+  gchar             buf[WS_INET6_ADDRSTRLEN];
   guint32 global_client_pos = 0, global_server_pos = 0;
   guint32 *global_pos;
   guint32           ii, jj;
@@ -185,19 +174,19 @@ static void follow_draw(void *contextp)
 
   address_to_str_buf(&follow_info->client_ip, buf, sizeof buf);
   if (follow_info->client_ip.type == AT_IPv6)
-    printf("Node 0: [%s]:%d\n", buf, follow_info->client_port);
+    printf("Node 0: [%s]:%u\n", buf, follow_info->client_port);
   else
-    printf("Node 0: %s:%d\n", buf, follow_info->client_port);
+    printf("Node 0: %s:%u\n", buf, follow_info->client_port);
 
   address_to_str_buf(&follow_info->server_ip, buf, sizeof buf);
   if (follow_info->client_ip.type == AT_IPv6)
-    printf("Node 1: [%s]:%d\n", buf, follow_info->server_port);
+    printf("Node 1: [%s]:%u\n", buf, follow_info->server_port);
   else
-    printf("Node 1: %s:%d\n", buf, follow_info->server_port);
+    printf("Node 1: %s:%u\n", buf, follow_info->server_port);
 
-  for (cur = follow_info->payload, chunk = 0;
+  for (cur = g_list_last(follow_info->payload), chunk = 1;
        cur != NULL;
-       cur = g_list_next(cur), chunk++)
+       cur = g_list_previous(cur), chunk++)
   {
     follow_record = (follow_record_t *)cur->data;
     if (!follow_record->is_server) {
@@ -343,8 +332,9 @@ follow_arg_filter(const char **opt_argp, follow_info_t *follow_info)
   unsigned int  ii;
   char          addr[ADDR_LEN];
   cli_follow_info_t* cli_follow_info = (cli_follow_info_t*)follow_info->gui_data;
+  gboolean is_ipv6;
 
-  if (sscanf(*opt_argp, ",%u%n", &cli_follow_info->stream_index, &len) == 1 &&
+  if (sscanf(*opt_argp, ",%d%n", &cli_follow_info->stream_index, &len) == 1 &&
       ((*opt_argp)[len] == 0 || (*opt_argp)[len] == ','))
   {
     *opt_argp += len;
@@ -353,28 +343,39 @@ follow_arg_filter(const char **opt_argp, follow_info_t *follow_info)
   {
     for (ii = 0; ii < sizeof cli_follow_info->addr/sizeof *cli_follow_info->addr; ii++)
     {
-      if ((sscanf(*opt_argp, ADDRv6_FMT, addr, &cli_follow_info->port[ii], &len) != 2 &&
-           sscanf(*opt_argp, ADDRv4_FMT, addr, &cli_follow_info->port[ii], &len) != 2) ||
-          cli_follow_info->port[ii] <= 0 || cli_follow_info->port[ii] > G_MAXUINT16)
+      if (sscanf(*opt_argp, ADDRv6_FMT, addr, &cli_follow_info->port[ii], &len) == 2)
       {
-        follow_exit("Invalid address:port pair.");
+        is_ipv6 = TRUE;
       }
-
-      if (strcmp("ip6", host_ip_af(addr)) == 0)
+      else if (sscanf(*opt_argp, ADDRv4_FMT, addr, &cli_follow_info->port[ii], &len) == 2)
       {
-        if (!get_host_ipaddr6(addr, (struct e_in6_addr *)cli_follow_info->addrBuf[ii]))
-        {
-          follow_exit("Can't get IPv6 address");
-        }
-        set_address(&cli_follow_info->addr[ii], AT_IPv6, 16, cli_follow_info->addrBuf[ii]);
+        is_ipv6 = FALSE;
       }
       else
       {
-        if (!get_host_ipaddr(addr, (guint32 *)cli_follow_info->addrBuf[ii]))
+        follow_exit("Invalid address.");
+      }
+
+      if (cli_follow_info->port[ii] <= 0 || cli_follow_info->port[ii] > G_MAXUINT16)
+      {
+        follow_exit("Invalid port.");
+      }
+
+      if (is_ipv6)
+      {
+        if (!get_host_ipaddr6(addr, &cli_follow_info->addrBuf[ii].addrBuf_v6))
+        {
+          follow_exit("Can't get IPv6 address");
+        }
+        set_address(&cli_follow_info->addr[ii], AT_IPv6, 16, (void *)&cli_follow_info->addrBuf[ii].addrBuf_v6);
+      }
+      else
+      {
+        if (!get_host_ipaddr(addr, &cli_follow_info->addrBuf[ii].addrBuf_v4))
         {
           follow_exit("Can't get IPv4 address");
         }
-        set_address(&cli_follow_info->addr[ii], AT_IPv4, 4, cli_follow_info->addrBuf[ii]);
+        set_address(&cli_follow_info->addr[ii], AT_IPv4, 4, (void *)&cli_follow_info->addrBuf[ii].addrBuf_v4);
       }
 
       *opt_argp += len;
@@ -471,7 +472,7 @@ static void follow_stream(const char *opt_argp, void *userdata)
   }
 
   errp = register_tap_listener(get_follow_tap_string(follower), follow_info, follow_info->filter_out_filter, 0,
-                               NULL, get_follow_tap_handler(follower), follow_draw);
+                               NULL, get_follow_tap_handler(follower), follow_draw, NULL);
 
   if (errp != NULL)
   {
@@ -481,19 +482,23 @@ static void follow_stream(const char *opt_argp, void *userdata)
   }
 }
 
-static void
-follow_register(gpointer data, gpointer user_data _U_)
+static gboolean
+follow_register(const void *key _U_, void *value, void *userdata _U_)
 {
-  register_follow_t *follower = (register_follow_t*)data;
+  register_follow_t *follower = (register_follow_t*)value;
   stat_tap_ui follow_ui;
+  gchar *cli_string;
 
+  cli_string = follow_get_stat_tap_string(follower);
   follow_ui.group = REGISTER_STAT_GROUP_GENERIC;
   follow_ui.title = NULL;   /* construct this from the protocol info? */
-  follow_ui.cli_string = follow_get_stat_tap_string(follower);
+  follow_ui.cli_string = cli_string;
   follow_ui.tap_init_cb = follow_stream;
   follow_ui.nparams = 0;
   follow_ui.params = NULL;
   register_stat_tap_ui(&follow_ui, follower);
+  g_free(cli_string);
+  return FALSE;
 }
 
 void

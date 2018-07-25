@@ -6,25 +6,17 @@
  *
  * Copyright (C) 1999 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#include <config.h>
+
 #include <glib.h>
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <wsutil/ws_diag_control.h>
+#include <wsutil/clopts_common.h>
+#include <wsutil/cmdarg_err.h>
 #include <wsutil/unicode-utils.h>
 #include <wsutil/file_util.h>
 #include <wsutil/filesystem.h>
@@ -34,7 +26,7 @@
 #include <wsutil/plugins.h>
 #endif
 
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
 #endif
@@ -45,28 +37,40 @@
 
 #include "randpkt_core/randpkt_core.h"
 
-#ifdef HAVE_PLUGINS
+#define INVALID_OPTION 1
+#define INVALID_TYPE 2
+#define CLOSE_ERROR 2
+
 /*
- *  Don't report failures to load plugins because most (non-wiretap) plugins
- *  *should* fail to load (because we're not linked against libwireshark and
- *  dissector plugins need libwireshark).
+ * General errors and warnings are reported with an console message
+ * in randpkt.
  */
 static void
-failure_message(const char *msg_format _U_, va_list ap _U_)
+failure_warning_message(const char *msg_format, va_list ap)
 {
-  return;
+	fprintf(stderr, "randpkt: ");
+	vfprintf(stderr, msg_format, ap);
+	fprintf(stderr, "\n");
 }
-#endif
+
+/*
+ * Report additional information for an error in command-line arguments.
+ */
+static void
+failure_message_cont(const char *msg_format, va_list ap)
+{
+	vfprintf(stderr, msg_format, ap);
+	fprintf(stderr, "\n");
+}
 
 /* Print usage statement and exit program */
 static void
 usage(gboolean is_error)
 {
 	FILE *output;
-	const char** abbrev_list;
-	const char** longname_list;
-	unsigned list_num;
-	unsigned i;
+	char** abbrev_list;
+	char** longname_list;
+	unsigned i = 0;
 
 	if (!is_error) {
 		output = stdout;
@@ -83,20 +87,22 @@ usage(gboolean is_error)
 	fprintf(output, "Types:\n");
 
 	/* Get the examples list */
-	randpkt_example_list(&abbrev_list, &longname_list, &list_num);
-	for (i = 0; i < list_num; i++) {
+	randpkt_example_list(&abbrev_list, &longname_list);
+	while (abbrev_list[i] && longname_list[i]) {
 		fprintf(output, "\t%-16s%s\n", abbrev_list[i], longname_list[i]);
+		i++;
 	}
-	g_free((char**)abbrev_list);
-	g_free((char**)longname_list);
+
+	g_strfreev(abbrev_list);
+	g_strfreev(longname_list);
 
 	fprintf(output, "\nIf type is not specified, a random packet will be chosen\n\n");
-
-	exit(is_error ? 1 : 0);
 }
+
 int
 main(int argc, char **argv)
 {
+	char                   *init_progfile_dir_error;
 	int			opt;
 	int			produce_type = -1;
 	char			*produce_filename = NULL;
@@ -106,58 +112,54 @@ main(int argc, char **argv)
 	guint8*			type = NULL;
 	int 			allrandom = FALSE;
 	wtap_dumper		*savedump;
+	int 			 ret = EXIT_SUCCESS;
 	static const struct option long_options[] = {
 		{"help", no_argument, NULL, 'h'},
 		{0, 0, 0, 0 }
 	};
 
-#ifdef HAVE_PLUGINS
-	char  *init_progfile_dir_error;
-#endif
+	/*
+	 * Get credential information for later use.
+	 */
+	init_process_policies();
 
-  /*
-   * Get credential information for later use.
-   */
-  init_process_policies();
-  init_open_routines();
+	/*
+	 * Attempt to get the pathname of the directory containing the
+	 * executable file.
+	 */
+	init_progfile_dir_error = init_progfile_dir(argv[0]);
+	if (init_progfile_dir_error != NULL) {
+		fprintf(stderr,
+		    "capinfos: Can't get pathname of directory containing the capinfos program: %s.\n",
+		    init_progfile_dir_error);
+		g_free(init_progfile_dir_error);
+	}
+
+	init_report_message(failure_warning_message, failure_warning_message,
+				NULL, NULL, NULL);
+
+	wtap_init(TRUE);
+
+	cmdarg_err_init(failure_warning_message, failure_message_cont);
 
 #ifdef _WIN32
 	arg_list_utf_16to8(argc, argv);
 	create_app_running_mutex();
 #endif /* _WIN32 */
 
-#ifdef HAVE_PLUGINS
-	/* Register wiretap plugins */
-	if ((init_progfile_dir_error = init_progfile_dir(argv[0], main))) {
-		g_warning("randpkt: init_progfile_dir(): %s", init_progfile_dir_error);
-		g_free(init_progfile_dir_error);
-	} else {
-		/* Register all the plugin types we have. */
-		wtap_register_plugin_types(); /* Types known to libwiretap */
-
-		init_report_err(failure_message,NULL,NULL,NULL);
-
-		/* Scan for plugins.  This does *not* call their registration routines;
-		   that's done later. */
-		scan_plugins();
-
-		/* Register all libwiretap plugin modules. */
-		register_all_wiretap_modules();
-	}
-#endif
-
 	while ((opt = getopt_long(argc, argv, "b:c:ht:r", long_options, NULL)) != -1) {
 		switch (opt) {
 			case 'b':	/* max bytes */
-				produce_max_bytes = atoi(optarg);
+				produce_max_bytes = get_positive_int(optarg, "max bytes");
 				if (produce_max_bytes > 65536) {
-					fprintf(stderr, "randpkt: Max bytes is 65536\n");
-					return 1;
+					cmdarg_err("max bytes is > 65536");
+					ret = INVALID_OPTION;
+					goto clean_exit;
 				}
 				break;
 
 			case 'c':	/* count */
-				produce_count = atoi(optarg);
+				produce_count = get_positive_int(optarg, "count");
 				break;
 
 			case 't':	/* type of packet to produce */
@@ -166,6 +168,7 @@ main(int argc, char **argv)
 
 			case 'h':
 				usage(FALSE);
+				goto clean_exit;
 				break;
 
 			case 'r':
@@ -174,6 +177,8 @@ main(int argc, char **argv)
 
 			default:
 				usage(TRUE);
+				ret = INVALID_OPTION;
+				goto clean_exit;
 				break;
 		}
 	}
@@ -184,48 +189,62 @@ main(int argc, char **argv)
 	}
 	else {
 		usage(TRUE);
+		ret = INVALID_OPTION;
+		goto clean_exit;
 	}
-
-	randpkt_seed();
 
 	if (!allrandom) {
 		produce_type = randpkt_parse_type(type);
 		g_free(type);
 
 		example = randpkt_find_example(produce_type);
-		if (!example)
-			return 1;
+		if (!example) {
+			ret = INVALID_OPTION;
+			goto clean_exit;
+		}
 
-		randpkt_example_init(example, produce_filename, produce_max_bytes);
-		randpkt_loop(example, produce_count);
+		ret = randpkt_example_init(example, produce_filename, produce_max_bytes);
+		if (ret != EXIT_SUCCESS)
+			goto clean_exit;
+		randpkt_loop(example, produce_count, 0);
 	} else {
 		if (type) {
 			fprintf(stderr, "Can't set type in random mode\n");
-			return 2;
+			ret = INVALID_TYPE;
+			goto clean_exit;
 		}
 
 		produce_type = randpkt_parse_type(NULL);
 		example = randpkt_find_example(produce_type);
-		if (!example)
-			return 1;
-		randpkt_example_init(example, produce_filename, produce_max_bytes);
+		if (!example) {
+			ret = INVALID_OPTION;
+			goto clean_exit;
+		}
+		ret = randpkt_example_init(example, produce_filename, produce_max_bytes);
+		if (ret != EXIT_SUCCESS)
+			goto clean_exit;
 
 		while (produce_count-- > 0) {
-			randpkt_loop(example, 1);
+			randpkt_loop(example, 1, 0);
 			produce_type = randpkt_parse_type(NULL);
 
 			savedump = example->dump;
 
 			example = randpkt_find_example(produce_type);
-			if (!example)
-				return 1;
+			if (!example) {
+				ret = INVALID_OPTION;
+				goto clean_exit;
+			}
 			example->dump = savedump;
 		}
 	}
-	if (!randpkt_example_close(example))
-		return 2;
-	return 0;
+	if (!randpkt_example_close(example)) {
+		ret = CLOSE_ERROR;
+	}
 
+clean_exit:
+	wtap_cleanup();
+	return ret;
 }
 
 /*

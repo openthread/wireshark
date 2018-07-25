@@ -8,19 +8,7 @@
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -88,7 +76,7 @@ dissect_msnms(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
      * Put the first line from the buffer into the summary.
      */
     col_add_str(pinfo->cinfo, COL_INFO,
-                format_text(line, linelen));
+                format_text(wmem_packet_scope(), line, linelen));
 
     if (tree) {
         ti = proto_tree_add_item(tree, proto_msnms, tvb, offset, -1,
@@ -133,7 +121,7 @@ proto_reg_handoff_msnms(void)
     dissector_handle_t msnms_handle;
 
     msnms_handle = create_dissector_handle(dissect_msnms, proto_msnms);
-    dissector_add_uint("tcp.port", TCP_PORT_MSNMS, msnms_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_MSNMS, msnms_handle);
     /*
      * For MSN Messenger Protocol over HTTP
      */

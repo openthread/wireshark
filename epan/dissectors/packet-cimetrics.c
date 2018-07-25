@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -47,6 +35,7 @@ static gint ett_cimetrics_mstp = -1;
 static int hf_cimetrics_mstp_timer = -1;
 static int hf_cimetrics_mstp_value = -1;
 
+static dissector_handle_t cimetric_handle;
 
 static int
 dissect_cimetrics_mstp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
@@ -114,8 +103,7 @@ proto_register_cimetrics(void)
 	proto_register_field_array(proto_cimetrics_mstp, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
 
-	register_dissector("cimetrics", dissect_cimetrics_mstp,
-			   proto_cimetrics_mstp);
+	cimetric_handle = register_dissector("cimetrics", dissect_cimetrics_mstp, proto_cimetrics_mstp);
 
 	llc_add_oui(OUI_CIMETRICS, "llc.cimetrics_pid",
 		    "LLC Cimetrics OUI PID", hf2, proto_cimetrics_mstp);
@@ -124,10 +112,7 @@ proto_register_cimetrics(void)
 void
 proto_reg_handoff_cimetrics(void)
 {
-	dissector_handle_t mstp_handle;
-
-	mstp_handle = find_dissector("cimetrics");
-	dissector_add_uint("llc.cimetrics_pid", 1, mstp_handle);
+	dissector_add_uint("llc.cimetrics_pid", 1, cimetric_handle);
 }
 
 /*

@@ -14,19 +14,7 @@ XXX  Fixme : shouldn't show [malformed frame] for long packets
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,6 +22,7 @@ XXX  Fixme : shouldn't show [malformed frame] for long packets
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/to_str.h>
+#include <epan/strutil.h>
 #include <epan/expert.h>
 #include <epan/reassemble.h>
 #include "packet-smb.h"
@@ -109,6 +98,7 @@ static int hf_data_no_descriptor = -1;
 static int hf_data_no_recv_buffer = -1;
 static int hf_ecount = -1;
 static int hf_acount = -1;
+static int hf_share = -1;
 static int hf_share_name = -1;
 static int hf_share_type = -1;
 static int hf_share_comment = -1;
@@ -117,6 +107,7 @@ static int hf_share_max_uses = -1;
 static int hf_share_current_uses = -1;
 static int hf_share_path = -1;
 static int hf_share_password = -1;
+static int hf_server = -1;
 static int hf_server_name = -1;
 static int hf_server_major = -1;
 static int hf_server_minor = -1;
@@ -177,8 +168,6 @@ static int hf_code_page = -1;
 static int hf_new_password = -1;
 static int hf_old_password = -1;
 static int hf_reserved = -1;
-static int hf_share = -1;
-static int hf_server = -1;
 static int hf_aux_data_struct_count  = -1;
 
 /* Generated from convert_proto_tree_add_text.pl */
@@ -313,6 +302,24 @@ add_bytes_param(tvbuff_t *tvb, int offset, int count, packet_info *pinfo _U_,
 			proto_tree_add_item(tree, hf_smb_pipe_bytes_param, tvb, offset, count, ENC_NA);
 		}
 	}
+	offset += count;
+	return offset;
+}
+
+static int
+add_string_param_update_parent(tvbuff_t *tvb, int offset, int count, packet_info *pinfo _U_,
+    proto_tree *tree, int convert _U_, int hf_index, smb_info_t *smb_info _U_)
+{
+	proto_item *ti, *parent_ti;
+	const guint8 *str;
+
+	DISSECTOR_ASSERT(hf_index != -1);
+	ti = proto_tree_add_item_ret_string(tree, hf_index, tvb, offset,
+	    count, ENC_ASCII|ENC_NA, wmem_packet_scope(), &str);
+	    /* XXX - code page? */
+	parent_ti = proto_item_get_parent(ti);
+	proto_item_append_text(parent_ti, ": %s",
+	    format_text(wmem_packet_scope(), str, strlen(str)));
 	offset += count;
 	return offset;
 }
@@ -509,7 +516,7 @@ add_reltime(tvbuff_t *tvb, int offset, int count _U_, packet_info *pinfo _U_,
 	nstime.nsecs = 0;
 	proto_tree_add_time_format_value(tree, hf_index, tvb, offset, 4,
 	    &nstime, "%s",
-	    time_secs_to_str(wmem_packet_scope(),  (gint32) nstime.secs));
+	    signed_time_secs_to_str(wmem_packet_scope(),  (gint32) nstime.secs));
 	offset += 4;
 	return offset;
 }
@@ -651,11 +658,11 @@ add_tzoffset(tvbuff_t *tvb, int offset, int count _U_, packet_info *pinfo _U_,
 	if (tzoffset < 0) {
 		proto_tree_add_int_format_value(tree, hf_tzoffset, tvb, offset, 2,
 		    tzoffset, "%s east of UTC",
-		    time_secs_to_str(wmem_packet_scope(), -tzoffset*60));
+		    signed_time_secs_to_str(wmem_packet_scope(), -tzoffset*60));
 	} else if (tzoffset > 0) {
 		proto_tree_add_int_format_value(tree, hf_tzoffset, tvb, offset, 2,
 		    tzoffset, "%s west of UTC",
-		    time_secs_to_str(wmem_packet_scope(), tzoffset*60));
+		    signed_time_secs_to_str(wmem_packet_scope(), tzoffset*60));
 	} else {
 		proto_tree_add_int_format_value(tree, hf_tzoffset, tvb, offset, 2,
 		    tzoffset, "at UTC");
@@ -793,11 +800,7 @@ static const item_t lm_params_resp_netshareenum[] = {
 static proto_item *
 netshareenum_share_entry(tvbuff_t *tvb, proto_tree *tree, int offset)
 {
-	if (tree) {
-		return proto_tree_add_string(tree, hf_share, tvb, offset, -1,
-						tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 13, ENC_ASCII));
-	} else
-		return NULL;
+	return proto_tree_add_item(tree, hf_share, tvb, offset, -1, ENC_NA);
 }
 
 static const item_t lm_null[] = {
@@ -809,7 +812,7 @@ static const item_list_t lm_null_list[] = {
 };
 
 static const item_t lm_data_resp_netshareenum_1[] = {
-	{ &hf_share_name, add_bytes_param, PARAM_BYTES },
+	{ &hf_share_name, add_string_param_update_parent, PARAM_BYTES },
 	{ &no_hf, add_pad_param, PARAM_BYTES },
 	{ &hf_share_type, add_word_param, PARAM_WORD },
 	{ &hf_share_comment, add_stringz_pointer_param, PARAM_STRINGZ },
@@ -876,12 +879,12 @@ static const item_t lm_params_resp_netservergetinfo[] = {
 };
 
 static const item_t lm_data_serverinfo_0[] = {
-	{ &hf_server_name, add_bytes_param, PARAM_BYTES },
+	{ &hf_server_name, add_string_param_update_parent, PARAM_BYTES },
 	{ NULL, NULL, PARAM_NONE }
 };
 
 static const item_t lm_data_serverinfo_1[] = {
-	{ &hf_server_name, add_bytes_param, PARAM_BYTES },
+	{ &hf_server_name, add_string_param_update_parent, PARAM_BYTES },
 	{ &hf_server_major, add_bytes_param, PARAM_BYTES },
 	{ &hf_server_minor, add_bytes_param, PARAM_BYTES },
 	{ &no_hf, add_server_type, PARAM_DWORD },
@@ -993,11 +996,7 @@ static const item_t lm_params_req_netserverenum2[] = {
 static proto_item *
 netserverenum2_server_entry(tvbuff_t *tvb, proto_tree *tree, int offset)
 {
-	if (tree) {
-		return proto_tree_add_string(tree, hf_server, tvb, offset, -1,
-						tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 16, ENC_ASCII));
-	} else
-		return NULL;
+	return proto_tree_add_item(tree, hf_server, tvb, offset, -1, ENC_NA);
 }
 
 static const item_t lm_params_resp_netserverenum2[] = {
@@ -2665,7 +2664,7 @@ dissect_pipe_lanman(tvbuff_t *pd_tvb, tvbuff_t *p_tvb, tvbuff_t *d_tvb,
 			 * Save the parameter descriptor for future use.
 			 */
 			DISSECTOR_ASSERT(trp->param_descrip == NULL);
-			trp->param_descrip = g_strdup(param_descrip);
+			trp->param_descrip = wmem_strdup(wmem_file_scope(), param_descrip);
 		}
 		offset += descriptor_len;
 
@@ -2678,7 +2677,7 @@ dissect_pipe_lanman(tvbuff_t *pd_tvb, tvbuff_t *p_tvb, tvbuff_t *d_tvb,
 			 * Save the return descriptor for future use.
 			 */
 			DISSECTOR_ASSERT(trp->data_descrip == NULL);
-			trp->data_descrip = g_strdup(data_descrip);
+			trp->data_descrip = wmem_strdup(wmem_file_scope(), data_descrip);
 		}
 		offset += descriptor_len;
 
@@ -2705,7 +2704,7 @@ dissect_pipe_lanman(tvbuff_t *pd_tvb, tvbuff_t *p_tvb, tvbuff_t *d_tvb,
 				 */
 				DISSECTOR_ASSERT(trp->aux_data_descrip == NULL);
 				trp->aux_data_descrip =
-				    g_strdup(aux_data_descrip);
+				    wmem_strdup(wmem_file_scope(), aux_data_descrip);
 			}
 		}
 
@@ -2927,6 +2926,10 @@ proto_register_pipe_lanman(void)
 			{ "Available Entries", "lanman.available_count", FT_UINT16, BASE_DEC,
 			NULL, 0, "LANMAN Number of Available Entries", HFILL }},
 
+		{ &hf_share,
+			{ "Share", "lanman.share", FT_NONE, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
+
 		{ &hf_share_name,
 			{ "Share Name", "lanman.share.name", FT_STRING, BASE_NONE,
 			NULL, 0, "LANMAN Name of Share", HFILL }},
@@ -2958,6 +2961,10 @@ proto_register_pipe_lanman(void)
 		{ &hf_share_password,
 			{ "Share Password", "lanman.share.password", FT_STRING, BASE_NONE,
 			NULL, 0, "LANMAN Share Password", HFILL }},
+
+		{ &hf_server,
+			{ "Server", "lanman.server", FT_NONE, BASE_NONE,
+			NULL, 0, NULL, HFILL }},
 
 		{ &hf_server_name,
 			{ "Server Name", "lanman.server.name", FT_STRING, BASE_NONE,
@@ -3200,14 +3207,6 @@ proto_register_pipe_lanman(void)
 			{ "Reserved", "lanman.reserved", FT_UINT32, BASE_HEX,
 			NULL, 0, "LANMAN Reserved", HFILL }},
 
-		{ &hf_share,
-			{ "Share", "lanman.share", FT_STRING, BASE_NONE,
-			NULL, 0, NULL, HFILL }},
-
-		{ &hf_server,
-			{ "Server", "lanman.server", FT_STRING, BASE_NONE,
-			NULL, 0, NULL, HFILL }},
-
 		{ &hf_aux_data_struct_count,
 			{ "Auxiliary data structure count", "lanman.aux_data_struct_count", FT_UINT16, BASE_DEC_HEX,
 			NULL, 0, NULL, HFILL }},
@@ -3233,26 +3232,6 @@ proto_register_pipe_lanman(void)
 static heur_dissector_list_t smb_transact_heur_subdissector_list;
 
 static reassembly_table dcerpc_reassembly_table;
-
-static void
-smb_dcerpc_reassembly_init(void)
-{
-	/*
-	 * XXX - addresses_ports_reassembly_table_functions?
-	 * Probably correct for SMB-over-NBT and SMB-over-TCP,
-	 * as stuff from two different connections should
-	 * probably not be combined, but what about other
-	 * transports for SMB, e.g. NBF or Netware?
-	 */
-	reassembly_table_init(&dcerpc_reassembly_table,
-	    &addresses_reassembly_table_functions);
-}
-
-static void
-smb_dcerpc_reassembly_cleanup(void)
-{
-	reassembly_table_destroy(&dcerpc_reassembly_table);
-}
 
 gboolean
 dissect_pipe_dcerpc(tvbuff_t *d_tvb, packet_info *pinfo, proto_tree *parent_tree,
@@ -3919,8 +3898,15 @@ proto_register_smb_pipe(void)
 	expert_register_field_array(expert_smb_pipe, ei, array_length(ei));
 
 	smb_transact_heur_subdissector_list = register_heur_dissector_list("smb_transact", proto_smb_pipe);
-	register_init_routine(smb_dcerpc_reassembly_init);
-	register_cleanup_routine(smb_dcerpc_reassembly_cleanup);
+	/*
+	 * XXX - addresses_ports_reassembly_table_functions?
+	 * Probably correct for SMB-over-NBT and SMB-over-TCP,
+	 * as stuff from two different connections should
+	 * probably not be combined, but what about other
+	 * transports for SMB, e.g. NBF or Netware?
+	 */
+	reassembly_table_register(&dcerpc_reassembly_table,
+	    &addresses_reassembly_table_functions);
 }
 
 /*

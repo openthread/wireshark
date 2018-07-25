@@ -16,19 +16,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -182,6 +170,8 @@ static gint ett_emule_sourceOBFU = -1;
 static expert_field ei_kademlia_tag_type = EI_INIT;
 static expert_field ei_kademlia_search_expression_type = EI_INIT;
 
+#define EDONKEY_TCP_PORT_RANGE "4661-4663" /* Not IANA registered */
+#define EDONKEY_UDP_PORT_RANGE "4665,4672" /* Not IANA registered */
 
 /* desegmentation of eDonkey over TCP */
 static gboolean edonkey_desegment = TRUE;
@@ -579,7 +569,7 @@ static const range_string emule_ident_state_rvals[] = {
 };
 
 /* Dissects a generic eDonkey list */
-static int dissect_edonkey_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_list(tvbuff_t *tvb, packet_info *pinfo,
                                 int offset,  proto_tree *tree,
                                 int listnum_length, const char* listdesc,
                                 int  (*item_dissector)(tvbuff_t  *, packet_info *, int, proto_tree *))
@@ -943,7 +933,7 @@ static int dissect_kademlia_ip_address(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 
-static int dissect_kademlia_address(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_address(tvbuff_t *tvb, packet_info *pinfo,
                                     int offset, proto_tree *tree)
 {
     /* <Address> ::= <IP> <Port> <Tcp Port>*/
@@ -1009,7 +999,7 @@ static int dissect_kademlia_string(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey address list */
-static int dissect_edonkey_address_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_address_list(tvbuff_t *tvb, packet_info *pinfo,
                                         int offset,  proto_tree *tree)
 {
     /* <Address List> ::= <List Size (guint8)> <Address>* */
@@ -1082,7 +1072,7 @@ static int dissect_kademlia_hash_hidden(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the Kademlia hash*/
-static int dissect_kademlia_hash(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_hash(tvbuff_t *tvb, packet_info *pinfo,
                                  int offset, proto_tree *tree, int *value_ptr) {
     const char *hash;
 
@@ -1108,7 +1098,7 @@ static int dissect_kademlia_tag_hash_hidden(tvbuff_t *tvb, packet_info *pinfo _U
     return offset+16;
 }
 
-static int dissect_kademlia_tag_hash(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_tag_hash(tvbuff_t *tvb, packet_info *pinfo,
                                  int offset, proto_tree *tree) {
     const char *hash;
 
@@ -1133,23 +1123,22 @@ static int dissect_kademlia_tag_bsob(tvbuff_t *tvb, packet_info *pinfo _U_,
 
 
 static int dissect_kademlia_tag_string(tvbuff_t *tvb, packet_info *pinfo _U_,
-                                 int offset, proto_tree *tree, const gchar** string_value)
+                                 int offset, proto_tree *tree, const guint8** string_value)
 {
     proto_item *hidden_item;
     guint16 string_length = tvb_get_letohs(tvb, offset);
 
     hidden_item = proto_tree_add_uint(tree, hf_edonkey_string_length, tvb, offset, 2, string_length);
     PROTO_ITEM_SET_HIDDEN(hidden_item);
-    hidden_item = proto_tree_add_item(tree, hf_edonkey_string, tvb, offset + 2, string_length, ENC_ASCII|ENC_NA);
+    hidden_item = proto_tree_add_item_ret_string(tree, hf_edonkey_string, tvb, offset + 2, string_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), string_value);
     PROTO_ITEM_SET_HIDDEN(hidden_item);
-    *string_value = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, string_length, ENC_ASCII|ENC_NA);
 
     proto_tree_add_item(tree, hf_kademlia_tag_string, tvb, offset + 2, string_length, ENC_ASCII|ENC_NA);
     return offset + 2 + string_length;
 }
 
 /* Dissects the eDonkey hash list */
-static int dissect_edonkey_hash_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_hash_list(tvbuff_t *tvb, packet_info *pinfo,
                                      int offset,  proto_tree *tree)
 {
     /* <Hash List> ::= <File Hash> <List Size (guint16)> <Hash>* */
@@ -1158,7 +1147,7 @@ static int dissect_edonkey_hash_list(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey meta tag list */
-static int dissect_edonkey_metatag_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_metatag_list(tvbuff_t *tvb, packet_info *pinfo,
                                         int offset, proto_tree *tree)
 {
     /* <Meta Tag List> ::= <List Size (guint32)> <Meta tag>* */
@@ -1188,7 +1177,7 @@ static int dissect_edonkey_directory(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey Filename */
-static int dissect_edonkey_file_name(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_file_name(tvbuff_t *tvb, packet_info *pinfo,
                                      int offset, proto_tree *tree)
 {
     /* <Filename> ::= <String> */
@@ -1214,7 +1203,7 @@ static int dissect_edonkey_file_status(tvbuff_t *tvb, packet_info *pinfo _U_,
 
 
 /* Dissects the eDonkey directory list */
-static int dissect_edonkey_directory_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_directory_list(tvbuff_t *tvb, packet_info *pinfo,
                                           int offset,  proto_tree *tree)
 {
     /* <Directory List> ::= <List Size (guint32)> <Directory>* */
@@ -1240,7 +1229,7 @@ static int dissect_edonkey_client_hash(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eMule sourceOBFU */
-static int dissect_emule_sourceOBFU(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_emule_sourceOBFU(tvbuff_t *tvb, packet_info *pinfo,
                                    int offset, proto_tree *tree)
 {
 
@@ -1262,7 +1251,7 @@ static int dissect_emule_sourceOBFU(tvbuff_t *tvb, packet_info *pinfo _U_,
 
 
 /* Dissects the eMule sourceOBFU list */
-static int dissect_emule_sourceOBFU_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_emule_sourceOBFU_list(tvbuff_t *tvb, packet_info *pinfo,
                                         int offset,  proto_tree *tree)
 {
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 1, "Sources Obfuscation", dissect_emule_sourceOBFU);
@@ -1334,7 +1323,7 @@ static int dissect_edonkey_end_offset_64(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey client info */
-static int dissect_edonkey_client_info(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_client_info(tvbuff_t *tvb, packet_info *pinfo,
                                        int offset,  proto_tree *tree)
 {
     /* <Client info> ::= <Client hash> <Client ID> <Port> <Meta tag list> */
@@ -1351,7 +1340,7 @@ static int dissect_edonkey_client_info(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey client info list */
-static int dissect_edonkey_client_info_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_client_info_list(tvbuff_t *tvb, packet_info *pinfo,
                                             int offset,  proto_tree *tree)
 {
     /* <Client Info List> ::= <List Size (guint32)> <Client Info>* */
@@ -1359,7 +1348,7 @@ static int dissect_edonkey_client_info_list(tvbuff_t *tvb, packet_info *pinfo _U
 }
 
 /* Dissects the eDonkey server info */
-static int dissect_edonkey_server_info(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_server_info(tvbuff_t *tvb, packet_info *pinfo,
                                        int offset,  proto_tree *tree)
 {
     /* <Server info> ::= <Server hash> <Server Address> <Meta tag list> */
@@ -1375,7 +1364,7 @@ static int dissect_edonkey_server_info(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey file info */
-static int dissect_edonkey_file_info(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_file_info(tvbuff_t *tvb, packet_info *pinfo,
                                      int offset,  proto_tree *tree)
 {
     /* <File info> ::= <File hash> <Client ID> <Port> <Meta tag list> */
@@ -1395,7 +1384,7 @@ static int dissect_edonkey_file_info(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the eDonkey file info list */
-static int dissect_edonkey_file_info_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_file_info_list(tvbuff_t *tvb, packet_info *pinfo,
                                           int offset,  proto_tree *tree)
 {
     /* <File Info List> ::= <List Size (guint32)> <File Info>* */
@@ -1404,7 +1393,7 @@ static int dissect_edonkey_file_info_list(tvbuff_t *tvb, packet_info *pinfo _U_,
 
 
 /* Dissects the eMule   address list */
-static int dissect_emule_address_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_emule_address_list(tvbuff_t *tvb, packet_info *pinfo,
                                       int offset,  proto_tree *tree)
 {
     /* <Address List> ::= <List Size (guint16)> <Address>* */
@@ -1435,14 +1424,14 @@ static int dissect_emule_aich_hash_list_entry(tvbuff_t *tvb, packet_info *pinfo 
     return offset + 22;
 }
 
-static int dissect_emule_aich_hash_list(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_emule_aich_hash_list(tvbuff_t *tvb, packet_info *pinfo,
                                         int offset, proto_tree *tree)
 {
     /* <AICH Hash List> ::= <List Size (guint16)> < <AICH Hash ID> <AICH Hash> >* */
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 2, "AICH Hash", dissect_emule_aich_hash_list_entry);
 }
 
-static int dissect_emule_multipacket(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_emule_multipacket(tvbuff_t *tvb, packet_info *pinfo,
                                      int offset, int eoffset, proto_tree *tree, int isext)
 {
     guint8 opcode, nextop;
@@ -1585,7 +1574,7 @@ static int dissect_overnet_peertype(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the Overnet peer */
-static int dissect_overnet_peer(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_overnet_peer(tvbuff_t *tvb, packet_info *pinfo,
                                 int offset, proto_tree *tree)
 {
     /* <Peer> ::= <Hash> <Address> <Peer type> */
@@ -1608,7 +1597,7 @@ static int dissect_kademlia_peertype(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the Kademlia peer */
-static int dissect_kademlia_peer(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_peer(tvbuff_t *tvb, packet_info *pinfo,
                                  int offset, proto_tree *tree)
 {
     /* <Peer> ::= <Hash> <Address> <Peer type> */
@@ -1632,7 +1621,7 @@ static int dissect_kademlia_peer(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 /* Dissects the Kademlia2 peer */
-static int dissect_kademlia2_peer(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia2_peer(tvbuff_t *tvb, packet_info *pinfo,
                                  int offset, proto_tree *tree)
 {
     /* <Peer> ::= <Hash> <Address> <Peer type> */
@@ -1656,7 +1645,7 @@ static int dissect_kademlia2_peer(tvbuff_t *tvb, packet_info *pinfo _U_,
 
 
 /* Dissects the eDonkey search query */
-static int dissect_edonkey_search_query(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_edonkey_search_query(tvbuff_t *tvb, packet_info *pinfo,
                                         int offset, proto_tree *tree)
 {
     /* <Search Query> ::= <Search Type> <Search> */
@@ -1760,7 +1749,7 @@ static int dissect_edonkey_search_query(tvbuff_t *tvb, packet_info *pinfo _U_,
 }
 
 static void dissect_edonkey_tcp_message(guint8 msg_type,
-                                        tvbuff_t *tvb, packet_info *pinfo _U_,
+                                        tvbuff_t *tvb, packet_info *pinfo,
                                         int offset, int length, proto_tree *tree)
 {
     int msg_end, bytes_remaining;
@@ -1954,7 +1943,7 @@ static void dissect_edonkey_tcp_message(guint8 msg_type,
 }
 
 static void dissect_emule_tcp_message(guint8 msg_type,
-                                      tvbuff_t *tvb, packet_info *pinfo _U_,
+                                      tvbuff_t *tvb, packet_info *pinfo,
                                       int offset, int length, proto_tree *tree)
 {
     int msg_end, bytes_remaining;
@@ -2093,7 +2082,7 @@ static void dissect_emule_tcp_message(guint8 msg_type,
 }
 
 static int dissect_edonkey_udp_message(guint8 msg_type,
-                                        tvbuff_t *tvb, packet_info *pinfo _U_,
+                                        tvbuff_t *tvb, packet_info *pinfo,
                                         int offset, int length, proto_tree *tree)
 {
     int msg_end, bytes_remaining;
@@ -2256,7 +2245,7 @@ static int dissect_edonkey_udp_message(guint8 msg_type,
 }
 
 static int dissect_emule_udp_message(guint8 msg_type,
-                                      tvbuff_t *tvb, packet_info *pinfo _U_,
+                                      tvbuff_t *tvb, packet_info *pinfo,
                                       int offset, int length, proto_tree *tree)
 {
     int msg_end, bytes_remaining;
@@ -2299,32 +2288,32 @@ static int dissect_emule_udp_message(guint8 msg_type,
     return offset;
 }
 
-static int dissect_kademlia_peer_list_2byte(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_peer_list_2byte(tvbuff_t *tvb, packet_info *pinfo,
                                       int offset, proto_tree *tree)
 {
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 2, "Peer", dissect_kademlia_peer );
 }
 
 
-static int dissect_kademlia_peer_list_1byte(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_peer_list_1byte(tvbuff_t *tvb, packet_info *pinfo,
                                       int offset, proto_tree *tree)
 {
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 1, "Peer", dissect_kademlia_peer );
 }
 
-static int dissect_kademlia2_peer_list_2byte(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia2_peer_list_2byte(tvbuff_t *tvb, packet_info *pinfo,
                                       int offset, proto_tree *tree)
 {
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 2, "Peer", dissect_kademlia2_peer );
 }
 
-static int dissect_kademlia2_peer_list_1byte(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia2_peer_list_1byte(tvbuff_t *tvb, packet_info *pinfo,
                                       int offset, proto_tree *tree)
 {
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 1, "Peer", dissect_kademlia2_peer );
 }
 
-static int dissect_kademlia_tag(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_tag(tvbuff_t *tvb, packet_info *pinfo,
                                 int offset, proto_tree *tree)
 {
     guint8 type;
@@ -2371,7 +2360,7 @@ static int dissect_kademlia_tag(tvbuff_t *tvb, packet_info *pinfo _U_,
             break;
         case KADEMLIA_TAGTYPE_STRING:
             {
-                const gchar* value;
+                const guint8* value;
                 offset = dissect_kademlia_tag_string( tvb, pinfo, offset, subtree, &value );
 
                 proto_item_append_text( tag_node, "\"%s\"", value );
@@ -2475,14 +2464,14 @@ static int dissect_kademlia_tag(tvbuff_t *tvb, packet_info *pinfo _U_,
     return offset;
 }
 
-static int dissect_kademlia_taglist(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_taglist(tvbuff_t *tvb, packet_info *pinfo,
                                 int offset, proto_tree *tree)
 {
     return dissect_edonkey_list(tvb, pinfo, offset, tree, 1, "Tag", dissect_kademlia_tag );
 }
 
 
-static int dissect_kademlia_publish_req_entry_file(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_publish_req_entry_file(tvbuff_t *tvb, packet_info *pinfo,
                                           int offset, proto_tree *tree)
 {
     /* Get the hash */
@@ -2491,7 +2480,7 @@ static int dissect_kademlia_publish_req_entry_file(tvbuff_t *tvb, packet_info *p
     return dissect_kademlia_taglist( tvb, pinfo, offset, tree );
 }
 
-static int dissect_kademlia_publish_req_entry_peer(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_publish_req_entry_peer(tvbuff_t *tvb, packet_info *pinfo,
                                           int offset, proto_tree *tree)
 {
     /* Get the hash */
@@ -2501,7 +2490,7 @@ static int dissect_kademlia_publish_req_entry_peer(tvbuff_t *tvb, packet_info *p
 }
 
 
-static int dissect_kademlia_search_result(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_search_result(tvbuff_t *tvb, packet_info *pinfo,
                                           int offset, proto_tree *tree)
 {
     /* Get the hash */
@@ -2510,7 +2499,7 @@ static int dissect_kademlia_search_result(tvbuff_t *tvb, packet_info *pinfo _U_,
     return dissect_kademlia_taglist( tvb, pinfo, offset, tree );
 }
 
-static int dissect_kademlia_search_expression_tree(tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia_search_expression_tree(tvbuff_t *tvb, packet_info *pinfo,
                                           int offset, proto_tree *tree)
 {
     int op, item_start_offset;
@@ -2560,7 +2549,7 @@ static int dissect_kademlia_search_expression_tree(tvbuff_t *tvb, packet_info *p
     return offset;
 }
 
-static int dissect_kademlia2_prolog( tvbuff_t *tvb, packet_info *pinfo _U_,
+static int dissect_kademlia2_prolog( tvbuff_t *tvb, packet_info *pinfo,
                                          int offset, proto_tree *tree)
 {
     offset = dissect_kademlia_hash(tvb, pinfo, offset, tree, &hf_kademlia_peer_id);
@@ -2580,7 +2569,7 @@ static int dissect_kademlia_uload( tvbuff_t *tvb, packet_info *pinfo _U_,
 
 }
 static int dissect_kademlia_udp_message(guint8 msg_type,
-                                         tvbuff_t *tvb, packet_info *pinfo _U_,
+                                         tvbuff_t *tvb, packet_info *pinfo,
                                          int offset, int length, proto_tree *tree)
 {
     int msg_end, bytes_remaining;
@@ -2848,7 +2837,7 @@ static int dissect_kademlia_udp_message(guint8 msg_type,
 }
 
 static int dissect_kademlia_udp_compressed_message(guint8 msg_type,
-                                                    tvbuff_t *tvb, packet_info *pinfo _U_,
+                                                    tvbuff_t *tvb, packet_info *pinfo,
                                                     int offset, int length, proto_tree *tree)
 {
     tvbuff_t *tvbraw = NULL;
@@ -2951,7 +2940,7 @@ static int dissect_edonkey_tcp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree
               dissector = dissect_edonkey_tcp_message;
               break;
             }
-
+            /* FALL THROUGH */
         default:
             message_name = "Unknown";
             dissector = NULL;
@@ -3407,12 +3396,8 @@ void proto_reg_handoff_edonkey(void) {
     edonkey_tcp_handle = create_dissector_handle(dissect_edonkey_tcp, proto_edonkey);
     edonkey_udp_handle = create_dissector_handle(dissect_edonkey_udp, proto_edonkey);
 
-    dissector_add_uint("tcp.port", 4661, edonkey_tcp_handle);
-    dissector_add_uint("tcp.port", 4662, edonkey_tcp_handle);
-    dissector_add_uint("tcp.port", 4663, edonkey_tcp_handle);
-    dissector_add_uint("udp.port", 4665, edonkey_udp_handle);
-    dissector_add_uint("udp.port", 4672, edonkey_udp_handle);
-
+    dissector_add_uint_range_with_preference("tcp.port", EDONKEY_TCP_PORT_RANGE, edonkey_tcp_handle);
+    dissector_add_uint_range_with_preference("udp.port", EDONKEY_UDP_PORT_RANGE, edonkey_udp_handle);
 }
 
 /*

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -77,7 +65,7 @@
  */
 
 /* By default, but can be completely different */
-#define UDP_PORT_SEBEK	1101
+#define UDP_PORT_SEBEK	1101 /* Not IANA registered */
 
 void proto_register_sebek(void);
 void proto_reg_handoff_sebek(void);
@@ -118,7 +106,6 @@ dissect_sebek(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 	proto_tree *sebek_tree;
 	proto_item *ti;
 	int         offset     = 0;
-	nstime_t    ts;
 	int         sebek_ver  = 0;
 	int         sebek_type = 0;
 	int         cmd_len    = 0;
@@ -174,9 +161,7 @@ dissect_sebek(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 				proto_tree_add_item(sebek_tree, hf_sebek_counter, tvb, offset, 4, ENC_BIG_ENDIAN);
 				offset += 4;
 
-				ts.secs = tvb_get_ntohl(tvb, offset);
-				ts.nsecs = tvb_get_ntohl(tvb, offset+4);
-				proto_tree_add_time(sebek_tree, hf_sebek_time, tvb, offset, 8, &ts);
+				proto_tree_add_item(sebek_tree, hf_sebek_time, tvb, offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
 				offset += 8;
 
 				proto_tree_add_item(sebek_tree, hf_sebek_pid, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -211,9 +196,7 @@ dissect_sebek(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U
 				proto_tree_add_item(sebek_tree, hf_sebek_counter, tvb, offset, 4, ENC_BIG_ENDIAN);
 				offset += 4;
 
-				ts.secs = tvb_get_ntohl(tvb, offset);
-				ts.nsecs = tvb_get_ntohl(tvb, offset+4);
-				proto_tree_add_time(sebek_tree, hf_sebek_time, tvb, offset, 8, &ts);
+				proto_tree_add_item(sebek_tree, hf_sebek_time, tvb, offset, 8, ENC_TIME_SECS_NSECS|ENC_BIG_ENDIAN);
 				offset += 8;
 
 				proto_tree_add_item(sebek_tree, hf_sebek_ppid, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -342,7 +325,7 @@ proto_reg_handoff_sebek(void)
 	dissector_handle_t sebek_handle;
 
 	sebek_handle = create_dissector_handle(dissect_sebek, proto_sebek);
-	dissector_add_uint("udp.port", UDP_PORT_SEBEK, sebek_handle);
+	dissector_add_uint_with_preference("udp.port", UDP_PORT_SEBEK, sebek_handle);
 }
 
 /*

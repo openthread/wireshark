@@ -15,19 +15,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  * References: ETSI 300 374
  */
 
@@ -51,7 +39,7 @@ void proto_reg_handoff_isdn_sup(void);
 #define fPHOID                         "0.4.0.210.1"
 
 /*--- End of included file: packet-isdn-sup-val.h ---*/
-#line 41 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 29 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 
 /* Initialize the protocol and registered fields */
 static int proto_isdn_sup = -1;
@@ -121,7 +109,7 @@ static const value_string isdn_sup_str_operation[] = {
   {  46, "partyDISC" },
 
 /*--- End of included file: packet-isdn-sup-table10.c ---*/
-#line 74 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 62 "./asn1/isdn-sup/packet-isdn-sup-template.c"
   {   0, NULL}
 };
 
@@ -163,7 +151,7 @@ static const value_string isdn_sup_str_error[] = {
   {   44, "unauthorizedPrecedenceLevel" },
 
 /*--- End of included file: packet-isdn-sup-table20.c ---*/
-#line 80 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 68 "./asn1/isdn-sup/packet-isdn-sup-template.c"
   {   0, NULL}
 };
 
@@ -342,7 +330,7 @@ static int hf_isdn_sup_statusQuery = -1;          /* StatusQuery */
 static int hf_isdn_sup_location = -1;             /* Location */
 
 /*--- End of included file: packet-isdn-sup-hf.c ---*/
-#line 86 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 74 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 
 
 /* Initialize the subtree pointers */
@@ -420,9 +408,9 @@ static gint ett_isdn_sup_MLPPParams = -1;
 static gint ett_isdn_sup_MLPPLFBResp = -1;
 
 /*--- End of included file: packet-isdn-sup-ett.c ---*/
-#line 92 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 80 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 
-static expert_field ei_isdn_sup_unsupported_arg_type = EI_INIT;
+/* static expert_field ei_isdn_sup_unsupported_arg_type = EI_INIT; */
 static expert_field ei_isdn_sup_unsupported_result_type = EI_INIT;
 static expert_field ei_isdn_sup_unsupported_error_type = EI_INIT;
 
@@ -2718,7 +2706,7 @@ static int dissect_PreemptParams_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, 
 
 
 /*--- End of included file: packet-isdn-sup-fn.c ---*/
-#line 102 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 90 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 
 static const isdn_sup_op_t isdn_sup_op_tab[] = {
 
@@ -2758,7 +2746,7 @@ static const isdn_sup_op_t isdn_sup_op_tab[] = {
   /* mLPPCallPreemption       */ {  26, dissect_PreemptParams_PDU, NULL },
 
 /*--- End of included file: packet-isdn-sup-table11.c ---*/
-#line 105 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 93 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 };
 
 
@@ -2773,7 +2761,7 @@ static const isdn_sup_global_op_t isdn_sup_global_op_tab[] = {
   /* call-T-FPH               */ { fPHOID".4", dissect_Call_T_FPHArg_PDU, NULL },
 
 /*--- End of included file: packet-isdn-sup-table31.c ---*/
-#line 111 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 99 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 };
 
 static const isdn_sup_err_t isdn_sup_err_tab[] = {
@@ -2813,7 +2801,7 @@ static const isdn_sup_err_t isdn_sup_err_tab[] = {
   /* unauthorizedPrecedenceLevel */ {   44, NULL },
 
 /*--- End of included file: packet-isdn-sup-table21.c ---*/
-#line 115 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 103 "./asn1/isdn-sup/packet-isdn-sup-template.c"
 };
 
 
@@ -3723,7 +3711,7 @@ void proto_register_isdn_sup(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-isdn-sup-hfarr.c ---*/
-#line 348 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 336 "./asn1/isdn-sup/packet-isdn-sup-template.c"
   };
 
   /* List of subtrees */
@@ -3802,11 +3790,13 @@ void proto_register_isdn_sup(void) {
     &ett_isdn_sup_MLPPLFBResp,
 
 /*--- End of included file: packet-isdn-sup-ettarr.c ---*/
-#line 355 "./asn1/isdn-sup/packet-isdn-sup-template.c"
+#line 343 "./asn1/isdn-sup/packet-isdn-sup-template.c"
   };
 
   static ei_register_info ei[] = {
+#if 0
     { &ei_isdn_sup_unsupported_arg_type, { "isdn_sup.unsupported.arg_type", PI_UNDECODED, PI_WARN, "UNSUPPORTED ARGUMENT TYPE (ETSI sup)", EXPFILL }},
+#endif
     { &ei_isdn_sup_unsupported_result_type, { "isdn_sup.unsupported.result_type", PI_UNDECODED, PI_WARN, "UNSUPPORTED RESULT TYPE (ETSI sup)", EXPFILL }},
     { &ei_isdn_sup_unsupported_error_type, { "isdn_sup.unsupported.error_type", PI_UNDECODED, PI_WARN, "UNSUPPORTED ERROR TYPE (ETSI sup)", EXPFILL }},
   };

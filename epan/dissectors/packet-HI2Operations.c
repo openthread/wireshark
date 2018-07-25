@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -366,7 +354,7 @@ static int hf_HI2Operations_cI = -1;              /* CellIdType */
 static int hf_HI2Operations_ssi = -1;             /* SSIType */
 
 /*--- End of included file: packet-HI2Operations-hf.c ---*/
-#line 43 "./asn1/HI2Operations/packet-HI2Operations-template.c"
+#line 31 "./asn1/HI2Operations/packet-HI2Operations-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -476,7 +464,7 @@ static gint ett_HI2Operations_TETRACGIType = -1;
 static gint ett_HI2Operations_TSIType = -1;
 
 /*--- End of included file: packet-HI2Operations-ett.c ---*/
-#line 46 "./asn1/HI2Operations/packet-HI2Operations-template.c"
+#line 34 "./asn1/HI2Operations/packet-HI2Operations-template.c"
 
 
 /*--- Included file: packet-HI2Operations-fn.c ---*/
@@ -3767,7 +3755,7 @@ static int dissect_IRIsContent_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, pr
 
 
 /*--- End of included file: packet-HI2Operations-fn.c ---*/
-#line 48 "./asn1/HI2Operations/packet-HI2Operations-template.c"
+#line 36 "./asn1/HI2Operations/packet-HI2Operations-template.c"
 
 
 /*--- proto_register_HI2Operations ----------------------------------------------*/
@@ -5036,7 +5024,7 @@ void proto_register_HI2Operations(void) {
         "SSIType", HFILL }},
 
 /*--- End of included file: packet-HI2Operations-hfarr.c ---*/
-#line 56 "./asn1/HI2Operations/packet-HI2Operations-template.c"
+#line 44 "./asn1/HI2Operations/packet-HI2Operations-template.c"
   };
 
   /* List of subtrees */
@@ -5148,7 +5136,7 @@ void proto_register_HI2Operations(void) {
     &ett_HI2Operations_TSIType,
 
 /*--- End of included file: packet-HI2Operations-ettarr.c ---*/
-#line 61 "./asn1/HI2Operations/packet-HI2Operations-template.c"
+#line 49 "./asn1/HI2Operations/packet-HI2Operations-template.c"
   };
 
   /* Register protocol */

@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef __CHARSETS_H__
 #define __CHARSETS_H__
@@ -59,6 +47,10 @@ extern const gunichar2 charset_table_mac_roman[0x80];
 /* Tables for DOS code pages */
 extern const gunichar2 charset_table_cp437[0x80];
 
+/* Tables for EBCDIC code pages */
+extern const gunichar2 charset_table_ebcdic[256];
+extern const gunichar2 charset_table_ebcdic_cp037[256];
+
 /*
  * Given a wmem scope, a pointer, and a length, treat the string of bytes
  * referred to by the pointer and length as an ASCII string, with all bytes
@@ -95,7 +87,10 @@ get_ascii_7bits_string(wmem_allocator_t *scope, const guint8 *ptr,
         const gint bit_offset, gint no_of_chars);
 
 WS_DLL_PUBLIC guint8 *
-get_ebcdic_string(wmem_allocator_t *scope, const guint8 *ptr, gint length);
+get_nonascii_unichar2_string(wmem_allocator_t *scope, const guint8 *ptr, gint length, const gunichar2 table[256]);
+
+WS_DLL_PUBLIC guint8 *
+get_t61_string(wmem_allocator_t *scope, const guint8 *ptr, gint length);
 
 #if 0
 void ASCII_to_EBCDIC(guint8 *buf, guint bytes);

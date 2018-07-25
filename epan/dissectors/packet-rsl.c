@@ -10,19 +10,7 @@
  *
  * Copied from packet-cops.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * REF: 3GPP TS 48.058 version 6.1.0 Release 6
  * http://www.3gpp.org/ftp/Specs/html-info/48058.htm
@@ -37,6 +25,7 @@
 #include "lapd_sapi.h"
 #include <epan/prefs.h>
 #include <epan/expert.h>
+#include <epan/conversation.h>
 
 #include "packet-rtp.h"
 #include "packet-rtcp.h"
@@ -149,6 +138,24 @@ static int hf_rsl_group_channel_description = -1;
 static int hf_rsl_uic = -1;
 static int hf_rsl_codec_list = -1;
 
+/* Encapsulating paging messages into a packet REF: EP2192796 - proprietor Huawei */
+static int hf_rsl_paging_spare                 = -1;
+static int hf_rsl_paging_msg_no                = -1;
+static int hf_rsl_paging_package_ch_no         = -1;
+static int hf_rsl_paging_package_ch_needed     = -1;
+static int hf_rsl_paging_emlpp_prio            = -1;
+static int hf_rsl_paging_type                  = -1;
+static int hf_rsl_paging_group_cs              = -1;
+static int hf_rsl_paging_group_empty_package   = -1;
+static int hf_rsl_paging_group_ps_spare        = -1;
+
+/* Physical Context dissection */
+static int hf_rsl_phy_ctx_ie_id                = -1;
+static int hf_rsl_phy_ctx_ext_rand_access      = -1;
+static int hf_rsl_phy_ctx_ab_rx_lvl            = -1;
+static int hf_rsl_phy_ctx_ab_err_bits          = -1;
+static int hf_rsl_phy_ctx_rx_lvl_ext           = -1;
+
 /* Initialize the subtree pointers */
 static int ett_rsl = -1;
 static int ett_ie_link_id = -1;
@@ -213,6 +220,19 @@ static int ett_ie_local_port = -1;
 static int ett_ie_local_ip = -1;
 static int ett_ie_rtp_payload = -1;
 
+/* Encapsulating paging messages into a packet REF: EP2192796 - proprietor Huawei */
+static int ett_ie_paging_package               = -1;
+static int ett_ie_paging_package_number        = -1;
+static int ett_ie_paging_package_info          = -1;
+static int ett_ie_paging_package_ch_a_emlpp    = -1;
+static int ett_ie_paging_group_paras           = -1;
+
+/* Physical Context dissection */
+static int ett_phy_ctx_ie                      = -1;
+static int ett_phy_ctx_ie_ext_rand_access      = -1;
+static int ett_phy_ctx_ab_rx_lvl_err_bits      = -1;
+static int ett_phy_ctx_rxlvl_ext               = -1;
+
 /* Generated from convert_proto_tree_add_text.pl */
 static expert_field ei_rsl_speech_or_data_indicator = EI_INIT;
 static expert_field ei_rsl_facility_information_element_3gpp_ts_44071 = EI_INIT;
@@ -228,6 +248,9 @@ static dissector_handle_t gsm_a_sacch_handle;
 
 /* Decode things as nanoBTS traces */
 static gboolean global_rsl_use_nano_bts = FALSE;
+
+/* Decode things in Physical Context Information field. */
+static gboolean global_rsl_dissect_phy_ctx_inf = TRUE;
 
 /* Forward declarations */
 static int dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset);
@@ -259,6 +282,7 @@ static const value_string rsl_msg_disc_vals[] = {
     {  0x08,    "TRX Management messages" },
     {  0x16,    "Location Services messages" },
     {  0x3f,    "ip.access Vendor Specific messages" },
+    {  0x55,    "HUAWEI Paging Extension" },
     { 0,            NULL }
 };
 #define RSL_MSGDISC_IPACCESS   0x3f
@@ -276,6 +300,7 @@ static const value_string rsl_msg_disc_vals[] = {
 #define RSL_MSG_REL_CONF                 8   /* 0x08 */
 #define RSL_MSG_REL_IND                  9   /* 0x09 */
 #define RSL_MSG_UNIT_DATA_REQ           10  /* 0x0a */
+#define RSL_MSG_UNIT_DATA_IND           11  /* 0x0b */
 /* Common Channel Management messages */
 #define RSL_MSG_BCCH_INFO               17  /* 0x11 */
 #define RSL_MSG_CCCH_LOAD_IND           18  /* 0x12 */
@@ -284,6 +309,9 @@ static const value_string rsl_msg_disc_vals[] = {
 #define RSL_MSG_PAGING_CMD              21  /* 0x15 */
 #define RSL_MSG_IMM_ASS_CMD             22  /* 0x16 */
 #define RSL_MSG_SMS_BC_REQ              23  /* 0x17 8.5.7 */
+
+/* Encapsulating paging messages into a packet REF: EP2192796 - proprietor Huawei */
+#define RSL_MSG_TYPE_PAGING             24  /* 0x18 */
 
 /* TRX Management messages */
 #define RSL_MSG_RF_RES_IND              25  /* 8.6.1 */
@@ -386,6 +414,7 @@ static const value_string rsl_msg_type_vals[] = {
 /* 0x08 */ {  RSL_MSG_REL_CONF,          "RELease CONFirm" },                            /* 8.3.8 */
 /* 0x09 */ {  RSL_MSG_REL_IND,           "RELease INDication" },                         /* 8.3.9 */
 /* 0x0a */ {  RSL_MSG_UNIT_DATA_REQ,     "UNIT DATA REQuest" },                          /* 8.3.10 */
+/* 0x0b */ {  RSL_MSG_UNIT_DATA_IND,     "UNIT DATA INDication" },                       /* 8.3.11 */
     /* 0 0 0 1 - - - - Common Channel Management/TRX Management messages: */
 /* 0x11 */ {  RSL_MSG_BCCH_INFO,         "BCCH INFOrmation" },                           /* 8.5.1 */
 /* 0x12 */ {  RSL_MSG_CCCH_LOAD_IND,     "CCCH LOAD INDication" },                       /* 8.5.2 */
@@ -394,6 +423,9 @@ static const value_string rsl_msg_type_vals[] = {
 /* 0x15 */ {  RSL_MSG_PAGING_CMD,        "PAGING CoMmanD" },                             /* 8.5.5 */
 /* 0x16 */ {  RSL_MSG_IMM_ASS_CMD,       "IMMEDIATE ASSIGN COMMAND" },                   /* 8.5.6 */
 /* 0x17 */ {  RSL_MSG_SMS_BC_REQ,        "SMS BroadCast REQuest" },                      /* 8.5.7 */
+
+/* Encapsulating paging messages into a packet EP2192796 - proprietor Huawei */
+/* 0x18 */ {  RSL_MSG_TYPE_PAGING,       "PAGING Huawei extension" },
 
 /* 0x19 */ {  RSL_MSG_RF_RES_IND,        "RF RESource INDication" },                     /* 8.6.1 */
 /* 0x1a */ {  RSL_MSG_SACCH_FILL,        "SACCH FILLing" },                              /* 8.6.2 */
@@ -659,9 +691,24 @@ static const value_string rsl_ch_no_Cbits_vals[] = {
     {  0x10,    "BCCH" },
     {  0x11,    "Uplink CCCH (RACH)" },
     {  0x12,    "Downlink CCCH (PCH + AGCH)" },
+    /* used by Osmocom and Ericsson */
+    {  0x18,    "PDCH" },
     { 0,            NULL }
 };
 static value_string_ext rsl_ch_no_Cbits_vals_ext = VALUE_STRING_EXT_INIT(rsl_ch_no_Cbits_vals);
+
+#define RSL_PHY_CTX_IE_EXT_RAND_ACCES 0x42
+#define RSL_PHY_CTX_IE_AB_RX_LEVEL_ERR_BITS 0x43
+#define RSL_PHY_CTX_IE_RX_LEVEL_EXT 0x45
+
+/* Physical Context IE vals*/
+static const value_string rsl_phy_con_ie_vals[] = {
+    {  RSL_PHY_CTX_IE_EXT_RAND_ACCES,           "Ext RandAccess" },
+    {  RSL_PHY_CTX_IE_AB_RX_LEVEL_ERR_BITS,     "AB RxLevel&ErrBits" },
+    {  RSL_PHY_CTX_IE_RX_LEVEL_EXT,             "RxLevel Ext" },
+    { 0,            NULL }
+};
+static value_string_ext rsl_phy_con_ie_vals_ext = VALUE_STRING_EXT_INIT(rsl_phy_con_ie_vals);
 
 /* From openbsc/include/openbsc/tlv.h */
 enum tlv_type {
@@ -783,6 +830,8 @@ static const value_string rsl_a3a2_vals[] = {
     {  0x00,    "Activation related to intra-cell channel change" },
     {  0x01,    "Activation related to inter-cell channel change (handover)" },
     {  0x02,    "Activation related to secondary channels" },
+    /* non-standard value used by Ericsson */
+    {  0x03,    "Activation related to packet data channel" },
     { 0,            NULL }
 };
 
@@ -1306,6 +1355,8 @@ dissect_rsl_ie_L3_inf(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int o
        /* L3 PDUs carried on CCCH have L2 PSEUDO LENGTH octet or are RR Short PD format */
        proto_tree_add_item(ie_tree, hf_rsl_llsdu_ccch, tvb, offset, length, ENC_NA);
        next_tvb = tvb_new_subset_length(tvb, offset, length);
+       /* The gsm_a_ccch dissector is the only one handling messages with L2 pseudo-length,
+        * so we pass it also downlink SACCH (SI5/SI6 and related) */
        call_dissector(gsm_a_ccch_handle, next_tvb, pinfo, top_tree);
     }
     else if (type == L3_INF_SACCH)
@@ -1458,6 +1509,129 @@ dissect_rsl_ie_paging_load(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
     return offset;
 
 }
+
+/* Physical Context dissection *
+ * Rx Level Ext *
+ *
+ */
+static int
+dissect_rsl_phy_ctx_rx_lvl_ext(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
+{
+    proto_tree *rxlvl_ext_tree;
+    proto_item *ti;
+    gint length;
+
+    rxlvl_ext_tree = proto_tree_add_subtree(tree, tvb, offset, 0, ett_phy_ctx_rxlvl_ext, &ti, "RxLevel Rxt (called in Pre-processed Measurements)");
+
+    /* Phy Ctx Element Identifier */
+    proto_tree_add_item(rxlvl_ext_tree, hf_rsl_phy_ctx_ie_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    /* Length */
+    length = tvb_get_guint8(tvb, offset);
+    proto_item_set_len(ti, length + 2);
+    proto_tree_add_item(rxlvl_ext_tree, hf_rsl_ie_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    /* Rx Level Ext */
+    proto_tree_add_item(rxlvl_ext_tree, hf_rsl_phy_ctx_rx_lvl_ext, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+
+    return offset;
+}
+/* Physical Context dissection*
+ * AB RxLevel&ErrBits *
+ *
+ */
+static int
+dissect_rsl_phy_ctx_ab_rx_lvl_err_bits(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
+{
+    proto_tree *ab_tree;
+    proto_tree *ti;
+    gint length;
+
+    ab_tree = proto_tree_add_subtree(tree, tvb, offset, 0, ett_phy_ctx_ab_rx_lvl_err_bits, &ti, "AB RxLevel&ErrBits IE");
+
+    /* Phy Ctx Element Identifier */
+    proto_tree_add_item(ab_tree, hf_rsl_phy_ctx_ie_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    /* Length */
+    length = tvb_get_guint8(tvb, offset);
+    proto_item_set_len(ti, length + 2);
+    proto_tree_add_item(ab_tree, hf_rsl_ie_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    /* AB Rx Level */
+    proto_tree_add_item(ab_tree, hf_rsl_phy_ctx_ab_rx_lvl, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    /* Traning Err Bits */
+    proto_tree_add_item(ab_tree, hf_rsl_phy_ctx_ab_err_bits, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    return offset;
+}
+/* Physcial Context dissection*
+ * Ext RandAccess *
+ *
+ */
+static int
+dissect_rsl_phy_ctx_ext_rand_access(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
+{
+    proto_tree *ext_rand_access_tree;
+    proto_item *ti;
+    guint length;
+
+    ext_rand_access_tree = proto_tree_add_subtree(tree, tvb, offset, 0, ett_phy_ctx_ie_ext_rand_access, &ti, "Ext RandAccess IE");
+    /* Phy Ctx Element identifier */
+    proto_tree_add_item(ext_rand_access_tree, hf_rsl_phy_ctx_ie_id, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+    /* Length */
+    length = tvb_get_guint8(tvb, offset);
+    proto_item_set_len(ti, length+2);
+    proto_tree_add_item(ext_rand_access_tree, hf_rsl_ie_length, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+
+    proto_tree_add_item(ext_rand_access_tree, hf_rsl_phy_ctx_ext_rand_access, tvb, offset, length, ENC_NA);
+    offset = offset + length;
+    return offset;
+}
+/* Physical Context IE dissection
+ *
+ */
+static int
+dissect_phy_ctx_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint8 length)
+{
+    proto_tree *phy_ctx_tree;
+    guint8 phy_ctx_ie_type;
+
+    phy_ctx_tree = proto_tree_add_subtree(tree, tvb, offset, length, ett_phy_ctx_ie, NULL, "Physical Context dissection");
+    phy_ctx_ie_type = tvb_get_guint8(tvb, offset);
+
+    switch (phy_ctx_ie_type) {
+        /* Ext RandAccess */
+        case RSL_PHY_CTX_IE_EXT_RAND_ACCES:
+            /* Ext RandAccess */
+            offset = dissect_rsl_phy_ctx_ext_rand_access(tvb, pinfo, phy_ctx_tree, offset);
+            /* AB Rx Level */
+            offset = dissect_rsl_phy_ctx_ab_rx_lvl_err_bits(tvb, pinfo, phy_ctx_tree, offset);
+            /* Rx Level Ext */
+            offset = dissect_rsl_phy_ctx_rx_lvl_ext(tvb, pinfo, phy_ctx_tree, offset);
+            break;
+        /* AB RxLevel&ErrBits */
+        case RSL_PHY_CTX_IE_AB_RX_LEVEL_ERR_BITS:
+            /* AB Rx Level */
+            offset = dissect_rsl_phy_ctx_ab_rx_lvl_err_bits(tvb, pinfo, phy_ctx_tree, offset);
+            /* Rx Level Ext */
+            offset = dissect_rsl_phy_ctx_rx_lvl_ext(tvb, pinfo, phy_ctx_tree, offset);
+            break;
+        /* RXLevelExt */
+        case RSL_PHY_CTX_IE_RX_LEVEL_EXT:
+            /* Rx Level Ext */
+            offset = dissect_rsl_phy_ctx_rx_lvl_ext(tvb, pinfo, phy_ctx_tree, offset);
+            break;
+        default:
+            break;
+    }
+
+    return offset;
+}
+
 /*
  * 9.3.16 Physical Context TLV
  */
@@ -1492,8 +1666,12 @@ dissect_rsl_ie_phy_ctx(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, 
      *  This information should not be analysed by BSC, but merely
      *  forwarded from one TRX/channel to another.
      */
-    proto_tree_add_item(ie_tree, hf_rsl_phy_ctx, tvb, offset, length, ENC_NA);
-    offset = offset + length;
+    if(global_rsl_dissect_phy_ctx_inf){
+        offset = dissect_phy_ctx_ie(tvb, pinfo, ie_tree, offset, length);
+    }else{
+        proto_tree_add_item(ie_tree, hf_rsl_phy_ctx, tvb, offset, length, ENC_NA);
+        offset = offset + length;
+    }
 
     return offset;
 }
@@ -1631,7 +1809,7 @@ dissect_rsl_ie_rel_mode(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
             return offset;
     }
 
-    ie_tree = proto_tree_add_subtree(tree, tvb, offset, 4, ett_ie_rel_mode, NULL, "Release Mode IE ");
+    ie_tree = proto_tree_add_subtree(tree, tvb, offset, 2, ett_ie_rel_mode, NULL, "Release Mode IE ");
 
     /* Element identifier */
     proto_tree_add_item(ie_tree, hf_rsl_ie_id, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -3031,13 +3209,172 @@ dissect_rsl_ie_tfo_transp_cont(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree
     return ie_offset + length;
 }
 
+/* Encapsulating paging messages into a packet EP2192796 - proprietor Huawei */
+static const true_false_string rsl_paging_type_vals = {
+    "Packet Switched (PS)",
+    "Circuit Switched (CS)"
+};
+
+static int
+dissect_rsl_paging_group_paras(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, gboolean increse_offset)
+{
+    proto_tree *ie_tree;
+    guint8     paging_type, i, length;
+
+    /* Paging Type */
+    paging_type = (tvb_get_guint8(tvb, offset) & 0x80) >> 7;
+    /* Calculating whole length of Paging Package Info */
+    if(paging_type == 0){
+       length = 2; /* length of Paging Group Paras if it is CS type (2 byte Cs Paging Group Para) */
+    }else{
+       length = 9; /* length of Paging Group Paras if it is PS type (1 byte spare, 4x 2 byte of PS Paging Group Para */
+    }
+
+    ie_tree = proto_tree_add_subtree(tree, tvb, offset, length, ett_ie_paging_group_paras, NULL, "Paging Group Paras");
+
+    /* Paging Type */
+    proto_tree_add_item(ie_tree, hf_rsl_paging_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    /* CS Paging Group */
+    if(paging_type == 0){
+       proto_tree_add_item(ie_tree, hf_rsl_paging_group_cs, tvb, offset, 1, ENC_BIG_ENDIAN);
+       offset++;
+       proto_tree_add_item(ie_tree, hf_rsl_paging_group_empty_package, tvb, offset, 1, ENC_BIG_ENDIAN);
+       offset++; /* move over empty (0x00) packet */
+    }
+    /* PS Paging Group */
+    else
+    {
+       proto_tree_add_item(ie_tree, hf_rsl_paging_group_ps_spare, tvb, offset, 1, ENC_BIG_ENDIAN);
+       offset++;
+       for(i = 1; i <= 5; i++){
+           proto_tree_add_item(ie_tree, hf_rsl_paging_grp, tvb, offset, 1, ENC_BIG_ENDIAN);
+           offset++;
+           proto_tree_add_item(ie_tree, hf_rsl_paging_group_empty_package, tvb, offset, 1, ENC_BIG_ENDIAN);
+            if(!increse_offset){
+                return offset; /* it's end of RSL frame */
+            }else{
+                offset++; /* move over empty (0x00) packet */
+            }
+       }
+
+    }
+    return offset;
+}
+/* Paging Package Channel And eMLPP. REF: EP2192786B1 *
+ * Channel Needed *
+ * in REF values from 9.3.40 used but "Channel Needed" is optional, and 0 is filled when invalid. *
+ * eMLPP Priority *
+ * in REf values from 9.3.49 used but "eMLPP Priority" is optional, and 0 is filled when invalid. *
+ */
+static const value_string rsl_paging_ch_needed_vals[] = {
+    {  0x00,   "Invalid Channel" },
+    {  0x01,   "SDCCH" },
+    {  0x02,   "TCH/F (Full rate)" },
+    {  0x03,   "TCH/F or TCH/H (Dual rate)" },
+    { 0,               NULL }
+};
+
+static const value_string rsl_paging_emlpp_prio_vals[] = {
+    {  0x00,    "invalid call priority" },
+    {  0x01,    "call priority level 4" },
+    {  0x02,    "call priority level 3" },
+    {  0x03,    "call priority level 2" },
+    {  0x04,    "call priority level 1" },
+    {  0x05,    "call priority level 0" },
+    {  0x06,    "call priority level B" },
+    {  0x07,    "call priority level A" },
+    { 0,            NULL }
+};
+
+static int
+dissect_rsl_paging_package_channel_and_emlpp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
+{
+    proto_tree *ie_tree;
+
+    ie_tree = proto_tree_add_subtree(tree, tvb, offset, 1, ett_ie_paging_package_ch_a_emlpp, NULL, "Channel and eMLPP");
+
+    /* Channel Number */
+    proto_tree_add_item(ie_tree, hf_rsl_paging_package_ch_no, tvb, offset, 1, ENC_BIG_ENDIAN);
+    /* Channel Needed */
+    proto_tree_add_item(ie_tree, hf_rsl_paging_package_ch_needed, tvb, offset, 1, ENC_BIG_ENDIAN);
+    /* eMLPP Priority */
+    proto_tree_add_item(ie_tree, hf_rsl_paging_emlpp_prio, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
+
+    return offset;
+}
+/* Paging Package dissection. REF: EP2192796B1
+ *
+ */
+static int
+dissect_rsl_paging_package(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset, guint8 package_number)
+{
+    proto_tree *ie_tree;
+    guint8     i, length, paging_type;
+    gboolean increse_offset = TRUE;
+
+    for(i = 1; i <= package_number; i++){
+       /* Calculating whole length of Paging Package Info */
+        length = (tvb_get_guint8(tvb, offset+2) + 3);
+        paging_type = (tvb_get_guint8(tvb, offset + length) & 0x80) >> 7;
+       if(paging_type == 0){
+           length = length + 2; /* length of Paging Group Paras if it is CS type (2 byte Cs Paging Group Para) */
+       }else{
+           length = length + 9; /* length of Paging Group Paras if it is PS type (1 byte spare, 4x 2 byte of PS Paging Group Para */
+       }
+
+       ie_tree = proto_tree_add_subtree_format(tree, tvb, offset, length, ett_ie_paging_package, NULL, "Paging Package Info %u", i);
+
+       offset = dissect_rsl_paging_package_channel_and_emlpp(tvb, pinfo, ie_tree, offset);
+       offset = dissect_rsl_ie_ms_id(tvb, pinfo, ie_tree, offset, TRUE);
+
+        /* if its last dissected packet, incresing offset causes pointing out of RSL frame range - [Malformed Packet] appears */
+       if( i == package_number){
+           increse_offset = FALSE;
+       }else{
+           increse_offset = TRUE;
+       }
+       offset = dissect_rsl_paging_group_paras(tvb, pinfo, ie_tree, offset, increse_offset);
+    }
+
+    return offset;
+}
+/* Paging Package Number dissection. REF: EP2192796B1
+ *
+ */
+static int
+dissect_rsl_paging_package_number(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int *offset)
+{
+    proto_tree *ie_tree;
+    guint8 package_number;
+
+    ie_tree = proto_tree_add_subtree(tree, tvb, *offset, 1, ett_ie_paging_package_number, NULL, "Paging Package Number");
+
+    /* SPARE */
+    proto_tree_add_item(ie_tree, hf_rsl_paging_spare, tvb, *offset, 1, ENC_BIG_ENDIAN);
+    /* Paging Msg Number */
+    package_number = tvb_get_guint8(tvb, *offset) & 0x0f;
+    proto_tree_add_item(ie_tree, hf_rsl_paging_msg_no, tvb, *offset, 1, ENC_BIG_ENDIAN);
+    *offset += 1;
+    return package_number;
+}
+
+struct dyn_pl_info_t {
+    guint8 rtp_codec;
+    guint8 rtp_pt;
+};
+
 static int
 dissct_rsl_ipaccess_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
     guint8  msg_type;
     guint32 local_addr = 0;
     guint16 local_port = 0;
+    guint32 rtp_codec = 255, rtp_pt = 0;
     address src_addr;
+    rtp_dyn_payload_t *dyn_pl = NULL;
+    struct dyn_pl_info_t *dyn_pl_info;
+    conversation_t *conv;
 
     msg_type = tvb_get_guint8(tvb, offset) & 0x7f;
     offset++;
@@ -3113,15 +3450,33 @@ dissct_rsl_ipaccess_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
             local_port = tvb_get_ntohs(tvb, offset);
             break;
         case RSL_IE_IPAC_SPEECH_MODE:
-            proto_tree_add_item(ie_tree, hf_rsl_speech_mode_s, tvb,
-                                offset, len, ENC_BIG_ENDIAN);
+            proto_tree_add_item_ret_uint(ie_tree, hf_rsl_speech_mode_s, tvb,
+                                offset, len, ENC_BIG_ENDIAN, &rtp_codec);
+            conv = find_or_create_conversation(pinfo);
+            dyn_pl_info = (struct dyn_pl_info_t *)conversation_get_proto_data(conv, proto_rsl);
+            if (!dyn_pl_info) {
+                dyn_pl_info = (struct dyn_pl_info_t *)wmem_alloc0(wmem_file_scope(), sizeof(*dyn_pl_info));
+                conversation_add_proto_data(conv, proto_rsl, (void *)dyn_pl_info);
+            }
+            dyn_pl_info->rtp_codec = rtp_codec;
+
             proto_tree_add_item(ie_tree, hf_rsl_speech_mode_m, tvb,
                                 offset, len, ENC_BIG_ENDIAN);
             break;
         case RSL_IE_IPAC_RTP_PAYLOAD:
         case RSL_IE_IPAC_RTP_PAYLOAD2:
-            proto_tree_add_item(ie_tree, hf_rsl_rtp_payload, tvb,
-                                offset, len, ENC_BIG_ENDIAN);
+            /* Need to set pl here */
+            proto_tree_add_item_ret_uint(ie_tree, hf_rsl_rtp_payload, tvb,
+                                offset, len, ENC_BIG_ENDIAN, &rtp_pt);
+            conv = find_or_create_conversation(pinfo);
+            dyn_pl_info = (struct dyn_pl_info_t *)conversation_get_proto_data(conv, proto_rsl);
+            if (!dyn_pl_info) {
+                dyn_pl_info = (struct dyn_pl_info_t *)wmem_alloc0(wmem_file_scope(), sizeof(*dyn_pl_info));
+                conversation_add_proto_data(conv, proto_rsl, (void *)dyn_pl_info);
+                dyn_pl_info->rtp_codec = rtp_codec;
+            }
+            dyn_pl_info->rtp_pt = rtp_pt;
+
             break;
         case RSL_IE_IPAC_RTP_CSD_FMT:
             proto_tree_add_item(ie_tree, hf_rsl_rtp_csd_fmt_d, tvb,
@@ -3159,8 +3514,17 @@ dissct_rsl_ipaccess_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int
         src_addr.type = AT_IPv4;
         src_addr.len = 4;
         src_addr.data = (guint8 *)&local_addr;
-        rtp_add_address(pinfo, &src_addr, local_port, 0,
-                        "GSM A-bis/IP", pinfo->num, 0, NULL);
+
+        conv = find_or_create_conversation(pinfo);
+        dyn_pl_info = (struct dyn_pl_info_t *)conversation_get_proto_data(conv, proto_rsl);
+        if (dyn_pl_info && (dyn_pl_info->rtp_codec == 2 || dyn_pl_info->rtp_codec == 5)) {
+            dyn_pl = rtp_dyn_payload_new();
+            rtp_dyn_payload_insert(dyn_pl, dyn_pl_info->rtp_pt, "AMR", 8000);
+        }
+        conversation_delete_proto_data(conv, proto_rsl);
+        wmem_free(wmem_file_scope(), dyn_pl_info);
+        rtp_add_address(pinfo, PT_UDP, &src_addr, local_port, 0,
+                        "GSM A-bis/IP", pinfo->num, 0, dyn_pl);
         rtcp_add_address(pinfo, &src_addr, local_port+1, 0,
                          "GSM A-bis/IP", pinfo->num);
         break;
@@ -3172,6 +3536,7 @@ static int
 dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
     guint8 msg_disc, msg_type, sys_info_type;
+    guint8 paging_package_number;
 
     msg_disc = tvb_get_guint8(tvb, offset++) >> 1;
     msg_type = tvb_get_guint8(tvb, offset) & 0x7f;
@@ -3269,6 +3634,15 @@ dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
         if (tvb_reported_length_remaining(tvb, offset) > 0)
             offset = dissect_rsl_ie_L3_inf(tvb, pinfo, tree, offset, FALSE, L3_INF_OTHER);
         break;
+    /* 8.3.11 UNIT DATA INDICATION */
+    case RSL_MSG_UNIT_DATA_IND:
+        /*  Channel number          9.3.1   M TV 2               */
+        offset = dissect_rsl_ie_ch_no(tvb, pinfo, tree, offset, TRUE);
+        /*  Link Identifier         9.3.2   M TV 2               */
+        offset = dissect_rsl_ie_link_id(tvb, pinfo, tree, offset, TRUE);
+        /*  L3 Information          9.3.11  M TLV 3-25           */
+        offset = dissect_rsl_ie_L3_inf(tvb, pinfo, tree, offset, TRUE, L3_INF_OTHER);
+        break;
 /* Common Channel Management/TRX Management messages */
     /* 8.5.1 BCCH INFORMATION 17*/
     case RSL_MSG_BCCH_INFO:
@@ -3357,7 +3731,7 @@ dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
         /* L3 Info (SYS INFO)       9.3.11 O 1) TLV 22 */
         if (tvb_reported_length_remaining(tvb, offset) > 0)
            offset = dissect_rsl_ie_L3_inf(tvb, pinfo, tree, offset, FALSE,
-                                          (sys_info_type == 0x48) ? L3_INF_SACCH : L3_INF_OTHER);
+                                          (sys_info_type == 0x48) ? L3_INF_SACCH : L3_INF_CCCH);
         /* Starting Time            9.3.23 O 2) TV 3 */
         if (tvb_reported_length_remaining(tvb, offset) > 0)
             offset = dissect_rsl_ie_starting_time(tvb, pinfo, tree, offset, FALSE);
@@ -3427,7 +3801,9 @@ dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
         /* Activation Type          9.3.3   M TV 2          */
         offset = dissect_rsl_ie_act_type(tvb, pinfo, tree, offset, TRUE);
         /* Channel Mode             9.3.6   M TLV 8-9       */
-        offset = dissect_rsl_ie_ch_mode(tvb, pinfo, tree, offset, TRUE);
+        if (tvb_reported_length_remaining(tvb, offset) > 0)
+            /* mandatory in 48.008, but not in Ericsson + Osmocom */
+            offset = dissect_rsl_ie_ch_mode(tvb, pinfo, tree, offset, TRUE);
         /* Channel Identification   9.3.5   O 7) TLV 8      */
         if (tvb_reported_length_remaining(tvb, offset) > 0)
             offset = dissect_rsl_ie_ch_id(tvb, pinfo, tree, offset, FALSE);
@@ -3648,7 +4024,7 @@ dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
         /* L3 Info                  9.3.11  O 1) TLV 22 */
         if (tvb_reported_length_remaining(tvb, offset) > 0)
             offset = dissect_rsl_ie_L3_inf(tvb, pinfo, tree, offset, FALSE,
-                                           (sys_info_type == 0x48) ? L3_INF_SACCH : L3_INF_OTHER);
+                                           (sys_info_type == 0x48) ? L3_INF_SACCH : L3_INF_CCCH);
         /* Starting Time            9.3.23  O 2) TV 3 */
         if (tvb_reported_length_remaining(tvb, offset) > 0)
             offset = dissect_rsl_ie_starting_time(tvb, pinfo, tree, offset, FALSE);
@@ -3757,6 +4133,11 @@ dissct_rsl_msg(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
         /* LLP APDU 9.3.58 M LV 2-N */
         offset = dissect_rsl_ie_llp_apdu(tvb, pinfo, tree, offset, TRUE);
         break;
+    /* Encapsulating paging messages into a packet EP2192796 - proprietor Huawei */
+    case RSL_MSG_TYPE_PAGING:
+       paging_package_number = dissect_rsl_paging_package_number(tvb, pinfo, tree, &offset);
+       offset = dissect_rsl_paging_package(tvb, pinfo, tree, offset, paging_package_number);
+       break;
     /* the following messages are ip.access specific but sent without
      * ip.access memssage discriminator */
     case RSL_MSG_TYPE_IPAC_MEAS_PP_DEF:
@@ -3966,22 +4347,22 @@ void proto_register_rsl(void)
         },
         { &hf_rsl_rxlev_full_up,
           { "RXLEV.FULL.up",           "gsm_abis_rsl.rxlev_full_up",
-            FT_UINT8, BASE_DEC, NULL, 0x3f,
+            FT_UINT8, BASE_DEC|BASE_EXT_STRING, &gsm_a_rr_rxlev_vals_ext, 0x3f,
             NULL, HFILL }
         },
         { &hf_rsl_rxlev_sub_up,
           { "RXLEV.SUB.up",           "gsm_abis_rsl.rxlev_sub_up",
-            FT_UINT8, BASE_DEC, NULL, 0x3f,
+            FT_UINT8, BASE_DEC|BASE_EXT_STRING, &gsm_a_rr_rxlev_vals_ext, 0x3f,
             NULL, HFILL }
         },
         { &hf_rsl_rxqual_full_up,
           { "RXQUAL.FULL.up",           "gsm_abis_rsl.rxqual_full_up",
-            FT_UINT8, BASE_DEC, NULL, 0x38,
+            FT_UINT8, BASE_DEC, VALS(gsm_a_rr_rxqual_vals), 0x38,
             NULL, HFILL }
         },
         { &hf_rsl_rxqual_sub_up,
           { "RXQUAL.SUB.up",           "gsm_abis_rsl.rxqual_sub_up",
-            FT_UINT8, BASE_DEC, NULL, 0x07,
+            FT_UINT8, BASE_DEC, VALS(gsm_a_rr_rxqual_vals), 0x07,
             NULL, HFILL }
         },
         { &hf_rsl_acc_delay,
@@ -4200,7 +4581,7 @@ void proto_register_rsl(void)
         },
         { &hf_rsl_emlpp_prio,
           { "eMLPP Priority",           "gsm_abis_rsl.emlpp_prio",
-            FT_UINT8, BASE_DEC, VALS(rsl_emlpp_prio_vals), 0x03,
+            FT_UINT8, BASE_DEC, VALS(rsl_emlpp_prio_vals), 0x05,
             NULL, HFILL }
         },
         { &hf_rsl_speech_mode_s,
@@ -4274,6 +4655,78 @@ void proto_register_rsl(void)
         { &hf_rsl_cstat_avg_tx_dly,
           { "Average Tx Delay", "gsm_abis_rsl.ipacc.cstat.avg_tx_delay",
             FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }
+        },
+        /* Encapsulating paging messages into a packet EP2192796 - proprietor Huawei */
+        { &hf_rsl_paging_spare,
+          { "SPARE", "gsm_abis_rsl.paging_spare",
+           FT_UINT8, BASE_DEC, NULL, 0xf0,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_msg_no,
+         { "Paging Msg Number", "gsm_abis_rsl.paging_msg_no",
+           FT_UINT8, BASE_DEC, NULL, 0x0f,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_package_ch_no,
+          { "Channel Number Downlink CCCH (PCH + AGCH)", "gsm_abis_rsl.paging_package_ch_no",
+           FT_UINT8, BASE_DEC, NULL, 0xe0,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_package_ch_needed,
+         { "Channel Needed", "gsm_abis_rsl.paging_package_ch_needed",
+           FT_UINT8, BASE_DEC, VALS(rsl_paging_ch_needed_vals), 0x18,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_emlpp_prio,
+          { "eMLPP Priority", "gsm_abis_rsl.paging_emlpp_prio",
+          FT_UINT8, BASE_DEC, VALS(rsl_paging_emlpp_prio_vals), 0x07,
+            NULL, HFILL }
+        },
+        { &hf_rsl_paging_type,
+         { "Paging Type", "gsm_abis_rsl.paging_type",
+           FT_BOOLEAN, 8, TFS(&rsl_paging_type_vals), 0x80,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_group_cs,
+         { "Paging Group", "gsm_abis_rsl.paging_group_cs",
+           FT_UINT8, BASE_DEC, NULL, 0x7f,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_group_empty_package,
+         { "Empty package Paging Group", "gsm_abis_rsl.paging_group_empty_package",
+           FT_UINT8, BASE_HEX, NULL, 0xff,
+           NULL, HFILL }
+        },
+        { &hf_rsl_paging_group_ps_spare,
+         { "PS Paging Group SPARE", "gsm_abis_rsl.paging_group_ps_spare",
+           FT_UINT8, BASE_DEC, NULL, 0x7f,
+           NULL, HFILL }
+        },
+        /* Physical Context */
+        { &hf_rsl_phy_ctx_ie_id,
+          { "Element identifier", "gsm_abis_rsl.phy_ctx_ie_id",
+            FT_UINT8, BASE_HEX_DEC|BASE_EXT_STRING, &rsl_phy_con_ie_vals_ext, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_rsl_phy_ctx_ext_rand_access,
+          { "RandRef11bit", "gsm_abis_rsl.phy_ctx_ext_rand_access",
+            FT_BYTES, BASE_NONE, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_rsl_phy_ctx_ab_rx_lvl,
+          { "AB Rx Level", "gsm_abis_rsl.phy_ctx_ab_rx_lvl",
+            FT_UINT8, BASE_HEX_DEC, NULL, 0xff,
+            NULL, HFILL }
+        },
+        { &hf_rsl_phy_ctx_ab_err_bits,
+          { "Training Err Bits", "gsm_abis_rsl.phy_ctx_ab_err_bits",
+            FT_UINT8, BASE_HEX, NULL, 0xff,
+            NULL, HFILL }
+        },
+        { &hf_rsl_phy_ctx_rx_lvl_ext,
+          { "Rx Level Ext", "gsm_abis_rsl.phy_ctx_rx_lvl_ext",
+            FT_UINT8, BASE_HEX_DEC, NULL, 0xff,
+            NULL, HFILL }
         },
       /* Generated from convert_proto_tree_add_text.pl */
       { &hf_rsl_channel_description_tag, { "Channel Description Tag", "gsm_abis_rsl.channel_description_tag", FT_NONE, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -4353,6 +4806,15 @@ void proto_register_rsl(void)
         &ett_ie_local_port,
         &ett_ie_local_ip,
         &ett_ie_rtp_payload,
+        &ett_ie_paging_package,
+        &ett_ie_paging_package_number,
+        &ett_ie_paging_package_info,
+        &ett_ie_paging_package_ch_a_emlpp,
+        &ett_ie_paging_group_paras,
+        &ett_phy_ctx_ie,
+        &ett_phy_ctx_ie_ext_rand_access,
+        &ett_phy_ctx_ab_rx_lvl_err_bits,
+        &ett_phy_ctx_rxlvl_ext
     };
     static ei_register_info ei[] = {
       /* Generated from convert_proto_tree_add_text.pl */
@@ -4458,6 +4920,12 @@ void proto_register_rsl(void)
                                    "Use nanoBTS definitions",
                                    "Use ipaccess nanoBTS specific definitions for RSL",
                                    &global_rsl_use_nano_bts);
+    prefs_register_bool_preference(rsl_module, "dissect_phy_ctx_inf",
+                                   "Decode Physical Context Information field",
+                                   "The Physical Context Information field is not specified "
+                                   "This information should be not be analysed by BSC, but merely "
+                                   "forwarded from one TRX/channel to another.",
+                                   &global_rsl_dissect_phy_ctx_inf);
 }
 
 void

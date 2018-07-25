@@ -7,25 +7,15 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <wsutil/ws_printf.h>
 
 #include "packet.h"
 #include "expert.h"
@@ -85,12 +75,13 @@ const value_string expert_group_vals[] = {
 	{ PI_COMMENTS_GROUP,    "Comment" },
 	{ PI_DECRYPTION,        "Decryption" },
 	{ PI_ASSUMPTION,        "Assumption" },
+	{ PI_DEPRECATED,        "Deprecated" },
 	{ 0, NULL }
 };
 
 const value_string expert_severity_vals[] = {
 	{ PI_ERROR,             "Error" },
-	{ PI_WARN,              "Warn" },
+	{ PI_WARN,              "Warning" },
 	{ PI_NOTE,              "Note" },
 	{ PI_CHAT,              "Chat" },
 	{ PI_COMMENT,           "Comment" },
@@ -142,11 +133,7 @@ static void *uat_expert_copy_cb(void *n, const void *o, size_t siz _U_)
 	expert_level_entry_t       *new_record = (expert_level_entry_t*)n;
 	const expert_level_entry_t *old_record = (const expert_level_entry_t *)o;
 
-	if (old_record->field) {
-		new_record->field = g_strdup(old_record->field);
-	} else {
-		new_record->field = NULL;
-	}
+	new_record->field = g_strdup(old_record->field);
 
 	new_record->severity = old_record->severity;
 
@@ -157,8 +144,7 @@ static void uat_expert_free_cb(void*r)
 {
 	expert_level_entry_t *rec = (expert_level_entry_t *)r;
 
-	if (rec->field)
-		g_free(rec->field);
+	g_free(rec->field);
 }
 
 static void uat_expert_post_update_cb(void)
@@ -205,10 +191,10 @@ expert_packet_init(void)
 			{ "Message", "_ws.expert.message", FT_STRING, BASE_NONE, NULL, 0, "Wireshark expert information", HFILL }
 		},
 		{ &hf_expert_group,
-			{ "Group", "_ws.expert.group", FT_UINT32, BASE_HEX, VALS(expert_group_vals), 0, "Wireshark expert group", HFILL }
+			{ "Group", "_ws.expert.group", FT_UINT32, BASE_NONE, VALS(expert_group_vals), 0, "Wireshark expert group", HFILL }
 		},
 		{ &hf_expert_severity,
-			{ "Severity level", "_ws.expert.severity", FT_UINT32, BASE_HEX, VALS(expert_severity_vals), 0, "Wireshark expert severity level", HFILL }
+			{ "Severity level", "_ws.expert.severity", FT_UINT32, BASE_NONE, VALS(expert_severity_vals), 0, "Wireshark expert severity level", HFILL }
 		}
 	};
 	static gint *ett[] = {
@@ -247,6 +233,7 @@ expert_packet_init(void)
 			uat_expert_update_cb,
 			uat_expert_free_cb,
 			uat_expert_post_update_cb,
+			NULL,
 			custom_expert_fields);
 
 		prefs_register_uat_preference(module_expert,
@@ -301,7 +288,7 @@ expert_cleanup(void)
 	}
 
 	if (deregistered_expertinfos) {
-		g_ptr_array_free(deregistered_expertinfos, FALSE);
+		g_ptr_array_free(deregistered_expertinfos, TRUE);
 		deregistered_expertinfos = NULL;
 	}
 }
@@ -423,8 +410,8 @@ expert_register_field_array(expert_module_t *module, ei_register_info *exp, cons
 
 		/* Register with the header field info, so it's display filterable */
 		ptr->eiinfo.hf_info.p_id = &ptr->ids->hf;
+		ptr->eiinfo.hf_info.hfinfo.name = ptr->eiinfo.summary;
 		ptr->eiinfo.hf_info.hfinfo.abbrev = ptr->eiinfo.name;
-		ptr->eiinfo.hf_info.hfinfo.blurb = ptr->eiinfo.summary;
 
 		proto_register_field_array(module->proto_id, &ptr->eiinfo.hf_info, 1);
 	}
@@ -459,7 +446,7 @@ const gchar* expert_get_summary(expert_field *eiindex)
 	/* Look up the item */
 	EXPERT_REGISTRAR_GET_NTH(eiindex->ei, eiinfo);
 
-    return eiinfo->summary;
+	return eiinfo->summary;
 }
 
 /** clear flags according to the mask and set new flag values */
@@ -539,7 +526,7 @@ expert_set_info_vformat(packet_info *pinfo, proto_item *pi, int group, int sever
 	}
 
 	if (use_vaformat) {
-		g_vsnprintf(formatted, ITEM_LABEL_LENGTH, format, ap);
+		ws_vsnprintf(formatted, ITEM_LABEL_LENGTH, format, ap);
 	} else {
 		g_strlcpy(formatted, format, ITEM_LABEL_LENGTH);
 	}
@@ -635,15 +622,28 @@ proto_tree_add_expert_internal(proto_tree *tree, packet_info *pinfo, expert_fiel
 {
 	expert_field_info *eiinfo;
 	proto_item        *ti;
+	gint               item_length, captured_length;
 	va_list            unused;
 
 	/* Look up the item */
 	EXPERT_REGISTRAR_GET_NTH(expindex->ei, eiinfo);
 
-	ti = proto_tree_add_text_internal(tree, tvb, start, length, "%s", eiinfo->summary);
+	/* Make sure this doesn't throw an exception when adding the item */
+	item_length = length;
+	captured_length = tvb_captured_length_remaining(tvb, start);
+	if (captured_length < 0)
+		item_length = 0;
+	else if (captured_length < item_length)
+		item_length = captured_length;
+	ti = proto_tree_add_text_internal(tree, tvb, start, item_length, "%s", eiinfo->summary);
 	va_start(unused, length);
 	expert_set_info_vformat(pinfo, ti, eiinfo->group, eiinfo->severity, *eiinfo->hf_info.p_id, FALSE, eiinfo->summary, unused);
 	va_end(unused);
+
+	/* But make sure it throws an exception *after* adding the item */
+	if (length != -1) {
+		tvb_ensure_bytes_exist(tvb, start, length);
+	}
 	return ti;
 }
 
@@ -660,19 +660,31 @@ proto_tree_add_expert_format(proto_tree *tree, packet_info *pinfo, expert_field 
 {
 	va_list            ap;
 	expert_field_info *eiinfo;
+	gint               item_length, captured_length;
 	proto_item        *ti;
 
 	/* Look up the item */
 	EXPERT_REGISTRAR_GET_NTH(expindex->ei, eiinfo);
 
+	/* Make sure this doesn't throw an exception when adding the item */
+	item_length = length;
+	captured_length = tvb_captured_length_remaining(tvb, start);
+	if (captured_length < 0)
+		item_length = 0;
+	else if (captured_length < item_length)
+		item_length = captured_length;
 	va_start(ap, format);
-	ti = proto_tree_add_text_valist_internal(tree, tvb, start, length, format, ap);
+	ti = proto_tree_add_text_valist_internal(tree, tvb, start, item_length, format, ap);
 	va_end(ap);
 
 	va_start(ap, format);
 	expert_set_info_vformat(pinfo, ti, eiinfo->group, eiinfo->severity, *eiinfo->hf_info.p_id, TRUE, format, ap);
 	va_end(ap);
 
+	/* But make sure it throws an exception *after* adding the item */
+	if (length != -1) {
+		tvb_ensure_bytes_exist(tvb, start, length);
+	}
 	return ti;
 }
 

@@ -9,19 +9,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,7 +22,7 @@
 #include "wslua.h"
 
 /* any call to checkFieldInfo() will now error on null or expired, so no need to check again */
-WSLUA_CLASS_DEFINE(FieldInfo,FAIL_ON_NULL_OR_EXPIRED("FieldInfo"),NOP);
+WSLUA_CLASS_DEFINE(FieldInfo,FAIL_ON_NULL_OR_EXPIRED("FieldInfo"));
 /*
    An extracted Field from dissected packet data. A `FieldInfo` object can only be used within
    the callback functions of dissectors, post-dissectors, heuristic-dissectors, and taps.
@@ -161,12 +149,16 @@ WSLUA_METAMETHOD FieldInfo__call(lua_State* L) {
             }
         case FT_STRING:
         case FT_STRINGZ: {
-                gchar* repr = fvalue_to_string_repr(&fi->ws_fi->value,FTREPR_DISPLAY,BASE_NONE,NULL);
+                gchar* repr = fvalue_to_string_repr(NULL, &fi->ws_fi->value,FTREPR_DISPLAY,BASE_NONE);
                 if (repr)
-                    lua_pushstring(L,repr);
+                {
+                    lua_pushstring(L, repr);
+                    wmem_free(NULL, repr);
+                }
                 else
+                {
                     luaL_error(L,"field cannot be represented as string because it may contain invalid characters");
-
+                }
                 return 1;
             }
         case FT_NONE:
@@ -215,16 +207,16 @@ WSLUA_METAMETHOD FieldInfo__tostring(lua_State* L) {
         gchar* repr = NULL;
 
         if (fi->ws_fi->hfinfo->type == FT_PROTOCOL || fi->ws_fi->hfinfo->type == FT_PCRE) {
-            repr = fvalue_to_string_repr(&fi->ws_fi->value,FTREPR_DFILTER,BASE_NONE,NULL);
+            repr = fvalue_to_string_repr(NULL, &fi->ws_fi->value,FTREPR_DFILTER,BASE_NONE);
         }
         else {
-            repr = fvalue_to_string_repr(&fi->ws_fi->value,FTREPR_DISPLAY,fi->ws_fi->hfinfo->display,NULL);
+            repr = fvalue_to_string_repr(NULL, &fi->ws_fi->value,FTREPR_DISPLAY,fi->ws_fi->hfinfo->display);
         }
 
         if (repr) {
             lua_pushstring(L,repr);
-            /* fvalue_to_string_repr() g_malloc's the string's buffer */
-            g_free(repr);
+            /* fvalue_to_string_repr() wmem_alloc's the string's buffer */
+            wmem_free(NULL, repr);
         }
         else {
             lua_pushstring(L,"(unknown)");
@@ -304,9 +296,8 @@ static int FieldInfo_get_source(lua_State* L) {
     return 1;
 }
 
-/* WSLUA_ATTRIBUTE FieldInfo_range RO The `TvbRange` covering this field. */
+/* WSLUA_ATTRIBUTE FieldInfo_range RO The `TvbRange` covering the bytes of this field in a Tvb. */
 static int FieldInfo_get_range(lua_State* L) {
-    /* The `TvbRange` covering this field. */
     FieldInfo fi = checkFieldInfo(L,1);
 
     if (push_TvbRange (L, fi->ws_fi->ds_tvb, fi->ws_fi->start, fi->ws_fi->length)) {
@@ -517,7 +508,7 @@ WSLUA_FUNCTION wslua_all_field_infos(lua_State* L) {
     return items_found;
 }
 
-WSLUA_CLASS_DEFINE(Field,FAIL_ON_NULL("Field"),NOP);
+WSLUA_CLASS_DEFINE(Field,FAIL_ON_NULL("Field"));
 /*
    A Field extractor to to obtain field values. A `Field` object can only be created *outside* of
    the callback functions of dissectors, post-dissectors, heuristic-dissectors, and taps.
@@ -557,10 +548,10 @@ gboolean wslua_has_field_extractors(void) {
  * after the fields are primed.
  */
 
+static gboolean fake_tap = FALSE;
 void lua_prime_all_fields(proto_tree* tree _U_) {
     GString* fake_tap_filter = g_string_new("frame");
     guint i;
-    static gboolean fake_tap = FALSE;
     gchar *err_msg;
 
     for(i=0; i < wanted_fields->len; i++) {
@@ -591,24 +582,15 @@ void lua_prime_all_fields(proto_tree* tree _U_) {
                 &fake_tap,
                 fake_tap_filter->str,
                 0, /* XXX - do we need the protocol tree or columns? */
-                NULL, NULL, NULL);
+                NULL, NULL, NULL, NULL);
 
         if (error) {
             report_failure("while registering lua_fake_tap:\n%s",error->str);
             g_string_free(error,TRUE);
-        } else {
-            if (wslua_dfilter) {
-                dfilter_free(wslua_dfilter);
-                wslua_dfilter = NULL;
-            }
-            if (!dfilter_compile(fake_tap_filter->str, &wslua_dfilter, &err_msg)) {
-                report_failure("while compiling dfilter \"%s\" for wslua: %s", fake_tap_filter->str, err_msg);
-                g_free(err_msg);
-            }
+        } else if (!dfilter_compile(fake_tap_filter->str, &wslua_dfilter, &err_msg)) {
+            report_failure("while compiling dfilter \"%s\" for wslua: %s", fake_tap_filter->str, err_msg);
+            g_free(err_msg);
         }
-    } else if (fake_tap) {
-        remove_tap_listener(&fake_tap);
-        fake_tap = FALSE;
     }
     g_string_free(fake_tap_filter, TRUE);
 }
@@ -643,7 +625,7 @@ WSLUA_CONSTRUCTOR Field_new(lua_State *L) {
 WSLUA_CONSTRUCTOR Field_list(lua_State *L) {
     /* Gets a Lua array table of all registered field filter names.
 
-       NOTE: this is an expensive operation, and should only be used for troubleshooting.
+       NOTE: This is an expensive operation, and should only be used for troubleshooting.
 
        @since 1.11.3
      */
@@ -665,7 +647,7 @@ WSLUA_CONSTRUCTOR Field_list(lua_State *L) {
 
             count++;
             lua_pushstring(L,hfinfo->abbrev);
-            lua_rawseti(L,1,count);
+            lua_rawseti(L,-2,count);
         }
     }
 
@@ -815,6 +797,20 @@ int Field_register(lua_State* L) {
     WSLUA_REGISTER_CLASS(Field);
     WSLUA_REGISTER_ATTRIBUTES(Field);
     outstanding_FieldInfo = g_ptr_array_new();
+
+    return 0;
+}
+
+int wslua_deregister_fields(lua_State* L _U_) {
+    if (wslua_dfilter) {
+        dfilter_free(wslua_dfilter);
+        wslua_dfilter = NULL;
+    }
+
+    if (fake_tap) {
+        remove_tap_listener(&fake_tap);
+        fake_tap = FALSE;
+    }
 
     return 0;
 }

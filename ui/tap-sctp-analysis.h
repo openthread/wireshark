@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __TAP_SCTP_ANALYSIS_H__
@@ -34,9 +22,7 @@ extern "C" {
 #include <sys/socket.h>
 #include <netinet/in.h>
 #else
-#ifdef HAVE_WINSOCK2_H
 #include <winsock2.h>
-#endif
 #endif
 
 #define CHUNK_TYPE_LENGTH	      1
@@ -123,7 +109,7 @@ extern "C" {
 						 SACK_CHUNK_CUMULATIVE_TSN_ACK_LENGTH)
 
 #define INIT_CHUNK_INITIAL_TSN_LENGTH		     4
-#define INIT_CHUNK_FIXED_PARAMTERS_LENGTH	     (INIT_CHUNK_INITIATE_TAG_LENGTH + \
+#define INIT_CHUNK_FIXED_PARAMETERS_LENGTH	     (INIT_CHUNK_INITIATE_TAG_LENGTH + \
 						      INIT_CHUNK_ADV_REC_WINDOW_CREDIT_LENGTH + \
 						      INIT_CHUNK_NUMBER_OF_OUTBOUND_STREAMS_LENGTH + \
 						      INIT_CHUNK_NUMBER_OF_INBOUND_STREAMS_LENGTH + \
@@ -173,17 +159,14 @@ typedef struct _sctp_tmp_info {
 	guint32 n_tvbs;
 } sctp_tmp_info_t;
 
-typedef struct _sctp_min_max {
-	guint32 tmp_min_secs;
-	guint32 tmp_min_usecs;
-	guint32 tmp_max_secs;
-	guint32 tmp_max_usecs;
-	guint32 tmp_min_tsn1;
-	guint32 tmp_min_tsn2;
-	guint32 tmp_max_tsn1;
-	guint32 tmp_max_tsn2;
-	gint	tmp_secs;
-} sctp_min_max_t;
+typedef struct _sctp_init_collision {
+	guint32 init_vtag;		/* initiate tag of the INIT chunk */
+	guint32 initack_vtag;		/* initiate tag of the INIT-ACK chunk */
+	guint32 init_min_tsn;		/* initial tsn of the INIT chunk */
+	guint32 initack_min_tsn;	/* initial tsn of the INIT-ACK chunk */
+	gboolean init:1;
+	gboolean initack:1;
+} sctp_init_collision_t;
 
 struct tsn_sort{
 	guint32 tsnumber;
@@ -196,7 +179,7 @@ struct tsn_sort{
 
 typedef struct _sctp_addr_chunk {
 	guint32	 direction;
-	address *addr;
+	address addr;
 	/* The array is initialized to MAX_SCTP_CHUNK_TYPE
 	 * so that there is no memory overwrite
 	 * when accessed using sctp chunk type as index.
@@ -248,8 +231,10 @@ typedef struct _sctp_assoc_info {
 	guint32	   max_window2;
 	guint32	   arwnd1;
 	guint32	   arwnd2;
-	gboolean   init;
-	gboolean   initack;
+	gboolean   init:1;
+	gboolean   initack:1;
+	gboolean   firstdata:1;
+	gboolean   init_collision:1;
 	guint16	   initack_dir;
 	guint16	   direction;
 	guint32	   min_secs;
@@ -262,6 +247,8 @@ typedef struct _sctp_assoc_info {
 	guint32	   max_tsn2;
 	guint32	   max_bytes1;
 	guint32	   max_bytes2;
+	sctp_init_collision_t *dir1;
+	sctp_init_collision_t *dir2;
 	GSList	  *min_max;
 	GList	  *frame_numbers;
 	GList	  *tsn1;
@@ -318,14 +305,14 @@ const sctp_assoc_info_t* get_selected_assoc(void);
 #endif /* __TAP_SCTP_ANALYSIS_H__ */
 
 /*
- * Editor modelines  -	http://www.wireshark.org/tools/modelines.html
+ * Editor modelines  -  https://www.wireshark.org/tools/modelines.html
  *
- * Local variables:
- * c-basic-offset: 8
+ * Local Variables:
+ * c-basic-offset: 4
  * tab-width: 8
- * indent-tabs-mode: t
+ * indent-tabs-mode: nil
  * End:
  *
- * vi: set shiftwidth=8 tabstop=8 noexpandtab:
- * :indentSize=8:tabSize=8:noTabs=false:
+ * ex: set shiftwidth=4 tabstop=8 expandtab:
+ * :indentSize=4:tabSize=8:noTabs=true:
  */

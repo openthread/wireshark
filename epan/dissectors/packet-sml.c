@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /*
@@ -36,9 +24,6 @@ Short description of the SML protocol on the SML Wireshark Wiki page:  https://w
 #include <epan/expert.h>
 
 #include <wsutil/str_util.h>
-
-#define TCP_PORT_SML		0
-#define UDP_PORT_SML		0
 
 #define ESC_SEQ_END		G_GUINT64_CONSTANT(0x1b1b1b1b1a)
 #define ESC_SEQ			0x1b1b1b1b
@@ -74,9 +59,6 @@ Short description of the SML protocol on the SML Wireshark Wiki page:  https://w
 #define LIST_6_ELEMENTS		0x76
 #define MSB			0x80
 
-static guint tcp_port_pref = TCP_PORT_SML;
-static guint udp_port_pref = UDP_PORT_SML;
-
 /* Forward declaration we need below (if using proto_reg_handoff as a prefs callback)*/
 void proto_register_sml(void);
 void proto_reg_handoff_sml(void);
@@ -93,6 +75,7 @@ static int hf_sml_datatype = -1;
 static int hf_sml_abortOnError = -1;
 static int hf_sml_MessageBody = -1;
 static int hf_sml_crc16 = -1;
+static int hf_sml_crc16_status = -1;
 static int hf_sml_endOfSmlMsg = -1;
 static int hf_sml_end = -1;
 static int hf_sml_codepage = -1;
@@ -2391,31 +2374,22 @@ static void dissect_sml_file(tvbuff_t *tvb, packet_info *pinfo, gint *offset, pr
 			proto_tree_add_item (crc16_tree, hf_sml_datatype, tvb, *offset, 1, ENC_BIG_ENDIAN);
 			*offset+=1;
 
-			crc16 = proto_tree_add_item (crc16_tree, hf_sml_crc16, tvb, *offset, data, ENC_BIG_ENDIAN);
-			*offset+=data;
-
 			if (sml_crc_enabled) {
-				crc_msg_len = (*offset - crc_msg_len - data - 1);
-				crc_check = crc16_ccitt_tvb_offset(tvb, (*offset - crc_msg_len - data - 1), crc_msg_len);
-				crc_ref = tvb_get_letohs(tvb, *offset-2);
+				crc_msg_len = (*offset - crc_msg_len - 1);
+				crc_check = crc16_ccitt_tvb_offset(tvb, (*offset - crc_msg_len - 1), crc_msg_len);
 
 				if (data == 1){
 					crc_ref = crc_ref & 0xFF00;
 				}
 
-				if (crc_check == crc_ref) {
-					proto_item_append_text(crc16, " [CRC Okay]");
-				}
-				else {
-					/*(little to big endian convert) to display in correct order*/
-					crc_check = ((crc_check >> 8) & 0xFF) + ((crc_check << 8 & 0xFF00));
-					proto_item_append_text(crc16, " [CRC Bad 0x%X]", crc_check);
-					expert_add_info(pinfo, crc16, &ei_sml_crc_error);
-				}
+				proto_tree_add_checksum(crc16_tree, tvb, *offset, hf_sml_crc16, hf_sml_crc16_status, &ei_sml_crc_error, pinfo, crc_check,
+									ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_VERIFY);
 			}
 			else {
-				proto_item_append_text(crc16, " [CRC validation disabled]");
+				proto_tree_add_checksum(crc16_tree, tvb, *offset, hf_sml_crc16, hf_sml_crc16_status, &ei_sml_crc_error, pinfo, 0,
+									ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 			}
+			*offset+=data;
 
 			/*Message END*/
 			if (tvb_get_guint8 (tvb, *offset) == 0){
@@ -2477,27 +2451,19 @@ static void dissect_sml_file(tvbuff_t *tvb, packet_info *pinfo, gint *offset, pr
 		*offset+=1;
 		proto_tree_add_item (msgend_tree, hf_sml_padding, tvb, *offset, 1, ENC_NA);
 		*offset+=1;
-		crc16 = proto_tree_add_item (msgend_tree, hf_sml_crc16, tvb, *offset, 2, ENC_BIG_ENDIAN);
-		*offset+=2;
 
 		if (sml_crc_enabled && sml_reassemble){
-			crc_file_len = *offset - crc_file_len - 2;
-			crc_check = crc16_ccitt_tvb_offset(tvb,*offset-crc_file_len-2, crc_file_len);
-			crc_ref = tvb_get_letohs(tvb, *offset-2);
+			crc_file_len = *offset - crc_file_len;
+			crc_check = crc16_ccitt_tvb_offset(tvb,*offset-crc_file_len, crc_file_len);
 
-			if (crc_check == crc_ref){
-				proto_item_append_text(crc16, " [CRC Okay]");
-			}
-			else{
-				/*(little to big endian convert) to display in correct order*/
-				crc_check = ((crc_check >> 8) & 0xFF) + ((crc_check << 8) & 0xFF00);
-				proto_item_append_text(crc16, " [CRC Bad 0x%X]", crc_check);
-				expert_add_info_format(pinfo, msgend, &ei_sml_crc_error, "CRC error (messages not reassembled ?)");
-			}
+			proto_tree_add_checksum(msgend_tree, tvb, *offset, hf_sml_crc16, hf_sml_crc16_status, &ei_sml_crc_error, pinfo, crc_check,
+									ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_VERIFY);
 		}
 		else {
-			proto_item_append_text(crc16, " [CRC validation disabled]");
+			proto_tree_add_checksum(msgend_tree, tvb, *offset, hf_sml_crc16, hf_sml_crc16_status, &ei_sml_crc_error, pinfo, crc_check,
+									ENC_LITTLE_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
 		}
+		*offset+=2;
 
 		available = tvb_reported_length_remaining(tvb, *offset);
 		if (available <= 0){
@@ -2556,6 +2522,8 @@ void proto_register_sml (void) {
 			{ "SML Version", "sml.version", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 		{ &hf_sml_crc16,
 			{ "CRC16", "sml.crc", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+		{ &hf_sml_crc16_status,
+			{ "CRC16 Status", "sml.crc.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 		{ &hf_sml_endOfSmlMsg,
 			{ "End of SML Msg", "sml.end", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 		{ &hf_sml_transactionId,
@@ -2806,12 +2774,10 @@ void proto_register_sml (void) {
 	};
 
 	proto_sml = proto_register_protocol("Smart Message Language","SML", "sml");
-	sml_module = prefs_register_protocol(proto_sml, proto_reg_handoff_sml);
+	sml_module = prefs_register_protocol(proto_sml, NULL);
 
 	prefs_register_bool_preference (sml_module, "reassemble", "Enable reassemble", "Enable reassembling (default is enabled)", &sml_reassemble);
 	prefs_register_bool_preference (sml_module, "crc", "Enable crc calculation", "Enable crc (default is disabled)", &sml_crc_enabled);
-	prefs_register_uint_preference(sml_module, "tcp.port", "SML TCP Port", "Set the TCP port for SML (Default is 0), recommended port is 7259", 10, &tcp_port_pref);
-	prefs_register_uint_preference(sml_module, "udp.port", "SML UDP Port", "Set the UDP port for SML (Default is 0), recommended port is 7259", 10, &udp_port_pref);
 
 	proto_register_field_array(proto_sml, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
@@ -2820,23 +2786,11 @@ void proto_register_sml (void) {
 }
 
 void proto_reg_handoff_sml(void) {
-	static gboolean initialized = FALSE;
-	static int old_tcp_port;
-	static int old_udp_port;
-	static dissector_handle_t sml_handle;
+	dissector_handle_t sml_handle;
 
-	if (!initialized) {
-		sml_handle = create_dissector_handle(dissect_sml, proto_sml);
-		initialized = TRUE;
-	} else {
-		dissector_delete_uint("tcp.port", old_tcp_port, sml_handle);
-		dissector_delete_uint("udp.port", old_udp_port, sml_handle);
-	}
-	old_tcp_port = tcp_port_pref;
-	old_udp_port = udp_port_pref;
-
-	dissector_add_uint("tcp.port", tcp_port_pref, sml_handle);
-	dissector_add_uint("udp.port", udp_port_pref, sml_handle);
+	sml_handle = create_dissector_handle(dissect_sml, proto_sml);
+	dissector_add_for_decode_as_with_preference("tcp.port", sml_handle);
+	dissector_add_for_decode_as_with_preference("udp.port", sml_handle);
 }
 
 /*

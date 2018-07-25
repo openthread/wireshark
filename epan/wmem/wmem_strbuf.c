@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,6 +16,10 @@
 
 #include "wmem_core.h"
 #include "wmem_strbuf.h"
+
+#ifdef _WIN32
+#include <stdio.h>
+#endif
 
 #define DEFAULT_MINIMUM_LEN 16
 
@@ -94,7 +86,7 @@ wmem_strbuf_new(wmem_allocator_t *allocator, const gchar *str)
     strbuf = wmem_strbuf_sized_new(allocator, alloc_len, 0);
 
     if (str && len > 0) {
-        strcpy(strbuf->str, str);
+        g_strlcpy(strbuf->str, str, alloc_len);
         strbuf->len = len;
     }
 
@@ -154,6 +146,7 @@ wmem_strbuf_append(wmem_strbuf_t *strbuf, const gchar *str)
     strbuf->len = MIN(strbuf->len + append_len, strbuf->alloc_len - 1);
 }
 
+#ifndef _WIN32
 static void
 wmem_strbuf_append_vprintf(wmem_strbuf_t *strbuf, const gchar *fmt, va_list ap)
 {
@@ -176,6 +169,37 @@ wmem_strbuf_append_vprintf(wmem_strbuf_t *strbuf, const gchar *fmt, va_list ap)
 
     strbuf->len = MIN(strbuf->len + append_len, strbuf->alloc_len - 1);
 }
+#else /* _WIN32 */
+/*
+ * GLib's v*printf routines are surprisingly slow on Windows, at least with
+ * GLib 2.40.0. This appears to be due to GLib using the gnulib version of
+ * vasnprintf when compiled under MinGW. If GLib ever ends up using the
+ * native Windows v*printf routines this can be removed.
+ */
+static void
+wmem_strbuf_append_vprintf(wmem_strbuf_t *strbuf, const gchar *fmt, va_list ap)
+{
+    va_list ap2;
+    gsize append_len;
+    gsize printed_len;
+
+    G_VA_COPY(ap2, ap);
+
+    append_len = _vscprintf(fmt, ap);
+
+    wmem_strbuf_grow(strbuf, append_len);
+
+    printed_len = vsnprintf_s(&strbuf->str[strbuf->len],
+            (gulong) WMEM_STRBUF_RAW_ROOM(strbuf),
+            _TRUNCATE,
+            fmt, ap2);
+    if (printed_len > -1) append_len = printed_len;
+
+    va_end(ap2);
+
+    strbuf->len = MIN(strbuf->len + append_len, strbuf->alloc_len - 1);
+}
+#endif /* _WIN32 */
 
 void
 wmem_strbuf_append_printf(wmem_strbuf_t *strbuf, const gchar *format, ...)

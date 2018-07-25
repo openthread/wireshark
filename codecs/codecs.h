@@ -5,37 +5,42 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef _CODECS_H_
 #define _CODECS_H_
 
-#include <config.h>
-
 #include <epan/epan.h>
 #include "ws_symbol_export.h"
+#include "ws_attributes.h"
+#ifdef HAVE_PLUGINS
+#include "wsutil/plugins.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
 #ifdef HAVE_PLUGINS
-WS_DLL_PUBLIC void codec_register_plugin_types(void);
-WS_DLL_PUBLIC void register_all_codecs(void);
+typedef struct {
+    void (*register_codec_module)(void);  /* routine to call to register a codec */
+} codecs_plugin;
+
+WS_DLL_PUBLIC void codecs_register_plugin(const codecs_plugin *plug);
 #endif
+
+/**
+ * For all built-in codecs and codec plugins, call their register routines.
+ */
+WS_DLL_PUBLIC void codecs_init(void);
+
+WS_DLL_PUBLIC void codecs_cleanup(void);
+
+/**
+ * Get compile-time information for libraries used by libwscodecs.
+ */
+WS_DLL_PUBLIC void codec_get_compiled_version_info(GString *str);
 
 struct codec_handle;
 typedef struct codec_handle *codec_handle_t;

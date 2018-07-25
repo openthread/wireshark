@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -25,6 +13,7 @@
 #define __FTYPES_H__
 
 #include <glib.h>
+#include "../wmem/wmem.h"
 #include "ws_symbol_export.h"
 
 #ifdef __cplusplus
@@ -36,6 +25,7 @@ enum ftenum {
 	FT_NONE,	/* used for text labels with no value */
 	FT_PROTOCOL,
 	FT_BOOLEAN,	/* TRUE and FALSE come from <glib.h> */
+	FT_CHAR,	/* 1-octet character as 0-255 */
 	FT_UINT8,
 	FT_UINT16,
 	FT_UINT24,	/* really a UINT32, but displayed as 6 hex-digits if FD_HEX*/
@@ -82,30 +72,34 @@ enum ftenum {
 };
 
 #define IS_FT_INT(ft)    ((ft)==FT_INT8||(ft)==FT_INT16||(ft)==FT_INT24||(ft)==FT_INT32||(ft)==FT_INT40||(ft)==FT_INT48||(ft)==FT_INT56||(ft)==FT_INT64)
-#define IS_FT_UINT(ft)   ((ft)==FT_UINT8||(ft)==FT_UINT16||(ft)==FT_UINT24||(ft)==FT_UINT32||(ft)==FT_UINT40||(ft)==FT_UINT48||(ft)==FT_UINT56||(ft)==FT_UINT64||(ft)==FT_FRAMENUM)
+#define IS_FT_UINT32(ft) ((ft)==FT_CHAR||(ft)==FT_UINT8||(ft)==FT_UINT16||(ft)==FT_UINT24||(ft)==FT_UINT32||(ft)==FT_FRAMENUM)
+#define IS_FT_UINT(ft)   ((ft)==FT_CHAR||(ft)==FT_UINT8||(ft)==FT_UINT16||(ft)==FT_UINT24||(ft)==FT_UINT32||(ft)==FT_UINT40||(ft)==FT_UINT48||(ft)==FT_UINT56||(ft)==FT_UINT64||(ft)==FT_FRAMENUM)
 #define IS_FT_TIME(ft)   ((ft)==FT_ABSOLUTE_TIME||(ft)==FT_RELATIVE_TIME)
 #define IS_FT_STRING(ft) ((ft)==FT_STRING||(ft)==FT_STRINGZ||(ft)==FT_STRINGZPAD)
 
 /* field types lengths */
-#define FT_ETHER_LEN        6
-#define FT_GUID_LEN         16
-#define FT_IPv4_LEN         4
-#define FT_IPv6_LEN         16
-#define FT_IPXNET_LEN       4
-#define FT_EUI64_LEN        8
-#define FT_AX25_ADDR_LEN    7
-#define FT_VINES_ADDR_LEN	  6
-#define FT_FCWWN_LEN        8
+#define FT_ETHER_LEN		6
+#define FT_GUID_LEN		16
+#define FT_IPv4_LEN		4
+#define FT_IPv6_LEN		16
+#define FT_IPXNET_LEN		4
+#define FT_EUI64_LEN		8
+#define FT_AX25_ADDR_LEN	7
+#define FT_VINES_ADDR_LEN	6
+#define FT_FCWWN_LEN		8
+#define FT_VARINT_MAX_LEN	10	/* Because 64 / 7 = 9 and 64 % 7 = 1, get an uint64 varint need reads up to 10 bytes. */
 
 typedef enum ftenum ftenum_t;
 
 enum ft_framenum_type {
-    FT_FRAMENUM_NONE,
-    FT_FRAMENUM_REQUEST,
-    FT_FRAMENUM_RESPONSE,
-    FT_FRAMENUM_ACK,
-    FT_FRAMENUM_DUP_ACK,
-    FT_FRAMENUM_NUM_TYPES /* last item number plus one */
+	FT_FRAMENUM_NONE,
+	FT_FRAMENUM_REQUEST,
+	FT_FRAMENUM_RESPONSE,
+	FT_FRAMENUM_ACK,
+	FT_FRAMENUM_DUP_ACK,
+	FT_FRAMENUM_RETRANS_PREV,
+	FT_FRAMENUM_RETRANS_NEXT,
+	FT_FRAMENUM_NUM_TYPES /* last item number plus one */
 };
 
 typedef enum ft_framenum_type ft_framenum_type_t;
@@ -197,6 +191,12 @@ ftype_can_matches(enum ftenum ftype);
 #include <wsutil/nstime.h>
 #include <epan/dfilter/drange.h>
 
+typedef struct _protocol_value_t
+{
+	tvbuff_t	*tvb;
+	gchar		*proto_string;
+} protocol_value_t;
+
 typedef struct _fvalue_t {
 	ftype_t	*ftype;
 	union {
@@ -214,7 +214,7 @@ typedef struct _fvalue_t {
 		ipv6_addr_and_prefix	ipv6;
 		e_guid_t		guid;
 		nstime_t		time;
-		tvbuff_t		*tvb;
+		protocol_value_t 	protocol;
 		GRegex			*re;
 		guint16			sfloat_ieee_11073;
 		guint32			float_ieee_11073;
@@ -250,20 +250,15 @@ int
 fvalue_string_repr_len(fvalue_t *fv, ftrepr_t rtype, int field_display);
 
 /* Creates the string representation of the field value.
- * If given non-NULL 'buf', the string is written at the memory
- * location pointed to by 'buf'. If 'buf' is NULL, new memory
- * is malloc'ed and the string representation is written there.
- * The pointer to the beginning of the string representation is
- * returned. If 'buf' was NULL, this points to the newly-allocated
- * memory. if 'buf' was non-NULL, then the return value will be
- * 'buf'.
+ * Memory for the buffer is allocated based on wmem allocator
+ * provided.
  *
  * field_display parameter should be a BASE_ value (enum field_display_e)
  * BASE_NONE should be used if field information isn't available.
  *
  * Returns NULL if the string cannot be represented in the given rtype.*/
 WS_DLL_PUBLIC char *
-fvalue_to_string_repr(fvalue_t *fv, ftrepr_t rtype, int field_display, char *buf);
+fvalue_to_string_repr(wmem_allocator_t *scope, fvalue_t *fv, ftrepr_t rtype, int field_display);
 
 WS_DLL_PUBLIC ftenum_t
 fvalue_type_ftenum(fvalue_t *fv);
@@ -287,7 +282,7 @@ void
 fvalue_set_string(fvalue_t *fv, const gchar *value);
 
 void
-fvalue_set_tvbuff(fvalue_t *fv, tvbuff_t *value);
+fvalue_set_protocol(fvalue_t *fv, tvbuff_t *value, const gchar *name);
 
 void
 fvalue_set_uinteger(fvalue_t *fv, guint32 value);

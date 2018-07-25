@@ -5,19 +5,7 @@
  * Copyright 1998 Gerald Combs
  *
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PACKET_SSL_H__
@@ -39,7 +27,20 @@ WS_DLL_PUBLIC void ssl_set_master_secret(guint32 frame_num, address *addr_srv, a
                                   guint32 version, gint cipher, const guchar *_master_secret,
                                   const guchar *_client_random, const guchar *_server_random,
                                   guint32 client_seq, guint32 server_seq);
+/**
+ * Retrieves Libgcrypt identifiers for the current TLS cipher. Only valid after
+ * the Server Hello has been processed and if the current conversation has TLS.
+ */
+extern gboolean
+tls_get_cipher_info(packet_info *pinfo, int *cipher_algo, int *cipher_mode, int *hash_algo);
 
-extern gboolean ssl_ignore_mac_failed;
+/**
+ * Computes the TLS 1.3 "TLS-Exporter(label, context_value, key_length)" value.
+ * On success, the secret is in "out" (free with "wmem_free(NULL, out)").
+ */
+gboolean
+tls13_exporter(packet_info *pinfo, gboolean is_early,
+               const char *label, guint8 *context,
+               guint context_length, guint key_length, guchar **out);
 
 #endif  /* __PACKET_SSL_H__ */

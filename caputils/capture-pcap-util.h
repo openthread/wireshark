@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __CAPTURE_PCAP_UTIL_H__
@@ -29,7 +17,7 @@ extern "C" {
 
 #ifdef HAVE_LIBPCAP
 
-#include <pcap.h>
+#include <wsutil/wspcap.h>
 
 #include "capture_opts.h"
 
@@ -66,10 +54,20 @@ gboolean set_pcap_datalink(pcap_t *pcap_h, int datalink, char *name,
 gboolean have_high_resolution_timestamp(pcap_t *pcap_h);
 #endif /* HAVE_PCAP_SET_TSTAMP_PRECISION */
 
+/*
+ * Error values.
+ */
+typedef enum {
+    CAP_DEVICE_OPEN_NO_ERR,              /* No error */
+    CAP_DEVICE_OPEN_ERR_PERMISSIONS,     /* Error is known to be a permissions error */
+    CAP_DEVICE_OPEN_ERR_NOT_PERMISSIONS, /* Error is known not to be a permissions error */
+    CAP_DEVICE_OPEN_ERR_GENERIC          /* Error is not known to be one or the other */
+} cap_device_open_err;
 extern if_capabilities_t *get_if_capabilities(interface_options *interface_opts,
-    char **err_str);
+    cap_device_open_err *err, char **err_str);
 extern pcap_t *open_capture_device(capture_options *capture_opts,
-    interface_options *interface_opts, int timeout,
+    interface_options *interface_opts,
+    int timeout, cap_device_open_err *open_err,
     char (*open_err_str)[PCAP_ERRBUF_SIZE]);
 
 #endif /* HAVE_LIBPCAP */

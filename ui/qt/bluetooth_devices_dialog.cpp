@@ -4,38 +4,33 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "bluetooth_devices_dialog.h"
 #include <ui_bluetooth_devices_dialog.h>
 
+#include "bluetooth_device_dialog.h"
+
+#include <ui/qt/utils/color_utils.h>
+
 #include "epan/epan.h"
 #include "epan/addr_resolv.h"
 #include "epan/to_str.h"
 #include "epan/epan_dissect.h"
+#include "epan/prefs.h"
 #include "epan/dissectors/packet-bluetooth.h"
 #include "epan/dissectors/packet-bthci_evt.h"
 
+#include <ui/qt/utils/variant_pointer.h>
+
 #include "ui/simple_dialog.h"
+#include "ui/qt/widgets/wireshark_file_dialog.h"
 
 #include <QClipboard>
 #include <QContextMenuEvent>
 #include <QPushButton>
 #include <QTreeWidget>
-#include <QFileDialog>
 
 static const int column_number_bd_addr = 0;
 static const int column_number_bd_addr_oui = 1;
@@ -47,13 +42,6 @@ static const int column_number_hci_version = 6;
 static const int column_number_hci_revision = 7;
 static const int column_number_is_local_adapter = 8;
 
-typedef struct _item_data_t {
-        guint32  interface_id;
-        guint32  adapter_id;
-        guint32  frame_number;
-} item_data_t;
-
-Q_DECLARE_METATYPE(item_data_t *)
 
 static gboolean
 bluetooth_device_tap_packet(void *tapinfo_ptr, packet_info *pinfo, epan_dissect_t *edt, const void* data)
@@ -75,19 +63,26 @@ bluetooth_device_tap_reset(void *tapinfo_ptr)
         tapinfo->tap_reset(tapinfo);
 }
 
-BluetoothDevicesDialog::BluetoothDevicesDialog(QWidget &parent, CaptureFile &cf) :
+BluetoothDevicesDialog::BluetoothDevicesDialog(QWidget &parent, CaptureFile &cf, PacketList *packet_list) :
     WiresharkDialog(parent, cf),
     ui(new Ui::BluetoothDevicesDialog)
 {
     ui->setupUi(this);
     loadGeometry(parent.width() * 4 / 5, parent.height() * 2 / 3);
 
+    packet_list_ = packet_list;
+
     connect(ui->tableTreeWidget, SIGNAL(customContextMenuRequested(const QPoint &)), this, SLOT(tableContextMenu(const QPoint &)));
+    connect(ui->tableTreeWidget, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)), this, SLOT(tableItemDoubleClicked(QTreeWidgetItem *, int)));
     connect(ui->interfaceComboBox, SIGNAL(currentIndexChanged(int)), this, SLOT(interfaceCurrentIndexChanged(int)));
     connect(ui->showInformationStepsCheckBox, SIGNAL(stateChanged(int)), this, SLOT(showInformationStepsChanged(int)));
 
     ui->tableTreeWidget->sortByColumn(column_number_bd_addr, Qt::AscendingOrder);
 
+    ui->tableTreeWidget->setStyleSheet("QTreeView::item:hover{background-color:lightyellow; color:black;}");
+
+    context_menu_.addActions(QList<QAction *>() << ui->actionMark_Unmark_Cell);
+    context_menu_.addActions(QList<QAction *>() << ui->actionMark_Unmark_Row);
     context_menu_.addActions(QList<QAction *>() << ui->actionCopy_Cell);
     context_menu_.addActions(QList<QAction *>() << ui->actionCopy_Rows);
     context_menu_.addActions(QList<QAction *>() << ui->actionCopy_All);
@@ -103,6 +98,7 @@ BluetoothDevicesDialog::BluetoothDevicesDialog(QWidget &parent, CaptureFile &cf)
                         bluetooth_device_tap_packet,
                         NULL
                         );
+    ui->hintLabel->setText(ui->hintLabel->text().arg(0));
 
     cap_file_.retapPackets();
 }
@@ -140,9 +136,76 @@ void BluetoothDevicesDialog::changeEvent(QEvent *event)
 }
 
 
+void BluetoothDevicesDialog::keyPressEvent(QKeyEvent *event)
+{
+/* NOTE: Do nothing*, but in real it "takes focus" from button_box so allow user
+ * to use Enter button to jump to frame from tree widget */
+/* * - reimplement shortcuts from contex menu */
+
+   if (event->modifiers() & Qt::ControlModifier && event->key()== Qt::Key_M)
+        on_actionMark_Unmark_Row_triggered();
+}
+
+
 void BluetoothDevicesDialog::tableContextMenu(const QPoint &pos)
 {
     context_menu_.exec(ui->tableTreeWidget->viewport()->mapToGlobal(pos));
+}
+
+void BluetoothDevicesDialog::tableItemDoubleClicked(QTreeWidgetItem *item, int)
+{
+    bluetooth_item_data_t            *item_data;
+    BluetoothDeviceDialog  *bluetooth_device_dialog;
+
+    item_data = VariantPointer<bluetooth_item_data_t>::asPtr(item->data(0, Qt::UserRole));
+    bluetooth_device_dialog = new BluetoothDeviceDialog(*this, cap_file_, item->text(column_number_bd_addr), item->text(column_number_name), item_data->interface_id, item_data->adapter_id, !item->text(column_number_is_local_adapter).isEmpty());
+    connect(bluetooth_device_dialog, SIGNAL(goToPacket(int)),
+            packet_list_, SLOT(goToPacket(int)));
+    bluetooth_device_dialog->show();
+}
+
+
+void BluetoothDevicesDialog::on_actionMark_Unmark_Cell_triggered()
+{
+    QBrush fg;
+    QBrush bg;
+
+    if (ui->tableTreeWidget->currentItem()->background(ui->tableTreeWidget->currentColumn()) == QBrush(ColorUtils::fromColorT(&prefs.gui_marked_bg))) {
+        fg = QBrush();
+        bg = QBrush();
+    } else {
+        fg = QBrush(ColorUtils::fromColorT(&prefs.gui_marked_fg));
+        bg = QBrush(ColorUtils::fromColorT(&prefs.gui_marked_bg));
+    }
+
+    ui->tableTreeWidget->currentItem()->setForeground(ui->tableTreeWidget->currentColumn(), fg);
+    ui->tableTreeWidget->currentItem()->setBackground(ui->tableTreeWidget->currentColumn(), bg);
+}
+
+
+void BluetoothDevicesDialog::on_actionMark_Unmark_Row_triggered()
+{
+    QBrush fg;
+    QBrush bg;
+    bool   is_marked = TRUE;
+
+    for (int i = 0; i < ui->tableTreeWidget->columnCount(); i += 1) {
+        if (ui->tableTreeWidget->currentItem()->background(i) != QBrush(ColorUtils::fromColorT(&prefs.gui_marked_bg)))
+            is_marked = FALSE;
+    }
+
+    if (is_marked) {
+        fg = QBrush();
+        bg = QBrush();
+    } else {
+        fg = QBrush(ColorUtils::fromColorT(&prefs.gui_marked_fg));
+        bg = QBrush(ColorUtils::fromColorT(&prefs.gui_marked_bg));
+    }
+
+    for (int i = 0; i < ui->tableTreeWidget->columnCount(); i += 1) {
+        ui->tableTreeWidget->currentItem()->setForeground(i, fg);
+        ui->tableTreeWidget->currentItem()->setBackground(i, bg);
+    }
 }
 
 
@@ -187,7 +250,6 @@ void BluetoothDevicesDialog::tapReset(void *tapinfo_ptr)
     bluetooth_devices_tapinfo_t *tapinfo = (bluetooth_devices_tapinfo_t *) tapinfo_ptr;
     BluetoothDevicesDialog  *bluetooth_devices_dialog = static_cast<BluetoothDevicesDialog *>(tapinfo->ui);
 
-
     bluetooth_devices_dialog->ui->tableTreeWidget->clear();
 }
 
@@ -204,12 +266,15 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
     if (dialog->file_closed_)
         return FALSE;
 
-    if (pinfo->phdr->presence_flags & WTAP_HAS_INTERFACE_ID) {
+    if (pinfo->rec->rec_type != REC_TYPE_PACKET)
+        return FALSE;
+
+    if (pinfo->rec->presence_flags & WTAP_HAS_INTERFACE_ID) {
         gchar       *interface;
         const char  *interface_name;
 
-        interface_name = epan_get_interface_name(pinfo->epan, pinfo->phdr->interface_id);
-        interface = wmem_strdup_printf(wmem_packet_scope(), "%u: %s", pinfo->phdr->interface_id, interface_name);
+        interface_name = epan_get_interface_name(pinfo->epan, pinfo->rec->rec_header.packet_header.interface_id);
+        interface = wmem_strdup_printf(wmem_packet_scope(), "%u: %s", pinfo->rec->rec_header.packet_header.interface_id, interface_name);
 
         if (dialog->ui->interfaceComboBox->findText(interface) == -1)
             dialog->ui->interfaceComboBox->addItem(interface);
@@ -245,7 +310,7 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
 
         while (*i_item) {
             QTreeWidgetItem *current_item = static_cast<QTreeWidgetItem*>(*i_item);
-            item_data_t *item_data = current_item->data(0, Qt::UserRole).value<item_data_t *>();
+            bluetooth_item_data_t *item_data = VariantPointer<bluetooth_item_data_t>::asPtr(current_item->data(0, Qt::UserRole));
 
             if ((tap_device->has_bd_addr && current_item->text(column_number_bd_addr) == bd_addr) ||
                     (tap_device->is_local &&
@@ -255,7 +320,7 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
                 item = current_item;
                 break;
             }
-            i_item += 1;
+            ++i_item;
         }
     }
 
@@ -267,11 +332,11 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
             item->setText(column_number_is_local_adapter,  tr("true"));
         }
 
-        item_data_t *item_data = wmem_new(wmem_file_scope(), item_data_t);
+        bluetooth_item_data_t *item_data = wmem_new(wmem_file_scope(), bluetooth_item_data_t);
         item_data->interface_id = tap_device->interface_id;
         item_data->adapter_id = tap_device->adapter_id;
         item_data->frame_number = pinfo->num;
-        item->setData(0, Qt::UserRole, QVariant::fromValue<item_data_t *>(item_data));
+        item->setData(0, Qt::UserRole, VariantPointer<bluetooth_item_data_t>::asQVariant(item_data));
     }
 
     if (tap_device->type == BLUETOOTH_DEVICE_BD_ADDR) {
@@ -279,8 +344,9 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
         item->setText(column_number_bd_addr_oui, bd_addr_oui);
     }
 
-    if (tap_device->type == BLUETOOTH_DEVICE_NAME)
+    if (tap_device->type == BLUETOOTH_DEVICE_NAME) {
         item->setText(column_number_name,  tap_device->data.name);
+    }
 
     if (tap_device->type == BLUETOOTH_DEVICE_LOCAL_ADAPTER)
         item->setText(column_number_is_local_adapter,  tr("true"));
@@ -302,6 +368,8 @@ gboolean BluetoothDevicesDialog::tapPacket(void *tapinfo_ptr, packet_info *pinfo
         dialog->ui->tableTreeWidget->resizeColumnToContents(i);
     }
 
+    dialog->ui->hintLabel->setText(QString(tr("%1 items; Right click for more option; Double click for device details")).arg(dialog->ui->tableTreeWidget->topLevelItemCount()));
+
     return TRUE;
 }
 
@@ -320,7 +388,7 @@ void BluetoothDevicesDialog::on_tableTreeWidget_itemActivated(QTreeWidgetItem *i
     if (file_closed_)
         return;
 
-    item_data_t *item_data = item->data(0, Qt::UserRole).value<item_data_t *>();
+    bluetooth_item_data_t *item_data = VariantPointer<bluetooth_item_data_t>::asPtr(item->data(0, Qt::UserRole));
 
     emit goToPacket(item_data->frame_number);
 
@@ -358,7 +426,7 @@ void BluetoothDevicesDialog::on_actionCopy_All_triggered()
                 .arg(item->text(column_number_hci_version), -20)
                 .arg(item->text(column_number_hci_revision), -20)
                 .arg(item->text(column_number_is_local_adapter), -20);
-        i_item += 1;
+        ++i_item;
     }
 
     clipboard->setText(copy);
@@ -368,9 +436,10 @@ void BluetoothDevicesDialog::on_actionSave_as_image_triggered()
 {
     QPixmap image;
 
-    QString fileName = QFileDialog::getSaveFileName(this, tr("Save Table Image"),
-                           "bluetooth_devices_table.png",
-                           tr("PNG Image (*.png)"));
+    QString fileName = WiresharkFileDialog::getSaveFileName(this,
+            tr("Save Table Image"),
+            "bluetooth_devices_table.png",
+            tr("PNG Image (*.png)"));
 
     if (fileName.isEmpty()) return;
 

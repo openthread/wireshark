@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * To quote the author of the previous H245 dissector:
  *   "This is a complete replacement of the previous limitied dissector
@@ -70,6 +58,7 @@ static dissector_table_t nsp_object_dissector_table;
 static dissector_table_t nsp_h221_dissector_table;
 static dissector_table_t gef_name_dissector_table;
 static dissector_table_t gef_content_dissector_table;
+static dissector_handle_t h245_handle;
 static dissector_handle_t nsp_handle;
 static dissector_handle_t data_handle;
 static dissector_handle_t MultimediaSystemControlMessage_handle;
@@ -213,7 +202,7 @@ typedef enum _IndicationMessage_enum {
 } IndicationMessage_enum;
 
 /*--- End of included file: packet-h245-val.h ---*/
-#line 86 "./asn1/h245/packet-h245-template.c"
+#line 75 "./asn1/h245/packet-h245-template.c"
 
 static const value_string h245_RequestMessage_short_vals[] = {
 	{ RequestMessage_nonStandard              ,	"NSM" },
@@ -362,7 +351,7 @@ typedef struct _olc_info_t {
   channel_info_t rev_lc;
 } olc_info_t;
 
-static GHashTable* h245_pending_olc_reqs = NULL;
+static wmem_map_t* h245_pending_olc_reqs = NULL;
 static gboolean fast_start = FALSE;
 static olc_info_t *upcoming_olc = NULL;
 static channel_info_t *upcoming_channel = NULL;
@@ -411,7 +400,7 @@ typedef struct {
 	h223_lc_params *rev_channel_params;
 } h223_pending_olc;
 
-static GHashTable*          h223_pending_olc_reqs[] = { NULL, NULL };
+static wmem_map_t*          h223_pending_olc_reqs[] = { NULL, NULL };
 static dissector_handle_t   h245_lc_dissector;
 static guint16              h245_lc_temp;
 static guint16              h223_fw_lc_num;
@@ -421,32 +410,11 @@ static h223_lc_params      *h223_fw_lc_params;
 static h223_lc_params      *h223_rev_lc_params;
 static h223_add_lc_handle_t h223_add_lc_handle = NULL;
 
-static void h223_lc_init_dir( int dir )
-{
-	if ( h223_pending_olc_reqs[dir] )
-		g_hash_table_destroy( h223_pending_olc_reqs[dir] );
-	h223_pending_olc_reqs[dir] = g_hash_table_new( g_direct_hash, g_direct_equal );
-}
-
 static void h223_lc_init( void )
 {
-	h223_lc_init_dir( P2P_DIR_SENT );
-	h223_lc_init_dir( P2P_DIR_RECV );
 	h223_lc_params_temp = NULL;
 	h245_lc_dissector = NULL;
 	h223_fw_lc_num = 0;
-}
-
-static void h245_init(void)
-{
-	h245_pending_olc_reqs = g_hash_table_new(g_str_hash, g_str_equal);
-
-	h223_lc_init();
-}
-
-static void h245_cleanup(void)
-{
-	g_hash_table_destroy(h245_pending_olc_reqs);
 }
 
 void h245_set_h223_add_lc_handle( h223_add_lc_handle_t handle )
@@ -501,7 +469,7 @@ static void h245_setup_channels(packet_info *pinfo, channel_info_t *upcoming_cha
 	/* DEBUG 	g_warning("h245_setup_channels media_addr.addr.type %u port %u",upcoming_channel_lcl->media_addr.addr.type, upcoming_channel_lcl->media_addr.port );
 	*/
 	if (upcoming_channel_lcl->media_addr.addr.type!=AT_NONE && upcoming_channel_lcl->media_addr.port!=0) {
-		srtp_add_address(pinfo, &upcoming_channel_lcl->media_addr.addr,
+		srtp_add_address(pinfo, PT_UDP, &upcoming_channel_lcl->media_addr.addr,
 						upcoming_channel_lcl->media_addr.port, 0,
 						"H245", pinfo->num, upcoming_channel_lcl->is_video , rtp_dyn_payload, dummy_srtp_info);
 	}
@@ -1941,7 +1909,7 @@ static int hf_h245_encrypted = -1;                /* OCTET_STRING */
 static int hf_h245_encryptedAlphanumeric = -1;    /* EncryptedAlphanumeric */
 
 /*--- End of included file: packet-h245-hf.c ---*/
-#line 407 "./asn1/h245/packet-h245-template.c"
+#line 375 "./asn1/h245/packet-h245-template.c"
 
 /* Initialize the subtree pointers */
 static int ett_h245 = -1;
@@ -2442,7 +2410,7 @@ static gint ett_h245_FlowControlIndication = -1;
 static gint ett_h245_MobileMultilinkReconfigurationIndication = -1;
 
 /*--- End of included file: packet-h245-ett.c ---*/
-#line 412 "./asn1/h245/packet-h245-template.c"
+#line 380 "./asn1/h245/packet-h245-template.c"
 
 /* Forward declarations */
 static int dissect_h245_MultimediaSystemControlMessage(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_);
@@ -3640,7 +3608,7 @@ dissect_h245_CapabilityIdentifier(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t 
   if (gefx) {
     ti = proto_tree_add_string(tree, hf_h245_debug_dissector_try_string, tvb, offset>>3, 0, gefx->key);
 	PROTO_ITEM_SET_HIDDEN(ti);
-    dissector_try_string(gef_name_dissector_table, gefx->key, tvb_new_subset(tvb, offset>>3, 0, 0), actx->pinfo, tree, actx);
+    dissector_try_string(gef_name_dissector_table, gefx->key, tvb_new_subset_length_caplen(tvb, offset>>3, 0, 0), actx->pinfo, tree, actx);
   }
   actx->private_data = gefx;  /* subdissector could overwrite it */
 
@@ -3708,7 +3676,7 @@ dissect_h245_ParameterIdentifier(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *
   if (gefx) {
     ti = proto_tree_add_string(tree, hf_h245_debug_dissector_try_string, tvb, offset>>3, 0, gefx->key);
 	PROTO_ITEM_SET_HIDDEN(ti);
-    dissector_try_string(gef_name_dissector_table, gefx->key, tvb_new_subset(tvb, offset>>3, 0, 0), actx->pinfo, tree, actx);
+    dissector_try_string_new(gef_name_dissector_table, gefx->key, tvb_new_subset_length_caplen(tvb, offset>>3, 0, 0), actx->pinfo, tree, FALSE, actx);
   }
   actx->private_data = gefx;  /* subdissector could overwrite it */
 
@@ -3737,7 +3705,7 @@ dissect_h245_T_booleanArray(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx 
     ti = proto_tree_add_string(tree, hf_h245_debug_dissector_try_string, tvb, offset>>3, 0, gefx->key);
 	PROTO_ITEM_SET_HIDDEN(ti);
     add_new_data_source(actx->pinfo, value_tvb, "booleanArray");
-    dissector_try_string(gef_content_dissector_table, gefx->key, value_tvb, actx->pinfo, tree, actx);
+    dissector_try_string_new(gef_content_dissector_table, gefx->key, value_tvb, actx->pinfo, tree, FALSE, actx);
   }
 
 
@@ -6473,7 +6441,7 @@ dissect_h245_MultiplePayloadStreamCapability(tvbuff_t *tvb _U_, int offset _U_, 
 
 static int
 dissect_h245_MaxRedundancy(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
-  offset = dissect_per_constrained_integer(tvb, offset, actx, tree, hf_index,
+  offset = dissect_per_constrained_integer_64b(tvb, offset, actx, tree, hf_index,
                                                             1U, NO_BOUND, NULL, FALSE);
 
   return offset;
@@ -6668,7 +6636,7 @@ dissect_h245_SET_SIZE_1_256_OF_CapabilityDescriptor(tvbuff_t *tvb _U_, int offse
 static int
 dissect_h245_T_subMessageIdentifier(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_, proto_tree *tree _U_, int hf_index _U_) {
 #line 582 "./asn1/h245/h245.cnf"
-  guint32 subMessageIdentifer;
+  guint32 subMessageIdentifier;
   gef_ctx_t *gefx;
 
   gefx = gef_ctx_get(actx->private_data);
@@ -6682,16 +6650,16 @@ dissect_h245_T_subMessageIdentifier(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_
   }
 
   offset = dissect_per_constrained_integer(tvb, offset, actx, tree, hf_index,
-                                                            0U, 127U, &subMessageIdentifer, FALSE);
+                                                            0U, 127U, &subMessageIdentifier, FALSE);
 
   if (gefx) {
-    gefx->subid = wmem_strdup_printf(wmem_packet_scope(), "%u", subMessageIdentifer);
+    gefx->subid = wmem_strdup_printf(wmem_packet_scope(), "%u", subMessageIdentifier);
     gef_ctx_update_key(gef_ctx_get(actx->private_data));
   }
   if (hf_index == hf_h245_subMessageIdentifier_standard)
   {
-    col_append_fstr(actx->pinfo->cinfo, COL_INFO, "%s", val_to_str(subMessageIdentifer, h245_h239subMessageIdentifier_vals, "<unknown>") );
-    g_snprintf(h245_pi->frame_label, 50, "%s", val_to_str(subMessageIdentifer, h245_h239subMessageIdentifier_vals, "<unknown>"));
+    col_append_str(actx->pinfo->cinfo, COL_INFO, val_to_str(subMessageIdentifier, h245_h239subMessageIdentifier_vals, "<unknown>") );
+    g_snprintf(h245_pi->frame_label, 50, "%s", val_to_str(subMessageIdentifier, h245_h239subMessageIdentifier_vals, "<unknown>"));
   }
 
 
@@ -8781,14 +8749,14 @@ dissect_h245_OpenLogicalChannel(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *a
 	pending->rev_channel_params = h223_rev_lc_params;
 	temp = h223_fw_lc_num;
 	if (actx->pinfo->p2p_dir > -1)
-		g_hash_table_insert(h223_pending_olc_reqs[actx->pinfo->p2p_dir], GINT_TO_POINTER(temp), pending);
+		wmem_map_insert(h223_pending_olc_reqs[actx->pinfo->p2p_dir], GINT_TO_POINTER(temp), pending);
   }
 
   if (upcoming_olc) {
     if (fast_start) {
       h245_setup_channels(actx->pinfo, &upcoming_olc->rev_lc);
     } else {
-      g_hash_table_insert(h245_pending_olc_reqs,
+      wmem_map_insert(h245_pending_olc_reqs,
         wmem_strdup(wmem_file_scope(), gen_olc_key(upcoming_olc->fwd_lc_num, &actx->pinfo->dst, &actx->pinfo->src)),
         upcoming_olc);
     }
@@ -9104,7 +9072,7 @@ dissect_h245_MultiplexEntryDescriptor(tvbuff_t *tvb _U_, int offset _U_, asn1_ct
                                    ett_h245_MultiplexEntryDescriptor, MultiplexEntryDescriptor_sequence);
 
   if(h223_set_mc_handle)
-    (*h223_set_mc_handle)(actx->pinfo, h223_mc, h223_me, actx->pinfo->ctype, actx->pinfo->circuit_id);
+    (*h223_set_mc_handle)(actx->pinfo, h223_mc, h223_me);
  /* stuff */
 
 
@@ -11129,14 +11097,14 @@ dissect_h245_OpenLogicalChannelAck(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t
 	actx->pinfo->p2p_dir = P2P_DIR_RECV;
   else
 	actx->pinfo->p2p_dir = P2P_DIR_SENT;
-  pend = (h223_pending_olc *)g_hash_table_lookup( h223_pending_olc_reqs[actx->pinfo->p2p_dir], GINT_TO_POINTER(temp) );
+  pend = (h223_pending_olc *)wmem_map_lookup( h223_pending_olc_reqs[actx->pinfo->p2p_dir], GINT_TO_POINTER(temp) );
   if (pend) {
 	DISSECTOR_ASSERT( ( h223_rev_lc_num &&  pend->rev_channel_params)
 				   || (!h223_rev_lc_num && !pend->rev_channel_params) );
 	if(h223_add_lc_handle) {
-	  (*h223_add_lc_handle)( actx->pinfo, h223_fw_lc_num, pend->fw_channel_params, actx->pinfo->ctype, actx->pinfo->circuit_id );
+	  (*h223_add_lc_handle)( actx->pinfo, h223_fw_lc_num, pend->fw_channel_params);
 	  if(h223_rev_lc_num)
-		(*h223_add_lc_handle)( actx->pinfo, h223_rev_lc_num, pend->rev_channel_params, actx->pinfo->ctype, actx->pinfo->circuit_id );
+		(*h223_add_lc_handle)( actx->pinfo, h223_rev_lc_num, pend->rev_channel_params);
 	}
   } else {
 	/* we missed the OpenLogicalChannel packet */
@@ -11145,7 +11113,7 @@ dissect_h245_OpenLogicalChannelAck(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t
 
   if (upcoming_olc) {
     olc_key = gen_olc_key(upcoming_olc->fwd_lc_num, &actx->pinfo->src, &actx->pinfo->dst);
-    olc_req = (olc_info_t *)g_hash_table_lookup(h245_pending_olc_reqs, olc_key);
+    olc_req = (olc_info_t *)wmem_map_lookup(h245_pending_olc_reqs, olc_key);
     if (olc_req) {
       update_unicast_addr(&olc_req->fwd_lc.media_addr, &upcoming_olc->fwd_lc.media_addr);
       update_unicast_addr(&olc_req->fwd_lc.media_control_addr, &upcoming_olc->fwd_lc.media_control_addr);
@@ -11153,7 +11121,7 @@ dissect_h245_OpenLogicalChannelAck(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t
       update_unicast_addr(&olc_req->rev_lc.media_control_addr, &upcoming_olc->rev_lc.media_control_addr);
       h245_setup_channels(actx->pinfo, &olc_req->fwd_lc);
       h245_setup_channels(actx->pinfo, &olc_req->rev_lc);
-      g_hash_table_remove(h245_pending_olc_reqs, olc_key);
+      wmem_map_remove(h245_pending_olc_reqs, olc_key);
     } else {
       h245_setup_channels(actx->pinfo, &upcoming_olc->fwd_lc);
     }
@@ -14529,7 +14497,7 @@ static int dissect_OpenLogicalChannel_PDU(tvbuff_t *tvb _U_, packet_info *pinfo 
 
 
 /*--- End of included file: packet-h245-fn.c ---*/
-#line 421 "./asn1/h245/packet-h245-template.c"
+#line 389 "./asn1/h245/packet-h245-template.c"
 
 static int
 dissect_h245(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree, void* data _U_)
@@ -17472,15 +17440,15 @@ void proto_register_h245(void) {
         "OBJECT_IDENTIFIER", HFILL }},
     { &hf_h245_rfc2733rfc2198,
       { "rfc2733rfc2198", "h245.rfc2733rfc2198",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         "MaxRedundancy", HFILL }},
     { &hf_h245_rfc2733sameport,
       { "rfc2733sameport", "h245.rfc2733sameport",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         "MaxRedundancy", HFILL }},
     { &hf_h245_rfc2733diffport,
       { "rfc2733diffport", "h245.rfc2733diffport",
-        FT_UINT32, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         "MaxRedundancy", HFILL }},
     { &hf_h245_rfc2733Format,
       { "rfc2733Format", "h245.rfc2733Format",
@@ -20228,7 +20196,7 @@ void proto_register_h245(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-h245-hfarr.c ---*/
-#line 507 "./asn1/h245/packet-h245-template.c"
+#line 475 "./asn1/h245/packet-h245-template.c"
   };
 
   /* List of subtrees */
@@ -20731,14 +20699,17 @@ void proto_register_h245(void) {
     &ett_h245_MobileMultilinkReconfigurationIndication,
 
 /*--- End of included file: packet-h245-ettarr.c ---*/
-#line 514 "./asn1/h245/packet-h245-template.c"
+#line 482 "./asn1/h245/packet-h245-template.c"
   };
   module_t *h245_module;
 
   /* Register protocol */
   proto_h245 = proto_register_protocol(PNAME, PSNAME, PFNAME);
-  register_init_routine(h245_init);
-  register_cleanup_routine(h245_cleanup);
+  h223_pending_olc_reqs[P2P_DIR_SENT] = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal );
+  h223_pending_olc_reqs[P2P_DIR_RECV] = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), g_direct_hash, g_direct_equal );
+  h245_pending_olc_reqs = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), wmem_str_hash, g_str_equal);
+
+  register_init_routine(h223_lc_init);
   /* Register fields and subtrees */
   proto_register_field_array(proto_h245, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
@@ -20759,13 +20730,13 @@ void proto_register_h245(void) {
     "Show h245 info in reversed order",
     "Whether the dissector should print items of h245 Info column in reversed order",
     &info_col_fmt_prepend);
-  register_dissector("h245dg", dissect_h245_h245, proto_h245);
-  register_dissector("h245", dissect_h245, proto_h245);
+  MultimediaSystemControlMessage_handle = register_dissector("h245dg", dissect_h245_h245, proto_h245);
+  h245_handle = register_dissector("h245", dissect_h245, proto_h245);
 
-  nsp_object_dissector_table = register_dissector_table("h245.nsp.object", "H.245 NonStandardParameter (object)", proto_h245, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  nsp_h221_dissector_table = register_dissector_table("h245.nsp.h221", "H.245 NonStandardParameter (h221)", proto_h245, FT_UINT32, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  gef_name_dissector_table = register_dissector_table("h245.gef.name", "H.245 Generic Extensible Framework (names)", proto_h245, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  gef_content_dissector_table = register_dissector_table("h245.gef.content", "H.245 Generic Extensible Framework", proto_h245, FT_STRING, BASE_NONE, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  nsp_object_dissector_table = register_dissector_table("h245.nsp.object", "H.245 NonStandardParameter (object)", proto_h245, FT_STRING, BASE_NONE);
+  nsp_h221_dissector_table = register_dissector_table("h245.nsp.h221", "H.245 NonStandardParameter (h221)", proto_h245, FT_UINT32, BASE_HEX);
+  gef_name_dissector_table = register_dissector_table("h245.gef.name", "H.245 Generic Extensible Framework Name", proto_h245, FT_STRING, BASE_NONE);
+  gef_content_dissector_table = register_dissector_table("h245.gef.content", "H.245 Generic Extensible Framework Content", proto_h245, FT_STRING, BASE_NONE);
 
   h245_tap = register_tap("h245");
   h245dg_tap = register_tap("h245dg");
@@ -20824,18 +20795,14 @@ void proto_register_h245(void) {
 
 /*--- proto_reg_handoff_h245 ---------------------------------------*/
 void proto_reg_handoff_h245(void) {
-	dissector_handle_t h245_handle;
-
 	rtcp_handle = find_dissector("rtcp");
 	data_handle = find_dissector("data");
 	h263_handle = find_dissector("h263data");
 	amr_handle = find_dissector("amr_if2_nb");
 
 
-	h245_handle = find_dissector("h245");
-	dissector_add_for_decode_as("tcp.port", h245_handle);
-	MultimediaSystemControlMessage_handle = find_dissector("h245dg");
-	dissector_add_for_decode_as("udp.port", MultimediaSystemControlMessage_handle);
+	dissector_add_for_decode_as_with_preference("tcp.port", h245_handle);
+	dissector_add_for_decode_as_with_preference("udp.port", MultimediaSystemControlMessage_handle);
 }
 
 static void init_h245_packet_info(h245_packet_info *pi)

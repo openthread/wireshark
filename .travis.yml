@@ -1,23 +1,43 @@
 language: cpp
 sudo: required
 dist: trusty
+os:
+  - osx
+  - linux
 compiler:
   - clang
   - gcc
 env:
- - BUILD_CMAKE=no
- - BUILD_CMAKE=yes
+ - PCAP=ON
+ - PCAP=OFF
+matrix:
+  exclude:
+  # Exclude gcc build (Need some work) with osx
+  - os: osx
+    compiler: gcc
+addons:
+  apt:
+    update: true
+    sources:
+    - ubuntu-toolchain-r-test
+    - llvm-toolchain-trusty-5.0
+    - sourceline: 'ppa:wireshark-dev/stable'
+    packages:
+    - g++-8
+    - clang-5.0
 before_install:
-  - $CC --version
-  - sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
-  - sudo apt-get update -qq
-    #libstdc++-4.8 is needed by Clang to build
-  - sudo apt-get -qq install libstdc++-4.8-dev
-  - sudo apt-get -qq build-dep wireshark
-  - sudo apt-get -qq install cmake libgtk-3-0 libglib2.0-0 libgdk-pixbuf2.0-0 libcairo2
-  - sudo apt-get -qq install qt5-default qttools5-dev qttools5-dev-tools
+  - echo $TRAVIS_OS_NAME
+  # macos
+  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then ./tools/macos-setup-brew.sh; fi
+  # linux
+  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then if [ "$CXX" == "g++" ]; then export CXX="g++-8" CC="gcc-8"; fi ; fi
+  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo ./tools/debian-setup.sh --install-optional -qq; fi
   - $CC --version
 before_script:
-  if [ ${BUILD_CMAKE} == "yes" ]; then mkdir build && cd build && cmake ..; else ./autogen.sh && ./configure ; fi
+  - sudo gem install asciidoctor --no-ri --no-rdoc
+  - mkdir build
+  - cd build
+  - cmake -GNinja -DENABLE_PCAP=${PCAP} ..
 script:
-  - make
+  - ninja
+  - if [ "$PCAP" == "ON" ]; then ninja test-programs && ninja test; fi

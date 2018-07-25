@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Ref: 3GPP TS 25.468 version 8.1.0 Release 8
  */
@@ -71,6 +59,8 @@ static dissector_table_t rua_extension_dissector_table;
 static dissector_table_t rua_proc_imsg_dissector_table;
 static dissector_table_t rua_proc_sout_dissector_table;
 static dissector_table_t rua_proc_uout_dissector_table;
+
+static dissector_handle_t rua_handle;
 
 static int dissect_ProtocolIEFieldValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
 static int dissect_ProtocolExtensionFieldExtensionValue(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *);
@@ -148,14 +138,14 @@ module_t *rua_module;
   proto_register_subtree_array(ett, array_length(ett));
 
   /* Register dissector */
-  register_dissector("rua", dissect_rua, proto_rua);
+  rua_handle = register_dissector("rua", dissect_rua, proto_rua);
 
   /* Register dissector tables */
-  rua_ies_dissector_table = register_dissector_table("rua.ies", "RUA-PROTOCOL-IES", proto_rua, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  rua_extension_dissector_table = register_dissector_table("rua.extension", "RUA-PROTOCOL-EXTENSION", proto_rua, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  rua_proc_imsg_dissector_table = register_dissector_table("rua.proc.imsg", "RUA-ELEMENTARY-PROCEDURE InitiatingMessage", proto_rua, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  rua_proc_sout_dissector_table = register_dissector_table("rua.proc.sout", "RUA-ELEMENTARY-PROCEDURE SuccessfulOutcome", proto_rua, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
-  rua_proc_uout_dissector_table = register_dissector_table("rua.proc.uout", "RUA-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", proto_rua, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+  rua_ies_dissector_table = register_dissector_table("rua.ies", "RUA-PROTOCOL-IES", proto_rua, FT_UINT32, BASE_DEC);
+  rua_extension_dissector_table = register_dissector_table("rua.extension", "RUA-PROTOCOL-EXTENSION", proto_rua, FT_UINT32, BASE_DEC);
+  rua_proc_imsg_dissector_table = register_dissector_table("rua.proc.imsg", "RUA-ELEMENTARY-PROCEDURE InitiatingMessage", proto_rua, FT_UINT32, BASE_DEC);
+  rua_proc_sout_dissector_table = register_dissector_table("rua.proc.sout", "RUA-ELEMENTARY-PROCEDURE SuccessfulOutcome", proto_rua, FT_UINT32, BASE_DEC);
+  rua_proc_uout_dissector_table = register_dissector_table("rua.proc.uout", "RUA-ELEMENTARY-PROCEDURE UnsuccessfulOutcome", proto_rua, FT_UINT32, BASE_DEC);
 
   rua_module = prefs_register_protocol(proto_rua, proto_reg_handoff_rua);
   prefs_register_uint_preference(rua_module, "port", "RUA SCTP Port", "Set the port for RUA messages (Default of 29169)", 10, &global_sctp_port);
@@ -168,11 +158,9 @@ void
 proto_reg_handoff_rua(void)
 {
         static gboolean initialized = FALSE;
-        static dissector_handle_t rua_handle;
         static guint sctp_port;
 
         if (!initialized) {
-                rua_handle = find_dissector("rua");
                 ranap_handle = find_dissector_add_dependency("ranap", proto_rua);
                 dissector_add_uint("sctp.ppi", RUA_PAYLOAD_PROTOCOL_ID, rua_handle);
                 initialized = TRUE;

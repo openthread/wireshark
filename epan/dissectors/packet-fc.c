@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -126,6 +114,7 @@ static int proto_fcsof = -1;
 static int hf_fcsof = -1;
 static int hf_fceof = -1;
 static int hf_fccrc = -1;
+static int hf_fccrc_status = -1;
 
 static int ett_fcsof = -1;
 static int ett_fceof = -1;
@@ -140,7 +129,7 @@ static gint ett_fc_vft = -1;
 
 static expert_field ei_fccrc = EI_INIT;
 static expert_field ei_short_hdr = EI_INIT;
-static expert_field ei_frag_size = EI_INIT;
+/* static expert_field ei_frag_size = EI_INIT; */
 
 static dissector_handle_t fc_handle, fcsof_handle;
 static dissector_table_t fcftype_dissector_table;
@@ -165,7 +154,7 @@ typedef struct _fcseq_conv_data {
     guint32 seq_cnt;
 } fcseq_conv_data_t;
 
-static GHashTable *fcseq_req_hash = NULL;
+static wmem_map_t *fcseq_req_hash = NULL;
 
 /*
  * Hash Functions
@@ -190,21 +179,6 @@ fcseq_hash (gconstpointer v)
     return val;
 }
 
-static void
-fc_exchange_init_protocol(void)
-{
-    reassembly_table_init(&fc_reassembly_table,
-                          &addresses_reassembly_table_functions);
-    fcseq_req_hash = g_hash_table_new(fcseq_hash, fcseq_equal);
-}
-
-static void
-fc_exchange_cleanup_protocol(void)
-{
-    reassembly_table_destroy(&fc_reassembly_table);
-    g_hash_table_destroy(fcseq_req_hash);
-}
-
 static const char* fc_conv_get_filter_type(conv_item_t* conv, conv_filter_type_e filter)
 {
     if ((filter == CONV_FT_SRC_ADDRESS) && (conv->src_address.type == AT_FC))
@@ -227,7 +201,7 @@ fc_conversation_packet(void *pct, packet_info *pinfo, epan_dissect_t *edt _U_, c
     conv_hash_t *hash = (conv_hash_t*) pct;
     const fc_hdr *fchdr=(const fc_hdr *)vip;
 
-    add_conversation_table_data(hash, &fchdr->s_id, &fchdr->d_id, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &fc_ct_dissector_info, PT_NONE);
+    add_conversation_table_data(hash, &fchdr->s_id, &fchdr->d_id, 0, 0, 1, pinfo->fd->pkt_len, &pinfo->rel_ts, &pinfo->abs_ts, &fc_ct_dissector_info, ENDPOINT_NONE);
 
     return 1;
 }
@@ -251,8 +225,8 @@ fc_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const
     /* Take two "add" passes per packet, adding for each direction, ensures that all
     packets are counted properly (even if address is sending to itself)
     XXX - this could probably be done more efficiently inside hostlist_table */
-    add_hostlist_table_data(hash, &fchdr->s_id, 0, TRUE, 1, pinfo->fd->pkt_len, &fc_host_dissector_info, PT_NONE);
-    add_hostlist_table_data(hash, &fchdr->d_id, 0, FALSE, 1, pinfo->fd->pkt_len, &fc_host_dissector_info, PT_NONE);
+    add_hostlist_table_data(hash, &fchdr->s_id, 0, TRUE, 1, pinfo->fd->pkt_len, &fc_host_dissector_info, ENDPOINT_NONE);
+    add_hostlist_table_data(hash, &fchdr->d_id, 0, FALSE, 1, pinfo->fd->pkt_len, &fc_host_dissector_info, ENDPOINT_NONE);
 
     return 1;
 }
@@ -260,12 +234,12 @@ fc_hostlist_packet(void *pit, packet_info *pinfo, epan_dissect_t *edt _U_, const
 #define FC_NUM_PROCEDURES     256
 
 static void
-fcstat_init(struct register_srt* srt _U_, GArray* srt_array, srt_gui_init_cb gui_callback, void* gui_data)
+fcstat_init(struct register_srt* srt _U_, GArray* srt_array)
 {
     srt_stat_table *fc_srt_table;
     guint32 i;
 
-    fc_srt_table = init_srt_table("Fibre Channel Types", NULL, srt_array, FC_NUM_PROCEDURES, NULL, NULL, gui_callback, gui_data, NULL);
+    fc_srt_table = init_srt_table("Fibre Channel Types", NULL, srt_array, FC_NUM_PROCEDURES, NULL, NULL, NULL);
     for (i = 0; i < FC_NUM_PROCEDURES; i++)
     {
         gchar* tmp_str = val_to_str_wmem(NULL, i, fc_fc4_val, "Unknown(0x%02x)");
@@ -747,8 +721,9 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     if(!is_ifcp){
         set_address_tvb (&pinfo->dst, AT_FC, 3, tvb, offset+1);
         set_address_tvb (&pinfo->src, AT_FC, 3, tvb, offset+5);
-        pinfo->srcport=0;
-        pinfo->destport=0;
+        conversation_create_endpoint(pinfo, &pinfo->src, &pinfo->dst, ENDPOINT_EXCHG, 0, 0, 0);
+    } else {
+        conversation_create_endpoint(pinfo, &pinfo->src, &pinfo->dst, ENDPOINT_EXCHG, pinfo->srcport, pinfo->destport, 0);
     }
     set_address(&fchdr->d_id, pinfo->dst.type, pinfo->dst.len, pinfo->dst.data);
     set_address(&fchdr->s_id, pinfo->src.type, pinfo->src.len, pinfo->src.data);
@@ -762,8 +737,6 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     fchdr->relative_offset=0;
     param = tvb_get_ntohl (tvb, offset+20);
     seq_id = tvb_get_guint8 (tvb, offset+12);
-
-    pinfo->ptype = PT_EXCHG;
 
     /* set up a conversation and conversation data */
     /* TODO treat the fc address  s_id==00.00.00 as a wildcard matching anything */
@@ -1073,9 +1046,9 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
          * SEQ_CNT of the first frame in sequence and use this value to
          * determine the actual offset into a frame.
          */
-        ckey.conv_idx = conversation->index;
+        ckey.conv_idx = conversation->conv_index;
 
-        cdata = (fcseq_conv_data_t *)g_hash_table_lookup (fcseq_req_hash,
+        cdata = (fcseq_conv_data_t *)wmem_map_lookup (fcseq_req_hash,
                                                           &ckey);
 
         if (is_1frame_inseq) {
@@ -1088,12 +1061,12 @@ dissect_fc_helper (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
             }
             else {
                 req_key = wmem_new(wmem_file_scope(), fcseq_conv_key_t);
-                req_key->conv_idx = conversation->index;
+                req_key->conv_idx = conversation->conv_index;
 
                 cdata = wmem_new(wmem_file_scope(), fcseq_conv_data_t);
                 cdata->seq_cnt = fchdr->seqcnt;
 
-                g_hash_table_insert (fcseq_req_hash, req_key, cdata);
+                wmem_map_insert (fcseq_req_hash, req_key, cdata);
             }
             real_seqcnt = 0;
         }
@@ -1270,37 +1243,28 @@ dissect_fc_ifcp (tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
 static int
 dissect_fcsof(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_) {
 
-    proto_item *it = NULL;
-    proto_tree *fcsof_tree = NULL;
-    tvbuff_t *next_tvb, *checksum_tvb;
-    guint32 sof = 0;
-    guint32 crc = 0;
-    guint32 crc_computed = 0;
-    guint32 eof = 0;
-    gint crc_offset = 0;
-    gint eof_offset = 0;
-    gint sof_offset = 0;
+    proto_item *it;
+    proto_tree *fcsof_tree;
+    tvbuff_t *next_tvb;
+    guint32 sof;
+    guint32 crc_computed;
+    guint32 eof;
     const gint FCSOF_TRAILER_LEN = 8;
     const gint FCSOF_HEADER_LEN = 4;
-    gint frame_len_for_checksum = 0;
+    gint crc_offset = tvb_reported_length(tvb) - FCSOF_TRAILER_LEN;
+    gint eof_offset = crc_offset + 4;
+    gint sof_offset = 0;
+    gint frame_len_for_checksum;
     fc_data_t fc_data;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "FC");
 
-    crc_offset = tvb_reported_length(tvb) - FCSOF_TRAILER_LEN;
-    eof_offset = crc_offset + 4;
-    sof_offset = 0;
-
     /* Get SOF */
     sof = tvb_get_ntohl(tvb, 0);
 
-    /* GET CRC */
-    crc = tvb_get_ntohl(tvb, crc_offset);
-
     /* GET Computed CRC */
     frame_len_for_checksum = crc_offset - FCSOF_HEADER_LEN;
-    checksum_tvb = tvb_new_subset_length(tvb, 4, frame_len_for_checksum);
-    crc_computed = crc32_802_tvb(checksum_tvb, frame_len_for_checksum);
+    crc_computed = crc32_802_tvb(tvb_new_subset_length(tvb, 4, frame_len_for_checksum), frame_len_for_checksum);
 
     /* Get EOF */
     eof = tvb_get_ntohl(tvb, eof_offset);
@@ -1314,24 +1278,11 @@ dissect_fcsof(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
     proto_tree_add_uint(fcsof_tree, hf_fcsof, tvb, sof_offset, 4, sof);
 
-    if (crc == crc_computed) {
-        proto_tree_add_uint_format_value(fcsof_tree, hf_fccrc, tvb,
-                                       crc_offset, 4, crc,
-                                       "%8.8x [valid]", crc);
-    } else {
-        it = proto_tree_add_uint_format_value(fcsof_tree, hf_fccrc, tvb,
-                                       crc_offset, 4, crc,
-                                       "%8.8x [error: should be %8.8x]",
-                                       crc, crc_computed);
-
-        expert_add_info_format(pinfo, it, &ei_fccrc,
-                                   "Bad FC CRC %8.8x %8.x",
-                                   crc, crc_computed);
-    }
+    proto_tree_add_checksum(fcsof_tree, tvb, crc_offset, hf_fccrc, hf_fccrc_status, &ei_fccrc, pinfo, crc_computed, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
 
     proto_tree_add_uint(fcsof_tree, hf_fceof, tvb, eof_offset, 4, eof);
 
-    next_tvb = tvb_new_subset_remaining(tvb, 4);
+    next_tvb = tvb_new_subset_length(tvb, 4, crc_offset-4);
 
     fc_data.ethertype = 0;
     fc_data.sof_eof = 0;
@@ -1531,9 +1482,11 @@ proto_register_fc(void)
         { &ei_short_hdr,
             { "fc.short_hdr", PI_MALFORMED, PI_ERROR,
                 "Packet length is shorter than the required header", EXPFILL }},
+#if 0
         { &ei_frag_size,
             { "fc.frag_size", PI_MALFORMED, PI_ERROR,
                 "Invalid fragment size", EXPFILL }}
+#endif
     };
 
     module_t *fc_module;
@@ -1550,6 +1503,8 @@ proto_register_fc(void)
             NULL, HFILL }},
         { &hf_fccrc,
           { "CRC", "fc.crc", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+        { &hf_fccrc_status,
+          { "CRC Status", "fc.crc.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0, NULL, HFILL }},
     };
 
     static gint *sof_ett[] = {
@@ -1576,7 +1531,7 @@ proto_register_fc(void)
      */
     fcftype_dissector_table = register_dissector_table ("fc.ftype",
                                                         "FC Frame Type",
-                                                        proto_fc, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                        proto_fc, FT_UINT8, BASE_HEX);
 
     /* Register preferences */
     fc_module = prefs_register_protocol (proto_fc, NULL);
@@ -1592,8 +1547,10 @@ proto_register_fc(void)
                                     "multi-frame sequence", 10,
                                     &fc_max_frame_size);
 
-    register_init_routine (fc_exchange_init_protocol);
-    register_cleanup_routine (fc_exchange_cleanup_protocol);
+    fcseq_req_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), fcseq_hash, fcseq_equal);
+
+    reassembly_table_register(&fc_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
 
     /* Register FC SOF/EOF */

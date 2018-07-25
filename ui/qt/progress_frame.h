@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef PROGRESS_FRAME_H
@@ -30,7 +18,7 @@ namespace Ui {
 class ProgressFrame;
 }
 
-#if defined(Q_OS_WIN) && QT_VERSION >= QT_VERSION_CHECK(5, 2, 0)
+#if defined(Q_OS_WIN)
 #include <QWinTaskbarButton>
 #include <QWinTaskbarProgress>
 #endif
@@ -44,7 +32,6 @@ class QPropertyAnimation;
 // Define the structure describing a progress dialog.
 struct progdlg {
     ProgressFrame *progress_frame;  // This progress frame
-    QElapsedTimer *elapsed_timer; // Application event processing
     QWidget *top_level_window;  // Progress frame's main window
 };
 
@@ -76,9 +63,7 @@ signals:
     void stopLoading();
 
 protected:
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     void timerEvent(QTimerEvent *event);
-#endif
 
 private:
     Ui::ProgressFrame *ui;
@@ -88,11 +73,9 @@ private:
     QString status_;
     bool terminate_is_stop_;
     gboolean *stop_flag_;
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     int show_timer_;
     QGraphicsOpacityEffect *effect_;
     QPropertyAnimation *animation_;
-#endif
 #ifdef QWINTASKBARPROGRESS_H
     bool update_taskbar_;
     QWinTaskbarProgress *taskbar_progress_;

@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -138,7 +126,7 @@ static header_field_info hfi_dbus_value_str DBUS_HFI_INIT =
 	{ "Value", "dbus.value.str", FT_STRING, BASE_NONE, NULL, 0x00, NULL, HFILL };
 
 static header_field_info hfi_dbus_value_double DBUS_HFI_INIT =
-	{ "Value", "dbus.value.double", FT_DOUBLE, BASE_NONE, NULL, 0x00, NULL, HFILL };
+	{ "DOUBLE", "dbus.value.double", FT_DOUBLE, BASE_NONE, NULL, 0x00, NULL, HFILL };
 
 
 static int ett_dbus = -1;
@@ -244,7 +232,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = tvb_get_guint8(tvb, offset);
 			offset += 1;
 
-			proto_tree_add_uint_format(tree, hfi_dbus_value_uint.id, tvb, org_offset, offset - org_offset, val, "BYTE: %u", val);
+			proto_tree_add_uint_format(tree, &hfi_dbus_value_uint, tvb, org_offset, offset - org_offset, val, "BYTE: %u", val);
 			ret->uint = val;
 			return offset;
 		}
@@ -256,7 +244,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = dinfo->get32(tvb, offset);
 			offset += 4;
 
-			ti = proto_tree_add_boolean_format(tree, hfi_dbus_value_bool.id, tvb, org_offset, offset - org_offset, val, "BOOLEAN: %s", val ? "True" : "False");
+			ti = proto_tree_add_boolean_format(tree, &hfi_dbus_value_bool, tvb, org_offset, offset - org_offset, val, "BOOLEAN: %s", val ? "True" : "False");
 			if (val != 0 && val != 1) {
 				expert_add_info_format(dinfo->pinfo, ti, &ei_dbus_value_bool_invalid, "Invalid boolean value (must be 0 or 1 is: %u)", val);
 				return -1;
@@ -272,7 +260,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = (gint16 )dinfo->get16(tvb, offset);
 			offset += 2;
 
-			proto_tree_add_uint_format(tree, hfi_dbus_value_int.id, tvb, org_offset, offset - org_offset, val, "INT16: %d", val);
+			proto_tree_add_uint_format(tree, &hfi_dbus_value_int, tvb, org_offset, offset - org_offset, val, "INT16: %d", val);
 			/* XXX ret */
 			return offset;
 		}
@@ -284,7 +272,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = dinfo->get16(tvb, offset);
 			offset += 2;
 
-			proto_tree_add_uint_format(tree, hfi_dbus_value_uint.id, tvb, org_offset, offset - org_offset, val, "UINT16: %u", val);
+			proto_tree_add_uint_format(tree, &hfi_dbus_value_uint, tvb, org_offset, offset - org_offset, val, "UINT16: %u", val);
 			ret->uint = val;
 			return offset;
 		}
@@ -296,7 +284,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = (gint32) dinfo->get32(tvb, offset);
 			offset += 4;
 
-			proto_tree_add_int_format(tree, hfi_dbus_value_int.id, tvb, org_offset, offset - org_offset, val, "INT32: %d", val);
+			proto_tree_add_int_format(tree, &hfi_dbus_value_int, tvb, org_offset, offset - org_offset, val, "INT32: %d", val);
 			/* XXX ret */
 			return offset;
 		}
@@ -308,7 +296,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = dinfo->get32(tvb, offset);
 			offset += 4;
 
-			proto_tree_add_uint_format(tree, hfi_dbus_value_uint.id, tvb, org_offset, offset - org_offset, val, "UINT32: %u", val);
+			proto_tree_add_uint_format(tree, &hfi_dbus_value_uint, tvb, org_offset, offset - org_offset, val, "UINT32: %u", val);
 			ret->uint = val;
 			return offset;
 		}
@@ -324,7 +312,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = dinfo->getdouble(tvb, offset);
 			offset += 8;
 
-			proto_tree_add_double_format(tree, hfi_dbus_value_double.id, tvb, org_offset, offset - org_offset, val, "DOUBLE: %." G_STRINGIFY(DBL_DIG) "g", val);
+			proto_tree_add_double(tree, &hfi_dbus_value_double, tvb, org_offset, offset - org_offset, val);
 			/* XXX ret */
 			return offset;
 		}
@@ -342,13 +330,13 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			offset += (len + 1 /* NUL-byte */);
 
 			if (sig == 's') {
-				ti = proto_tree_add_string_format(tree, hfi_dbus_value_str.id, tvb, org_offset, offset - org_offset, val, "STRING: %s", val);
+				ti = proto_tree_add_string_format(tree, &hfi_dbus_value_str, tvb, org_offset, offset - org_offset, val, "STRING: %s", val);
 				if (!g_utf8_validate(val, -1, NULL)) {
 					expert_add_info(dinfo->pinfo, ti, &ei_dbus_value_str_invalid);
 					return -1;
 				}
 			} else {
-				ti = proto_tree_add_string_format(tree, hfi_dbus_value_str.id, tvb, org_offset, offset - org_offset, val, "OBJECT_PATH: %s", val);
+				ti = proto_tree_add_string_format(tree, &hfi_dbus_value_str, tvb, org_offset, offset - org_offset, val, "OBJECT_PATH: %s", val);
 				if (!dbus_validate_object_path(val)) {
 					expert_add_info(dinfo->pinfo, ti, &ei_dbus_invalid_object_path);
 					return -1;
@@ -369,7 +357,7 @@ dissect_dbus_sig(tvbuff_t *tvb, dbus_info_t *dinfo, proto_tree *tree, int offset
 			val = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, len, ENC_ASCII);
 			offset += (len + 1);
 
-			ti = proto_tree_add_string_format(tree, hfi_dbus_value_str.id, tvb, org_offset, offset - org_offset, val, "SIGNATURE: %s", val);
+			ti = proto_tree_add_string_format(tree, &hfi_dbus_value_str, tvb, org_offset, offset - org_offset, val, "SIGNATURE: %s", val);
 			if (!dbus_validate_signature(val)) {
 				expert_add_info(dinfo->pinfo, ti, &ei_dbus_invalid_signature);
 				return -1;
@@ -716,7 +704,7 @@ void
 proto_reg_handoff_dbus(void)
 {
 	dissector_add_uint("wtap_encap", WTAP_ENCAP_DBUS, dbus_handle);
-	dissector_add_for_decode_as("tcp.port", dbus_handle_tcp);
+	dissector_add_for_decode_as_with_preference("tcp.port", dbus_handle_tcp);
 }
 
 /*

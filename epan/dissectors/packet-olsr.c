@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -327,7 +315,7 @@ static int dissect_olsr_hello(tvbuff_t *tvb, packet_info *pinfo, proto_tree *ols
     offset += 2;
 
     if (message_size < 4) {
-      proto_item_append_string(ti, "(too short, must be >= 4)");
+      expert_add_info_format(pinfo, ti, &ei_olsr_not_enough_bytes, "(too short, must be >= 4)");
       return message_end;
     }
     offset = handleNeighbors(tvb, pinfo, link_type_tree, offset, offset + message_size - 4);
@@ -600,13 +588,13 @@ static int dissect_olsr(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
       offset += 2;
 
       if (message_len < 8 + pinfo->src.len) {
-        proto_item_append_text(ti, "(too short, must be >= %d)", 8 + pinfo->src.len);
+        expert_add_info_format(pinfo, ti, &ei_olsr_not_enough_bytes, "(too short, must be >= %d)", 8 + pinfo->src.len);
         break;
       }
 
       message_end = offset + message_len - 4;
       if (message_end > packet_len) {
-        proto_item_append_string(ti, "(not enough data for message)");
+        expert_add_info_format(pinfo, ti, &ei_olsr_not_enough_bytes, "(not enough data for message)");
         break;
       }
 
@@ -995,7 +983,7 @@ void proto_reg_handoff_olsr(void) {
   dissector_handle_t olsr_handle;
 
   olsr_handle = create_dissector_handle(dissect_olsr, proto_olsr);
-  dissector_add_uint("udp.port", UDP_PORT_OLSR, olsr_handle);
+  dissector_add_uint_with_preference("udp.port", UDP_PORT_OLSR, olsr_handle);
 }
 
 /*

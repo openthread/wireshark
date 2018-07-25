@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2001 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "config.h"
 
@@ -36,7 +24,7 @@
 
 #include <wsutil/file_util.h>
 #include <wsutil/str_util.h>
-#include <wsutil/report_err.h>
+#include <wsutil/report_message.h>
 
 #include <wsutil/filesystem.h>
 #include <epan/packet.h>
@@ -44,11 +32,12 @@
 
 #include "uat-int.h"
 
-static GPtrArray* all_uats = NULL;
+/*
+ * XXX Files are encoded as ASCII. We might want to encode them as UTF8
+ * instead.
+ */
 
-void uat_init(void) {
-    all_uats = g_ptr_array_new();
-}
+static GPtrArray* all_uats = NULL;
 
 uat_t* uat_new(const char* name,
                size_t size,
@@ -62,6 +51,7 @@ uat_t* uat_new(const char* name,
                uat_update_cb_t update_cb,
                uat_free_cb_t free_cb,
                uat_post_update_cb_t post_update_cb,
+               uat_reset_cb_t reset_cb,
                uat_field_t* flds_array) {
     /* Create new uat */
     uat_t* uat = (uat_t *)g_malloc(sizeof(uat_t));
@@ -92,6 +82,7 @@ uat_t* uat_new(const char* name,
     uat->update_cb = update_cb;
     uat->free_cb = free_cb;
     uat->post_update_cb = post_update_cb;
+    uat->reset_cb = reset_cb;
     uat->fields = flds_array;
     uat->user_data = g_array_new(FALSE,FALSE,(guint)uat->record_size);
     uat->raw_data = g_array_new(FALSE,FALSE,(guint)uat->record_size);
@@ -101,7 +92,7 @@ uat_t* uat_new(const char* name,
     uat->from_global = FALSE;
     uat->rep = NULL;
     uat->free_rep = NULL;
-    uat->help = help;
+    uat->help = g_strdup(help);
     uat->flags = flags;
 
     for (i=0;flds_array[i].title;i++) {
@@ -126,14 +117,7 @@ void* uat_add_record(uat_t* uat, const void* data, gboolean valid_rec) {
     void* rec;
     gboolean* valid;
 
-    /* Save a copy of the raw (possibly that may contain invalid field values) data */
-    g_array_append_vals (uat->raw_data, data, 1);
-
-    rec = UAT_INDEX_PTR(uat, uat->raw_data->len - 1);
-
-    if (uat->copy_cb) {
-        uat->copy_cb(rec, data, (unsigned int) uat->record_size);
-    }
+    uat_insert_record_idx(uat, uat->raw_data->len, data);
 
     if (valid_rec) {
         /* Add a "known good" record to the list to be used by the dissector */
@@ -146,25 +130,24 @@ void* uat_add_record(uat_t* uat, const void* data, gboolean valid_rec) {
         }
 
         UAT_UPDATE(uat);
+
+        valid = &g_array_index(uat->valid_data, gboolean, uat->valid_data->len-1);
+        *valid = valid_rec;
     } else {
         rec = NULL;
     }
-
-    g_array_append_vals (uat->valid_data, &valid_rec, 1);
-    valid = &g_array_index(uat->valid_data, gboolean, uat->valid_data->len-1);
-    *valid = valid_rec;
 
     return rec;
 }
 
 /* Updates the validity of a record. */
-void uat_update_record(uat_t *uat, const void *data, gboolean valid_rec) {
+void uat_update_record(uat_t *uat, const void *record, gboolean valid_rec) {
     guint pos;
     gboolean *valid;
 
     /* Locate internal UAT data pointer. */
     for (pos = 0; pos < uat->raw_data->len; pos++) {
-        if (UAT_INDEX_PTR(uat, pos) == data) {
+        if (UAT_INDEX_PTR(uat, pos) == record) {
             break;
         }
     }
@@ -199,6 +182,25 @@ void uat_swap(uat_t* uat, guint a, guint b) {
 
 }
 
+void uat_insert_record_idx(uat_t* uat, guint idx, const void *src_record) {
+    /* Allow insert before an existing item or append after the last item. */
+    g_assert( idx <= uat->raw_data->len );
+
+    /* Store a copy of the record and invoke copy_cb to clone pointers too. */
+    g_array_insert_vals(uat->raw_data, idx, src_record, 1);
+    void *rec = UAT_INDEX_PTR(uat, idx);
+    if (uat->copy_cb) {
+        uat->copy_cb(rec, src_record, (unsigned int) uat->record_size);
+    } else {
+        memcpy(rec, src_record, (unsigned int) uat->record_size);
+    }
+
+    /* Initially assume that the record is invalid, it is not copied to the
+     * user-visible records list. */
+    gboolean valid_rec = FALSE;
+    g_array_insert_val(uat->valid_data, idx, valid_rec);
+}
+
 void uat_remove_record_idx(uat_t* uat, guint idx) {
 
     g_assert( idx < uat->raw_data->len );
@@ -209,6 +211,20 @@ void uat_remove_record_idx(uat_t* uat, guint idx) {
 
     g_array_remove_index(uat->raw_data, idx);
     g_array_remove_index(uat->valid_data, idx);
+}
+
+void uat_move_index(uat_t * uat, guint old_idx, guint new_idx)
+{
+    guint dir = 1;
+    guint start = old_idx;
+    if ( old_idx > new_idx )
+        dir = -1;
+
+    while ( start != new_idx )
+    {
+        uat_swap(uat, start, start + dir);
+        start += dir;
+    }
 }
 
 /* The returned filename was g_malloc()'d so the caller must free it */
@@ -248,6 +264,46 @@ uat_t* uat_get_table_by_name(const char* name) {
     return NULL;
 }
 
+char *uat_fld_tostr(void *rec, uat_field_t *f) {
+    guint        len;
+    char       *ptr;
+    char       *out;
+
+    f->cb.tostr(rec, &ptr, &len, f->cbdata.tostr, f->fld_data);
+
+    switch(f->mode) {
+        case PT_TXTMOD_NONE:
+        case PT_TXTMOD_STRING:
+        case PT_TXTMOD_ENUM:
+        case PT_TXTMOD_BOOL:
+        case PT_TXTMOD_FILENAME:
+        case PT_TXTMOD_DIRECTORYNAME:
+        case PT_TXTMOD_DISPLAY_FILTER:
+        case PT_TXTMOD_COLOR:
+        case PT_TXTMOD_PROTO_FIELD:
+            out = g_strndup(ptr, len);
+            break;
+        case PT_TXTMOD_HEXBYTES: {
+            GString *s = g_string_sized_new( len*2 + 1 );
+            guint i;
+
+            for (i=0; i<len;i++) g_string_append_printf(s, "%.2X", ((const guint8*)ptr)[i]);
+
+            out = g_strdup(s->str);
+
+            g_string_free(s, TRUE);
+            break;
+        }
+        default:
+            g_assert_not_reached();
+            out = NULL;
+            break;
+    }
+
+    g_free(ptr);
+    return out;
+}
+
 static void putfld(FILE* fp, void* rec, uat_field_t* f) {
     guint fld_len;
     char* fld_ptr;
@@ -259,6 +315,9 @@ static void putfld(FILE* fp, void* rec, uat_field_t* f) {
         case PT_TXTMOD_ENUM:
         case PT_TXTMOD_FILENAME:
         case PT_TXTMOD_DIRECTORYNAME:
+        case PT_TXTMOD_DISPLAY_FILTER:
+        case PT_TXTMOD_PROTO_FIELD:
+        case PT_TXTMOD_COLOR:
         case PT_TXTMOD_STRING: {
             guint i;
 
@@ -268,7 +327,7 @@ static void putfld(FILE* fp, void* rec, uat_field_t* f) {
                 char c = fld_ptr[i];
 
                 if (c == '"' || c == '\\' || ! g_ascii_isprint((guchar)c) ) {
-                    fprintf(fp,"\\x%.2x",c);
+                    fprintf(fp,"\\x%02x", (guchar) c);
                 } else {
                     putc(c,fp);
                 }
@@ -281,9 +340,13 @@ static void putfld(FILE* fp, void* rec, uat_field_t* f) {
             guint i;
 
             for(i=0;i<fld_len;i++) {
-                fprintf(fp,"%.2x",((const guint8*)fld_ptr)[i]);
+                fprintf(fp,"%02x", (guchar)fld_ptr[i]);
             }
 
+            break;
+        }
+        case PT_TXTMOD_BOOL: {
+            fprintf(fp,"\"%s\"", fld_ptr);
             break;
         }
         default:
@@ -337,8 +400,8 @@ gboolean uat_save(uat_t* uat, char** error) {
     /* Now copy "good" raw_data entries to user_data */
     for ( i = 0 ; i < uat->raw_data->len ; i++ ) {
         void *rec = UAT_INDEX_PTR(uat, i);
-        gboolean* valid = (gboolean*)(uat->valid_data->data + sizeof(gboolean)*i);
-        if (*valid) {
+        gboolean valid = g_array_index(uat->valid_data, gboolean, i);
+        if (valid) {
             g_array_append_vals(uat->user_data, rec, 1);
             if (uat->copy_cb) {
                 uat->copy_cb(UAT_USER_INDEX_PTR(uat, uat->user_data->len - 1),
@@ -372,12 +435,6 @@ gboolean uat_save(uat_t* uat, char** error) {
     uat->changed = FALSE;
 
     return TRUE;
-}
-
-void uat_destroy(uat_t* uat) {
-    /* XXX still missing a destructor */
-    g_ptr_array_remove(all_uats,uat);
-
 }
 
 uat_t *uat_find(gchar *name) {
@@ -414,6 +471,10 @@ void uat_clear(uat_t* uat) {
 
     *((uat)->user_ptr) = NULL;
     *((uat)->nrows_p) = 0;
+
+    if (uat->reset_cb) {
+        uat->reset_cb();
+    }
 }
 
 void uat_unload_all(void) {
@@ -429,15 +490,27 @@ void uat_unload_all(void) {
     }
 }
 
-#if 0
-static void uat_cleanup(void) {
-    while( all_uats->len ) {
-        uat_destroy((uat_t*)all_uats->pdata);
+void uat_cleanup(void) {
+    guint i;
+    guint j;
+    uat_t* uat;
+
+    for (i = 0; i < all_uats->len; i++) {
+        uat = (uat_t *)g_ptr_array_index(all_uats, i);
+        uat_clear(uat);
+        g_free(uat->help);
+        g_free(uat->name);
+        g_free(uat->filename);
+        g_array_free(uat->user_data, TRUE);
+        g_array_free(uat->raw_data, TRUE);
+        g_array_free(uat->valid_data, TRUE);
+        for (j = 0; uat->fields[j].title; j++)
+            g_free(uat->fields[j].priv);
+        g_free(uat);
     }
 
     g_ptr_array_free(all_uats,TRUE);
 }
-#endif
 
 void uat_foreach_table(uat_cb_t cb,void* user_data) {
     guint i;
@@ -446,7 +519,6 @@ void uat_foreach_table(uat_cb_t cb,void* user_data) {
         cb(g_ptr_array_index(all_uats,i), user_data);
 
 }
-
 
 void uat_load_all(void) {
     guint i;
@@ -482,6 +554,11 @@ gboolean uat_fld_chk_oid(void* u1 _U_, const char* strptr, guint len, const void
 
     if (strptr == NULL) {
       *err = g_strdup("NULL pointer");
+      return FALSE;
+    }
+
+    if (len == 0) {
+      *err = g_strdup("Empty OID");
       return FALSE;
     }
 
@@ -569,13 +646,30 @@ gboolean uat_fld_chk_num_hex(void* u1 _U_, const char* strptr, guint len, const 
     return uat_fld_chk_num(16, strptr, len, err);
 }
 
+gboolean uat_fld_chk_bool(void* u1 _U_, const char* strptr, guint len, const void* u2 _U_, const void* u3 _U_, char** err)
+{
+    char* str = g_strndup(strptr,len);
+
+    if ((g_strcmp0(str, "TRUE") == 0) ||
+        (g_strcmp0(str, "FALSE") == 0)) {
+        *err = NULL;
+        g_free(str);
+        return TRUE;
+    }
+
+    *err = g_strdup_printf("invalid value: %s (must be TRUE or FALSE)", str);
+    g_free(str);
+    return FALSE;
+}
+
+
 gboolean uat_fld_chk_enum(void* u1 _U_, const char* strptr, guint len, const void* v, const void* u3 _U_, char** err) {
     char* str = g_strndup(strptr,len);
     guint i;
     const value_string* vs = (const value_string *)v;
 
     for(i=0;vs[i].strptr;i++) {
-        if (g_str_equal(vs[i].strptr,str)) {
+        if (g_strcmp0(vs[i].strptr,str) == 0) {
             *err = NULL;
             g_free(str);
             return TRUE;
@@ -590,7 +684,7 @@ gboolean uat_fld_chk_enum(void* u1 _U_, const char* strptr, guint len, const voi
 gboolean uat_fld_chk_range(void* u1 _U_, const char* strptr, guint len, const void* v _U_, const void* u3, char** err) {
     char* str = g_strndup(strptr,len);
     range_t* r = NULL;
-    convert_ret_t ret = range_convert_str(&r, str,GPOINTER_TO_UINT(u3));
+    convert_ret_t ret = range_convert_str(NULL, &r, str,GPOINTER_TO_UINT(u3));
     gboolean ret_value = FALSE;
 
     switch (  ret ) {
@@ -607,13 +701,25 @@ gboolean uat_fld_chk_range(void* u1 _U_, const char* strptr, guint len, const vo
             ret_value = FALSE;
             break;
         default:
-            *err = g_strdup("This should not happen, it is a bug in wireshark! please report to wireshark-dev@wireshark.org");
+            *err = g_strdup("Unable to convert range. Please report this to wireshark-dev@wireshark.org");
             ret_value = FALSE;
             break;
     }
 
     g_free(str);
+    wmem_free(NULL, r);
     return ret_value;
+}
+
+gboolean uat_fld_chk_color(void* u1 _U_, const char* strptr, guint len, const void* v _U_, const void* u3 _U_, char** err) {
+
+    if ((len != 7) || (*strptr != '#')) {
+        *err = g_strdup("Color must be of the format #RRGGBB");
+        return FALSE;
+    }
+
+    /* Color is just # followed by hex string, so use hex verification */
+    return uat_fld_chk_num(16, strptr + 1, len - 1, err);
 }
 
 char* uat_unbinstring(const char* si, guint in_len, guint* len_p) {
@@ -736,7 +842,7 @@ char* uat_esc(const char* buf, guint len) {
 
     for (b = (const guint8 *)buf; b < end; b++) {
         if (*b == '"' || *b == '\\' || ! g_ascii_isprint(*b) ) {
-            g_snprintf(s,5,"\\x%.2x",((guint)*b));
+            g_snprintf(s,5,"\\x%02x",((guint)*b));
             s+=4;
         } else {
             *(s++) = (*b);
@@ -751,9 +857,9 @@ gboolean uat_fld_chk_str_isprint(void* u1 _U_, const char* strptr, guint len, co
     guint i;
 
     for (i = 0; i < len; i++) {
-	char c = strptr[i];
-	if (! g_ascii_isprint(c)) {
-	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+        char c = strptr[i];
+        if (! g_ascii_isprint(c)) {
+            *err = g_strdup_printf("invalid char pos=%d value=%02x", i, (guchar) c);
             return FALSE;
         }
     }
@@ -765,9 +871,9 @@ gboolean uat_fld_chk_str_isalpha(void* u1 _U_, const char* strptr, guint len, co
     guint i;
 
     for (i = 0; i < len; i++) {
-	char c = strptr[i];
-	if (! g_ascii_isalpha(c)) {
-	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+        char c = strptr[i];
+        if (! g_ascii_isalpha(c)) {
+            *err = g_strdup_printf("invalid char pos=%d value=%02x", i, (guchar) c);
             return FALSE;
         }
     }
@@ -779,9 +885,9 @@ gboolean uat_fld_chk_str_isalnum(void* u1 _U_, const char* strptr, guint len, co
     guint i;
 
     for (i = 0; i < len; i++) {
-	char c = strptr[i];
-	if (! g_ascii_isalnum(c)) {
-	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+        char c = strptr[i];
+        if (! g_ascii_isalnum(c)) {
+            *err = g_strdup_printf("invalid char pos=%d value=%02x", i, (guchar) c);
             return FALSE;
         }
     }
@@ -793,9 +899,9 @@ gboolean uat_fld_chk_str_isdigit(void* u1 _U_, const char* strptr, guint len, co
     guint i;
 
     for (i = 0; i < len; i++) {
-	char c = strptr[i];
-	if (! g_ascii_isdigit(c)) {
-	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+        char c = strptr[i];
+        if (! g_ascii_isdigit(c)) {
+            *err = g_strdup_printf("invalid char pos=%d value=%02x", i, (guchar) c);
             return FALSE;
         }
     }
@@ -807,9 +913,9 @@ gboolean uat_fld_chk_str_isxdigit(void* u1 _U_, const char* strptr, guint len, c
     guint i;
 
     for (i = 0; i < len; i++) {
-	char c = strptr[i];
-	if (! g_ascii_isxdigit(c)) {
-	    *err = g_strdup_printf("invalid char pos=%d value=%.2x",i,c);
+        char c = strptr[i];
+        if (! g_ascii_isxdigit(c)) {
+            *err = g_strdup_printf("invalid char pos=%d value=%02x", i, (guchar) c);
             return FALSE;
         }
     }

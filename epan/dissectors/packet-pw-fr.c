@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * History:
  * ---------------------------------
@@ -67,7 +55,7 @@ static const value_string vals_frg[] = {
 
 
 static dissector_handle_t fr_stripped_address_handle;
-
+static dissector_handle_t pw_fr_mpls_handle;
 
 static int
 dissect_pw_fr( tvbuff_t * tvb, packet_info * pinfo, proto_tree * tree, void* data _U_ )
@@ -305,17 +293,14 @@ static hf_register_info hf[] = {
 	proto_register_subtree_array(ett, array_length(ett));
 	expert_pwfr = expert_register_protocol(proto_encaps);
 	expert_register_field_array(expert_pwfr, ei, array_length(ei));
+	pw_fr_mpls_handle = register_dissector("pw_fr", dissect_pw_fr, proto_encaps );
 }
 
 
 void
 proto_reg_handoff_pw_fr(void)
 {
-	dissector_handle_t pw_fr_mpls_handle;
-
-	pw_fr_mpls_handle = create_dissector_handle( dissect_pw_fr, proto_encaps );
 	dissector_add_for_decode_as("mpls.label", pw_fr_mpls_handle);
-
 	fr_stripped_address_handle = find_dissector_add_dependency("fr_stripped_address", proto_encaps);
 }
 

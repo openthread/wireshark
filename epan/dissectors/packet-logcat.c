@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -156,7 +144,7 @@ dissect_logcat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     check_length = 1;
 
     string_length = tvb_strsize(tvb, offset);
-    proto_tree_add_item(maintree, hf_logcat_tag, tvb, offset, string_length, ENC_ASCII | ENC_NA);
+    proto_tree_add_item(maintree, hf_logcat_tag, tvb, offset, string_length, ENC_UTF_8 | ENC_NA);
 
     set_address_tvb(&pinfo->src, AT_STRINGZ, string_length + 1, tvb, offset);
     set_address(&pinfo->dst, AT_STRINGZ, 7, "Logcat");
@@ -165,7 +153,7 @@ dissect_logcat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
     check_length += string_length;
 
     string_length = length - string_length - 1;
-    log = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, string_length, ENC_ASCII);
+    log = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, string_length, ENC_UTF_8);
 
     /* New line characters convert to spaces to ensure column Info display one line */
     if (pref_one_line_info_column) {
@@ -175,7 +163,7 @@ dissect_logcat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         *c = ' ';
     }
 
-    subitem = proto_tree_add_item(maintree, hf_logcat_log, tvb, offset, string_length, ENC_ASCII | ENC_NA);
+    subitem = proto_tree_add_item(maintree, hf_logcat_log, tvb, offset, string_length, ENC_UTF_8 | ENC_NA);
     subtree = proto_item_add_subtree(subitem, ett_logcat_log);
 
     next_tvb = tvb_new_subset_length(tvb, offset, string_length - 1);
@@ -189,9 +177,9 @@ dissect_logcat(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _
         proto_tree_add_expert(maintree, pinfo, &ei_invalid_payload_length, tvb, offset, tvb_reported_length_remaining(tvb, offset));
 
     if (have_tap_listener(exported_pdu_tap)) {
-        exp_pdu_data_t *exp_pdu_data;
 
-        exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, "logcat", NULL, 0);
+        exp_pdu_data_t *exp_pdu_data = export_pdu_create_tags(pinfo, "logcat", EXP_PDU_TAG_PROTO_NAME, NULL);
+
         exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
         exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
         exp_pdu_data->pdu_tvb = tvb;
@@ -264,12 +252,12 @@ proto_register_logcat(void)
         },
         { &hf_logcat_tag,
             { "Tag",                             "logcat.tag",
-            FT_STRINGZ, BASE_NONE, NULL, 0x00,
+            FT_STRINGZ, STR_UNICODE, NULL, 0x00,
             NULL, HFILL }
         },
         { &hf_logcat_log,
             { "Log",                             "logcat.log",
-            FT_STRINGZ, BASE_NONE, NULL, 0x00,
+            FT_STRINGZ, STR_UNICODE, NULL, 0x00,
             NULL, HFILL }
         }
     };
@@ -309,7 +297,7 @@ proto_reg_handoff_logcat(void)
 
     dissector_add_uint("wtap_encap", WTAP_ENCAP_LOGCAT, logcat_handle);
 
-    dissector_add_for_decode_as("tcp.port", logcat_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", logcat_handle);
 }
 
 /*

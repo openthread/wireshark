@@ -9,25 +9,14 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/expert.h>
+#include <epan/range.h>
 #include <epan/crc16-tvb.h>
 #include "packet-tcp.h"
 
@@ -1030,6 +1019,8 @@ typedef enum
 userType_e;
 
 
+#define ASSA_R3_PORT_RANGE "2571,8023" /* Neither are IANA registered */
+
 /*
  *  Wireshark ID of the R3 protocol
  */
@@ -1753,6 +1744,8 @@ static expert_field ei_r3_mfgfield = EI_INIT;
 static expert_field ei_r3_unknown_command_value = EI_INIT;
 static expert_field ei_r3_response_hasdata_octet_3 = EI_INIT;
 static expert_field ei_r3_cmd_downloadfirmwaretimeout = EI_INIT;
+
+static dissector_handle_t r3_handle = NULL;
 
 /*
  *  Indicates next command to be processed as a manufacturing command
@@ -10093,7 +10086,7 @@ void proto_register_r3 (void)
   expert_module_t* expert_r3;
 
   proto_r3 = proto_register_protocol ("Assa Abloy R3", "R3", "r3");
-  register_dissector ("r3", dissect_r3, proto_r3);
+  r3_handle = register_dissector ("r3", dissect_r3, proto_r3);
   proto_register_field_array (proto_r3, hf, array_length (hf));
   proto_register_subtree_array (ett, array_length (ett));
   expert_r3 = expert_register_protocol(proto_r3);
@@ -10102,9 +10095,7 @@ void proto_register_r3 (void)
 
 void proto_reg_handoff_r3 (void)
 {
-  dissector_handle_t r3_handle = find_dissector ("r3");
-  dissector_add_uint ("tcp.port", 2571, r3_handle);
-  dissector_add_uint ("tcp.port", 8023, r3_handle);
+  dissector_add_uint_range_with_preference("tcp.port", ASSA_R3_PORT_RANGE, r3_handle);
 }
 
 /*

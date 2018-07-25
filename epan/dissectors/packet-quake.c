@@ -10,26 +10,13 @@
  *
  * Copied from packet-tftp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/conversation.h>
-#include <epan/prefs.h>
 
 void proto_register_quake(void);
 
@@ -80,7 +67,6 @@ static dissector_handle_t quake_handle;
 /* I took these names directly out of the Q1 source. */
 #define NET_HEADERSIZE 8
 #define DEFAULTnet_hostport 26000
-static guint gbl_quakeServerPort=DEFAULTnet_hostport;
 
 #define NETFLAG_DATA            0x0001
 #define NETFLAG_ACK             0x0002
@@ -581,40 +567,18 @@ proto_register_quake(void)
 		&ett_quake_control_colors,
 		&ett_quake_flags,
 	};
-	module_t *quake_module;
 
-	proto_quake = proto_register_protocol("Quake Network Protocol",
-					      "QUAKE", "quake");
+	proto_quake = proto_register_protocol("Quake Network Protocol", "QUAKE", "quake");
 	proto_register_field_array(proto_quake, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-
-	/* Register a configuration option for port */
-	quake_module = prefs_register_protocol(proto_quake,
-					       proto_reg_handoff_quake);
-	prefs_register_uint_preference(quake_module, "udp.port",
-				       "Quake Server UDP Port",
-				       "Set the UDP port for the Quake Server",
-				       10, &gbl_quakeServerPort);
 }
 
 
 void
 proto_reg_handoff_quake(void)
 {
-	static gboolean Initialized=FALSE;
-	static guint ServerPort;
-
-	if (!Initialized) {
-		quake_handle = create_dissector_handle(dissect_quake, proto_quake);
-		Initialized=TRUE;
-	} else {
-		dissector_delete_uint("udp.port", ServerPort, quake_handle);
-	}
-
-	/* set port for future deletes */
-	ServerPort=gbl_quakeServerPort;
-
-	dissector_add_uint("udp.port", gbl_quakeServerPort, quake_handle);
+	quake_handle = create_dissector_handle(dissect_quake, proto_quake);
+	dissector_add_uint_with_preference("udp.port", DEFAULTnet_hostport, quake_handle);
 }
 
 /*

@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -51,8 +39,7 @@ static int ett_h501 = -1;
 static dissector_handle_t h501_pdu_handle;
 
 /* Preferences */
-static guint h501_udp_port = 2099;
-static guint h501_tcp_port = 2099;
+#define H501_PORT 2099
 static gboolean h501_desegment_tcp = TRUE;
 
 void proto_reg_handoff_h501(void);
@@ -109,17 +96,9 @@ void proto_register_h501(void) {
   proto_register_field_array(proto_h501, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
 
-  register_dissector(PFNAME, dissect_h501_pdu, proto_h501);
+  h501_pdu_handle = register_dissector(PFNAME, dissect_h501_pdu, proto_h501);
 
-  h501_module = prefs_register_protocol(proto_h501, proto_reg_handoff_h501);
-  prefs_register_uint_preference(h501_module, "udp.port",
-                                 "UDP port",
-                                 "Port to be decoded as h501",
-                                 10, &h501_udp_port);
-  prefs_register_uint_preference(h501_module, "tcp.port",
-                                 "TCP port",
-                                 "Port to be decoded as h501",
-                                 10, &h501_tcp_port);
+  h501_module = prefs_register_protocol(proto_h501, NULL);
   prefs_register_bool_preference(h501_module, "desegment",
                                  "Desegment H.501 over TCP",
                                  "Desegment H.501 messages that span more TCP segments",
@@ -130,27 +109,12 @@ void proto_register_h501(void) {
 /*--- proto_reg_handoff_h501 -------------------------------------------*/
 void proto_reg_handoff_h501(void)
 {
-  static gboolean h501_prefs_initialized = FALSE;
-  static dissector_handle_t h501_udp_handle;
-  static dissector_handle_t h501_tcp_handle;
-  static guint saved_h501_udp_port;
-  static guint saved_h501_tcp_port;
+  dissector_handle_t h501_udp_handle;
+  dissector_handle_t h501_tcp_handle;
 
-  if (!h501_prefs_initialized) {
-    h501_pdu_handle = find_dissector(PFNAME);
-    h501_udp_handle = create_dissector_handle(dissect_h501_udp, proto_h501);
-    h501_tcp_handle = create_dissector_handle(dissect_h501_tcp, proto_h501);
-    h501_prefs_initialized = TRUE;
-  } else {
-    dissector_delete_uint("udp.port", saved_h501_udp_port, h501_udp_handle);
-    dissector_delete_uint("tcp.port", saved_h501_tcp_port, h501_tcp_handle);
-  }
-
-  /* Set our port number for future use */
-  saved_h501_udp_port = h501_udp_port;
-  dissector_add_uint("udp.port", saved_h501_udp_port, h501_udp_handle);
-  saved_h501_tcp_port = h501_tcp_port;
-  dissector_add_uint("tcp.port", saved_h501_tcp_port, h501_tcp_handle);
-
+  h501_udp_handle = create_dissector_handle(dissect_h501_udp, proto_h501);
+  h501_tcp_handle = create_dissector_handle(dissect_h501_tcp, proto_h501);
+  dissector_add_uint_with_preference("tcp.port", H501_PORT, h501_tcp_handle);
+  dissector_add_uint_with_preference("udp.port", H501_PORT, h501_udp_handle);
 }
 

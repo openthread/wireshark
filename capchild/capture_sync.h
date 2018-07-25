@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -63,7 +51,24 @@ sync_pipe_stop(capture_session *cap_session);
 extern void
 sync_pipe_kill(ws_process_id fork_child);
 
-/** Set wireless channel using dumpcap */
+/**
+ * Set wireless channel using dumpcap
+ *  On success, *data points to a buffer containing the dumpcap output,
+ *  *primary_msg and *secondary_msg are NULL, and 0 is returned.  *data
+ *  must be freed with g_free().
+ *
+ *  On failure, *data is NULL, *primary_msg points to an error message,
+ *  *secondary_msg either points to an additional error message or is
+ *  NULL, and -1 or errno value is returned; *primary_msg, and
+ *  *secondary_msg if not NULL must be freed with g_free().
+ *
+ *  @param iface (monitor) network interface name
+ *  @param freq channel control frequency string (in MHz)
+ *  @param type channel type string (or NULL if not used)
+ *  @param center_freq1 VHT channel center frequency (or NULL if not used)
+ *  @param center_freq2 VHT channel center frequency 2 (or NULL if not used)
+ *  @return 0 on success
+ */
 extern int
 sync_interface_set_80211_chan(const gchar *iface, const char *freq, const gchar *type,
                               const gchar *center_freq1, const gchar *center_freq2,

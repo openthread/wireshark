@@ -4,230 +4,216 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "byte_view_tab.h"
-#include "byte_view_text.h"
 
 #include <QApplication>
 #include <QClipboard>
 #include <QMimeData>
 #include <QTabBar>
-#include <QTreeWidgetItem>
+
+#include "cfile.h"
+#include "epan/epan_dissect.h"
+#include "epan/tvbuff-int.h"
+
+#include <wireshark_application.h>
+
+#include <ui/qt/utils/variant_pointer.h>
+#include <ui/qt/widgets/byte_view_text.h>
+
+#define tvb_data_property "tvb_data_property"
 
 // To do:
 // - We might want to add a callback to free_data_sources in so that we
 //   don't have to blindly call clear().
 
-ByteViewTab::ByteViewTab(QWidget *parent) :
-    QTabWidget(parent)
+ByteViewTab::ByteViewTab(QWidget *parent, epan_dissect_t *edt_fixed) :
+    QTabWidget(parent),
+    cap_file_(0),
+    is_fixed_packet_(edt_fixed != NULL),
+    edt_(edt_fixed)
 {
     setAccessibleName(tr("Packet bytes"));
     setTabPosition(QTabWidget::South);
     setDocumentMode(true);
-    addTab();
+
+    // Shrink down to a small but nonzero size in the main splitter.
+    int one_em = fontMetrics().height();
+    setMinimumSize(one_em, one_em);
+
+    if (!edt_fixed) {
+        connect(wsApp, SIGNAL(appInitialized()), this, SLOT(connectToMainWindow()));
+    }
 }
 
-void ByteViewTab::addTab(const char *name, tvbuff_t *tvb, proto_tree *tree, QTreeWidget *protoTree, packet_char_enc encoding) {
+// Connects the byte view with the main window, acting on changes to the packet
+// list selection. It MUST NOT be used with the packet dialog as that is
+// independent of the selection in the packet list.
+void ByteViewTab::connectToMainWindow()
+{
+    connect(this, SIGNAL(fieldSelected(FieldInformation *)),
+            wsApp->mainWindow(), SIGNAL(fieldSelected(FieldInformation *)));
+    connect(this, SIGNAL(fieldHighlight(FieldInformation *)),
+            wsApp->mainWindow(), SIGNAL(fieldHighlight(FieldInformation *)));
+
+    /* Connect change of packet selection */
+    connect(wsApp->mainWindow(), SIGNAL(frameSelected(int)), this, SLOT(selectedFrameChanged(int)));
+    connect(wsApp->mainWindow(), SIGNAL(setCaptureFile(capture_file*)), this, SLOT(setCaptureFile(capture_file*)));
+    connect(wsApp->mainWindow(), SIGNAL(fieldSelected(FieldInformation *)), this, SLOT(selectedFieldChanged(FieldInformation *)));
+
+    connect(wsApp->mainWindow(), SIGNAL(captureActive(int)), this, SLOT(captureActive(int)));
+}
+
+void ByteViewTab::captureActive(int cap)
+{
+    if ( cap == 0 )
+    {
+        QList<ByteViewText *> allBVTs = findChildren<ByteViewText *>();
+        if ( allBVTs.count() > 0 )
+        {
+            ByteViewText * bvt = allBVTs.at(0);
+            tvbuff_t * stored = VariantPointer<tvbuff_t>::asPtr(bvt->property(tvb_data_property));
+
+            if ( ! stored )
+                selectedFrameChanged(-1);
+        }
+    }
+}
+
+void ByteViewTab::addTab(const char *name, tvbuff_t *tvb) {
     if (count() == 1) { // Remove empty placeholder.
         ByteViewText *cur_text = qobject_cast<ByteViewText *>(currentWidget());
         if (cur_text && cur_text->isEmpty()) delete currentWidget();
     }
 
-    ByteViewText *byte_view_text = new ByteViewText(this, tvb, tree, protoTree, encoding);
+    packet_char_enc encoding = PACKET_CHAR_ENC_CHAR_ASCII;
+    if ( cap_file_ && cap_file_->current_frame )
+        encoding = (packet_char_enc)cap_file_->current_frame->flags.encoding;
+
+    QByteArray data;
+    if ( tvb ) {
+        int data_len = (int) tvb_captured_length(tvb);
+        data = QByteArray::fromRawData((const char *) tvb_get_ptr(tvb, 0, data_len), data_len);
+    }
+
+    ByteViewText * byte_view_text = new ByteViewText(data, encoding, this);
     byte_view_text->setAccessibleName(name);
-    byte_view_text->setMonospaceFont(mono_font_);
-    connect(this, SIGNAL(monospaceFontChanged(QFont)), byte_view_text, SLOT(setMonospaceFont(QFont)));
-    connect(byte_view_text, SIGNAL(byteFieldHovered(const QString&)), this, SIGNAL(byteFieldHovered(const QString&)));
-    QTabWidget::addTab(byte_view_text, name);
-}
+    byte_view_text->setMonospaceFont(wsApp->monospaceFont(true));
 
-void ByteViewTab::clear()
-{
-    bool visible = isVisible();
-    hide();
-    while (currentWidget()) {
-        delete currentWidget();
+    if ( tvb )
+    {
+        byte_view_text->setProperty(tvb_data_property, VariantPointer<tvbuff_t>::asQVariant(tvb));
+
+        connect(wsApp, SIGNAL(zoomMonospaceFont(QFont)), byte_view_text, SLOT(setMonospaceFont(QFont)));
+
+        connect(byte_view_text, SIGNAL(byteHovered(int)), this, SLOT(byteViewTextHovered(int)));
+        connect(byte_view_text, SIGNAL(byteSelected(int)), this, SLOT(byteViewTextMarked(int)));
     }
-    addTab();
-    setVisible(visible);
+
+    int idx = QTabWidget::addTab(byte_view_text, name);
+    byte_view_text->setProperty("tab_index", QVariant::fromValue(idx));
+
+    QTabWidget::setTabToolTip(idx, name);
 }
 
-// XXX How many hex dump routines do we have?
-const int byte_line_length_ = 16; // Print out data for 16 bytes on one line
-void ByteViewTab::copyHexTextDump(const guint8 *data_p, int data_len, bool append_text)
+void ByteViewTab::byteViewTextHovered(int idx)
 {
-    QString clipboard_text;
-    /* Write hex data for a line, then ascii data, then concatenate and add to buffer */
-    QString hex_str, char_str;
-    int i;
-    bool end_of_line = true; /* Initial state is end of line */
-    int byte_line_part_length;
+    if ( idx >= 0 && edt_ )
+    {
+        tvbuff_t * tvb = VariantPointer<tvbuff_t>::asPtr(sender()->property(tvb_data_property));
+        proto_tree * tree = edt_->tree;
 
-    i = 0;
-    while (i < data_len) {
-        if(end_of_line) {
-            hex_str += QString("%1  ").arg(i, 4, 16, QChar('0')); /* Offset - note that we _append_ here */
-        }
-
-        hex_str += QString(" %1").arg(*data_p, 2, 16, QChar('0'));
-        if(append_text) {
-            char_str += QString("%1").arg(g_ascii_isprint(*data_p) ? QChar(*data_p) : '.');
-        }
-
-        ++data_p;
-
-        /* Look ahead to see if this is the end of the data */
-        byte_line_part_length = (++i) % byte_line_length_;
-        if(i >= data_len){
-            /* End of data - need to fill in spaces in hex string and then do "end of line".
-             *
-             */
-            if (append_text) {
-                int fill_len = byte_line_part_length == 0 ?
-                            0 : byte_line_length_ - byte_line_part_length;
-                /* Add three spaces for each missing byte */
-                hex_str += QString(fill_len * 3, ' ');
+        if ( tvb && tree )
+        {
+            field_info * fi = proto_find_field_from_offset(tree, idx, tvb);
+            if ( fi )
+            {
+                FieldInformation finfo(fi, this);
+                highlightedFieldChanged(&finfo);
+                emit fieldHighlight(&finfo);
+                return;
             }
-            end_of_line = true;
-        } else {
-            end_of_line = (byte_line_part_length == 0);
         }
+    }
 
-        if (end_of_line){
-            /* End of line */
-            clipboard_text += hex_str;
-            if(append_text) {
-                /* Two spaces between hex and text */
-                clipboard_text += "  ";
-                clipboard_text += char_str;
+    emit fieldHighlight((FieldInformation *)0);
+}
+
+void ByteViewTab::byteViewTextMarked(int idx)
+{
+    if ( idx >= 0 && edt_ )
+    {
+        tvbuff_t * tvb = VariantPointer<tvbuff_t>::asPtr(sender()->property(tvb_data_property));
+        proto_tree * tree = edt_->tree;
+
+        if ( tvb && tree )
+        {
+            field_info * fi = proto_find_field_from_offset(tree, idx, tvb);
+            if ( fi )
+            {
+                FieldInformation finfo(fi, this);
+                emit fieldSelected(&finfo);
+                return;
             }
-            /* Setup ready for next line */
-            hex_str = "\n";
-            char_str.clear();
         }
     }
 
-    if (!clipboard_text.isEmpty()) {
-        qApp->clipboard()->setText(clipboard_text);
-    }
+    emit fieldSelected((FieldInformation *)0);
 }
 
-void ByteViewTab::copyPrintableText(const guint8 *data_p, int data_len)
+ByteViewText * ByteViewTab::findByteViewTextForTvb(tvbuff_t * search_tvb, int * idx)
 {
-    QString clipboard_text;
 
-    for (int i = 0; i < data_len; i++) {
-        const guint8 c = data_p[i];
-        if (g_ascii_isprint(c) || g_ascii_isspace(c)) {
-            clipboard_text += QChar(c);
+    ByteViewText * item = 0;
+    if ( ! search_tvb )
+        return item;
+
+    bool found = false;
+
+    QList<ByteViewText *> allBVTs = findChildren<ByteViewText *>();
+    unsigned int length = search_tvb->length;
+    for (int i = 0; i < allBVTs.size() && ! found; ++i)
+    {
+        ByteViewText * bvt = allBVTs.at(i);
+        tvbuff_t * stored = VariantPointer<tvbuff_t>::asPtr(bvt->property(tvb_data_property));
+        if ( stored == search_tvb )
+        {
+            found = true;
+        }
+        else if ( stored )
+        {
+            if ( stored->length >= length && tvb_memeql(search_tvb, 0, tvb_get_ptr(stored, 0, length), length ) == 0 )
+            {
+                /* In packetDialog we do not match, because we came from different data sources.
+                 * Assuming the capture files match, this should be a sufficient enough difference */
+                found = true;
+            }
+        }
+
+        if ( found )
+        {
+            int wdgIdx = bvt->property("tab_index").toInt();
+            if ( idx )
+            {
+                *idx = wdgIdx;
+            }
+            item = (ByteViewText *)widget(wdgIdx);
         }
     }
 
-    if (!clipboard_text.isEmpty()) {
-        qApp->clipboard()->setText(clipboard_text);
-    }
+    return item;
 }
 
-void ByteViewTab::copyHexStream(const guint8 *data_p, int data_len)
-{
-    QString clipboard_text;
-
-    for (int i = 0; i < data_len; i++) {
-        clipboard_text += QString("%1").arg(data_p[i], 2, 16, QChar('0'));
-    }
-
-    if (!clipboard_text.isEmpty()) {
-        qApp->clipboard()->setText(clipboard_text);
-    }
-}
-void ByteViewTab::copyBinary(const guint8 *data_p, int data_len)
-{
-    QByteArray clipboard_bytes = QByteArray::fromRawData((const char *) data_p, data_len);
-
-    if (!clipboard_bytes.isEmpty()) {
-        QMimeData *mime_data = new QMimeData;
-        // gtk/gui_utils.c:copy_binary_to_clipboard says:
-        /* XXX - this is not understood by most applications,
-         * but can be pasted into the better hex editors - is
-         * there something better that we can do?
-         */
-        // As of 2015-07-30, pasting into Frhed works on Windows. Pasting into
-        // Hex Editor Neo and HxD does not.
-        mime_data->setData("application/octet-stream", clipboard_bytes);
-        qApp->clipboard()->setMimeData(mime_data);
-    }
-}
-
-void ByteViewTab::copyData(ByteViewTab::copyDataType copy_type, field_info *fi)
-{
-    int i = 0;
-    ByteViewText *byte_view_text = qobject_cast<ByteViewText*>(widget(i));
-
-    if (fi) {
-        while (byte_view_text) {
-            if (byte_view_text->hasDataSource(fi->ds_tvb)) break;
-            byte_view_text = qobject_cast<ByteViewText*>(widget(++i));
-        }
-    }
-
-    if (!byte_view_text) return;
-
-    guint data_len = 0;
-    const guint8 *data_p;
-
-    data_p = byte_view_text->dataAndLength(&data_len);
-    if (!data_p) return;
-
-    if (fi && fi->start >= 0 && fi->length > 0 && fi->length <= (int) data_len) {
-        data_len = fi->length;
-        data_p += fi->start;
-    }
-
-    if (!data_len) return;
-
-    switch (copy_type) {
-    case copyDataHexTextDump:
-        copyHexTextDump(data_p, data_len, true);
-        break;
-    case copyDataHexDump:
-        copyHexTextDump(data_p, data_len, false);
-        break;
-    case copyDataPrintableText:
-        copyPrintableText(data_p, data_len);
-        break;
-    case copyDataHexStream:
-        copyHexStream(data_p, data_len);
-        break;
-    case copyDataBinary:
-        copyBinary(data_p, data_len);
-        break;
-    default:
-        break;
-    }
-}
-
-void ByteViewTab::tabInserted(int index) {
+void ByteViewTab::tabInserted(int tab_index) {
     setTabsVisible();
-    QTabWidget::tabInserted(index);
+    QTabWidget::tabInserted(tab_index);
 }
 
-void ByteViewTab::tabRemoved(int index) {
+void ByteViewTab::tabRemoved(int tab_index) {
     setTabsVisible();
-    QTabWidget::tabRemoved(index);
+    QTabWidget::tabRemoved(tab_index);
 }
 
 void ByteViewTab::setTabsVisible() {
@@ -237,96 +223,122 @@ void ByteViewTab::setTabsVisible() {
         tabBar()->hide();
 }
 
-void ByteViewTab::protoTreeItemChanged(QTreeWidgetItem *current) {
-    if (current && cap_file_) {
-        field_info *fi;
+void ByteViewTab::selectedFrameChanged(int frameNum)
+{
+    clear();
+    qDeleteAll(findChildren<ByteViewText *>());
 
-        fi = current->data(0, Qt::UserRole).value<field_info *>();
-
-        int i = 0;
-        ByteViewText *byte_view_text = qobject_cast<ByteViewText*>(widget(i));
-        while (byte_view_text) {
-            if (byte_view_text->hasDataSource(fi->ds_tvb)) {
-                QTreeWidgetItem *parent = current->parent();
-                field_info *parent_fi = NULL;
-                int f_start = -1, f_end = -1, f_len = -1;
-                int fa_start = -1, fa_end = -1, fa_len = -1;
-                int p_start = -1, p_end = -1, p_len = -1;
-                guint len = tvb_captured_length(fi->ds_tvb);
-
-                // Find and highlight the protocol bytes
-                while (parent && parent->parent()) {
-                    parent = parent->parent();
-                }
-                if (parent) {
-                    parent_fi = parent->data(0, Qt::UserRole).value<field_info *>();
-                }
-                if (parent_fi && parent_fi->ds_tvb == fi->ds_tvb) {
-                    p_start = parent_fi->start;
-                    p_len = parent_fi->length;
-                }
-
-                if (cap_file_->search_in_progress && (cap_file_->hex || (cap_file_->string && cap_file_->packet_data))) {
-                    // In the hex view, only highlight the target bytes or string. The entire
-                    // field can then be displayed by clicking on any of the bytes in the field.
-                    f_start = cap_file_->search_pos - cap_file_->search_len + 1;
-                    f_len = cap_file_->search_len;
-                } else {
-                    f_start = fi->start;
-                    f_len = fi->length;
-                }
-
-                /* bmask = finfo->hfinfo->bitmask << hfinfo_bitshift(finfo->hfinfo); */ /* (value & mask) >> shift */
-                fa_start = fi->appendix_start;
-                fa_len = fi->appendix_length;
-
-                if (p_start >= 0 && p_len > 0 && (guint)p_start < len) {
-                    p_end = p_start + p_len;
-                }
-                if (f_start >= 0 && f_len > 0 && (guint)f_start < len) {
-                    f_end = f_start + f_len;
-                }
-                if (fa_start >= 0 && fa_len > 0 && (guint)fa_start < len) {
-                    fa_end = fa_start + fa_len;
-                }
-
-                if (f_end == -1 && fa_end != -1) {
-                    f_start = fa_start;
-                    f_end = fa_end;
-                    fa_start = fa_end = -1;
-                }
-
-                /* don't exceed the end of available data */
-                if (p_end != -1 && (guint)p_end > len) p_end = len;
-                if (f_end != -1 && (guint)f_end > len) f_end = len;
-                if (fa_end != -1 && (guint)fa_end > len) fa_end = len;
-
-                // Protocol
-                byte_view_text->setProtocolHighlight(p_start, p_end);
-
-                // Field bytes
-                byte_view_text->setFieldHighlight(f_start, f_end);
-
-                // Appendix (trailer) bytes
-                byte_view_text->setFieldAppendixHighlight(fa_start, fa_end);
-
-                setCurrentIndex(i);
-            }
-            byte_view_text = qobject_cast<ByteViewText*>(widget(++i));
+    if (!is_fixed_packet_) {
+        /* If this is not a fixed packet (not the packet dialog), it must be the
+         * byte view associated with the packet list. */
+        if (cap_file_ && cap_file_->edt) {
+            /* Assumes that this function is called as a result of selecting a
+             * packet in the packet list (PacketList::selectionChanged). That
+             * invokes "cf_select_packet" which will update "cap_file_->edt". */
+            edt_ = cap_file_->edt;
+        } else {
+            /* capture file is closing or packet is deselected. */
+            edt_ = NULL;
         }
     }
+
+    if ( frameNum >= 0 )
+    {
+        if ( ! cap_file_ || ! cap_file_->edt )
+            return;
+
+        /* This code relies on a dissection, which had happened somewhere else. It also does not
+         * really check, if the dissection happened for the correct frame. In the future we might
+         * rewrite this for directly calling the dissection engine here. */
+        GSList *src_le;
+        for (src_le = edt_->pi.data_src; src_le != NULL; src_le = src_le->next) {
+            struct data_source *source;
+            char* source_name;
+            source = (struct data_source *)src_le->data;
+            source_name = get_data_source_name(source);
+            addTab(source_name, get_data_source_tvb(source));
+            wmem_free(NULL, source_name);
+        }
+    }
+    else
+        addTab("PlaceHolder", 0);
+
+    setCurrentIndex(0);
+}
+
+void ByteViewTab::selectedFieldChanged(FieldInformation *selected)
+{
+    // We need to handle both selection and deselection.
+    ByteViewText * byte_view_text = qobject_cast<ByteViewText *>(currentWidget());
+    int f_start = -1, f_length = -1;
+    int p_start = -1, p_length = -1;
+    int fa_start = -1, fa_length = -1;
+
+    if (selected) {
+        if (selected->parent() == this) {
+            // We only want inbound signals.
+            return;
+        }
+        const field_info *fi = selected->fieldInfo();
+
+        int idx = 0;
+        if ( fi )
+            byte_view_text = findByteViewTextForTvb(fi->ds_tvb, &idx);
+
+        if (cap_file_->search_in_progress && (cap_file_->hex || (cap_file_->string && cap_file_->packet_data))) {
+            // In the hex view, only highlight the target bytes or string. The entire
+            // field can then be displayed by clicking on any of the bytes in the field.
+            f_start = cap_file_->search_pos - cap_file_->search_len + 1;
+            f_length = (int) cap_file_->search_len;
+        } else {
+            f_start = selected->position().start;
+            f_length = selected->position().length;
+        }
+
+        setCurrentIndex(idx);
+
+        p_start = selected->parentField()->position().start;
+        p_length = selected->parentField()->position().length;
+        fa_start = selected->appendix().start;
+        fa_length = selected->appendix().length;
+    }
+
+    if (byte_view_text)
+    {
+        byte_view_text->markField(f_start, f_length);
+        byte_view_text->markProtocol(p_start, p_length);
+        byte_view_text->markAppendix(fa_start, fa_length);
+    }
+}
+void ByteViewTab::highlightedFieldChanged(FieldInformation *highlighted)
+{
+    ByteViewText * byte_view_text = qobject_cast<ByteViewText *>(currentWidget());
+    if (!highlighted || !byte_view_text) {
+        return;
+    }
+
+    int f_start = -1, f_length = -1;
+
+    if (cap_file_->search_in_progress && (cap_file_->hex || (cap_file_->string && cap_file_->packet_data))) {
+        // In the hex view, only highlight the target bytes or string. The entire
+        // field can then be displayed by clicking on any of the bytes in the field.
+        f_start = cap_file_->search_pos - cap_file_->search_len + 1;
+        f_length = (int) cap_file_->search_len;
+    } else {
+        f_start = highlighted->position().start;
+        f_length = highlighted->position().length;
+    }
+
+    byte_view_text->markField(f_start, f_length, false);
+    byte_view_text->markProtocol(-1, -1);
+    byte_view_text->markAppendix(-1, -1);
 }
 
 void ByteViewTab::setCaptureFile(capture_file *cf)
 {
-    cap_file_ = cf;
-}
+    selectedFrameChanged(-1);
 
-void ByteViewTab::setMonospaceFont(const QFont &mono_font)
-{
-    mono_font_ = mono_font;
-    emit monospaceFontChanged(mono_font_);
-    update();
+    cap_file_ = cf;
 }
 
 /*

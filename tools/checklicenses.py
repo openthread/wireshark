@@ -1,32 +1,8 @@
 #!/usr/bin/env python
 # Copyright (c) 2013 The Chromium Authors. All rights reserved.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# SPDX-License-Identifier: BSD-3-Clause
 #
-#    * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#    * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#    * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 """Makes sure that all files contain proper licensing information."""
 
 
@@ -54,77 +30,35 @@ Examples:
 
 
 WHITELISTED_LICENSES = [
-    'Apache (v2.0)',
-    'Apache (v2.0) BSD (2 clause)',
-    'Apache (v2.0) GPL (v2)',
-    'Apple MIT',  # https://fedoraproject.org/wiki/Licensing/Apple_MIT_License
-    'APSL (v2)',
-    'APSL (v2) BSD (4 clause)',
     'BSD',
     'BSD (2 clause)',
     'BSD (2 clause) GPL (v2 or later)',
-    'BSD (2 clause) MIT/X11 (BSD like)',
     'BSD (3 clause)',
-    'BSD (3 clause) ISC',
-    'BSD (3 clause) LGPL (v2 or later)',
-    'BSD (3 clause) LGPL (v2.1 or later)',
-    'BSD (3 clause) MIT/X11 (BSD like)',
-    'BSD (4 clause)',
-    'BSD-like',
-
-    # TODO(phajdan.jr): Make licensecheck not print BSD-like twice.
-    'BSD-like MIT/X11 (BSD like)',
-
-    'BSL (v1.0)',
     'GPL (v2 or later)',
-    'GPL (v2 or later) with Bison parser exception',
-    'GPL (v2 or later) with libtool exception',
-    'GPL (v3 or later) with Bison parser exception',
-    'GPL with Bison parser exception',
+    'GPL (v3 or later) (with Bison parser exception)',
     'ISC',
-    'ISC GPL (v2)',
     'ISC GPL (v2 or later)',
-    'LGPL',
-    'LGPL (v2)',
     'LGPL (v2 or later)',
-    'LGPL (v2.1)',
-    'LGPL (v3 or later)',
-
-    # TODO(phajdan.jr): Make licensecheck convert that comma to a dot.
-    'LGPL (v2,1 or later)',
-
     'LGPL (v2.1 or later)',
-    'MPL (v1.0) LGPL (v2 or later)',
-    'MPL (v1.1)',
-    'MPL (v1.1) BSD-like',
-    'MPL (v1.1) BSD-like GPL (unversioned/unknown version)',
-    'MPL (v1.1,) BSD (3 clause) GPL (unversioned/unknown version) '
-        'LGPL (v2.1 or later)',
-    'MPL (v1.1) GPL (unversioned/unknown version)',
-    'MPL (v2.0)',
-
-    # TODO(phajdan.jr): Make licensecheck not print the comma after 1.1.
-    'MPL (v1.1,) GPL (unversioned/unknown version) LGPL (v2 or later)',
-    'MPL (v1.1,) GPL (unversioned/unknown version) LGPL (v2.1 or later)',
-
     'MIT/X11 (BSD like)',
-    'Ms-PL',
     'Public domain',
-    'Public domain BSD',
-    'Public domain BSD (3 clause)',
-    'Public domain BSD-like',
     'Public domain GPL (v2 or later)',
-    'Public domain LGPL (v2.1 or later)',
     'Public domain MIT/X11 (BSD like)',
-    'libpng',
     'zlib/libpng',
     'zlib/libpng GPL (v2 or later)',
-    'SGI Free Software License B',
-    'University of Illinois/NCSA Open Source License (BSD like)',
 ]
 
 
 PATH_SPECIFIC_WHITELISTED_LICENSES = {
+    'caputils/airpcap.h': [
+        'BSD-3-Clause',
+    ],
+    'wsutil/strnatcmp.c': [
+        'Zlib',
+    ],
+    'wsutil/strnatcmp.h': [
+        'Zlib',
+    ],
     'dtds': [
         'UNKNOWN',
     ],
@@ -134,23 +68,23 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'wimaxasncp/dictionary.dtd': [
         'UNKNOWN',
     ],
-    'docbook/custom_layer_pdf.xsl': [
+    'doc/': [
         'UNKNOWN',
     ],
     'docbook/custom_layer_chm.xsl': [
         'UNKNOWN',
+    ],
+    'docbook/custom_layer_single_html.xsl': [
+        'UNKNOWN',
+    ],
+    'docbook/ws.css' : [
+        'UNKNOWN'
     ],
     'fix': [
         'UNKNOWN',
     ],
     'wsutil/g711.c': [
         'UNKNOWN',
-    ],
-    'wiretap/ascend.c': [
-        'GPL (v3 or later)',
-    ],
-    'wiretap/ascend.h': [
-        'GPL (v3 or later)',
     ],
     'packaging/macosx': [
         'UNKNOWN',
@@ -164,12 +98,6 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'cmake/TestFileOffsetBits.c': [
         'UNKNOWN',
     ],
-    'cmake/TestWindowsFSeek.c': [
-        'UNKNOWN',
-    ],
-    'plugins/mate/mate_grammar.c': [
-        'GPL (v2 or later) LGPL (v2 or later)', # licensecheck bug?
-    ],
     # Generated header files by lex/yacc/whatever
     'epan/dtd_grammar.h': [
         'UNKNOWN',
@@ -179,6 +107,15 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     ],
     'epan/dfilter/grammar.c': [
         'UNKNOWN',
+    ],
+    'epan/dissectors/packet-dtn.c': [
+        'GPL (v2 or later) GPL (v2 or later)' # TODO: make licensecheck handle this better
+    ],
+    'epan/dissectors/packet-ieee80211-radiotap-iter.': [ # Using ISC license only
+         'ISC GPL (v2)'
+    ],
+    'epan/dissectors/packet-ppi.c': [ # Using BSD (3 clause) license
+        'BSD (3 clause) GPL (v2)'
     ],
     'plugins/mate/mate_grammar.h': [
         'UNKNOWN',
@@ -209,6 +146,9 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'tools/lemon': [
         'UNKNOWN',
     ],
+    'tools/licensecheck.pl': [
+        'GPL (v2)'
+    ],
     # Generated files for GTK pixbuf binary bundling
     'ui/gtk/wireshark-gresources.h': [
         'UNKNOWN',
@@ -216,8 +156,41 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'ui/gtk/wireshark-gresources.c': [
         'UNKNOWN',
     ],
+    # The airpcap code is using BSD (3 clause)
+    'epan/crypt/dot11decrypt_interop.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_tkip.c': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_ws.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/wep-wpadefs.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_system.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_user.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_ccmp.c': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_int.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt.c': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'epan/crypt/dot11decrypt_debug.h': [
+        'BSD (3 clause) GPL (v2)'
+    ],
+    'wsutil/dot11decrypt_wep.c': [
+        'BSD (3 clause) GPL (v2)'
+    ],
 }
-
 
 def check_licenses(options, args):
   # Figure out which directory we have to check.
@@ -237,11 +210,9 @@ def check_licenses(options, args):
   print("Checking: %s" % start_dir)
   print("")
 
-  #licensecheck_path = os.path.abspath(os.path.join(options.base_directory,
-  #                                                 'third_party',
-  #                                                 'devscripts',
-  #                                                 'licensecheck.pl'))
-  licensecheck_path = 'licensecheck'
+  licensecheck_path = os.path.abspath(os.path.join(options.base_directory,
+                                                    'tools',
+                                                    'licensecheck.pl'))
 
   licensecheck = subprocess.Popen([licensecheck_path,
                                    '-l', '150',
@@ -264,6 +235,7 @@ def check_licenses(options, args):
     return 1
 
   success = True
+  exit_status = 0
   for line in stdout.splitlines():
     filename, license = line.split(':', 1)
     filename = os.path.relpath(filename.strip(), options.base_directory)
@@ -293,21 +265,17 @@ def check_licenses(options, args):
       if found_path_specific:
         continue
 
-    print("'%s' has non-whitelisted license '%s'" % (filename, license))
+    reason = "'%s' has non-whitelisted license '%s'" % (filename, license)
     success = False
+    print(reason)
+    exit_status = 1
 
   if success:
     print("\nSUCCESS\n")
     return 0
   else:
     print("\nFAILED\n")
-    print("Please read")
-    print("http://www.chromium.org/developers/adding-3rd-party-libraries")
-    print("for more info how to handle the failure.")
-    print("")
-    print("Please respect OWNERS of checklicenses.py. Changes violating")
-    print("this requirement may be reverted.")
-    return 1
+    return exit_status
 
 
 def main():

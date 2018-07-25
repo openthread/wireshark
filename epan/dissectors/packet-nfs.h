@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __PACKET_NFS_H__
@@ -139,7 +127,11 @@
 #define NFS4_OP_SEEK                        69
 #define NFS4_OP_WRITE_SAME                  70
 #define NFS4_OP_CLONE                       71
-#define NFS4_LAST_OP                        71
+#define NFS4_OP_GETXATTR                    72
+#define NFS4_OP_SETXATTR                    73
+#define NFS4_OP_LISTXATTRS                  74
+#define NFS4_OP_REMOVEXATTR                 75
+#define NFS4_LAST_OP                        75
 #define NFS4_OP_ILLEGAL                  10044
 
 /*
@@ -177,12 +169,15 @@
 #define EXCLUSIVE4_1 3
 
 /* for access mask */
-#define NFS_ACCESS_MASK_READ        0x01
-#define NFS_ACCESS_MASK_LOOKUP      0x02
-#define NFS_ACCESS_MASK_MODIFY      0x04
-#define NFS_ACCESS_MASK_EXTEND      0x08
-#define NFS_ACCESS_MASK_DELETE      0x10
-#define NFS_ACCESS_MASK_EXECUTE     0x20
+#define NFS_ACCESS_MASK_READ        0x001
+#define NFS_ACCESS_MASK_LOOKUP      0x002
+#define NFS_ACCESS_MASK_MODIFY      0x004
+#define NFS_ACCESS_MASK_EXTEND      0x008
+#define NFS_ACCESS_MASK_DELETE      0x010
+#define NFS_ACCESS_MASK_EXECUTE     0x020
+#define NFS_ACCESS_MASK_XATTR_READ  0x040
+#define NFS_ACCESS_MASK_XATTR_WRITE 0x080
+#define NFS_ACCESS_MASK_XATTR_LIST  0x100
 
 /* pNFS layout types */
 #define LAYOUT4_NO_LAYOUT_TYPE            0
@@ -190,6 +185,7 @@
 #define LAYOUT4_OSD2_OBJECTS              2
 #define LAYOUT4_BLOCK_VOLUME              3
 #define LAYOUT4_FLEX_FILES                4
+#define LAYOUT4_SCSI                      5
 
 /* NFSv4.2 */
 

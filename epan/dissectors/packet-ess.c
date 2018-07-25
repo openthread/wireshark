@@ -16,19 +16,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -142,7 +130,7 @@ static int hf_ess_issuer = -1;                    /* GeneralNames */
 static int hf_ess_serialNumber = -1;              /* CertificateSerialNumber */
 
 /*--- End of included file: packet-ess-hf.c ---*/
-#line 63 "./asn1/ess/packet-ess-template.c"
+#line 51 "./asn1/ess/packet-ess-template.c"
 
 
 /*--- Included file: packet-ess-val.h ---*/
@@ -166,7 +154,7 @@ static int hf_ess_serialNumber = -1;              /* CertificateSerialNumber */
 #define id_sha256                      "2.16.840.1.101.3.4.2.1"
 
 /*--- End of included file: packet-ess-val.h ---*/
-#line 65 "./asn1/ess/packet-ess-template.c"
+#line 53 "./asn1/ess/packet-ess-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -205,7 +193,7 @@ static gint ett_ess_ESSCertID = -1;
 static gint ett_ess_IssuerSerial = -1;
 
 /*--- End of included file: packet-ess-ett.c ---*/
-#line 68 "./asn1/ess/packet-ess-template.c"
+#line 56 "./asn1/ess/packet-ess-template.c"
 
 static const char *object_identifier_id;
 
@@ -1153,7 +1141,7 @@ static int dissect_SigningCertificateV2_PDU(tvbuff_t *tvb _U_, packet_info *pinf
 
 
 /*--- End of included file: packet-ess-fn.c ---*/
-#line 139 "./asn1/ess/packet-ess-template.c"
+#line 127 "./asn1/ess/packet-ess-template.c"
 
 /*--- proto_register_ess ----------------------------------------------*/
 void proto_register_ess(void) {
@@ -1447,11 +1435,11 @@ void proto_register_ess(void) {
         "GeneralNames", HFILL }},
     { &hf_ess_serialNumber,
       { "serialNumber", "ess.serialNumber",
-        FT_INT64, BASE_DEC, NULL, 0,
+        FT_UINT64, BASE_DEC, NULL, 0,
         "CertificateSerialNumber", HFILL }},
 
 /*--- End of included file: packet-ess-hfarr.c ---*/
-#line 152 "./asn1/ess/packet-ess-template.c"
+#line 140 "./asn1/ess/packet-ess-template.c"
   };
 
   /* List of subtrees */
@@ -1493,7 +1481,7 @@ void proto_register_ess(void) {
     &ett_ess_IssuerSerial,
 
 /*--- End of included file: packet-ess-ettarr.c ---*/
-#line 158 "./asn1/ess/packet-ess-template.c"
+#line 146 "./asn1/ess/packet-ess-template.c"
   };
 
   static uat_field_t attributes_flds[] = {
@@ -1514,6 +1502,7 @@ void proto_register_ess(void) {
                                   ess_copy_cb,
                                   NULL,
                                   ess_free_cb,
+                                  NULL,
                                   NULL,
                                   attributes_flds);
 
@@ -1560,6 +1549,6 @@ void proto_reg_handoff_ess(void) {
 
 
 /*--- End of included file: packet-ess-dis-tab.c ---*/
-#line 203 "./asn1/ess/packet-ess-template.c"
+#line 192 "./asn1/ess/packet-ess-template.c"
 }
 

@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include <extcap_argument.h>
@@ -33,13 +21,13 @@
 #include <QVariant>
 
 #include <epan/prefs.h>
-#include <color_utils.h>
+#include <ui/qt/utils/color_utils.h>
 
 #include <extcap_parser.h>
 #include <extcap_argument_multiselect.h>
 
-ExtArgMultiSelect::ExtArgMultiSelect(extcap_arg * argument) :
-        ExtcapArgument(argument), treeView(0), viewModel(0) {}
+ExtArgMultiSelect::ExtArgMultiSelect(extcap_arg * argument, QObject *parent) :
+        ExtcapArgument(argument, parent), treeView(0), viewModel(0) {}
 
 ExtArgMultiSelect::~ExtArgMultiSelect()
 {
@@ -198,7 +186,8 @@ bool ExtArgMultiSelect::isValid()
 
     QString lblInvalidColor = ColorUtils::fromColorT(prefs.gui_text_invalid).name();
     QString txtStyle("QTreeView { background-color: %1; } ");
-    treeView->setStyleSheet( txtStyle.arg(valid ? QString("") : lblInvalidColor) );
+    if ( viewModel != 0 )
+        treeView->setStyleSheet( txtStyle.arg(valid ? QString("") : lblInvalidColor) );
 
     return valid;
 }

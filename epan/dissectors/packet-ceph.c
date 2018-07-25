@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR ADD PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -731,7 +719,7 @@ static expert_field ei_union_unknown  = EI_INIT;
 static expert_field ei_ver_tooold     = EI_INIT;
 static expert_field ei_ver_toonew     = EI_INIT;
 static expert_field ei_oloc_both      = EI_INIT;
-static expert_field ei_banner_invalid = EI_INIT;
+/* static expert_field ei_banner_invalid = EI_INIT; */
 static expert_field ei_sizeillogical  = EI_INIT;
 
 /* Initialize the subtree pointers */
@@ -1013,7 +1001,7 @@ static value_string_ext c_tag_strings_ext = VALUE_STRING_EXT_INIT(c_tag_strings)
 	V(C_MSG_GETPOOLSTATS,		     0x003A, "C_MSG_GETPOOLSTATS")		  \
 	V(C_MSG_GETPOOLSTATSREPLY,	     0x003B, "C_MSG_GETPOOLSTATSREPLY")		  \
 	V(C_MSG_MON_GLOBAL_ID,		     0x003C, "C_MSG_MON_GLOBAL_ID")		  \
-	V(C_CEPH_MSG_PRIO_LOW,		     0x0040, "C_CEPH_MSG_PRIO_LOW")		  \
+/*	V(C_CEPH_MSG_PRIO_LOW,		     0x0040, "C_CEPH_MSG_PRIO_LOW")		*/ \
 	V(C_MSG_MON_SCRUB,		     0x0040, "C_MSG_MON_SCRUB")			  \
 	V(C_MSG_MON_ELECTION,		     0x0041, "C_MSG_MON_ELECTION")		  \
 	V(C_MSG_MON_PAXOS,		     0x0042, "C_MSG_MON_PAXOS")			  \
@@ -1421,6 +1409,7 @@ typedef struct _c_node {
 static
 void c_node_init(c_node *n)
 {
+	clear_address(&n->addr);
 	c_node_name_init(&n->name);
 	n->port = 0xFFFF;
 	n->state = C_STATE_NEW;
@@ -1545,30 +1534,29 @@ c_pkt_data_init(c_pkt_data *d, packet_info *pinfo, guint off)
 	if (!d->convd) /* New conversation. */
 	{
 		d->convd = c_conv_data_new();
-
-		/* Note: Server sends banner first. */
-
-		copy_address_wmem(wmem_file_scope(), &d->convd->server.addr, &pinfo->src);
-		d->convd->server.port = pinfo->srcport;
-		copy_address_wmem(wmem_file_scope(), &d->convd->client.addr, &pinfo->dst);
-		d->convd->client.port = pinfo->destport;
 		conversation_add_proto_data(d->conv, proto_ceph, d->convd);
 	}
 
-	/*** Set up src and dst pointers correctly. ***/
-	if (addresses_equal(&d->convd->client.addr, &pinfo->src) &&
-	    d->convd->client.port == pinfo->srcport)
-	{
-		d->src = &d->convd->client;
-		d->dst = &d->convd->server;
+	/*
+	 * Set up src and dst pointers correctly, if the client port is
+	 * already set. Otherwise, we need to wait until we have enough
+	 * data to determine which is which.
+	 */
+	if (d->convd->client.port != 0xFFFF) {
+		if (addresses_equal(&d->convd->client.addr, &pinfo->src) &&
+		    d->convd->client.port == pinfo->srcport)
+		{
+			d->src = &d->convd->client;
+			d->dst = &d->convd->server;
+		}
+		else
+		{
+			d->src = &d->convd->server;
+			d->dst = &d->convd->client;
+		}
+		DISSECTOR_ASSERT(d->src);
+		DISSECTOR_ASSERT(d->dst);
 	}
-	else
-	{
-		d->src = &d->convd->server;
-		d->dst = &d->convd->client;
-	}
-	DISSECTOR_ASSERT(d->src);
-	DISSECTOR_ASSERT(d->dst);
 
 	c_header_init(&d->header);
 	d->item_root = NULL;
@@ -1881,7 +1869,7 @@ typedef struct _c_sockaddr {
  */
 static
 guint c_dissect_sockaddr(proto_tree *root, c_sockaddr *out,
-			 tvbuff_t *tvb, guint off, c_pkt_data *data _U_)
+			 tvbuff_t *tvb, guint off)
 {
 	proto_item *ti;
 	proto_tree *tree;
@@ -1956,7 +1944,7 @@ typedef struct _c_entity_addr {
 
 static
 guint c_dissect_entityaddr(proto_tree *root, int hf, c_entityaddr *out,
-			   tvbuff_t *tvb, guint off, c_pkt_data *data)
+			   tvbuff_t *tvb, guint off)
 {
 	proto_item *ti;
 	proto_tree *tree;
@@ -1975,7 +1963,7 @@ guint c_dissect_entityaddr(proto_tree *root, int hf, c_entityaddr *out,
 	proto_tree_add_item(tree, hf_node_nonce,
 			    tvb, off, 4, ENC_LITTLE_ENDIAN);
 	off += 4;
-	off = c_dissect_sockaddr(tree, &d.addr, tvb, off, data);
+	off = c_dissect_sockaddr(tree, &d.addr, tvb, off);
 
 	proto_item_append_text(ti, ", Type: %s, Address: %s",
 			       d.type_str, d.addr.str);
@@ -2058,7 +2046,7 @@ guint c_dissect_entityinst(proto_tree *root, int hf, c_entityinst *out,
 	tree = proto_item_add_subtree(ti, ett_entityinst);
 
 	off = c_dissect_entityname(tree, hf_entityinst_name, &d.name, tvb, off, data);
-	off = c_dissect_entityaddr(tree, hf_entityinst_addr, &d.addr, tvb, off, data);
+	off = c_dissect_entityaddr(tree, hf_entityinst_addr, &d.addr, tvb, off);
 
 	proto_item_append_text(ti, ", Name: %s, Address: %s", d.name.slug, d.addr.addr.str);
 
@@ -2367,7 +2355,7 @@ guint c_dissect_object_locator(proto_tree *root, gint hf,
 	off = c_dissect_encoded(tree, &enchdr, 3, 6, tvb, off, data);
 
 	proto_item_append_text(ti, ", Pool: %"G_GINT64_MODIFIER"d",
-			       (gint64)tvb_get_letoh64(tvb, off));
+			       tvb_get_letohi64(tvb, off));
 	proto_tree_add_item(tree, hf_pool, tvb, off, 8, ENC_LITTLE_ENDIAN);
 	off += 8;
 
@@ -2951,7 +2939,7 @@ guint c_dissect_monmap(proto_tree *root,
 
 		off = c_dissect_str(subtree, hf_monmap_address_name, &str, tvb, off);
 		off = c_dissect_entityaddr(subtree, hf_monmap_address_addr, &addr,
-					   tvb, off, data);
+					   tvb, off);
 
 		proto_item_append_text(ti2, ", Name: %s, Address: %s",
 				       str.str, addr.addr.addr_str);
@@ -3502,7 +3490,7 @@ guint c_dissect_osdmap(proto_tree *root,
 	while (i--)
 	{
 		off = c_dissect_entityaddr(subtree, hf_osdmap_osd_addr, NULL,
-					   tvb, off, data);
+					   tvb, off);
 	}
 
 	i = tvb_get_letohl(tvb, off);
@@ -3613,7 +3601,7 @@ guint c_dissect_osdmap(proto_tree *root,
 	while (i--)
 	{
 		off = c_dissect_entityaddr(subtree, hf_osdmap_hbaddr_back, NULL,
-					   tvb, off, data);
+					   tvb, off);
 	}
 
 	i = tvb_get_letohl(tvb, off);
@@ -3635,7 +3623,7 @@ guint c_dissect_osdmap(proto_tree *root,
 		bltree = proto_item_add_subtree(blti, ett_osd_map_blacklist);
 
 		off = c_dissect_entityaddr(bltree, hf_osdmap_blacklist_addr, NULL,
-					   tvb, off, data);
+					   tvb, off);
 
 		proto_tree_add_item(bltree, hf_osdmap_blacklist_time,
 				    tvb, off, 8, ENC_LITTLE_ENDIAN);
@@ -3649,7 +3637,7 @@ guint c_dissect_osdmap(proto_tree *root,
 	while (i--)
 	{
 		off = c_dissect_entityaddr(subtree, hf_osdmap_cluster_addr, NULL,
-					   tvb, off, data);
+					   tvb, off);
 	}
 
 	proto_tree_add_item(subtree, hf_osdmap_cluster_snapepoch,
@@ -3679,7 +3667,7 @@ guint c_dissect_osdmap(proto_tree *root,
 	while (i--)
 	{
 		off = c_dissect_entityaddr(subtree, hf_osdmap_hbaddr_front, NULL,
-					   tvb, off, data);
+					   tvb, off);
 	}
 
 	c_warn_size(subtree, tvb, off, enc2.end, data);
@@ -5117,7 +5105,7 @@ guint c_dissect_msg_osd_op(proto_tree *root,
 	off = c_dissect_osd_flags(tree, tvb, off, data);
 
 	proto_tree_add_item(tree, hf_msg_osd_op_mtime,
-			    tvb, off, 8, ENC_TIME_TIMESPEC|ENC_LITTLE_ENDIAN);
+			    tvb, off, 8, ENC_TIME_SECS_NSECS|ENC_LITTLE_ENDIAN);
 	off += 8;
 
 	off = c_dissect_eversion(tree, hf_msg_osd_op_reassert_version,
@@ -5943,11 +5931,11 @@ guint c_dissect_msg_osd_boot(proto_tree *root,
 
 	off = c_dissect_osd_superblock(tree, tvb, off, data);
 
-	off = c_dissect_entityaddr(tree, hf_msg_osd_boot_addr_back, NULL, tvb, off, data);
+	off = c_dissect_entityaddr(tree, hf_msg_osd_boot_addr_back, NULL, tvb, off);
 
 	if (data->header.ver >= 2)
 	{
-		off = c_dissect_entityaddr(tree, hf_msg_osd_boot_addr_cluster, NULL, tvb, off, data);
+		off = c_dissect_entityaddr(tree, hf_msg_osd_boot_addr_cluster, NULL, tvb, off);
 	}
 	if (data->header.ver >= 3)
 	{
@@ -5957,7 +5945,7 @@ guint c_dissect_msg_osd_boot(proto_tree *root,
 	}
 	if (data->header.ver >= 4)
 	{
-		off = c_dissect_entityaddr(tree, hf_msg_osd_boot_addr_front, NULL, tvb, off, data);
+		off = c_dissect_entityaddr(tree, hf_msg_osd_boot_addr_front, NULL, tvb, off);
 	}
 	if (data->header.ver >= 5)
 	{
@@ -6737,9 +6725,9 @@ guint c_dissect_new(proto_tree *tree,
 	c_set_type(data, "Connect");
 
 	if (c_from_server(data))
-		off = c_dissect_entityaddr(tree, hf_server_info, NULL, tvb, off, data);
+		off = c_dissect_entityaddr(tree, hf_server_info, NULL, tvb, off);
 
-	off = c_dissect_entityaddr(tree, hf_client_info, NULL, tvb, off, data);
+	off = c_dissect_entityaddr(tree, hf_client_info, NULL, tvb, off);
 
 	if (c_from_client(data))
 		off = c_dissect_connect(tree, tvb, off, data);
@@ -6841,8 +6829,10 @@ guint c_dissect_msgr(proto_tree *tree,
 		*/
 
 		/* Batch multiple unknowns together. */
-		while (c_unknowntagnext(tvb, off))
-			off++, unknowntagcount++;
+		while (c_unknowntagnext(tvb, off)) {
+			off++;
+			unknowntagcount++;
+		}
 
 		c_set_type(data, wmem_strdup_printf(wmem_packet_scope(),
 						    "UNKNOWN x%u",
@@ -6918,8 +6908,41 @@ guint c_dissect_pdu(proto_tree *root,
 }
 
 static
-guint c_pdu_end(tvbuff_t *tvb, guint off, c_pkt_data *data)
+guint c_pdu_end(tvbuff_t *tvb, packet_info *pinfo, guint off, c_pkt_data *data)
 {
+	c_inet	af;
+
+	/*
+	 * If we don't already know, then figure out which end of the
+	 * connection is the client. It's icky, but the only way to know is to
+	 * see whether the info after the first entity_addr_t looks like
+	 * another entity_addr_t.
+	 */
+	if (data->convd->client.port == 0xFFFF) {
+		if (!tvb_bytes_exist(tvb, off, C_BANNER_SIZE + C_SIZE_ENTITY_ADDR + 8 + 2))
+			return C_NEEDMORE;
+
+		/* We have enough to determine client vs. server */
+		af = (c_inet)tvb_get_ntohs(tvb, off + C_BANNER_SIZE + C_SIZE_ENTITY_ADDR + 8);
+		if (af != C_IPv4 && af != C_IPv6) {
+			/* Client */
+			copy_address_wmem(wmem_file_scope(), &data->convd->client.addr, &pinfo->src);
+			data->convd->client.port = pinfo->srcport;
+			copy_address_wmem(wmem_file_scope(), &data->convd->server.addr, &pinfo->dst);
+			data->convd->server.port = pinfo->destport;
+			data->src = &data->convd->client;
+			data->dst = &data->convd->server;
+		} else {
+			/* Server */
+			copy_address_wmem(wmem_file_scope(), &data->convd->server.addr, &pinfo->src);
+			data->convd->server.port = pinfo->srcport;
+			copy_address_wmem(wmem_file_scope(), &data->convd->client.addr, &pinfo->dst);
+			data->convd->client.port = pinfo->destport;
+			data->src = &data->convd->server;
+			data->dst = &data->convd->client;
+		}
+	}
+
 	switch (data->src->state)
 	{
 	case C_STATE_NEW:
@@ -7010,7 +7033,7 @@ int dissect_ceph(tvbuff_t *tvb, packet_info *pinfo,
 		if (off)
 			c_pkt_data_save(&data, pinfo, off);
 
-		offt = c_pdu_end(tvb, off, &data);
+		offt = c_pdu_end(tvb, pinfo, off, &data);
 		if (offt == C_INVALID)
 		{
 			return 0;
@@ -10465,10 +10488,12 @@ proto_register_ceph(void)
 			"Only one of the key or hash should be present, however both are.",
 			EXPFILL
 		} },
+#if 0
 		{ &ei_banner_invalid, {
 			"ceph.banner.invalid", PI_MALFORMED, PI_ERROR,
 			"Banner was invalid.", EXPFILL
 		} },
+#endif
 		{ &ei_sizeillogical, {
 			"ceph.sizeillogical", PI_MALFORMED, PI_ERROR,
 			"The claimed size is impossible.", EXPFILL

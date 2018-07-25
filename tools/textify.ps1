@@ -7,19 +7,7 @@
 # By Gerald Combs <gerald@wireshark.org>
 # Copyright 1998 Gerald Combs
 #
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 #requires -version 2
 
@@ -83,7 +71,13 @@ foreach ($src_file in Get-ChildItem $SourceFiles) {
     $src_modtime = (Get-Item $src_file).LastWriteTime
 
     if (-not (Test-Path $dst_file) -or ((Get-Item $dst_file).LastWriteTime -lt $src_modtime)) {
-        $contents = Get-Content $src_file
+        # "Get-Content -Encoding" is undocumented in PS 2.0, but works
+        # here. If it doesn't work elsewhere we can use:
+        # $contents = [System.IO.File]::ReadAllLines($src_file, $no_bom_encoding)
+        $contents = Get-Content -Encoding UTF8 $src_file
+        # We might want to write this out with a BOM in order to improve
+        # the chances of Notepad's UTF-8 heuristics.
+        # https://blogs.msdn.microsoft.com/oldnewthing/20070417-00/?p=27223
         [System.IO.File]::WriteAllLines($dst_file, $contents, $no_bom_encoding)
         Write-Host "Textified $src_file to $dst_file"
     } else {

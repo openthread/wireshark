@@ -3,19 +3,7 @@
  * Wiretap Library
  * Copyright (c) 1998 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef __WTAP_INT_H__
@@ -24,7 +12,7 @@
 #include <glib.h>
 #include <time.h>
 
-#ifdef HAVE_WINSOCK2_H
+#ifdef _WIN32
 #include <winsock2.h>
 #endif
 
@@ -37,9 +25,8 @@ WS_DLL_PUBLIC
 int wtap_fstat(wtap *wth, ws_statb64 *statb, int *err);
 
 typedef gboolean (*subtype_read_func)(struct wtap*, int*, char**, gint64*);
-typedef gboolean (*subtype_seek_read_func)(struct wtap*, gint64,
-                                           struct wtap_pkthdr *, Buffer *buf,
-                                           int *, char **);
+typedef gboolean (*subtype_seek_read_func)(struct wtap*, gint64, wtap_rec *,
+                                           Buffer *, int *, char **);
 
 /**
  * Struct holding data of the currently read file.
@@ -47,13 +34,14 @@ typedef gboolean (*subtype_seek_read_func)(struct wtap*, gint64,
 struct wtap {
     FILE_T                      fh;
     FILE_T                      random_fh;              /**< Secondary FILE_T for random access */
+    gboolean                    ispipe;                 /**< TRUE if the file is a pipe */
     int                         file_type_subtype;
     guint                       snapshot_length;
-    struct Buffer               *frame_buffer;
-    struct wtap_pkthdr          phdr;
-    wtap_optionblock_t          shb_hdr;
+    wtap_rec                    rec;
+    Buffer                      *rec_data;
+    GArray                      *shb_hdrs;
     GArray                      *interface_data;        /**< An array holding the interface data from pcapng IDB:s or equivalent(?)*/
-    wtap_optionblock_t          nrb_hdr;               /**< holds the Name Res Block's comment/custom_opts, or NULL */
+    GArray                      *nrb_hdrs;              /**< holds the Name Res Block's comment/custom_opts, or NULL */
 
     void                        *priv;          /* this one holds per-file state and is free'd automatically by wtap_close() */
     void                        *wslua_data;    /* this one holds wslua state info and is not free'd */
@@ -91,17 +79,17 @@ struct wtap_dumper;
 typedef void *WFILE_T;
 
 typedef gboolean (*subtype_write_func)(struct wtap_dumper*,
-                                       const struct wtap_pkthdr*,
+                                       const wtap_rec *rec,
                                        const guint8*, int*, gchar**);
 typedef gboolean (*subtype_finish_func)(struct wtap_dumper*, int*);
 
 struct wtap_dumper {
     WFILE_T                 fh;
-    gboolean                is_stdout;      /* TRUE if we're writing to the standard output */
     int                     file_type_subtype;
     int                     snaplen;
     int                     encap;
     gboolean                compressed;
+    gboolean                needs_reload;   /* TRUE if the file requires re-loading after saving with wtap */
     gint64                  bytes_dumped;
 
     void                    *priv;          /* this one holds per-file state and is free'd automatically by wtap_dump_close() */
@@ -110,12 +98,9 @@ struct wtap_dumper {
     subtype_write_func      subtype_write;  /* write out a record */
     subtype_finish_func     subtype_finish; /* write out information to finish writing file */
 
-    int                     tsprecision;    /**< timestamp precision of the lower 32bits
-                                             * e.g. WTAP_TSPREC_USEC
-                                             */
     addrinfo_lists_t        *addrinfo_lists; /**< Struct containing lists of resolved addresses */
-    wtap_optionblock_t       shb_hdr;
-    wtap_optionblock_t       nrb_hdr;        /**< name resolution comment/custom_opt, or NULL */
+    GArray                  *shb_hdrs;
+    GArray                  *nrb_hdrs;        /**< name resolution comment/custom_opt, or NULL */
     GArray                  *interface_data; /**< An array holding the interface data from pcapng IDB:s or equivalent(?) NULL if not present.*/
 };
 
@@ -212,11 +197,27 @@ extern gint wtap_num_file_types;
     }
 #endif
 
+#ifndef phtole8
+#define phtole8(p, v) \
+    {                 \
+        (p)[0] = (guint8)((v) >> 0);    \
+    }
+#endif
+
 #ifndef phtoles
 #define phtoles(p, v) \
     {                 \
         (p)[0] = (guint8)((v) >> 0);    \
         (p)[1] = (guint8)((v) >> 8);    \
+    }
+#endif
+
+#ifndef phtole24
+#define phtole24(p, v) \
+    {                 \
+        (p)[0] = (guint8)((v) >> 0);     \
+        (p)[1] = (guint8)((v) >> 8);     \
+        (p)[2] = (guint8)((v) >> 16);    \
     }
 #endif
 
@@ -256,7 +257,8 @@ extern gint wtap_num_file_types;
 extern const char *compressed_file_extension_table[];
 
 /*
- * Read a given number of bytes from a file.
+ * Read a given number of bytes from a file into a buffer or, if
+ * buf is NULL, just discard them.
  *
  * If we succeed, return TRUE.
  *
@@ -276,7 +278,8 @@ wtap_read_bytes_or_eof(FILE_T fh, void *buf, unsigned int count, int *err,
     gchar **err_info);
 
 /*
- * Read a given number of bytes from a file.
+ * Read a given number of bytes from a file into a buffer or, if
+ * buf is NULL, just discard them.
  *
  * If we succeed, return TRUE.
  *

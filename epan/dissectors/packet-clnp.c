@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -60,6 +48,7 @@ static int hf_clnp_data_unit_identifier     = -1;
 static int hf_clnp_segment_offset           = -1;
 static int hf_clnp_total_length             = -1;
 static int hf_clnp_checksum    = -1;
+static int hf_clnp_checksum_status          = -1;
 static int hf_clnp_dest_length = -1;
 static int hf_clnp_dest        = -1;
 static int hf_clnp_src_length  = -1;
@@ -96,6 +85,7 @@ static const fragment_items clnp_frag_items = {
 };
 
 static expert_field ei_clnp_length = EI_INIT;
+static expert_field ei_clnp_checksum = EI_INIT;
 
 static dissector_handle_t clnp_handle;
 static dissector_handle_t ositp_handle;
@@ -221,7 +211,7 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     guint16         segment_offset = 0;
     guint16         total_length;
     guint16         cnf_cksum;
-    cksum_status_t  cksum_status;
+    gboolean        cksum_valid = TRUE;
     int             offset;
     guchar          src_len, dst_len, nsel, opt_len = 0;
     guint           next_length;
@@ -320,39 +310,19 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         return 7;
     }
     cnf_cksum = tvb_get_ntohs(tvb, P_CLNP_CKSUM);
-    cksum_status = calc_checksum(tvb, 0, cnf_hdr_len, cnf_cksum);
-    switch (cksum_status) {
-        default:
-            /*
-             * No checksum present, or not enough of the header present to
-             * checksum it.
-             */
-            proto_tree_add_uint(clnp_tree, hf_clnp_checksum, tvb,
-                    P_CLNP_CKSUM, 2,
-                    cnf_cksum);
-            break;
+    if (cnf_cksum == 0) {
+        /* No checksum present */
+        proto_tree_add_checksum(clnp_tree, tvb, P_CLNP_CKSUM, hf_clnp_checksum, hf_clnp_checksum_status, &ei_clnp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NOT_PRESENT);
+    } else {
+        guint32 c0 = 0, c1 = 0;
 
-        case CKSUM_OK:
-            /*
-             * Checksum is correct.
-             */
-            proto_tree_add_uint_format_value(clnp_tree, hf_clnp_checksum, tvb,
-                    P_CLNP_CKSUM, 2,
-                    cnf_cksum,
-                    "0x%04x (correct)",
-                    cnf_cksum);
-            break;
-
-        case CKSUM_NOT_OK:
-            /*
-             * Checksum is not correct.
-             */
-            proto_tree_add_uint_format_value(clnp_tree, hf_clnp_checksum, tvb,
-                    P_CLNP_CKSUM, 2,
-                    cnf_cksum,
-                    "0x%04x (incorrect)",
-                    cnf_cksum);
-            break;
+        if (osi_calc_checksum(tvb, 0, cnf_hdr_len, &c0, &c1)) {
+            /* Successfully processed checksum, verify it */
+            proto_tree_add_checksum(clnp_tree, tvb, P_CLNP_CKSUM, hf_clnp_checksum, hf_clnp_checksum_status, &ei_clnp_checksum, pinfo, c0 | c1, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY|PROTO_CHECKSUM_ZERO);
+            cksum_valid = (c0 | c1) ? FALSE : TRUE;
+        } else {
+            proto_tree_add_checksum(clnp_tree, tvb, P_CLNP_CKSUM, hf_clnp_checksum, hf_clnp_checksum_status, &ei_clnp_checksum, pinfo, 0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
+        }
     }
 
     opt_len = cnf_hdr_len;
@@ -475,7 +445,7 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
             ((cnf_type & CNF_MORE_SEGS) || segment_offset != 0) &&
             tvb_bytes_exist(tvb, offset, segment_length - cnf_hdr_len) &&
             segment_length > cnf_hdr_len &&
-            cksum_status != CKSUM_NOT_OK) {
+            cksum_valid != FALSE) {
         fd_head = fragment_add_check(&clnp_reassembly_table,
                 tvb, offset, pinfo, du_id, NULL,
                 segment_offset, segment_length - cnf_hdr_len,
@@ -595,19 +565,6 @@ dissect_clnp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
     return tvb_captured_length(tvb);
 } /* dissect_clnp */
 
-static void
-clnp_reassemble_init(void)
-{
-    reassembly_table_init(&clnp_reassembly_table,
-            &addresses_reassembly_table_functions);
-}
-
-static void
-clnp_reassemble_cleanup(void)
-{
-    reassembly_table_destroy(&clnp_reassembly_table);
-}
-
 void
 proto_register_clnp(void)
 {
@@ -654,6 +611,9 @@ proto_register_clnp(void)
 
         { &hf_clnp_checksum,
             { "Checksum", "clnp.checksum", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+
+        { &hf_clnp_checksum_status,
+            { "Checksum Status", "clnp.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL }},
 
         { &hf_clnp_dest_length,
             { "DAL", "clnp.dsap.len", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -723,6 +683,7 @@ proto_register_clnp(void)
 
     static ei_register_info ei[] = {
         { &ei_clnp_length, { "clnp.len.bad", PI_MALFORMED, PI_ERROR, "Header length value bad", EXPFILL }},
+        { &ei_clnp_checksum, { "clnp.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
     };
 
     module_t *clnp_module;
@@ -735,8 +696,9 @@ proto_register_clnp(void)
     expert_register_field_array(expert_clnp, ei, array_length(ei));
     clnp_handle = register_dissector("clnp", dissect_clnp, proto_clnp);
     clnp_heur_subdissector_list = register_heur_dissector_list("clnp", proto_clnp);
-    register_init_routine(clnp_reassemble_init);
-    register_cleanup_routine(clnp_reassemble_cleanup);
+
+    reassembly_table_register(&clnp_reassembly_table,
+            &addresses_reassembly_table_functions);
 
     register_osi_address_type();
 

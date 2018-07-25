@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,11 +21,11 @@ static int hf_llc_cisco_pid = -1;
 /*
  * See various Cisco documents, including
  *
- *	http://www.cisco.com/univercd/cc/td/doc/product/lan/trsrb/vlan.htm
+ *	http://docstore.mik.ua/univercd/cc/td/doc/product/lan/trsrb/vlan.htm
  *
- * and
+ *	http://docstore.mik.ua/univercd/cc/td/doc/product/lan/trsrb/frames.htm
  *
- *	http://www.cisco.com/en/US/products/hw/switches/ps663/products_tech_note09186a0080094713.shtml
+ *	http://web.archive.org/web/20110407152854/http://www.cisco.com/en/US/products/hw/switches/ps663/products_tech_note09186a0080094713.shtml
  *
  * for various PID values - and for a DRIP frame format.
  */
@@ -45,6 +33,8 @@ static const value_string cisco_pid_vals[] = {
 	{ 0x0102,	"DRIP" },
 	{ 0x0104,	"PAgP" },	/* Port Aggregation Protocol */
 	{ 0x0105,	"MLS Hello" },	/* from a mail message found on the Web */
+	{ 0x0108,	"RLQ BPDUs (request)" }, /* Root Link Query, see Bug: 12772 */
+	{ 0x0109,	"RLQ BPDUs (response)" }, /* Root Link Query, see Bug: 12772 */
 	{ 0x010b,	"PVSTP+" },	/* Per-VLAN Spanning Tree Protocol */
 	{ 0x010c,	"VLAN Bridge" },
 	{ 0x0111,	"UDLD" },	/* Unidirectional Link Detection */

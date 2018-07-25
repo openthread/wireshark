@@ -8,36 +8,26 @@
  *
  * Copied from packet-pop.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <epan/packet.h>
 #include <epan/conversation.h>
+#include <epan/expert.h>
 
 void proto_register_kingfisher(void);
 void proto_reg_handoff_kingfisher(void);
 
 #define SUPPORT_KINGFISHER_SERIES_2
 
-#define TCP_PORT_KINGFISHER         4058
-#define UDP_PORT_KINGFISHER         4058
 #ifdef SUPPORT_KINGFISHER_SERIES_2
-#define TCP_PORT_KINGFISHER_OLD     473
-#define UDP_PORT_KINGFISHER_OLD     473
+#define TCP_PORT_KINGFISHER_RANGE   "473,4058" /* 473 not IANA registered */
+#define UDP_PORT_KINGFISHER_RANGE   "473,4058" /* 473 not IANA registered */
+#else
+#define TCP_PORT_KINGFISHER_RANGE   "4058"
+#define UDP_PORT_KINGFISHER_RANGE   "4058"
 #endif
 
 static int proto_kingfisher = -1;
@@ -50,7 +40,10 @@ static int hf_kingfisher_via = -1;
 static int hf_kingfisher_message = -1;
 static int hf_kingfisher_function = -1;
 static int hf_kingfisher_checksum = -1;
+static int hf_kingfisher_checksum_status = -1;
 static int hf_kingfisher_message_data = -1;
+
+static expert_field ei_kingfisher_checksum = EI_INIT;
 
 static dissector_handle_t kingfisher_conv_handle;
 
@@ -58,7 +51,7 @@ static dissector_handle_t kingfisher_conv_handle;
 typedef struct _kingfisher_packet_t
 {
     guint8      version;
-    guint8      system;
+    guint8      system_id;
     guint16     from;
     guint16     target;
     guint16     via;
@@ -86,6 +79,13 @@ static const value_string function_code_vals[] =
     { 0x11, "Send Multiple Data" },
     { 0x12, "Get Multiple Network Data" },
     { 0x13, "Send Multiple Network Data" },
+    { 0x14, "Set Multiple Data" },
+    { 0x15, "Get Multiple Data to Local Registers" },
+    { 0x16, "Set Data Block" },
+    { 0x17, "QSet Multiple Data" },
+    { 0x18, "Set Digital Data" },
+    { 0x1a, "Request RTU update" },
+    { 0x1b, "QSet Digital Data" },
     { 0x1e, "Cold Start" },
     { 0x1f, "Warm Start" },
     { 0x21, "Program Control" },
@@ -245,7 +245,7 @@ dissect_kingfisher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
 
 
     kfp.version = (kfp.function & 0x80)?3:2;
-    kfp.system = tvb_get_guint8( tvb, 0 );
+    kfp.system_id = tvb_get_guint8( tvb, 0 );
     kfp.message = tvb_get_guint8( tvb, 5 );
 
     kfp.target = tvb_get_guint8( tvb, 1 );
@@ -276,7 +276,7 @@ dissect_kingfisher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     proto_tree_add_uint(kingfisher_tree, hf_kingfisher_version, tvb, 6, 1, kfp.version);
 
     /* system id */
-    proto_tree_add_uint(kingfisher_tree, hf_kingfisher_system, tvb, 0, 1, kfp.system);
+    proto_tree_add_uint(kingfisher_tree, hf_kingfisher_system, tvb, 0, 1, kfp.system_id);
 
     /* target rtu */
     proto_tree_add_uint(kingfisher_tree, hf_kingfisher_target, tvb, 1, 1, kfp.target);
@@ -294,7 +294,7 @@ dissect_kingfisher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     proto_tree_add_uint_format_value(kingfisher_tree, hf_kingfisher_message, tvb, 5, 1, kfp.message, "%u (0x%02X, %s)", message, kfp.message, ((kfp.message & 0xf0)?"Response":"Request"));
 
     /* message function code */
-    proto_tree_add_uint_format(kingfisher_tree, hf_kingfisher_function, tvb, 6, 1, kfp.function, "Message Function Code: %u (0x%02X, %s)", kfp.function, kfp.function, func_string);
+    proto_tree_add_uint_format_value(kingfisher_tree, hf_kingfisher_function, tvb, 6, 1, kfp.function, "%u (0x%02X, %s)", kfp.function, kfp.function, func_string);
 
     /* message data */
     if(kfp.length > ((kfp.version==3)?11:8)){
@@ -302,9 +302,8 @@ dissect_kingfisher(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gboolean
     }
 
     /* checksum */
-    proto_tree_add_uint_format_value(kingfisher_tree, hf_kingfisher_checksum, tvb, kfp.length-1, 2, kfp.checksum, "0x%04X [%s]", kfp.checksum, ((checksum != kfp.checksum)?"incorrect":"correct"));
-
-
+    proto_tree_add_checksum(kingfisher_tree, tvb, kfp.length-1, hf_kingfisher_checksum, hf_kingfisher_checksum_status, &ei_kingfisher_checksum,
+                            pinfo, checksum, ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
 
     return TRUE;
 }
@@ -351,8 +350,9 @@ proto_register_kingfisher( void )
             { &hf_kingfisher_target,        { "Target RTU", "kingfisher.target", FT_UINT16, BASE_DEC_HEX, NULL, 0x0, NULL, HFILL } },
             { &hf_kingfisher_via,           { "Via RTU", "kingfisher.via", FT_UINT16, BASE_DEC_HEX, NULL, 0x0, NULL, HFILL } },
             { &hf_kingfisher_message,       { "Message Number", "kingfisher.message", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL } },
-            { &hf_kingfisher_function,      { "Function Code", "kingfisher.function", FT_UINT8, BASE_DEC, VALS( function_code_vals ), 0x0, NULL, HFILL } },
+            { &hf_kingfisher_function,      { "Message Function Code", "kingfisher.function", FT_UINT8, BASE_DEC, VALS( function_code_vals ), 0x0, NULL, HFILL } },
             { &hf_kingfisher_checksum,      { "Checksum", "kingfisher.checksum", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL } },
+            { &hf_kingfisher_checksum_status, { "Checksum Status", "kingfisher.checksum.status", FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0, NULL, HFILL } },
             { &hf_kingfisher_message_data,  { "Message Data", "kingfisher.message_data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL } },
     };
 
@@ -360,25 +360,29 @@ proto_register_kingfisher( void )
         &ett_kingfisher
     };
 
+    static ei_register_info ei[] = {
+        { &ei_kingfisher_checksum, { "kingfisher.bad_checksum", PI_CHECKSUM, PI_ERROR, "Bad checksum", EXPFILL }},
+    };
+
+    expert_module_t* expert_kingfisher;
+
     proto_kingfisher = proto_register_protocol( "Kingfisher", "Kingfisher", "kf" );
     proto_register_field_array( proto_kingfisher, hf, array_length( hf ) );
     proto_register_subtree_array( ett, array_length( ett ) );
+    expert_kingfisher = expert_register_protocol(proto_kingfisher);
+    expert_register_field_array(expert_kingfisher, ei, array_length(ei));
 }
 
 
 void
 proto_reg_handoff_kingfisher( void )
 {
-    dissector_handle_t kingfisher_handle=NULL;
+    dissector_handle_t kingfisher_handle;
 
     kingfisher_handle = create_dissector_handle(dissect_kingfisher_heur, proto_kingfisher);
-    dissector_add_uint("tcp.port", TCP_PORT_KINGFISHER, kingfisher_handle);
-    dissector_add_uint("udp.port", UDP_PORT_KINGFISHER, kingfisher_handle);
+    dissector_add_uint_range_with_preference("tcp.port", TCP_PORT_KINGFISHER_RANGE, kingfisher_handle);
+    dissector_add_uint_range_with_preference("udp.port", UDP_PORT_KINGFISHER_RANGE, kingfisher_handle);
 
-#ifdef SUPPORT_KINGFISHER_SERIES_2
-    dissector_add_uint("tcp.port", TCP_PORT_KINGFISHER_OLD, kingfisher_handle);
-    dissector_add_uint("udp.port", UDP_PORT_KINGFISHER_OLD, kingfisher_handle);
-#endif
     kingfisher_conv_handle = create_dissector_handle(dissect_kingfisher_conv, proto_kingfisher);
 
 }

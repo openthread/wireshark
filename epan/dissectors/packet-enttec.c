@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1999 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Include files */
@@ -36,8 +24,8 @@
 
 /* Define UDP/TCP ports for ENTTEC */
 
-#define UDP_PORT_ENTTEC 0x0D05
-#define TCP_PORT_ENTTEC 0x0D05
+#define UDP_PORT_ENTTEC 0x0D05 /* Not IANA registered */
+#define TCP_PORT_ENTTEC 0x0D05 /* Not IANA registered */
 
 
 #define ENTTEC_HEAD_ESPR 0x45535052
@@ -106,9 +94,6 @@ static int ett_enttec = -1;
  * Here are the global variables associated with the preferences
  * for enttec
  */
-
-static guint global_udp_port_enttec = UDP_PORT_ENTTEC;
-static guint global_tcp_port_enttec = TCP_PORT_ENTTEC;
 
 static gint global_disp_chan_val_type = 0;
 static gint global_disp_col_count = 16;
@@ -305,11 +290,8 @@ dissect_enttec_dmx_data(tvbuff_t *tvb, guint offset, proto_tree *tree)
 		PROTO_ITEM_SET_HIDDEN(item);
 
 		offset += length;
-	} else if (type == ENTTEC_DATA_TYPE_CHAN_VAL) {
-		proto_tree_add_item(tree, hf_enttec_dmx_data_data_filter, tvb,
-					offset, length, ENC_NA);
-		offset += length;
-	} else {
+	}
+	else {
 		proto_tree_add_item(tree, hf_enttec_dmx_data_data_filter, tvb,
 					offset, length, ENC_NA);
 		offset += length;
@@ -332,7 +314,7 @@ dissect_enttec_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 {
 	gint offset = 0;
 	guint32 head = 0;
-	proto_tree *ti,*enttec_tree=NULL;
+	proto_tree *ti, *enttec_tree;
 
 	/*
 	 * If not enough bytes for the header word, not an ENTTEC packet.
@@ -367,39 +349,35 @@ dissect_enttec_udp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 	col_add_fstr(pinfo->cinfo, COL_INFO, "%s",
 				val_to_str(head, enttec_head_vals, "Unknown (0x%08x)"));
 
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_enttec, tvb, offset, -1, ENC_NA);
-		enttec_tree = proto_item_add_subtree(ti, ett_enttec);
+	ti = proto_tree_add_item(tree, proto_enttec, tvb, offset, -1, ENC_NA);
+	enttec_tree = proto_item_add_subtree(ti, ett_enttec);
+
+	proto_tree_add_item(enttec_tree, hf_enttec_head, tvb,
+			offset, 4, ENC_BIG_ENDIAN );
+	offset += 4;
+
+	switch (head) {
+		case ENTTEC_HEAD_ESPR:
+			offset = dissect_enttec_poll_reply( tvb, offset, enttec_tree);
+			break;
+
+		case ENTTEC_HEAD_ESPP:
+			offset = dissect_enttec_poll( tvb, offset, enttec_tree);
+			break;
+
+		case ENTTEC_HEAD_ESAP:
+			offset = dissect_enttec_ack( tvb, offset, enttec_tree);
+			break;
+
+		case ENTTEC_HEAD_ESDD:
+			offset = dissect_enttec_dmx_data( tvb, offset, enttec_tree);
+			break;
+
+		case ENTTEC_HEAD_ESZZ:
+			offset = dissect_enttec_reset( tvb, offset, enttec_tree);
+			break;
 	}
 
-	if (enttec_tree) {
-		proto_tree_add_item(enttec_tree, hf_enttec_head, tvb,
-					offset, 4, ENC_BIG_ENDIAN );
-		offset += 4;
-
-		switch (head) {
-			case ENTTEC_HEAD_ESPR:
-				offset = dissect_enttec_poll_reply( tvb, offset, enttec_tree);
-				break;
-
-			case ENTTEC_HEAD_ESPP:
-				offset = dissect_enttec_poll( tvb, offset, enttec_tree);
-				break;
-
-			case ENTTEC_HEAD_ESAP:
-				offset = dissect_enttec_ack( tvb, offset, enttec_tree);
-				break;
-
-			case ENTTEC_HEAD_ESDD:
-				offset = dissect_enttec_dmx_data( tvb, offset, enttec_tree);
-				break;
-
-			case ENTTEC_HEAD_ESZZ:
-				offset = dissect_enttec_reset( tvb, offset, enttec_tree);
-				break;
-		}
-
-	}
 	return offset;
 }
 
@@ -408,7 +386,7 @@ dissect_enttec_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 {
 	gint offset = 0;
 	guint32 head = 0;
-	proto_tree *ti,*enttec_tree=NULL;
+	proto_tree *ti,*enttec_tree;
 
 	/*
 	 * If not enough bytes for the header word, don't try to
@@ -435,17 +413,13 @@ dissect_enttec_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 	col_add_fstr(pinfo->cinfo, COL_INFO, "%s",
 				val_to_str(head, enttec_head_vals, "Unknown (0x%08x)"));
 
-	if (tree) {
-		ti = proto_tree_add_item(tree, proto_enttec, tvb, offset, -1, ENC_NA);
-		enttec_tree = proto_item_add_subtree(ti, ett_enttec);
-	}
+	ti = proto_tree_add_item(tree, proto_enttec, tvb, offset, -1, ENC_NA);
+	enttec_tree = proto_item_add_subtree(ti, ett_enttec);
 
-	if (enttec_tree) {
-		proto_tree_add_item(enttec_tree, hf_enttec_head, tvb,
-					offset, 4, ENC_BIG_ENDIAN );
+	proto_tree_add_item(enttec_tree, hf_enttec_head, tvb,
+			offset, 4, ENC_BIG_ENDIAN );
+	/* XXX - dissect the rest of the packet */
 
-		/* XXX - dissect the rest of the packet */
-	}
 	return tvb_captured_length(tvb);
 }
 
@@ -556,17 +530,7 @@ proto_register_enttec(void)
 	proto_register_field_array(proto_enttec,hf,array_length(hf));
 	proto_register_subtree_array(ett,array_length(ett));
 
-	enttec_module = prefs_register_protocol(proto_enttec,
-						proto_reg_handoff_enttec);
-	prefs_register_uint_preference(enttec_module, "udp_port",
-					"ENTTEC UDP Port",
-					"The UDP port on which ENTTEC packets will be sent",
-					10,&global_udp_port_enttec);
-
-	prefs_register_uint_preference(enttec_module, "tcp_port",
-					"ENTTEC TCP Port",
-					"The TCP port on which ENTTEC packets will be sent",
-					10,&global_tcp_port_enttec);
+	enttec_module = prefs_register_protocol(proto_enttec, NULL);
 
 	prefs_register_enum_preference(enttec_module, "dmx_disp_chan_val_type",
 				"DMX Display channel value type",
@@ -590,25 +554,13 @@ proto_register_enttec(void)
 /* The registration hand-off routing */
 void
 proto_reg_handoff_enttec(void) {
-	static gboolean enttec_initialized = FALSE;
-	static dissector_handle_t enttec_udp_handle, enttec_tcp_handle;
-	static guint udp_port_enttec;
-	static guint tcp_port_enttec;
+	dissector_handle_t enttec_udp_handle, enttec_tcp_handle;
 
-	if(!enttec_initialized) {
-		enttec_udp_handle = create_dissector_handle(dissect_enttec_udp,proto_enttec);
-		enttec_tcp_handle = create_dissector_handle(dissect_enttec_tcp,proto_enttec);
-		enttec_initialized = TRUE;
-	} else {
-		dissector_delete_uint("udp.port",udp_port_enttec,enttec_udp_handle);
-		dissector_delete_uint("tcp.port",tcp_port_enttec,enttec_tcp_handle);
-	}
+	enttec_udp_handle = create_dissector_handle(dissect_enttec_udp,proto_enttec);
+	enttec_tcp_handle = create_dissector_handle(dissect_enttec_tcp,proto_enttec);
 
-	udp_port_enttec = global_udp_port_enttec;
-	tcp_port_enttec = global_tcp_port_enttec;
-
-	dissector_add_uint("udp.port",global_udp_port_enttec,enttec_udp_handle);
-	dissector_add_uint("tcp.port",global_tcp_port_enttec,enttec_tcp_handle);
+	dissector_add_uint_with_preference("tcp.port",TCP_PORT_ENTTEC,enttec_tcp_handle);
+	dissector_add_uint_with_preference("udp.port",UDP_PORT_ENTTEC,enttec_udp_handle);
 }
 
 /*

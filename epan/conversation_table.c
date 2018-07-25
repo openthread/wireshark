@@ -6,19 +6,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -29,6 +17,7 @@
 #include "packet_info.h"
 #include "conversation_table.h"
 #include "addr_resolv.h"
+#include "address_types.h"
 
 #include "stat_tap_ui.h"
 
@@ -64,7 +53,7 @@ tap_packet_cb get_hostlist_packet_func(register_ct_t* ct)
     return ct->host_func;
 }
 
-static GSList *registered_ct_tables = NULL;
+static wmem_tree_t *registered_ct_tables = NULL;
 
 void
 dissector_conversation_init(const char *opt_arg, void* userdata)
@@ -92,7 +81,7 @@ dissector_hostlist_init(const char *opt_arg, void* userdata)
     GString *cmd_str = g_string_new("");
     const char *filter=NULL;
 
-    g_string_printf(cmd_str, "%s,%s,", HOSTLIST_TAP_PREFIX, proto_get_protocol_filter_name(table->proto_id));
+    g_string_printf(cmd_str, "%s,%s", HOSTLIST_TAP_PREFIX, proto_get_protocol_filter_name(table->proto_id));
     if(!strncmp(opt_arg, cmd_str->str, cmd_str->len)){
         if (opt_arg[cmd_str->len] == ',') {
             filter = opt_arg + cmd_str->len + 1;
@@ -113,25 +102,7 @@ dissector_hostlist_init(const char *opt_arg, void* userdata)
  */
 register_ct_t* get_conversation_by_proto_id(int proto_id)
 {
-    GSList *ct;
-    register_ct_t *table;
-
-    for(ct = registered_ct_tables; ct != NULL; ct = g_slist_next(ct)){
-        table = (register_ct_t*)ct->data;
-        if ((table) && (table->proto_id == proto_id))
-            return table;
-    }
-
-    return NULL;
-}
-
-static gint
-insert_sorted_by_table_name(gconstpointer aparam, gconstpointer bparam)
-{
-    const register_ct_t *a = (const register_ct_t *)aparam;
-    const register_ct_t *b = (const register_ct_t *)bparam;
-
-    return g_ascii_strcasecmp(proto_get_protocol_short_name(find_protocol_by_id(a->proto_id)), proto_get_protocol_short_name(find_protocol_by_id(b->proto_id)));
+    return (register_ct_t*)wmem_tree_lookup_string(registered_ct_tables, proto_get_protocol_short_name(find_protocol_by_id(proto_id)), 0);
 }
 
 void
@@ -139,7 +110,7 @@ register_conversation_table(const int proto_id, gboolean hide_ports, tap_packet_
 {
     register_ct_t *table;
 
-    table = g_new(register_ct_t,1);
+    table = wmem_new(wmem_epan_scope(), register_ct_t);
 
     table->hide_ports    = hide_ports;
     table->proto_id      = proto_id;
@@ -148,18 +119,21 @@ register_conversation_table(const int proto_id, gboolean hide_ports, tap_packet_
     table->conv_gui_init = NULL;
     table->host_gui_init = NULL;
 
-    registered_ct_tables = g_slist_insert_sorted(registered_ct_tables, table, insert_sorted_by_table_name);
+    if (registered_ct_tables == NULL)
+        registered_ct_tables = wmem_tree_new(wmem_epan_scope());
+
+    wmem_tree_insert_string(registered_ct_tables, proto_get_protocol_short_name(find_protocol_by_id(proto_id)), table, 0);
 }
 
 /* Set GUI fields for register_ct list */
-static void
-set_conv_gui_data(gpointer data, gpointer user_data)
+static gboolean
+set_conv_gui_data(const void *key _U_, void *value, void *userdata)
 {
     GString *conv_cmd_str = g_string_new("conv,");
     stat_tap_ui ui_info;
-    register_ct_t *table = (register_ct_t*)data;
+    register_ct_t *table = (register_ct_t*)value;
 
-    table->conv_gui_init = (conv_gui_init_cb)user_data;
+    table->conv_gui_init = (conv_gui_init_cb)userdata;
 
     g_string_append(conv_cmd_str, proto_get_protocol_filter_name(table->proto_id));
     ui_info.group = REGISTER_STAT_GROUP_CONVERSATION_LIST;
@@ -169,51 +143,47 @@ set_conv_gui_data(gpointer data, gpointer user_data)
     ui_info.nparams = 0;
     ui_info.params = NULL;
     register_stat_tap_ui(&ui_info, table);
+    g_free((char*)ui_info.cli_string);
+    return FALSE;
 }
 
 void conversation_table_set_gui_info(conv_gui_init_cb init_cb)
 {
-    g_slist_foreach(registered_ct_tables, set_conv_gui_data, (gpointer)init_cb);
+    wmem_tree_foreach(registered_ct_tables, set_conv_gui_data, (void*)init_cb);
 }
 
-static void
-set_host_gui_data(gpointer data, gpointer user_data)
+static gboolean
+set_host_gui_data(const void *key _U_, void *value, void *userdata)
 {
-    GString *host_cmd_str = g_string_new("");
     stat_tap_ui ui_info;
-    register_ct_t *table = (register_ct_t*)data;
+    register_ct_t *table = (register_ct_t*)value;
 
-    table->host_gui_init = (host_gui_init_cb)user_data;
+    table->host_gui_init = (host_gui_init_cb)userdata;
 
-    g_string_printf(host_cmd_str, "%s,%s", HOSTLIST_TAP_PREFIX, proto_get_protocol_filter_name(table->proto_id));
     ui_info.group = REGISTER_STAT_GROUP_ENDPOINT_LIST;
     ui_info.title = NULL;   /* construct this from the protocol info? */
-    ui_info.cli_string = g_string_free(host_cmd_str, FALSE);
+    ui_info.cli_string = g_strdup_printf("%s,%s", HOSTLIST_TAP_PREFIX, proto_get_protocol_filter_name(table->proto_id));
     ui_info.tap_init_cb = dissector_hostlist_init;
     ui_info.nparams = 0;
     ui_info.params = NULL;
     register_stat_tap_ui(&ui_info, table);
+    g_free((char*)ui_info.cli_string);
+    return FALSE;
 }
 
 void hostlist_table_set_gui_info(host_gui_init_cb init_cb)
 {
-    g_slist_foreach(registered_ct_tables, set_host_gui_data, (gpointer)init_cb);
+    wmem_tree_foreach(registered_ct_tables, set_host_gui_data, (void*)init_cb);
 }
 
-void conversation_table_iterate_tables(GFunc func, gpointer user_data)
+void conversation_table_iterate_tables(wmem_foreach_func func, void* user_data)
 {
-    g_slist_foreach(registered_ct_tables, func, user_data);
+    wmem_tree_foreach(registered_ct_tables, func, user_data);
 }
 
 guint conversation_table_get_num(void)
 {
-    return g_slist_length(registered_ct_tables);
-}
-
-
-register_ct_t *get_conversation_table_by_num(guint table_num)
-{
-    return (register_ct_t *) g_slist_nth_data(registered_ct_tables, table_num);
+    return wmem_tree_count(registered_ct_tables);
 }
 
 /** Compute the hash value for two given address/port pairs.
@@ -333,17 +303,17 @@ char *get_conversation_address(wmem_allocator_t *allocator, address *addr, gbool
     }
 }
 
-char *get_conversation_port(wmem_allocator_t *allocator, guint32 port, port_type ptype, gboolean resolve_names)
+char *get_conversation_port(wmem_allocator_t *allocator, guint32 port, endpoint_type etype, gboolean resolve_names)
 {
 
-    if(!resolve_names) ptype = PT_NONE;
+    if(!resolve_names) etype = ENDPOINT_NONE;
 
-    switch(ptype) {
-    case(PT_TCP):
+    switch(etype) {
+    case(ENDPOINT_TCP):
         return tcp_port_to_display(allocator, port);
-    case(PT_UDP):
+    case(ENDPOINT_UDP):
         return udp_port_to_display(allocator, port);
-    case(PT_SCTP):
+    case(ENDPOINT_SCTP):
         return sctp_port_to_display(allocator, port);
     default:
         return wmem_strdup_printf(allocator, "%d", port);
@@ -351,7 +321,7 @@ char *get_conversation_port(wmem_allocator_t *allocator, guint32 port, port_type
 }
 
 /* given an address (to distinguish between ipv4 and ipv6 for tcp/udp),
-   a port_type and a name_type (FN_...)
+   a endpoint_type and a name_type (FN_...)
    return a string for the filter name.
 
    Some addresses, like AT_ETHER may actually be any of multiple types
@@ -382,13 +352,13 @@ hostlist_get_filter_name(hostlist_talker_t *host, conv_filter_type_e filter_type
 
 /* Convert a port number into a string or NULL */
 static char *
-ct_port_to_str(port_type ptype, guint32 port)
+ct_port_to_str(endpoint_type etype, guint32 port)
 {
-    switch(ptype){
-    case PT_TCP:
-    case PT_UDP:
-    case PT_SCTP:
-    case PT_NCP:
+    switch(etype){
+    case ENDPOINT_TCP:
+    case ENDPOINT_UDP:
+    case ENDPOINT_SCTP:
+    case ENDPOINT_NCP:
         return g_strdup_printf("%d", port);
     default:
         break;
@@ -396,24 +366,30 @@ ct_port_to_str(port_type ptype, guint32 port)
     return NULL;
 }
 
+static int usb_address_type = -1;
+
 char *get_conversation_filter(conv_item_t *conv_item, conv_direction_e direction)
 {
     char *sport, *dport, *src_addr, *dst_addr;
     char *str;
 
-    sport = ct_port_to_str(conv_item->ptype, conv_item->src_port);
-    dport = ct_port_to_str(conv_item->ptype, conv_item->dst_port);
+    /* XXX - Hack until we find something better */
+    if (usb_address_type == -1)
+        usb_address_type = address_type_get_by_name("AT_USB");
+
+    sport = ct_port_to_str(conv_item->etype, conv_item->src_port);
+    dport = ct_port_to_str(conv_item->etype, conv_item->dst_port);
     src_addr = address_to_str(NULL, &conv_item->src_address);
     dst_addr = address_to_str(NULL, &conv_item->dst_address);
 
-    if (conv_item->src_address.type == AT_STRINGZ || conv_item->src_address.type == AT_USB) {
+    if (conv_item->src_address.type == AT_STRINGZ || conv_item->src_address.type == usb_address_type) {
         char *new_addr;
 
         new_addr = wmem_strdup_printf(NULL, "\"%s\"", src_addr);
         wmem_free(NULL, src_addr);
         src_addr = new_addr;
     }
-    if (conv_item->dst_address.type == AT_STRINGZ || conv_item->dst_address.type == AT_USB) {
+    if (conv_item->dst_address.type == AT_STRINGZ || conv_item->dst_address.type == usb_address_type) {
         char *new_addr;
 
         new_addr = wmem_strdup_printf(NULL, "\"%s\"", dst_addr);
@@ -555,9 +531,13 @@ char *get_hostlist_filter(hostlist_talker_t *host)
     char *sport, *src_addr;
     char *str;
 
-    sport = ct_port_to_str(host->ptype, host->port);
+    /* XXX - Hack until we find something better */
+    if (usb_address_type == -1)
+        usb_address_type = address_type_get_by_name("AT_USB");
+
+    sport = ct_port_to_str(host->etype, host->port);
     src_addr = address_to_str(NULL, &host->myaddress);
-    if (host->myaddress.type == AT_STRINGZ || host->myaddress.type == AT_USB) {
+    if (host->myaddress.type == AT_STRINGZ || host->myaddress.type == usb_address_type) {
         char *new_addr;
 
         new_addr = wmem_strdup_printf(NULL, "\"%s\"", src_addr);
@@ -580,9 +560,9 @@ char *get_hostlist_filter(hostlist_talker_t *host)
 
 void
 add_conversation_table_data(conv_hash_t *ch, const address *src, const address *dst, guint32 src_port, guint32 dst_port, int num_frames, int num_bytes,
-        nstime_t *ts, nstime_t *abs_ts, ct_dissector_info_t *ct_info, port_type ptype)
+        nstime_t *ts, nstime_t *abs_ts, ct_dissector_info_t *ct_info, endpoint_type etype)
 {
-    add_conversation_table_data_with_conv_id(ch, src, dst, src_port, dst_port, CONV_ID_UNSET, num_frames, num_bytes, ts, abs_ts, ct_info, ptype);
+    add_conversation_table_data_with_conv_id(ch, src, dst, src_port, dst_port, CONV_ID_UNSET, num_frames, num_bytes, ts, abs_ts, ct_info, etype);
 }
 
 void
@@ -598,7 +578,7 @@ add_conversation_table_data_with_conv_id(
     nstime_t *ts,
     nstime_t *abs_ts,
     ct_dissector_info_t *ct_info,
-    port_type ptype)
+    endpoint_type etype)
 {
     const address *addr1, *addr2;
     guint32 port1, port2;
@@ -660,7 +640,7 @@ add_conversation_table_data_with_conv_id(
         copy_address(&new_conv_item.src_address, addr1);
         copy_address(&new_conv_item.dst_address, addr2);
         new_conv_item.dissector_info = ct_info;
-        new_conv_item.ptype = ptype;
+        new_conv_item.etype = etype;
         new_conv_item.src_port = port1;
         new_conv_item.dst_port = port2;
         new_conv_item.conv_id = conv_id;
@@ -668,7 +648,6 @@ add_conversation_table_data_with_conv_id(
         new_conv_item.tx_frames = 0;
         new_conv_item.rx_bytes = 0;
         new_conv_item.tx_bytes = 0;
-        new_conv_item.modified = TRUE;
 
         if (ts) {
             memcpy(&new_conv_item.start_time, ts, sizeof(new_conv_item.start_time));
@@ -694,7 +673,6 @@ add_conversation_table_data_with_conv_id(
     }
 
     /* update the conversation struct */
-    conv_item->modified = TRUE;
     if ( (!cmp_address(src, addr1)) && (!cmp_address(dst, addr2)) && (src_port==port1) && (dst_port==port2) ) {
         conv_item->tx_frames += num_frames;
         conv_item->tx_bytes += num_bytes;
@@ -749,7 +727,7 @@ host_match(gconstpointer v, gconstpointer w)
 }
 
 void
-add_hostlist_table_data(conv_hash_t *ch, const address *addr, guint32 port, gboolean sender, int num_frames, int num_bytes, hostlist_dissector_info_t *host_info, port_type port_type_val)
+add_hostlist_table_data(conv_hash_t *ch, const address *addr, guint32 port, gboolean sender, int num_frames, int num_bytes, hostlist_dissector_info_t *host_info, endpoint_type etype)
 {
     hostlist_talker_t *talker=NULL;
     int talker_idx=0;
@@ -785,7 +763,7 @@ add_hostlist_table_data(conv_hash_t *ch, const address *addr, guint32 port, gboo
 
         copy_address(&host.myaddress, addr);
         host.dissector_info = host_info;
-        host.ptype=port_type_val;
+        host.etype=etype;
         host.port=port;
         host.rx_frames=0;
         host.tx_frames=0;

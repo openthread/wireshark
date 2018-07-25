@@ -14,19 +14,7 @@
  *
  * Copied from packet-tftp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -1372,7 +1360,7 @@ struct afs_request_val {
 	nstime_t req_time;
 };
 
-static GHashTable *afs_request_hash = NULL;
+static wmem_map_t *afs_request_hash = NULL;
 
 /*static GHashTable *afs_fragment_table = NULL; */
 /*static GHashTable *afs_reassembled_table = NULL; */
@@ -1407,24 +1395,6 @@ afs_hash (gconstpointer v)
 	val = key -> conversation + key -> epoch + key -> cid + key -> callnumber;
 
 	return val;
-}
-
-/*
- * Protocol initialization
- */
-static void
-afs_init_protocol(void)
-{
-	afs_request_hash = g_hash_table_new(afs_hash, afs_equal);
-	reassembly_table_init(&afs_reassembly_table,
-			      &addresses_reassembly_table_functions);
-}
-
-static void
-afs_cleanup_protocol(void)
-{
-	reassembly_table_destroy(&afs_reassembly_table);
-	g_hash_table_destroy(afs_request_hash);
 }
 
 /*
@@ -2766,13 +2736,13 @@ dissect_afs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 	 */
 	conversation = find_or_create_conversation(pinfo);
 
-	request_key.conversation = conversation->index;
+	request_key.conversation = conversation->conv_index;
 	request_key.service = rxinfo->serviceid;
 	request_key.epoch = rxinfo->epoch;
 	request_key.cid = rxinfo->cid;
 	request_key.callnumber = rxinfo->callnumber;
 
-	request_val = (struct afs_request_val *) g_hash_table_lookup(
+	request_val = (struct afs_request_val *) wmem_map_lookup(
 		afs_request_hash, &request_key);
 
 	/* only allocate a new hash element when it's a request */
@@ -2788,7 +2758,7 @@ dissect_afs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 			request_val -> rep_num = 0;
 			request_val -> req_time = pinfo->abs_ts;
 
-			g_hash_table_insert(afs_request_hash, new_request_key,
+			wmem_map_insert(afs_request_hash, new_request_key,
 				request_val);
 		}
 		if( request_val && reply ) {
@@ -2903,7 +2873,8 @@ dissect_afs(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
 			);
 	}
 
-	ti = proto_tree_add_item(tree, proto_afs, tvb, offset, -1,
+	ti = proto_tree_add_item(tree, proto_afs, tvb, offset,
+			tvb_reported_length_remaining(tvb, offset),
 			ENC_NA);
 	afs_tree = proto_item_add_subtree(ti, ett_afs);
 
@@ -3631,8 +3602,11 @@ proto_register_afs(void)
 	    "AFS (RX)", "afs");
 	proto_register_field_array(proto_afs, hf, array_length(hf));
 	proto_register_subtree_array(ett, array_length(ett));
-	register_init_routine(&afs_init_protocol);
-	register_cleanup_routine(&afs_cleanup_protocol);
+
+	reassembly_table_register(&afs_reassembly_table,
+			      &addresses_reassembly_table_functions);
+
+	afs_request_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), afs_hash, afs_equal);
 
 	register_dissector("afs", dissect_afs, proto_afs);
 }

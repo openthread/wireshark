@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -58,6 +46,9 @@ static int hf_text = -1;
 static gint ett_db_lsp = -1;
 
 static heur_dissector_list_t heur_subdissector_list;
+
+static dissector_handle_t db_lsp_tcp_handle;
+static dissector_handle_t db_lsp_udp_handle;
 
 /* Use heuristic */
 static gboolean try_heuristic = TRUE;
@@ -237,8 +228,8 @@ proto_register_db_lsp (void)
 
   proto_db_lsp = proto_register_protocol (PNAME, PSNAME, PFNAME);
   proto_db_lsp_disc = proto_register_protocol (PNAME_DISC, PSNAME_DISC, PFNAME_DISC);
-  register_dissector ("db-lsp.tcp", dissect_db_lsp_tcp, proto_db_lsp);
-  register_dissector ("db-lsp.udp", dissect_db_lsp_disc, proto_db_lsp_disc);
+  db_lsp_tcp_handle = register_dissector ("db-lsp.tcp", dissect_db_lsp_tcp, proto_db_lsp);
+  db_lsp_udp_handle = register_dissector ("db-lsp.udp", dissect_db_lsp_disc, proto_db_lsp_disc);
 
   heur_subdissector_list = register_heur_dissector_list("db-lsp", proto_db_lsp);
 
@@ -265,14 +256,8 @@ proto_register_db_lsp (void)
 void
 proto_reg_handoff_db_lsp (void)
 {
-  dissector_handle_t db_lsp_tcp_handle;
-  dissector_handle_t db_lsp_udp_handle;
-
-  db_lsp_tcp_handle = find_dissector ("db-lsp.tcp");
-  db_lsp_udp_handle = find_dissector ("db-lsp.udp");
-
-  dissector_add_uint ("tcp.port", DB_LSP_PORT, db_lsp_tcp_handle);
-  dissector_add_uint ("udp.port", DB_LSP_PORT, db_lsp_udp_handle);
+  dissector_add_uint_with_preference("tcp.port", DB_LSP_PORT, db_lsp_tcp_handle);
+  dissector_add_uint_with_preference("udp.port", DB_LSP_PORT, db_lsp_udp_handle);
 }
 
 /*

@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,7 +21,7 @@
 #include "wmem_tree.h"
 #include "wmem_tree-int.h"
 #include "wmem_user_cb.h"
-
+#include <wsutil/ws_printf.h> /* ws_debug_printf */
 
 
 
@@ -211,11 +199,10 @@ wmem_tree_new(wmem_allocator_t *allocator)
 {
     wmem_tree_t *tree;
 
-    tree = wmem_new(allocator, wmem_tree_t);
+    tree = wmem_new0(allocator, wmem_tree_t);
     tree->master    = allocator;
     tree->allocator = allocator;
-    tree->root      = NULL;
-    tree->post_rotation_cb = NULL;
+
     return tree;
 }
 
@@ -251,11 +238,9 @@ wmem_tree_new_autoreset(wmem_allocator_t *master, wmem_allocator_t *slave)
 {
     wmem_tree_t *tree;
 
-    tree = wmem_new(master, wmem_tree_t);
+    tree = wmem_new0(master, wmem_tree_t);
     tree->master    = master;
     tree->allocator = slave;
-    tree->root      = NULL;
-    tree->post_rotation_cb      = NULL;
 
     tree->master_cb_id = wmem_register_callback(master, wmem_tree_destroy_cb,
             tree);
@@ -265,10 +250,70 @@ wmem_tree_new_autoreset(wmem_allocator_t *master, wmem_allocator_t *slave)
     return tree;
 }
 
+static void
+free_tree_node(wmem_allocator_t *allocator, wmem_tree_node_t* node, gboolean free_keys, gboolean free_values)
+{
+    if (node == NULL) {
+        return;
+    }
+
+    if (node->left) {
+        free_tree_node(allocator, node->left, free_keys, free_values);
+    }
+
+    if (node->is_subtree) {
+        wmem_tree_destroy((wmem_tree_t *)node->data, free_keys, free_values);
+        node->data = NULL;
+    }
+
+    if (node->right) {
+        free_tree_node(allocator, node->right, free_keys, free_values);
+    }
+
+    if (free_keys) {
+        wmem_free(allocator, (void*)node->key);
+    }
+
+    if (free_values) {
+        wmem_free(allocator, node->data);
+    }
+    wmem_free(allocator, node);
+}
+
+void
+wmem_tree_destroy(wmem_tree_t *tree, gboolean free_keys, gboolean free_values)
+{
+    free_tree_node(tree->allocator, tree->root, free_keys, free_values);
+    wmem_unregister_callback(tree->master, tree->master_cb_id);
+    wmem_unregister_callback(tree->allocator, tree->slave_cb_id);
+    wmem_free(tree->master, tree);
+}
+
 gboolean
 wmem_tree_is_empty(wmem_tree_t *tree)
 {
     return tree->root == NULL;
+}
+
+static gboolean
+count_nodes(const void *key _U_, void *value _U_, void *userdata)
+{
+    guint* count = (guint*)userdata;
+    (*count)++;
+    return FALSE;
+}
+
+guint
+wmem_tree_count(wmem_tree_t* tree)
+{
+    guint count = 0;
+
+    /* Recursing through the tree counting each node is the simplest approach.
+       We don't keep track of the count within the tree because it can get
+       complicated with subtrees within the tree */
+    wmem_tree_foreach(tree, count_nodes, &count);
+
+    return count;
 }
 
 static wmem_tree_node_t *
@@ -533,6 +578,17 @@ wmem_tree_lookup32_le(wmem_tree_t *tree, guint32 key)
     }
 }
 
+void *
+wmem_tree_remove32(wmem_tree_t *tree, guint32 key)
+{
+    void *ret = wmem_tree_lookup32(tree, key);
+    if (ret) {
+        /* Not really a remove, but set data to NULL to mark node with is_removed */
+        wmem_tree_insert32(tree, key, NULL);
+    }
+    return ret;
+}
+
 void
 wmem_tree_insert_string(wmem_tree_t* tree, const gchar* k, void* v, guint32 flags)
 {
@@ -706,7 +762,7 @@ static void
 wmem_print_indent(guint32 level) {
     guint32 i;
     for (i=0; i<level; i++) {
-        printf("    ");
+        ws_debug_printf("    ");
     }
 }
 
@@ -719,21 +775,21 @@ wmem_tree_print_nodes(const char *prefix, wmem_tree_node_t *node, guint32 level,
 
     wmem_print_indent(level);
 
-    printf("%sNODE:%p parent:%p left:%p right:%p colour:%s key:%p %s:%p\n",
+    ws_debug_printf("%sNODE:%p parent:%p left:%p right:%p colour:%s key:%p %s:%p\n",
             prefix,
             (void *)node, (void *)node->parent,
             (void *)node->left, (void *)node->right,
             node->color?"Black":"Red", node->key,
             node->is_subtree?"tree":"data", node->data);
-    if(key_printer) {
+    if (key_printer) {
         wmem_print_indent(level);
         key_printer(node->key);
-        printf("\n");
+        ws_debug_printf("\n");
     }
-    if(data_printer) {
+    if (data_printer && !node->is_subtree) {
         wmem_print_indent(level);
         data_printer(node->data);
-        printf("\n");
+        ws_debug_printf("\n");
     }
 
     if (node->left)
@@ -754,7 +810,7 @@ wmem_print_subtree(wmem_tree_t *tree, guint32 level, wmem_printer_func key_print
 
     wmem_print_indent(level);
 
-    printf("WMEM tree:%p root:%p\n", (void *)tree, (void *)tree->root);
+    ws_debug_printf("WMEM tree:%p root:%p\n", (void *)tree, (void *)tree->root);
     if (tree->root) {
         wmem_tree_print_nodes("Root-", tree->root, level, key_printer, data_printer);
     }

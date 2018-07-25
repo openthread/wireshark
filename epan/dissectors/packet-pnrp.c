@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* The official Documentation for the Peer Name Resolution Protocol
@@ -1124,17 +1112,6 @@ static void dissect_signature_structure(tvbuff_t *tvb, gint offset, gint length,
     }
 }
 
-static void pnrp_reassembly_init(void)
-{
-    reassembly_table_init(&pnrp_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void pnrp_reassembly_cleanup(void)
-{
-    reassembly_table_destroy(&pnrp_reassembly_table);
-}
-
 /* Register the protocol */
 void proto_register_pnrp(void)
 {
@@ -1477,8 +1454,8 @@ void proto_register_pnrp(void)
     proto_register_field_array(proto_pnrp,hf,array_length(hf));
     proto_register_subtree_array (ett, array_length(ett));
 
-    register_init_routine(pnrp_reassembly_init);
-    register_cleanup_routine(pnrp_reassembly_cleanup);
+    reassembly_table_register(&pnrp_reassembly_table,
+                          &addresses_reassembly_table_functions);
 }
 
 /* Initialise the dissector */
@@ -1486,7 +1463,7 @@ void proto_reg_handoff_pnrp(void)
 {
     dissector_handle_t pnrp_handle;
     pnrp_handle = create_dissector_handle(dissect_pnrp, proto_pnrp);
-    dissector_add_uint("udp.port",PNRP_PORT,pnrp_handle);
+    dissector_add_uint_with_preference("udp.port",PNRP_PORT,pnrp_handle);
 }
 
 /*

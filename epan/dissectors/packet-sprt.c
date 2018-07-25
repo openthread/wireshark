@@ -11,19 +11,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* TODO:
@@ -745,13 +733,7 @@ static struct _sprt_conversation_info* find_sprt_conversation_data(packet_info *
     conversation_t *p_conv = NULL;
     struct _sprt_conversation_info *p_conv_data = NULL;
     /* Use existing packet info if available */
-    p_conv = find_conversation(pinfo->num,
-                                &pinfo->src,
-                                &pinfo->dst,
-                                pinfo->ptype,
-                                pinfo->srcport,
-                                pinfo->destport,
-                                NO_ADDR_B|NO_PORT_B);
+    p_conv = find_conversation_pinfo(pinfo, NO_ADDR_B|NO_PORT_B);
     if (p_conv)
     {
         p_conv_data = (struct _sprt_conversation_info*)conversation_get_proto_data(p_conv, proto_sprt);
@@ -788,14 +770,14 @@ void sprt_add_address(packet_info *pinfo,
      * Check if the ip address and port combination is not
      * already registered as a conversation.
      */
-    p_conv = find_conversation(setup_frame_number, addr, &null_addr, PT_UDP, port, other_port,
+    p_conv = find_conversation(setup_frame_number, addr, &null_addr, ENDPOINT_UDP, port, other_port,
                                 NO_ADDR_B | (!other_port ? NO_PORT_B : 0));
 
     /*
      * If not, create a new conversation.
      */
     if (!p_conv || p_conv->setup_frame != setup_frame_number) {
-        p_conv = conversation_new(setup_frame_number, addr, &null_addr, PT_UDP,
+        p_conv = conversation_new(setup_frame_number, addr, &null_addr, ENDPOINT_UDP,
                                     (guint32)port, (guint32)other_port,
                                     NO_ADDR2 | (!other_port ? NO_PORT2 : 0));
     }
@@ -3407,7 +3389,7 @@ proto_register_sprt(void)
     expert_register_field_array(expert_sprt, ei, array_length(ei));
 
     /* register the dissector */
-    register_dissector("sprt", dissect_sprt, proto_sprt);
+    sprt_handle = register_dissector("sprt", dissect_sprt, proto_sprt);
 
     sprt_module = prefs_register_protocol(proto_sprt, NULL);
 
@@ -3428,8 +3410,7 @@ proto_register_sprt(void)
 void
 proto_reg_handoff_sprt(void)
 {
-    sprt_handle = find_dissector("sprt");
-    dissector_add_for_decode_as("udp.port", sprt_handle);
+    dissector_add_for_decode_as_with_preference("udp.port", sprt_handle);
 
     heur_dissector_add( "udp", dissect_sprt_heur, "SPRT over UDP", "sprt_udp", proto_sprt, HEURISTIC_ENABLE);
 }

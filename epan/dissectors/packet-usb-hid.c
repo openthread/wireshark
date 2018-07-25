@@ -3,19 +3,7 @@
  * USB HID dissector
  * By Adam Nielsen <a.nielsen@shikadi.net> 2009
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -1107,7 +1095,7 @@ dissect_usb_hid_boot_keyboard_input_report(tvbuff_t *tvb, packet_info *pinfo, pr
 
     if (keycode) {
         if (shortcut_helper) col_append_str(pinfo->cinfo, COL_INFO, " + ");
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
+        col_append_str(pinfo->cinfo, COL_INFO, val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
         shortcut_helper = TRUE;
     }
 
@@ -1117,7 +1105,7 @@ dissect_usb_hid_boot_keyboard_input_report(tvbuff_t *tvb, packet_info *pinfo, pr
 
     if (keycode) {
         if (shortcut_helper) col_append_str(pinfo->cinfo, COL_INFO, " + ");
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
+        col_append_str(pinfo->cinfo, COL_INFO, val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
         shortcut_helper = TRUE;
     }
 
@@ -1127,7 +1115,7 @@ dissect_usb_hid_boot_keyboard_input_report(tvbuff_t *tvb, packet_info *pinfo, pr
 
     if (keycode) {
         if (shortcut_helper) col_append_str(pinfo->cinfo, COL_INFO, " + ");
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
+        col_append_str(pinfo->cinfo, COL_INFO, val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
         shortcut_helper = TRUE;
     }
 
@@ -1137,7 +1125,7 @@ dissect_usb_hid_boot_keyboard_input_report(tvbuff_t *tvb, packet_info *pinfo, pr
 
     if (keycode) {
         if (shortcut_helper) col_append_str(pinfo->cinfo, COL_INFO, " + ");
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
+        col_append_str(pinfo->cinfo, COL_INFO, val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
         shortcut_helper = TRUE;
     }
 
@@ -1147,7 +1135,7 @@ dissect_usb_hid_boot_keyboard_input_report(tvbuff_t *tvb, packet_info *pinfo, pr
 
     if (keycode) {
         if (shortcut_helper) col_append_str(pinfo->cinfo, COL_INFO, " + ");
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
+        col_append_str(pinfo->cinfo, COL_INFO, val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
         shortcut_helper = TRUE;
     }
 
@@ -1157,7 +1145,7 @@ dissect_usb_hid_boot_keyboard_input_report(tvbuff_t *tvb, packet_info *pinfo, pr
 
     if (keycode) {
         if (shortcut_helper) col_append_str(pinfo->cinfo, COL_INFO, " + ");
-        col_append_fstr(pinfo->cinfo, COL_INFO, "%s", val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
+        col_append_str(pinfo->cinfo, COL_INFO, val_to_str_ext(keycode, &keycode_vals_ext, "Unknown"));
         shortcut_helper = TRUE;
     }
 
@@ -1344,7 +1332,7 @@ dissect_usb_hid_control_std_intf(tvbuff_t *tvb, packet_info *pinfo,
         if (req != USB_SETUP_GET_DESCRIPTOR)
             return offset;
         col_clear(pinfo->cinfo, COL_INFO);
-        col_append_fstr(pinfo->cinfo, COL_INFO, "GET DESCRIPTOR Request");
+        col_append_str(pinfo->cinfo, COL_INFO, "GET DESCRIPTOR Request");
         offset += 1;
 
         proto_tree_add_item(tree, hf_usb_hid_bDescriptorIndex, tvb, offset, 1, ENC_LITTLE_ENDIAN);
@@ -1366,7 +1354,7 @@ dissect_usb_hid_control_std_intf(tvbuff_t *tvb, packet_info *pinfo,
     }
     else {
         col_clear(pinfo->cinfo, COL_INFO);
-        col_append_fstr(pinfo->cinfo, COL_INFO, "GET DESCRIPTOR Response");
+        col_append_str(pinfo->cinfo, COL_INFO, "GET DESCRIPTOR Response");
         col_append_fstr(pinfo->cinfo, COL_INFO, " %s",
                 val_to_str_ext(usb_trans_info->u.get_descriptor.type,
                     &hid_descriptor_type_vals_ext, "Unknown type %u"));
@@ -1970,6 +1958,8 @@ proto_reg_handoff_usb_hid(void)
     usb_hid_control_handle = create_dissector_handle(
                         dissect_usb_hid_control, proto_usb_hid);
     dissector_add_uint("usb.control", IF_CLASS_HID, usb_hid_control_handle);
+
+    dissector_add_for_decode_as("usb.device", usb_hid_control_handle);
 
     usb_hid_descr_handle = create_dissector_handle(
                         dissect_usb_hid_class_descriptors, proto_usb_hid);

@@ -7,24 +7,17 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <glib.h>
 
@@ -33,6 +26,184 @@
 #include <epan/ps.h>
 
 #include <wsutil/file_util.h>
+
+#define TERM_SGR_RESET "\x1B[0m"  /* SGR - reset */
+#define TERM_CSI_EL    "\x1B[K"   /* EL - Erase in Line (to end of line) */
+
+typedef struct {
+    gboolean  to_file;
+    FILE     *fh;
+} output_text;
+
+static void
+print_color_escape(FILE *fh, const color_t *fg, const color_t *bg)
+{
+#ifdef _WIN32
+    /* default to white foreground, black background */
+    WORD win_fg_color = FOREGROUND_RED|FOREGROUND_BLUE|FOREGROUND_GREEN;
+    WORD win_bg_color = 0;
+
+    /* The classic Windows Console offers 1-bit color, so you can't set
+     * the red, green, or blue intensities, you can only set
+     * "{foreground, background} contains {red, green, blue}". So
+     * include red, green or blue if the numeric intensity is high
+     * enough.
+     *
+     * The console in Windows 10 version 1511 (TH2), build 10586, and later
+     * supports SGR escape sequences:
+     *
+     *  http://www.nivot.org/blog/post/2016/02/04/Windows-10-TH2-(v1511)-Console-Host-Enhancements
+     *
+     * but only supports 16 colors.  The "undocumented" 0x04 bit to which
+     * they refer is documented in the current version of the SetConsoleMode()
+     * documentation:
+     *
+     *  https://docs.microsoft.com/en-us/windows/console/setconsolemode
+     *
+     * as ENABLE_VIRTUAL_TERMINAL_PROCESSING, saying
+     *
+     *  When writing with WriteFile or WriteConsole, characters are parsed
+     *  for VT100 and similar control character sequences that control cursor
+     *  movement, color/font mode, and other operations that can also be
+     *  performed via the existing Console APIs. For more information, see
+     *  Console Virtual Terminal Sequences.
+     *
+     * Console Virtual Terminal Sequences:
+     *
+     *  https://docs.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
+     *
+     * documents all the escape sequences the Console supports.
+     *
+     * The console in Windows 10 builds 14931 (a preview version of Windows 10
+     * version 1703) and later supports SGR RGB sequences:
+     *
+     *	https://blogs.msdn.microsoft.com/commandline/2016/09/22/24-bit-color-in-the-windows-console/
+     *
+     * We might want to print those instead depending on the version of
+     * Windows or just remove the SetConsoleTextAttribute calls and only
+     * print SGR sequences if they are supported.
+     */
+    if (fg) {
+        if (((fg->red >> 8) & 0xff) >= 0x80)
+        {
+            win_fg_color |= FOREGROUND_RED;
+        }
+        else
+        {
+            win_fg_color &= (~FOREGROUND_RED);
+        }
+        if (((fg->green >> 8) & 0xff) >= 0x80)
+        {
+            win_fg_color |= FOREGROUND_GREEN;
+        }
+        else
+        {
+            win_fg_color &= (~FOREGROUND_GREEN);
+        }
+        if (((fg->blue >> 8) & 0xff) >= 0x80)
+        {
+            win_fg_color |= FOREGROUND_BLUE;
+        }
+        else
+        {
+            win_fg_color &= (~FOREGROUND_BLUE);
+        }
+    }
+
+    if (bg) {
+        if (((bg->red >> 8) & 0xff) >= 0x80)
+        {
+            win_bg_color |= BACKGROUND_RED;
+        }
+        else
+        {
+            win_bg_color &= (~BACKGROUND_RED);
+        }
+        if (((bg->green >> 8) & 0xff) >= 0x80)
+        {
+            win_bg_color |= BACKGROUND_GREEN;
+        }
+        else
+        {
+            win_bg_color &= (~BACKGROUND_GREEN);
+        }
+        if (((bg->blue >> 8) & 0xff) >= 0x80)
+        {
+            win_bg_color |= BACKGROUND_BLUE;
+        }
+        else
+        {
+            win_bg_color &= (~BACKGROUND_BLUE);
+        }
+    }
+
+    SetConsoleTextAttribute((HANDLE)_get_osfhandle(_fileno(fh)), win_fg_color|win_bg_color);
+#else
+    /*
+     * UN*X.
+     *
+     * Use the "select character foreground colour" and "select character
+     * background colour" options to the Select Graphic Rendition control
+     * sequence; those are reserved in ECMA-48, and are specified in ISO
+     * standard 8613-6/ITU-T Recommendation T.416, "Open Document Architecture
+     * (ODA) and Interchange Format: Chararcter Content Architectures",
+     * section 13.1.8 "Select Graphic Rendition (SGR)".  We use the
+     * "direct colour in RGB space" option, with a parameter value of 2.
+     *
+     * Those sequences are supported by some UN*X terminal emulators; some
+     * support either : or ; as a separator, others require a ;.
+     *
+     * For more than you ever wanted to know about all of this, see
+     *
+     *    https://gist.github.com/XVilka/8346728
+     *
+     * including the discussion following it.
+     *
+     * XXX - this isn't always treated correctly; macOS Terminal currently
+     * doesn't handle this correctly - it gives weird colors.  Sadly, as
+     * per various other discussions mentioned in the discussion cited above,
+     * there's nothing in terminfo to indicate the presence of 24-bit color
+     * support, so there's no good way to decide whether to use this or not.
+     *
+     * XXX - fall back on 8-color or 256-color support if we can somehow
+     * determine that 24-bit color support isn't available but 8-color or
+     * 256-color support is?
+     */
+    if (fg) {
+        fprintf(fh, "\x1B[38;2;%u;%u;%um",
+                (fg->red   >> 8) & 0xff,
+                (fg->green >> 8) & 0xff,
+                (fg->blue  >> 8) & 0xff);
+    }
+
+    if (bg) {
+        fprintf(fh, "\x1B[48;2;%u;%u;%um",
+                (bg->red   >> 8) & 0xff,
+                (bg->green >> 8) & 0xff,
+                (bg->blue  >> 8) & 0xff);
+    }
+#endif
+}
+
+static void
+print_color_eol(print_stream_t *self)
+{
+    output_text *output = (output_text *)self->data;
+    FILE *fh = output->fh;
+#ifdef _WIN32
+    SetConsoleTextAttribute((HANDLE)_get_osfhandle(_fileno(fh)), self->csb_attrs);
+    fprintf(fh, "\n");
+#else // UN*X
+
+    /*
+     * Emit CSI EL to extend current background color all the way to EOL,
+     * otherwise we get a ragged right edge of color wherever the newline
+     * occurs.  It's not perfect in every terminal emulator, but it generally
+     * works.
+     */
+    fprintf(fh, "%s\n%s", TERM_CSI_EL, TERM_SGR_RESET);
+#endif
+}
 
 static FILE *
 open_print_dest(gboolean to_file, const char *dest)
@@ -71,6 +242,15 @@ print_line(print_stream_t *self, int indent, const char *line)
     return (self->ops->print_line)(self, indent, line);
 }
 
+gboolean
+print_line_color(print_stream_t *self, int indent, const char *line, const color_t *fg, const color_t *bg)
+{
+    if (self->ops->print_line_color)
+        return (self->ops->print_line_color)(self, indent, line, fg, bg);
+    else
+        return (self->ops->print_line)(self, indent, line);
+}
+
 /* Insert bookmark */
 gboolean
 print_bookmark(print_stream_t *self, const gchar *name, const gchar *title)
@@ -94,31 +274,29 @@ print_finale(print_stream_t *self)
 gboolean
 destroy_print_stream(print_stream_t *self)
 {
-    return self->ops->destroy ? (self->ops->destroy)(self) : TRUE;
+    return (self && self->ops && self->ops->destroy) ? (self->ops->destroy)(self) : TRUE;
 }
-
-typedef struct {
-    gboolean  to_file;
-    FILE     *fh;
-} output_text;
 
 #define MAX_INDENT    160
 
+/* returns TRUE if the print succeeded, FALSE if there was an error */
 static gboolean
-print_line_text(print_stream_t *self, int indent, const char *line)
+print_line_color_text(print_stream_t *self, int indent, const char *line, const color_t *fg, const color_t *bg)
 {
-    static char  spaces[MAX_INDENT];
+    static char spaces[MAX_INDENT];
     size_t ret;
-
     output_text *output = (output_text *)self->data;
     unsigned int num_spaces;
+    gboolean emit_color = self->isatty && (fg != NULL || bg != NULL);
 
     /* should be space, if NUL -> initialize */
-    if (!spaces[0]) {
-        int i;
+    if (!spaces[0])
+        memset(spaces, ' ', sizeof(spaces));
 
-        for (i = 0; i < MAX_INDENT; i++)
-            spaces[i] = ' ';
+    if (emit_color) {
+        print_color_escape(output->fh, fg, bg);
+        if (ferror(output->fh))
+            return FALSE;
     }
 
     /* Prepare the tabs for printing, depending on tree level */
@@ -128,10 +306,41 @@ print_line_text(print_stream_t *self, int indent, const char *line)
 
     ret = fwrite(spaces, 1, num_spaces, output->fh);
     if (ret == num_spaces) {
-        fputs(line, output->fh);
-        putc('\n', output->fh);
+        gchar *tty_out = NULL;
+
+        if (self->isatty && self->to_codeset) {
+            /* XXX Allocating a fresh buffer every line probably isn't the
+             * most efficient way to do this. However, this has the side
+             * effect of scrubbing invalid output.
+             */
+            tty_out = g_convert_with_fallback(line, -1, self->to_codeset, "UTF-8", "?", NULL, NULL, NULL);
+        }
+
+        if (tty_out) {
+#ifdef _WIN32
+            DWORD out_len = (DWORD) wcslen((wchar_t *) tty_out);
+            WriteConsoleW((HANDLE)_get_osfhandle(_fileno(output->fh)), tty_out, out_len, &out_len, NULL);
+#else
+            fputs(tty_out, output->fh);
+#endif
+            g_free(tty_out);
+        } else {
+            fputs(line, output->fh);
+        }
+
+        if (emit_color)
+            print_color_eol(self);
+        else
+            putc('\n', output->fh);
     }
+
     return !ferror(output->fh);
+}
+
+static gboolean
+print_line_text(print_stream_t *self, int indent, const char *line)
+{
+    return print_line_color_text(self, indent, line, NULL, NULL);
 }
 
 static gboolean
@@ -161,7 +370,8 @@ static const print_stream_ops_t print_text_ops = {
     NULL,            /* bookmark */
     new_page_text,
     NULL,            /* finale */
-    destroy_text
+    destroy_text,
+    print_line_color_text,
 };
 
 static print_stream_t *
@@ -169,13 +379,32 @@ print_stream_text_alloc(gboolean to_file, FILE *fh)
 {
     print_stream_t *stream;
     output_text    *output;
+#ifndef _WIN32
+    const gchar *charset;
+    gboolean is_utf8;
+#endif
 
     output          = (output_text *)g_malloc(sizeof *output);
     output->to_file = to_file;
     output->fh      = fh;
-    stream          = (print_stream_t *)g_malloc(sizeof (print_stream_t));
+    stream          = (print_stream_t *)g_malloc0(sizeof (print_stream_t));
     stream->ops     = &print_text_ops;
+    stream->isatty  = ws_isatty(ws_fileno(fh));
     stream->data    = output;
+
+#ifndef _WIN32
+    /* Is there a more reliable way to do this? */
+    is_utf8 = g_get_charset(&charset);
+    if (!is_utf8) {
+        stream->to_codeset = charset;
+    }
+#else
+    CONSOLE_SCREEN_BUFFER_INFO csb_info;
+    GetConsoleScreenBufferInfo((HANDLE)_get_osfhandle(_fileno(fh)), &csb_info);
+    stream->csb_attrs = csb_info.wAttributes;
+
+    stream->to_codeset = "UTF-16LE";
+#endif
 
     return stream;
 }
@@ -329,7 +558,8 @@ static const print_stream_ops_t print_ps_ops = {
     print_bookmark_ps,
     new_page_ps,
     print_finale_ps,
-    destroy_ps
+    destroy_ps,
+    NULL, /* print_line_color */
 };
 
 static print_stream_t *

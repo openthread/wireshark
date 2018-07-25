@@ -1,29 +1,18 @@
 /* packet-mbim.c
  * Routines for MBIM dissection
- * Copyright 2013-2014, Pascal Quantin <pascal.quantin@gmail.com>
+ * Copyright 2013-2016, Pascal Quantin <pascal.quantin@gmail.com>
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Dissector based on MBIM specification 1.0 Errata-1
  * http://www.usb.org/developers/devclass_docs/MBIM10Errata1_073013.zip
  * http://compliance.usb.org/mbim/
+ * http://www.usb.org/developers/docs/devclass_docs/MBIMMultiflow10.zip
  */
 
 #include "config.h"
@@ -35,7 +24,6 @@
 #include <epan/reassemble.h>
 #include <epan/to_str.h>
 #include <epan/strutil.h>
-#include <epan/g_int64_hash_routines.h>
 
 #include "packet-gsm_a_common.h"
 #include "packet-gsm_map.h"
@@ -65,7 +53,17 @@ static int hf_mbim_uuid_dss_cid = -1;
 static int hf_mbim_uuid_multicarrier_cid = -1;
 static int hf_mbim_uuid_ms_hostshutdown_cid = -1;
 static int hf_mbim_uuid_msfwid_cid = -1;
-static int hf_mbim_uuid_ext_qmux_cid = -1;
+static int hf_mbim_uuid_qmi_cid = -1;
+static int hf_mbim_uuid_intel_fwusvc_cid = -1;
+static int hf_mbim_uuid_intel_dptf_cid = -1;
+static int hf_mbim_uuid_intel_sar_cid = -1;
+static int hf_mbim_uuid_intel_act_cid = -1;
+static int hf_mbim_uuid_intel_trcsvc_cid = -1;
+static int hf_mbim_uuid_intel_nrtc_cid = -1;
+static int hf_mbim_uuid_intel_usb_profile_cid = -1;
+static int hf_mbim_uuid_intel_ciq_cid = -1;
+static int hf_mbim_uuid_atds_cid = -1;
+static int hf_mbim_uuid_multiflow_cid = -1;
 static int hf_mbim_cid = -1;
 static int hf_mbim_command_type = -1;
 static int hf_mbim_info_buffer_len = -1;
@@ -555,6 +553,112 @@ static int hf_mbim_multicarrier_current_cid_list_req_uuid = -1;
 static int hf_mbim_multicarrier_current_cid_list_info_cid_count = -1;
 static int hf_mbim_multicarrier_current_cid_list_info_cid = -1;
 static int hf_mbim_msfwid_firmwareid_info_firmware_id = -1;
+static int hf_mbim_qmi_buffer = -1;
+static int hf_mbim_thermal_config_enable = -1;
+static int hf_mbim_thermal_config_temp_sensor_id = -1;
+static int hf_mbim_thermal_config_alarm_id = -1;
+static int hf_mbim_thermal_config_threshold_value = -1;
+static int hf_mbim_thermal_config_hyst_value = -1;
+static int hf_mbim_thermal_config_sampling_period = -1;
+static int hf_mbim_query_thermal_state_temp_sensor_id = -1;
+static int hf_mbim_thermal_state_info_current_temp_value = -1;
+static int hf_mbim_thermal_state_info_enable = -1;
+static int hf_mbim_thermal_state_info_temp_sensor_id = -1;
+static int hf_mbim_thermal_state_info_alarm_id = -1;
+static int hf_mbim_thermal_state_info_threshold_value = -1;
+static int hf_mbim_thermal_state_info_hyst_value = -1;
+static int hf_mbim_thermal_state_info_sampling_period = -1;
+static int hf_mbim_sar_config_sar_status = -1;
+static int hf_mbim_sar_config_level = -1;
+static int hf_mbim_adpclk_activate_state = -1;
+static int hf_mbim_adpclk_freq_info_elem_count = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_offset = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_size = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_center_freq = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_freq_spread = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_noise_power = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_rssi = -1;
+static int hf_mbim_adpclk_freq_info_adpclk_freq_value_connect_status = -1;
+static int hf_mbim_trace_config_config = -1;
+static int hf_mbim_nrtc_app_info_period = -1;
+static int hf_mbim_nrtc_app_info_duration = -1;
+static int hf_mbim_nrtcws_config_mode = -1;
+static int hf_mbim_nrtcws_config_wlan_active = -1;
+static int hf_mbim_nrtcws_config_wlan_safe_rx = -1;
+static int hf_mbim_nrtcws_config_wlan_bandwidth = -1;
+static int hf_mbim_nrtcws_config_bt_active = -1;
+static int hf_mbim_nrtcws_config_bt_safe_rx = -1;
+static int hf_mbim_nrtcws_info_lte_active = -1;
+static int hf_mbim_nrtcws_info_wlan_safe_rx_min = -1;
+static int hf_mbim_nrtcws_info_wlan_safe_rx_max = -1;
+static int hf_mbim_nrtcws_info_bt_safe_rx_min = -1;
+static int hf_mbim_nrtcws_info_bt_safe_rx_max = -1;
+static int hf_mbim_nrtcws_info_lte_sps_period = -1;
+static int hf_mbim_nrtcws_info_lte_sps_duration = -1;
+static int hf_mbim_nrtcws_info_lte_sps_initial_offset = -1;
+static int hf_mbim_usbprofile_cmd_length = -1;
+static int hf_mbim_usbprofile_cmd_buffer = -1;
+static int hf_mbim_usbprofile_rsp_length = -1;
+static int hf_mbim_usbprofile_rsp_buffer = -1;
+static int hf_mbim_ciq_set_mode = -1;
+static int hf_mbim_ciq_set_debug_info_size = -1;
+static int hf_mbim_ciq_set_debug_info = -1;
+static int hf_mbim_ciq_info_mode = -1;
+static int hf_mbim_atds_signal_info_rssi = -1;
+static int hf_mbim_atds_signal_info_ber = -1;
+static int hf_mbim_atds_signal_info_rscp = -1;
+static int hf_mbim_atds_signal_info_ecno = -1;
+static int hf_mbim_atds_signal_info_rsrq = -1;
+static int hf_mbim_atds_signal_info_rsrp = -1;
+static int hf_mbim_atds_signal_info_rssnr = -1;
+static int hf_mbim_atds_location_info_lac = -1;
+static int hf_mbim_atds_location_info_tac = -1;
+static int hf_mbim_atds_location_info_cellid = -1;
+static int hf_mbim_atds_operator_provider_id_offset = -1;
+static int hf_mbim_atds_operator_provider_id_size = -1;
+static int hf_mbim_atds_operator_provider_state = -1;
+static int hf_mbim_atds_operator_provider_name_offset = -1;
+static int hf_mbim_atds_operator_provider_name_size = -1;
+static int hf_mbim_atds_operator_plmn_mode = -1;
+static int hf_mbim_atds_operator_rssi = -1;
+static int hf_mbim_atds_operator_error_rate = -1;
+static int hf_mbim_atds_operator_provider_id = -1;
+static int hf_mbim_atds_operator_provider_name = -1;
+static int hf_mbim_atds_operators_elem_count = -1;
+static int hf_mbim_atds_operators_operator_offset = -1;
+static int hf_mbim_atds_operators_operator_size = -1;
+static int hf_mbim_atds_rat_info_mode = -1;
+static int hf_mbim_atds_projection_table_type = -1;
+static int hf_mbim_atds_projection_table_bar5min = -1;
+static int hf_mbim_atds_projection_table_a5 = -1;
+static int hf_mbim_atds_projection_table_b5 = -1;
+static int hf_mbim_atds_projection_table_bar4min = -1;
+static int hf_mbim_atds_projection_table_a4 = -1;
+static int hf_mbim_atds_projection_table_b4 = -1;
+static int hf_mbim_atds_projection_table_bar3min = -1;
+static int hf_mbim_atds_projection_table_a3 = -1;
+static int hf_mbim_atds_projection_table_b3 = -1;
+static int hf_mbim_atds_projection_table_bar2min = -1;
+static int hf_mbim_atds_projection_table_a2 = -1;
+static int hf_mbim_atds_projection_table_b2 = -1;
+static int hf_mbim_atds_projection_table_bar1min = -1;
+static int hf_mbim_atds_projection_table_a1 = -1;
+static int hf_mbim_atds_projection_table_b1 = -1;
+static int hf_mbim_atds_projection_table_bar0min = -1;
+static int hf_mbim_atds_projection_table_a0 = -1;
+static int hf_mbim_atds_projection_table_b0 = -1;
+static int hf_mbim_atds_projection_tables_elem_count = -1;
+static int hf_mbim_atds_projection_tables_projection_table_offset = -1;
+static int hf_mbim_atds_projection_tables_projection_table_size = -1;
+static int hf_mbim_multiflow_caps_info_control_caps = -1;
+static int hf_mbim_multiflow_caps_info_control_caps_uplink = -1;
+static int hf_mbim_multiflow_caps_info_control_caps_downlink = -1;
+static int hf_mbim_set_multiflow_state_state = -1;
+static int hf_mbim_multiflow_state_info_state = -1;
+static int hf_mbim_multiflow_tft_info_session_id = -1;
+static int hf_mbim_multiflow_tft_info_elem_count = -1;
+static int hf_mbim_multiflow_tft_info_tft_list_offset = -1;
+static int hf_mbim_multiflow_tft_info_tft_list_size = -1;
 static int hf_mbim_fragmented_payload = -1;
 static int hf_mbim_request_in = -1;
 static int hf_mbim_response_in = -1;
@@ -580,7 +684,9 @@ static int hf_mbim_bulk_nth_ndp_index = -1;
 static int hf_mbim_bulk_nth_ndp_index_32 = -1;
 static int hf_mbim_bulk_ndp_signature = -1;
 static int hf_mbim_bulk_ndp_signature_ips_session_id = -1;
+static int hf_mbim_bulk_ndp_signature_ipc_session_id = -1;
 static int hf_mbim_bulk_ndp_signature_dss_session_id = -1;
+static int hf_mbim_bulk_ndp_signature_dsc_session_id = -1;
 static int hf_mbim_bulk_ndp_length = -1;
 static int hf_mbim_bulk_ndp_next_ndp_index = -1;
 static int hf_mbim_bulk_ndp_next_ndp_index_32 = -1;
@@ -593,6 +699,12 @@ static int hf_mbim_bulk_ndp_datagram_length_32 = -1;
 static int hf_mbim_bulk_ndp_datagram = -1;
 static int hf_mbim_bulk_ndp_nb_datagrams = -1;
 static int hf_mbim_bulk_total_nb_datagrams = -1;
+static int hf_mbim_bulk_ndp_ctrl = -1;
+static int hf_mbim_bulk_ndp_ctrl_message_type = -1;
+static int hf_mbim_bulk_ndp_ctrl_message_length = -1;
+static int hf_mbim_bulk_ndp_ctrl_multiflow_status = -1;
+static int hf_mbim_bulk_ndp_ctrl_multiflow_watermark = -1;
+static int hf_mbim_bulk_ndp_ctrl_message_payload = -1;
 static int hf_mbim_fragments = -1;
 static int hf_mbim_fragment = -1;
 static int hf_mbim_fragment_overlap = -1;
@@ -629,8 +741,10 @@ static gint ett_mbim_pin = -1;
 static gint ett_mbim_buffer = -1;
 static gint ett_mbim_sc_address = -1;
 static gint ett_mbim_pac = -1;
+static gint ett_mbim_thermal_threshold_setting = -1;
 static gint ett_mbim_fragment = -1;
 static gint ett_mbim_fragments = -1;
+static gint ett_mbim_bulk_ndp_ctrl = -1;
 
 static dissector_table_t dss_dissector_table;
 static dissector_handle_t bertlv_handle;
@@ -641,6 +755,8 @@ static dissector_handle_t eth_handle;
 static dissector_handle_t eth_fcs_handle;
 static dissector_handle_t ip_handle;
 static dissector_handle_t data_handle;
+static dissector_handle_t bulk_ndp_ctrl_handle;
+static dissector_handle_t mbim_control_handle;
 
 static gboolean mbim_control_decode_unknown_itf = FALSE;
 
@@ -684,6 +800,11 @@ struct mbim_conv_info {
     wmem_tree_t *open;
     guint32 open_count;
     guint32 cellular_class;
+};
+
+struct mbim_pair_list {
+    guint32 offset;
+    guint32 size;
 };
 
 #define MBIM_MAX_ITEMS 1000
@@ -783,20 +904,31 @@ struct mbim_uuid {
     e_guid_t uuid;
 };
 
-#define UUID_BASIC_CONNECT   0
-#define UUID_SMS             1
-#define UUID_USSD            2
-#define UUID_PHONEBOOK       3
-#define UUID_STK             4
-#define UUID_AUTH            5
-#define UUID_DSS             6
-#define UUID_MULTICARRIER    7
-#define UUID_MS_HOSTSHUTDOWN 8
-#define UUID_MSFWID          9
-#define UUID_EXT_QMUX        10 /* Qualcomm proprietary UUID */
-#define UUID_EXT_IDX         255
+#define UUID_BASIC_CONNECT     0
+#define UUID_SMS               1
+#define UUID_USSD              2
+#define UUID_PHONEBOOK         3
+#define UUID_STK               4
+#define UUID_AUTH              5
+#define UUID_DSS               6
+#define UUID_MULTICARRIER      7
+#define UUID_MS_HOSTSHUTDOWN   8
+#define UUID_MSFWID            9
+#define UUID_QMI               10 /* Qualcomm proprietary UUID */
+#define UUID_INTEL_FWUSVC      11 /* Intel  firmware update service proprietary UUID */
+#define UUID_INTEL_DPTF        12 /* Intel proprietary UUID */
+#define UUID_INTEL_SAR         13 /* Intel proprietary UUID */
+#define UUID_INTEL_ACT         14 /* Intel adaptive clocking proprietary UUID */
+#define UUID_INTEL_TRCSVC      15 /* Intel trace service proprietary UUID */
+#define UUID_INTEL_NRTC        16 /* Intel proprietary UUID */
+#define UUID_INTEL_USB_PROFILE 17 /* Intel USB profile proprietary UUID */
+#define UUID_INTEL_CIQ         18 /* Intel proprietary UUID */
+#define UUID_ATDS              19 /* AT&T extensions proprietary UUID */
+#define UUID_MULTIFLOW         20
+#define UUID_MAX               21
+#define UUID_EXT_IDX           255
 
-static const struct mbim_uuid mbim_uuid_service_id_vals[] = {
+static const struct mbim_uuid mbim_uuid_service_id_vals[UUID_MAX] = {
     { UUID_BASIC_CONNECT, {0xa289cc33, 0xbcbb, 0x8b4f, { 0xb6, 0xb0, 0x13, 0x3e, 0xc2, 0xaa, 0xe6, 0xdf}}},
     { UUID_SMS, {0x533fbeeb, 0x14fe, 0x4467, {0x9f, 0x90, 0x33, 0xa2, 0x23, 0xe5, 0x6c, 0x3f}}},
     { UUID_USSD, {0xe550a0c8, 0x5e82, 0x479e, {0x82, 0xf7, 0x10, 0xab, 0xf4, 0xc3, 0x35, 0x1f}}},
@@ -807,7 +939,17 @@ static const struct mbim_uuid mbim_uuid_service_id_vals[] = {
     { UUID_MULTICARRIER, {0x8b569648, 0x628d, 0x4653, {0x9b, 0x9f, 0x10, 0x25, 0x40, 0x44, 0x24, 0xe1}}},
     { UUID_MS_HOSTSHUTDOWN, {0x883b7c26, 0x985f, 0x43fa, {0x98, 0x04, 0x27, 0xd7, 0xfb, 0x80, 0x95, 0x9c}}},
     { UUID_MSFWID, {0xe9f7dea2, 0xfeaf, 0x4009, {0x93, 0xce, 0x90, 0xa3, 0x69, 0x41, 0x03, 0xb6}}},
-    { UUID_EXT_QMUX, {0xd1a30bc2, 0xf97a, 0x6e43, {0xbf, 0x65, 0xc7, 0xe2, 0x4f, 0xb0, 0xf0, 0xd3}}}
+    { UUID_QMI, {0xd1a30bc2, 0xf97a, 0x6e43, {0xbf, 0x65, 0xc7, 0xe2, 0x4f, 0xb0, 0xf0, 0xd3}}},
+    { UUID_INTEL_FWUSVC, {0x0ed374cb, 0xf835, 0x4474, {0xbc, 0x11, 0x3b, 0x3f, 0xd7, 0x6f, 0x56, 0x41}}},
+    { UUID_INTEL_DPTF, {0xfdc22af2, 0xf441, 0x4d46, {0xaf, 0x8d, 0x25, 0x9f, 0xcd, 0xde, 0x46, 0x35}}},
+    { UUID_INTEL_SAR, {0x10e40d69, 0x375a, 0x42ce, {0xa2, 0x97, 0x90, 0x61, 0x64, 0xf2, 0x75, 0x4c}}},
+    { UUID_INTEL_ACT, {0xed19555d, 0xa6ac, 0x4327, {0x8e, 0xb1, 0xfc, 0x02, 0x2e, 0x5e, 0x23, 0x88}}},
+    { UUID_INTEL_TRCSVC, {0x59a7f323, 0xfe5a, 0x4301, {0xb1, 0x85, 0xb8, 0xea, 0x9e, 0x61, 0x67, 0xb7}}},
+    { UUID_INTEL_NRTC, {0x2b6d8c5a, 0x0ca9, 0x418f, {0x8a, 0xac, 0x1a, 0x9d, 0xc8, 0xe3, 0x28, 0x66}}},
+    { UUID_INTEL_USB_PROFILE, {0xfa142322, 0x166b, 0x4fd9, {0x89, 0xf0, 0x99, 0xbe, 0x90, 0xae, 0x8e, 0x3d}}},
+    { UUID_INTEL_CIQ, {0x6A2A8150, 0xABCA, 0x4b11, {0xA4, 0xE2, 0xF2, 0xFC, 0x87, 0x9F, 0x54, 0x81}}},
+    { UUID_ATDS, {0x5967bdcc, 0x7fd2, 0x49a2, {0x9f, 0x5c, 0xb2, 0xe7, 0x0e, 0x52, 0x7d, 0xb3}}},
+    { UUID_MULTIFLOW, {0x8d8f32d9, 0xf7c2, 0x4419, {0xb2, 0x8b, 0xde, 0xdc, 0xde, 0x20, 0x5e, 0xd8}}}
 };
 
 static const value_string mbim_service_id_vals[] = {
@@ -821,9 +963,20 @@ static const value_string mbim_service_id_vals[] = {
     { UUID_MULTICARRIER, "UUID_MULTICARRIER"},
     { UUID_MS_HOSTSHUTDOWN, "UUID_MS_HOSTSHUTDOWN"},
     { UUID_MSFWID, "UUID_MSFWID"},
-    { UUID_EXT_QMUX, "UUID_EXT_QMI"},
+    { UUID_QMI, "UUID_QMI"},
+    { UUID_INTEL_FWUSVC, "UUID_INTEL_FWUSVC"},
+    { UUID_INTEL_DPTF, "UUID_INTEL_DPTF"},
+    { UUID_INTEL_SAR, "UUID_INTEL_SAR"},
+    { UUID_INTEL_ACT, "UUID_INTEL_ACT"},
+    { UUID_INTEL_TRCSVC, "UUID_INTEL_TRCSVC"},
+    { UUID_INTEL_NRTC, "UUID_INTEL_NRTC"},
+    { UUID_INTEL_USB_PROFILE, "UUID_INTEL_USB_PROFILE"},
+    { UUID_INTEL_CIQ, "UUID_INTEL_CIQ"},
+    { UUID_ATDS, "UUID_ATDS"},
+    { UUID_MULTIFLOW, "UUID_MULTIFLOW"},
     { 0, NULL}
 };
+static value_string_ext mbim_service_id_vals_ext = VALUE_STRING_EXT_INIT(mbim_service_id_vals);
 
 #define MBIM_CID_DEVICE_CAPS                   1
 #define MBIM_CID_SUBSCRIBER_READY_STATUS       2
@@ -964,11 +1117,131 @@ static const value_string mbim_uuid_msfwid_cid_vals[] = {
     { 0, NULL}
 };
 
-#define MBIM_CID_QMI 1
+#define MBIM_CID_QMI_QMI 1
 
-static const value_string mbim_uuid_ext_qmux_cid_vals[] = {
-    { MBIM_CID_QMI, "QMI"},
+static const value_string mbim_uuid_qmi_cid_vals[] = {
+    { MBIM_CID_QMI_QMI, "QMI"},
     { 0, NULL}
+};
+
+#define MBIM_CID_INTC_MODEM_REBOOT 1
+
+static const value_string mbim_uuid_intel_fwusvc_cid_vals[] = {
+    { MBIM_CID_INTC_MODEM_REBOOT, "INTC_MODEM_REBOOT"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_THERMAL_STATE 0x02000100
+
+static const value_string mbim_uuid_intel_dptf_cid_vals[] = {
+    { MBIM_CID_INTC_THERMAL_STATE, "INTC_THERMAL_STATE"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_SAR_CONFIG 1
+
+static const value_string mbim_uuid_intel_sar_cid_vals[] = {
+    { MBIM_CID_INTC_SAR_CONFIG, "INTC_SAR_CONFIG"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_ADPCLK_MODE 0x02000010
+
+static const value_string mbim_uuid_intel_act_cid_vals[] = {
+    { MBIM_CID_INTC_ADPCLK_MODE, "INTC_ADPCLK_MODE"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_TRACE      1
+#define MBIM_CID_INTC_TRACE_DATA 2
+
+static const value_string mbim_uuid_intel_trcsvc_cid_vals[] = {
+    { MBIM_CID_INTC_TRACE, "INTC_TRACE"},
+    { MBIM_CID_INTC_TRACE_DATA, "INTC_TRACE_DATA"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_NRTAPP 1
+#define MBIM_CID_INTC_NRTCWS 2
+
+static const value_string mbim_uuid_intel_nrtc_cid_vals[] = {
+    { MBIM_CID_INTC_NRTAPP, "INTC_NRTAPP"},
+    { MBIM_CID_INTC_NRTCWS, "INTC_NRTCWS"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_USBPROFILE 1
+
+static const value_string mbim_uuid_intel_usb_profile_cid_vals[] = {
+    { MBIM_CID_INTC_USBPROFILE, "INTC_USBPROFILE"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_INTC_CIQ 1
+
+static const value_string mbim_uuid_intel_ciq_cid_vals[] = {
+    { MBIM_CID_INTC_CIQ, "INTC_CIQ"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_ATDS_SIGNAL                1
+#define MBIM_CID_ATDS_LOCATION              2
+#define MBIM_CID_ATDS_OPERATORS             3
+#define MBIM_CID_ATDS_RAT                   4
+#define MBIM_CID_ATDS_REGISTER_STATE        9
+#define MBIM_CID_ATDS_SET_PROJECTION_TABLES 10
+
+static const value_string mbim_uuid_atds_cid_vals[] = {
+    { MBIM_CID_ATDS_SIGNAL, "ATDS_SIGNAL"},
+    { MBIM_CID_ATDS_LOCATION, "ATDS_LOCATION"},
+    { MBIM_CID_ATDS_OPERATORS, "ATDS_OPERATORS"},
+    { MBIM_CID_ATDS_RAT, "ATDS_RAT"},
+    { MBIM_CID_ATDS_REGISTER_STATE, "ATDS_REGISTER_STATE"},
+    { MBIM_CID_ATDS_SET_PROJECTION_TABLES, "ATDS_SET_PROJECTION_TABLES"},
+    { 0, NULL}
+};
+
+#define MBIM_CID_MULTIFLOW_CAPS     1
+#define MBIM_CID_MULTIFLOW_UPLINK   2
+#define MBIM_CID_MULTIFLOW_DOWNLINK 3
+#define MBIM_CID_MULTIFLOW_TFT      4
+
+static const value_string mbim_uuid_multiflow_cid_vals[] = {
+    { MBIM_CID_MULTIFLOW_CAPS, "MULTIFLOW_CAPS"},
+    { MBIM_CID_MULTIFLOW_UPLINK, "MULTIFLOW_UPLINK"},
+    { MBIM_CID_MULTIFLOW_DOWNLINK, "MULTIFLOW_DOWNLINK"},
+    { MBIM_CID_MULTIFLOW_TFT, "MULTIFLOW_TFT"},
+    { 0, NULL}
+};
+
+struct mbim_uuid_info_ {
+    int *hf_entry;
+    const value_string *cid_list;
+    value_string_ext *cid_list_ext;
+};
+
+static const struct mbim_uuid_info_ mbim_uuid_info[UUID_MAX] = {
+    { &hf_mbim_uuid_basic_connect_cid, NULL, &mbim_uuid_basic_connect_cid_vals_ext}, /* UUID_BASIC_CONNECT */
+    { &hf_mbim_uuid_sms_cid, mbim_uuid_sms_cid_vals, NULL}, /* UUID_SMS */
+    { &hf_mbim_uuid_ussd_cid, mbim_uuid_ussd_cid_vals, NULL}, /* UUID_USSD */
+    { &hf_mbim_uuid_phonebook_cid, mbim_uuid_phonebook_cid_vals, NULL}, /* UUID_PHONEBOOK */
+    { &hf_mbim_uuid_stk_cid, mbim_uuid_stk_cid_vals, NULL}, /* UUID_STK */
+    { &hf_mbim_uuid_auth_cid, mbim_uuid_auth_cid_vals, NULL}, /* UUID_AUTH */
+    { &hf_mbim_uuid_dss_cid, mbim_uuid_dss_cid_vals, NULL}, /* UUID_DSS */
+    { &hf_mbim_uuid_multicarrier_cid, mbim_uuid_multicarrier_cid_vals, NULL}, /* UUID_MULTICARRIER */
+    { &hf_mbim_uuid_ms_hostshutdown_cid, mbim_uuid_ms_hostshutdown_cid_vals, NULL}, /* UUID_MS_HOSTSHUTDOWN */
+    { &hf_mbim_uuid_msfwid_cid, mbim_uuid_msfwid_cid_vals, NULL}, /* UUID_MSFWID */
+    { &hf_mbim_uuid_qmi_cid, mbim_uuid_qmi_cid_vals, NULL}, /* UUID_QMI */
+    { &hf_mbim_uuid_intel_fwusvc_cid, mbim_uuid_intel_fwusvc_cid_vals, NULL}, /* UUID_INTEL_FWUSVC */
+    { &hf_mbim_uuid_intel_dptf_cid, mbim_uuid_intel_dptf_cid_vals, NULL}, /* UUID_INTEL_DPTF */
+    { &hf_mbim_uuid_intel_sar_cid, mbim_uuid_intel_sar_cid_vals, NULL}, /* UUID_INTEL_SAR */
+    { &hf_mbim_uuid_intel_act_cid, mbim_uuid_intel_act_cid_vals, NULL}, /* UUID_INTEL_ACT */
+    { &hf_mbim_uuid_intel_trcsvc_cid, mbim_uuid_intel_trcsvc_cid_vals, NULL}, /* UUID_INTEL_TRCSVC */
+    { &hf_mbim_uuid_intel_nrtc_cid, mbim_uuid_intel_nrtc_cid_vals, NULL}, /* UUID_INTEL_NRTC */
+    { &hf_mbim_uuid_intel_usb_profile_cid, mbim_uuid_intel_usb_profile_cid_vals, NULL}, /* UUID_INTEL_USB_PROFILE */
+    { &hf_mbim_uuid_intel_ciq_cid, mbim_uuid_intel_ciq_cid_vals, NULL}, /* UUID_INTEL_CIQ */
+    { &hf_mbim_uuid_atds_cid, mbim_uuid_atds_cid_vals, NULL}, /* UUID_ATDS */
+    { &hf_mbim_uuid_multiflow_cid, mbim_uuid_multiflow_cid_vals, NULL} /* UUID_MULTIFLOW */
 };
 
 static const value_string mbim_device_caps_info_device_type_vals[] = {
@@ -1139,14 +1412,14 @@ mbim_rssi_fmt(gchar *s, guint32 val)
 }
 
 static const value_string mbim_error_rate_vals[] = {
-    {  0, "Frame error rate < 0.01%"},
-    {  1, "Frame error rate 0.01-0.1%"},
-    {  2, "Frame error rate 0.1-0.5%"},
-    {  3, "Frame error rate 0.5-1.0%"},
-    {  4, "Frame error rate 1.0-2.0%"},
-    {  5, "Frame error rate 2.0-4.0%"},
-    {  6, "Frame error rate 4.0-8.0%"},
-    {  7, "Frame error rate > 8.0%"},
+    {  0, "Frame error rate < 0.01%%"},
+    {  1, "Frame error rate 0.01-0.1%%"},
+    {  2, "Frame error rate 0.1-0.5%%"},
+    {  3, "Frame error rate 0.5-1.0%%"},
+    {  4, "Frame error rate 1.0-2.0%%"},
+    {  5, "Frame error rate 2.0-4.0%%"},
+    {  6, "Frame error rate 4.0-8.0%%"},
+    {  7, "Frame error rate > 8.0%%"},
     { 99, "Unknown or undetectable"},
     { 0, NULL}
 };
@@ -1738,7 +2011,7 @@ static const value_string mbim_geoid_vals[] = {
     { 0x9A55C4F, "Saint Barthelemy"},
     { 0x9A55D40, "U.S. Minor Outlying Islands"},
     { 0x9A55D42, "Bonaire, Saint Eustatius and Saba"},
-    {0, NULL}
+    { 0, NULL}
 };
 static value_string_ext mbim_geoid_vals_ext = VALUE_STRING_EXT_INIT(mbim_geoid_vals);
 
@@ -1746,6 +2019,193 @@ static const int *mbim_descriptor_network_capabilities_fields[] = {
     &hf_mbim_descriptor_network_capabilities_max_datagram_size,
     &hf_mbim_descriptor_network_capabilities_ntb_input_size,
     NULL
+};
+
+static const value_string mbim_thermal_config_enable_vals[] = {
+    { 0, "Disable"},
+    { 1, "Enable"},
+    { 0, NULL}
+};
+
+static const value_string mbim_sar_status_vals[] = {
+    { 0, "Disabled"},
+    { 1, "Enabled"},
+    { 0, NULL}
+};
+
+static void
+mbim_degrees_fmt(gchar *s, guint32 v)
+{
+    g_snprintf(s, ITEM_LABEL_LENGTH, "%.1f Celcius Degrees (%u)", (float)v/10.0, v);
+}
+
+static const value_string mbim_adpclk_activate_state_vals[] = {
+    { 0, "Deactivate"},
+    { 1, "Activate"},
+    { 0, NULL}
+};
+
+static const value_string mbim_connect_status_vals[] = {
+    { 0, "Disconnected from the Base Station"},
+    { 1, "Connected to the Base Station"},
+    { 0, NULL}
+};
+
+static const value_string mbim_trace_config_vals[] = {
+    { 0, "Tracing disabled"},
+    { 1, "Default configuration for tracing"},
+    { 0, NULL}
+};
+
+static const value_string mbim_ber_vals[] = {
+    { 0, "BER < 0,2%%"},
+    { 1, "0,2%% < BER < 0,4%%"},
+    { 2, "0,4%% < BER < 0,8%%"},
+    { 3, "0,8%% < BER < 1,6%%"},
+    { 4, "1,6%% < BER < 3,2%%"},
+    { 5, "3,2%% < BER < 6,4%%"},
+    { 6, "6,4%% < BER < 12,8%%"},
+    { 7, "12,8%% < BER"},
+    { 99, "Unknown or undetectable"},
+    { 0, NULL}
+};
+
+static void
+mbim_rscp_fmt(gchar *s, guint32 val)
+{
+    if (val == 0) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-120 or less dBm (0)");
+    } else if (val < 96) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "%d dBm (%u)", -120 + val, val);
+    } else if (val == 96) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-24 or greater dBm (96)");
+    } else if (val == 255) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Unknown or undetectable (255)");
+    } else {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Invalid value (%u)", val);
+    }
+}
+
+static void
+mbim_ecno_fmt(gchar *s, guint32 val)
+{
+    if (val == 0) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-24 or less dBm (0)");
+    } else if (val < 49) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "%.1f dBm (%u)", -24 + ((float)val/2), val);
+    } else if (val == 49) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "0.5 or greater dBm (49)");
+    } else if (val == 255) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Unknown or undetectable (255)");
+    } else {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Invalid value (%u)", val);
+    }
+}
+
+static void
+mbim_rsrq_fmt(gchar *s, guint32 val)
+{
+    if (val == 0) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-19.5 or less dBm (0)");
+    } else if (val < 34) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "%.1f dBm (%u)", -19.5 + ((float)val/2), val);
+    } else if (val == 34) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-2.5 or greater dBm (34)");
+    } else if (val == 255) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Unknown or undetectable (255)");
+    } else {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Invalid value (%u)", val);
+    }
+}
+
+static void
+mbim_rsrp_fmt(gchar *s, guint32 val)
+{
+    if (val == 0) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-140 or less dBm (0)");
+    } else if (val < 97) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "%d dBm (%u)", -140 + val, val);
+    } else if (val == 97) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-43 or greater dBm (97)");
+    } else if (val == 255) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Unknown or undetectable (255)");
+    } else {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Invalid value (%u)", val);
+    }
+}
+
+static void
+mbim_rssnr_fmt(gchar *s, guint32 val)
+{
+    if (val == 0) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "-5 or less dB (0)");
+    } else if (val < 35) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "%d dB (%u)", -5 + val, val);
+    } else if (val == 35) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "30 or greater dB (35)");
+    } else if (val == 255) {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Unknown or undetectable (255)");
+    } else {
+        g_snprintf(s, ITEM_LABEL_LENGTH, "Invalid value (%u)", val);
+    }
+}
+
+static const value_string mbim_atds_operator_plmn_mode_vals[] = {
+    { 0, "GSM"},
+    { 6, "UTRAN"},
+    { 7, "LTE"},
+    { 0, NULL}
+};
+
+static const value_string mbim_adts_rat_info_mode_vals[]= {
+    { 0, "Automatic"},
+    { 1, "2G only"},
+    { 2, "3G only"},
+    { 3, "4G only"},
+    { 0, NULL}
+};
+
+static const value_string mbim_adts_projection_table_type_vals[]= {
+    { 0, "RSSI"},
+    { 1, "RSCP"},
+    { 2, "Ec/No"},
+    { 3, "RSRP"},
+    { 7, "RS SNR"},
+    { 0, NULL}
+};
+
+static void
+mbim_projection_table_coeff_fmt(gchar *s, guint32 val)
+{
+    gint32 coeff = (gint32)val;
+
+    g_snprintf(s, ITEM_LABEL_LENGTH, "%.3f (%d)", ((float)coeff)/1000, coeff);
+}
+
+#define MBIM_NDP_CTRL_MULTIFLOW_STATUS 0
+
+static const value_string mbim_ndp_ctrl_msg_type_vals[] = {
+    { MBIM_NDP_CTRL_MULTIFLOW_STATUS, "MULTIFLOW_STATUS"},
+    { 0, NULL}
+};
+
+static const value_string mbim_ndp_ctrl_multiflow_status_vals[] = {
+    { 0, "OK"},
+    { 1, "High Watermark"},
+    { 2, "Low Watermark"},
+    { 0, NULL}
+};
+
+static const int *mbim_multiflow_caps_info_control_caps_fields[] = {
+    &hf_mbim_multiflow_caps_info_control_caps_uplink,
+    &hf_mbim_multiflow_caps_info_control_caps_downlink,
+    NULL
+};
+
+static const value_string mbim_multiflow_state_vals[] = {
+    { 0, "Off"},
+    { 1, "On"},
+    { 0, NULL}
 };
 
 static guint8
@@ -1758,13 +2218,13 @@ mbim_dissect_service_id_uuid(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
 
     tvb_get_ntohguid(tvb, *offset, &uuid);
 
-    for (i = 0; i < array_length(mbim_uuid_service_id_vals); i++) {
+    for (i = 0; i < UUID_MAX; i++) {
         if (memcmp(&uuid, &(mbim_uuid_service_id_vals[i].uuid), sizeof(e_guid_t)) == 0) {
             break;
         }
     }
 
-    if ((i == array_length(mbim_uuid_service_id_vals)) && mbim_uuid_ext_hash && uuid_ext_info) {
+    if ((i == UUID_MAX) && mbim_uuid_ext_hash && uuid_ext_info) {
         /* Let's check if UUID is known in extension table */
         uuid_ext[0] = tvb_get_ntohl(tvb, *offset);
         uuid_ext[1] = tvb_get_ntohl(tvb, *offset + 4);
@@ -1781,7 +2241,8 @@ mbim_dissect_service_id_uuid(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
     }
 
     proto_tree_add_guid_format_value(tree, hf, tvb, *offset, 16, &uuid, "%s (%s)",
-                                     val_to_str_const(i, mbim_service_id_vals, "Unknown"), guid_to_str(wmem_packet_scope(), &uuid));
+                                     val_to_str_ext_const(i, &mbim_service_id_vals_ext, "Unknown"),
+                                     guid_to_str(wmem_packet_scope(), &uuid));
     *offset += 16;
 
     return i;
@@ -1794,64 +2255,22 @@ mbim_dissect_cid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint *offs
     guint32 cid;
 
     cid = tvb_get_letohl(tvb, *offset);
-    switch (uuid_idx) {
-        case UUID_BASIC_CONNECT:
-            proto_tree_add_uint(tree, hf_mbim_uuid_basic_connect_cid, tvb, *offset, 4, cid);
+    if (uuid_idx < UUID_MAX) {
+        proto_tree_add_uint(tree, *mbim_uuid_info[uuid_idx].hf_entry, tvb, *offset, 4, cid);
+        if (mbim_uuid_info[uuid_idx].cid_list_ext) {
             col_append_fstr(pinfo->cinfo, COL_INFO, ": %s",
-                            val_to_str_ext_const(cid, &mbim_uuid_basic_connect_cid_vals_ext, "Unknown"));
-            break;
-        case UUID_SMS:
-            proto_tree_add_uint(tree, hf_mbim_uuid_sms_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_sms_cid_vals, "Unknown"));
-            break;
-        case UUID_USSD:
-            proto_tree_add_uint(tree, hf_mbim_uuid_ussd_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_ussd_cid_vals, "Unknown"));
-            break;
-        case UUID_PHONEBOOK:
-            proto_tree_add_uint(tree, hf_mbim_uuid_phonebook_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_phonebook_cid_vals, "Unknown"));
-            break;
-        case UUID_STK:
-            proto_tree_add_uint(tree, hf_mbim_uuid_stk_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_stk_cid_vals, "Unknown"));
-            break;
-        case UUID_AUTH:
-            proto_tree_add_uint(tree, hf_mbim_uuid_auth_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_auth_cid_vals, "Unknown"));
-            break;
-        case UUID_DSS:
-            proto_tree_add_uint(tree, hf_mbim_uuid_dss_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_dss_cid_vals, "Unknown"));
-            break;
-        case UUID_MULTICARRIER:
-            proto_tree_add_uint(tree, hf_mbim_uuid_multicarrier_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_multicarrier_cid_vals, "Unknown"));
-            break;
-        case UUID_MS_HOSTSHUTDOWN:
-            proto_tree_add_uint(tree, hf_mbim_uuid_ms_hostshutdown_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_ms_hostshutdown_cid_vals, "Unknown"));
-            break;
-        case UUID_MSFWID:
-            proto_tree_add_uint(tree, hf_mbim_uuid_msfwid_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_msfwid_cid_vals, "Unknown"));
-            break;
-        case UUID_EXT_QMUX:
-            proto_tree_add_uint(tree, hf_mbim_uuid_ext_qmux_cid, tvb, *offset, 4, cid);
-            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_ext_qmux_cid_vals, "Unknown"));
-            break;
-        case UUID_EXT_IDX:
-            {
-                const gchar* cid_string = val_to_str_const(cid, uuid_ext_info->uuid_cid_list, "Unknown");
+                            val_to_str_ext_const(cid, mbim_uuid_info[uuid_idx].cid_list_ext, "Unknown"));
+        } else {
+            col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", val_to_str_const(cid, mbim_uuid_info[uuid_idx].cid_list, "Unknown"));
+        }
+    } else if (uuid_idx == UUID_EXT_IDX) {
+        const gchar* cid_string = val_to_str_const(cid, uuid_ext_info->uuid_cid_list, "Unknown");
 
-                proto_tree_add_uint_format_value(tree, hf_mbim_cid, tvb, *offset, 4, cid, "%s (%u)", cid_string , cid);
-                col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", cid_string);
-            }
-            break;
-        default:
-            proto_tree_add_uint(tree, hf_mbim_cid, tvb, *offset, 4, cid);
-            col_append_str(pinfo->cinfo, COL_INFO, ": Unknown");
-            break;
+        proto_tree_add_uint_format_value(tree, hf_mbim_cid, tvb, *offset, 4, cid, "%s (%u)", cid_string , cid);
+        col_append_fstr(pinfo->cinfo, COL_INFO, ": %s", cid_string);
+    } else {
+        proto_tree_add_uint(tree, hf_mbim_cid, tvb, *offset, 4, cid);
+        col_append_str(pinfo->cinfo, COL_INFO, ": Unknown");
     }
     *offset += 4;
     return cid;
@@ -1941,10 +2360,11 @@ mbim_dissect_subscriber_ready_status(tvbuff_t *tvb, packet_info *pinfo _U_, prot
                                      struct mbim_conv_info *mbim_conv)
 {
     proto_tree *subtree;
-    gint base_offset, tel_nb_ref_list_offset = 0;
-    guint32 i, subscriber_id_offset, subscriber_id_size, sim_icc_id_offset, sim_icc_id_size, elem_count,
-            tel_nb_offset, tel_nb_size;
+    gint base_offset;
+    guint32 i, subscriber_id_offset, subscriber_id_size, sim_icc_id_offset, sim_icc_id_size, elem_count;
     proto_item *it;
+    wmem_array_t *pair_list = NULL;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item(tree, hf_mbim_subscr_ready_status_ready_state, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -1962,13 +2382,14 @@ mbim_dissect_subscriber_ready_status(tvbuff_t *tvb, packet_info *pinfo _U_, prot
     proto_tree_add_item_ret_uint(tree, hf_mbim_subscr_ready_status_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
     offset += 4;
     if (elem_count) {
-        tel_nb_ref_list_offset = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "Telephone Numbers Ref List");
         for (i = 0; i < elem_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_subscr_ready_status_tel_nb_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_subscr_ready_status_tel_nb_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_subscr_ready_status_tel_nb_size, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_subscr_ready_status_tel_nb_size, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
     }
     if (subscriber_id_offset && subscriber_id_size) {
@@ -1988,12 +2409,11 @@ mbim_dissect_subscriber_ready_status(tvbuff_t *tvb, packet_info *pinfo _U_, prot
         }
     }
     for (i = 0; i < elem_count; i++) {
-        tel_nb_offset = tvb_get_letohl(tvb, tel_nb_ref_list_offset + 8*i);
-        tel_nb_size = tvb_get_letohl(tvb, tel_nb_ref_list_offset + 8*i + 4);
-        if (tel_nb_offset && tel_nb_size) {
-            it = proto_tree_add_item(tree, hf_mbim_subscr_ready_status_tel_nb, tvb, base_offset + tel_nb_offset,
-                                     tel_nb_size, ENC_LITTLE_ENDIAN|ENC_UTF_16);
-            if (tel_nb_size > 44) {
+        p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+        if (p_pair_list_item->offset && p_pair_list_item->size) {
+            it = proto_tree_add_item(tree, hf_mbim_subscr_ready_status_tel_nb, tvb, base_offset + p_pair_list_item->offset,
+                                     p_pair_list_item->size, ENC_LITTLE_ENDIAN|ENC_UTF_16);
+            if (p_pair_list_item->size > 44) {
                 expert_add_info(pinfo, it, &ei_mbim_oversized_string);
             }
         }
@@ -2117,28 +2537,29 @@ mbim_dissect_providers(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, elem_count, providers_list_offset, provider_offset, provider_size;
-
+    guint32 i, elem_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item_ret_uint(tree, hf_mbim_providers_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
     offset += 4;
     if (elem_count) {
-        providers_list_offset = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "Providers Ref List");
         for (i = 0; i < elem_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_providers_provider_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_providers_provider_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_providers_provider_size, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_providers_provider_size, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < elem_count; i++) {
-            provider_offset = tvb_get_letohl(tvb, providers_list_offset + 8*i);
-            provider_size = tvb_get_letohl(tvb, providers_list_offset + 8*i + 4);
-            if (provider_offset && provider_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + provider_offset, provider_size,
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset, p_pair_list_item->size,
                             ett_mbim_pair_list, NULL, "Provider #%u", i+1);
-                mbim_dissect_provider(tvb, pinfo, subtree, base_offset + provider_offset);
+                mbim_dissect_provider(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
             }
         }
     }
@@ -2236,7 +2657,6 @@ mbim_dissect_registration_state_info(tvbuff_t *tvb, packet_info *pinfo _U_, prot
 static void
 mbim_dissect_packet_service_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
 {
-    proto_item *ti;
     guint32 nw_error;
 
     nw_error = tvb_get_letohl(tvb, offset);
@@ -2251,22 +2671,18 @@ mbim_dissect_packet_service_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tr
     proto_tree_add_bitmask(tree, tvb, offset, hf_mbim_packet_service_info_highest_available_data_class, ett_mbim_bitmap,
                            mbim_data_class_fields, ENC_LITTLE_ENDIAN);
     offset += 4;
-    ti = proto_tree_add_item(tree, hf_mbim_packet_service_info_uplink_speed, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-    proto_item_append_text(ti, " b/s");
+    proto_tree_add_item(tree, hf_mbim_packet_service_info_uplink_speed, tvb, offset, 8, ENC_LITTLE_ENDIAN);
     offset += 8;
-    ti = proto_tree_add_item(tree, hf_mbim_packet_service_info_downlink_speed, tvb, offset, 8, ENC_LITTLE_ENDIAN);
-    proto_item_append_text(ti, " b/s");
+    proto_tree_add_item(tree, hf_mbim_packet_service_info_downlink_speed, tvb, offset, 8, ENC_LITTLE_ENDIAN);
     /*offset += 8;*/
 }
 
 static void
 mbim_dissect_set_signal_state(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
 {
-    proto_item *ti;
     guint32 error_rate_threshold;
 
-    ti = proto_tree_add_item(tree, hf_mbim_set_signal_state_signal_strength_interval, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-    proto_item_append_text(ti, " s");
+    proto_tree_add_item(tree, hf_mbim_set_signal_state_signal_strength_interval, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
     proto_tree_add_item(tree, hf_mbim_set_signal_state_rssi_threshold, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
@@ -2282,15 +2698,13 @@ mbim_dissect_set_signal_state(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree 
 static void
 mbim_dissect_signal_state_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
 {
-    proto_item *ti;
     guint32 error_rate_threshold;
 
     proto_tree_add_item(tree, hf_mbim_signal_state_info_rssi, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
     proto_tree_add_item(tree, hf_mbim_signal_state_info_error_rate, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
-    ti = proto_tree_add_item(tree, hf_mbim_signal_state_info_signal_strength_interval, tvb, offset, 4, ENC_LITTLE_ENDIAN);
-    proto_item_append_text(ti, " s");
+    proto_tree_add_item(tree, hf_mbim_signal_state_info_signal_strength_interval, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
     proto_tree_add_item(tree, hf_mbim_signal_state_info_rssi_threshold, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
@@ -2469,29 +2883,31 @@ mbim_dissect_provisioned_contexts_info(tvbuff_t *tvb, packet_info *pinfo, proto_
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, elem_count, provisioned_contexts_list_offset, provisioned_context_offset, provisioned_context_size;
+    guint32 i, elem_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item_ret_uint(tree, hf_mbim_provisioned_contexts_info_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
     offset += 4;
     if (elem_count) {
-        provisioned_contexts_list_offset = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "Provisioned Context Ref List");
         for (i = 0; i < elem_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_provisioned_contexts_info_provisioned_context_offset,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_provisioned_contexts_info_provisioned_context_offset,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_provisioned_contexts_info_provisioned_context_size,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_provisioned_contexts_info_provisioned_context_size,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < elem_count; i++) {
-            provisioned_context_offset = tvb_get_letohl(tvb, provisioned_contexts_list_offset + 8*i);
-            provisioned_context_size = tvb_get_letohl(tvb, provisioned_contexts_list_offset + 8*i + 4);
-            if (provisioned_context_offset && provisioned_context_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + provisioned_context_offset,
-                                         provisioned_context_size, ett_mbim_pair_list, NULL, "Provisioned Context #%u", i+1);
-                mbim_dissect_context(tvb, pinfo, subtree, base_offset + provisioned_context_offset, FALSE);
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset,
+                                         p_pair_list_item->size, ett_mbim_pair_list, NULL, "Provisioned Context #%u", i+1);
+                mbim_dissect_context(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset, FALSE);
             }
         }
     }
@@ -2627,58 +3043,19 @@ mbim_dissect_device_service_element(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     offset += 4;
     for (i = 0; i < cid_count; i++) {
         cid = tvb_get_letohl(tvb, offset);
-        switch (uuid_idx) {
-            case UUID_BASIC_CONNECT:
+        if (uuid_idx < UUID_MAX) {
+            if (mbim_uuid_info[uuid_idx].cid_list_ext) {
                 proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_ext_const(cid, &mbim_uuid_basic_connect_cid_vals_ext, "Unknown"), cid);
-                break;
-            case UUID_SMS:
+                                                 val_to_str_ext_const(cid, mbim_uuid_info[uuid_idx].cid_list_ext, "Unknown"), cid);
+            } else {
                 proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_sms_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_USSD:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_ussd_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_PHONEBOOK:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_phonebook_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_STK:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_stk_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_AUTH:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_auth_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_DSS:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_dss_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_MULTICARRIER:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_multicarrier_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_MS_HOSTSHUTDOWN:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_ms_hostshutdown_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_MSFWID:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_msfwid_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_EXT_QMUX:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_ext_qmux_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_EXT_IDX:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, uuid_ext_info->uuid_cid_list, "Unknown"), cid);
-                break;
-            default:
-                proto_tree_add_uint(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid);
-                break;
+                                                 val_to_str_const(cid, mbim_uuid_info[uuid_idx].cid_list, "Unknown"), cid);
+            }
+        } else if (uuid_idx == UUID_EXT_IDX) {
+            proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
+                                             val_to_str_const(cid, uuid_ext_info->uuid_cid_list, "Unknown"), cid);
+        } else {
+            proto_tree_add_uint(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid);
         }
         offset += 4;
     }
@@ -2689,8 +3066,9 @@ mbim_dissect_device_services_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, device_services_count, device_services_ref_list_base, device_service_elem_offset,
-            device_service_elem_size;
+    guint32 i, device_services_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item_ret_uint(tree, hf_mbim_device_services_info_device_services_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &device_services_count);
@@ -2698,23 +3076,23 @@ mbim_dissect_device_services_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     proto_tree_add_item(tree, hf_mbim_device_services_info_max_dss_sessions, tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
     if (device_services_count) {
-        device_services_ref_list_base = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*device_services_count, ett_mbim_pair_list, NULL, "Device Services Ref List");
         for (i = 0; i < device_services_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_device_services_info_device_services_offset,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_device_services_info_device_services_offset,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_device_services_info_device_services_size,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_device_services_info_device_services_size,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < device_services_count; i++) {
-            device_service_elem_offset = tvb_get_letohl(tvb, device_services_ref_list_base + 8*i);
-            device_service_elem_size = tvb_get_letohl(tvb, device_services_ref_list_base + 8*i + 4);
-            if (device_service_elem_offset && device_service_elem_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + device_service_elem_offset,
-                                         device_service_elem_size, ett_mbim_pair_list, NULL, "Device Service Element #%u", i+1);
-                mbim_dissect_device_service_element(tvb, pinfo, subtree, base_offset + device_service_elem_offset);
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset,
+                                         p_pair_list_item->size, ett_mbim_pair_list, NULL, "Device Service Element #%u", i+1);
+                mbim_dissect_device_service_element(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
             }
         }
     }
@@ -2732,58 +3110,19 @@ mbim_dissect_event_entry(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gi
     offset += 4;
     for (i = 0; i < cid_count; i++) {
         cid = tvb_get_letohl(tvb, offset);
-        switch (uuid_idx) {
-            case UUID_BASIC_CONNECT:
+        if (uuid_idx < UUID_MAX) {
+            if (mbim_uuid_info[uuid_idx].cid_list_ext) {
                 proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_ext_const(cid, &mbim_uuid_basic_connect_cid_vals_ext, "Unknown"), cid);
-                break;
-            case UUID_SMS:
+                                                 val_to_str_ext_const(cid, mbim_uuid_info[uuid_idx].cid_list_ext, "Unknown"), cid);
+            } else {
                 proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_sms_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_USSD:
-                proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_ussd_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_PHONEBOOK:
-                proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_phonebook_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_STK:
-                proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_stk_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_AUTH:
-                proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_auth_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_DSS:
-                proto_tree_add_uint_format_value(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_dss_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_MULTICARRIER:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_multicarrier_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_MS_HOSTSHUTDOWN:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_ms_hostshutdown_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_MSFWID:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_msfwid_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_EXT_QMUX:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, mbim_uuid_ext_qmux_cid_vals, "Unknown"), cid);
-                break;
-            case UUID_EXT_IDX:
-                proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
-                                                 val_to_str_const(cid, uuid_ext_info->uuid_cid_list, "Unknown"), cid);
-                break;
-            default:
-                proto_tree_add_uint(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid);
-                break;
+                                                 val_to_str_const(cid, mbim_uuid_info[uuid_idx].cid_list, "Unknown"), cid);
+            }
+        } else if (uuid_idx == UUID_EXT_IDX) {
+            proto_tree_add_uint_format_value(tree, hf_mbim_device_service_element_cid, tvb, offset, 4, cid, "%s (%u)",
+                                             val_to_str_const(cid, uuid_ext_info->uuid_cid_list, "Unknown"), cid);
+        } else {
+            proto_tree_add_uint(tree, hf_mbim_event_entry_cid, tvb, offset, 4, cid);
         }
         offset += 4;
     }
@@ -2794,30 +3133,31 @@ mbim_dissect_device_service_subscribe_list(tvbuff_t *tvb, packet_info *pinfo, pr
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, element_count, device_service_subscribe_ref_list_base, device_service_elem_offset,
-            device_service_elem_size;
+    guint32 i, element_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item_ret_uint(tree, hf_mbim_device_service_subscribe_element_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &element_count);
     offset += 4;
     if (element_count) {
-        device_service_subscribe_ref_list_base = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*element_count, ett_mbim_pair_list, NULL, "Device Service Subscribe Ref List");
         for (i = 0; i < element_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_device_service_subscribe_device_service_offset,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_device_service_subscribe_device_service_offset,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_device_service_subscribe_device_service_size,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_device_service_subscribe_device_service_size,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < element_count; i++) {
-            device_service_elem_offset = tvb_get_letohl(tvb, device_service_subscribe_ref_list_base + 8*i);
-            device_service_elem_size = tvb_get_letohl(tvb, device_service_subscribe_ref_list_base + 8*i + 4);
-            if (device_service_elem_offset && device_service_elem_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + device_service_elem_offset,
-                                         device_service_elem_size, ett_mbim_pair_list, NULL, "Device Service Element #%u", i+1);
-                mbim_dissect_event_entry(tvb, pinfo, subtree, base_offset + device_service_elem_offset);
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset,
+                                         p_pair_list_item->size, ett_mbim_pair_list, NULL, "Device Service Element #%u", i+1);
+                mbim_dissect_event_entry(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
             }
         }
     }
@@ -2873,7 +3213,9 @@ mbim_dissect_packet_filters(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, packet_filters_count, packet_filter_ref_list_base, packet_filter_offset, packet_filter_size;
+    guint32 i, packet_filters_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item(tree, hf_mbim_packet_filters_session_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
@@ -2881,23 +3223,23 @@ mbim_dissect_packet_filters(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     proto_tree_add_item_ret_uint(tree, hf_mbim_packet_filters_packet_filters_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &packet_filters_count);
     offset += 4;
     if (packet_filters_count) {
-        packet_filter_ref_list_base = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*packet_filters_count, ett_mbim_pair_list, NULL, "Packet Filter Ref List");
         for (i = 0; i < packet_filters_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_packet_filters_packet_filters_packet_filter_offset,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_packet_filters_packet_filters_packet_filter_offset,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_packet_filters_packet_filters_packet_filter_size,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_packet_filters_packet_filters_packet_filter_size,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < packet_filters_count; i++) {
-            packet_filter_offset = tvb_get_letohl(tvb, packet_filter_ref_list_base + 8*i);
-            packet_filter_size = tvb_get_letohl(tvb, packet_filter_ref_list_base + 8*i + 4);
-            if (packet_filter_offset && packet_filter_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + packet_filter_offset,
-                                         packet_filter_size, ett_mbim_pair_list, NULL, "Packet Filter Element #%u", i+1);
-                mbim_dissect_single_packet_filter(tvb, pinfo, subtree, base_offset + packet_filter_offset);
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset,
+                                         p_pair_list_item->size, ett_mbim_pair_list, NULL, "Packet Filter Element #%u", i+1);
+                mbim_dissect_single_packet_filter(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
             }
         }
     }
@@ -3124,7 +3466,9 @@ mbim_dissect_sms_read_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, format, element_count, sms_ref_list_base, sms_offset, sms_size;
+    guint32 i, format, element_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item_ret_uint(tree, hf_mbim_sms_read_info_format, tvb, offset, 4, ENC_LITTLE_ENDIAN, &format);
@@ -3132,29 +3476,29 @@ mbim_dissect_sms_read_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, 
     proto_tree_add_item_ret_uint(tree, hf_mbim_sms_read_info_element_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &element_count);
     offset += 4;
     if (element_count) {
-        sms_ref_list_base = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*element_count, ett_mbim_pair_list, NULL, "SMS Ref List");
         for (i = 0; i < element_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_sms_read_info_sms_offset,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_sms_read_info_sms_offset,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_sms_read_info_sms_size,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_sms_read_info_sms_size,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < element_count; i++) {
-            sms_offset = tvb_get_letohl(tvb, sms_ref_list_base + 8*i);
-            sms_size = tvb_get_letohl(tvb, sms_ref_list_base + 8*i + 4);
-            if (sms_offset && sms_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + sms_offset,
-                                         sms_size, ett_mbim_pair_list, NULL, "SMS Element #%u", i+1);
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset,
+                                         p_pair_list_item->size, ett_mbim_pair_list, NULL, "SMS Element #%u", i+1);
                 if (format == MBIM_SMS_FORMAT_PDU) {
-                    mbim_dissect_sms_pdu_record(tvb, pinfo, subtree, base_offset + sms_offset, mbim_conv);
+                    mbim_dissect_sms_pdu_record(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset, mbim_conv);
                 } else if (format == MBIM_SMS_FORMAT_CDMA) {
-                    mbim_dissect_sms_cdma_record(tvb, pinfo, subtree, base_offset + sms_offset);
+                    mbim_dissect_sms_cdma_record(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
                 } else {
                     proto_tree_add_expert(subtree, pinfo, &ei_mbim_unknown_sms_format, tvb,
-                                          base_offset + sms_offset, sms_size);
+                                          base_offset + p_pair_list_item->offset, p_pair_list_item->size);
                 }
             }
         }
@@ -3429,29 +3773,31 @@ mbim_dissect_phonebook_read_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 {
     proto_tree *subtree;
     gint base_offset;
-    guint32 i, element_count, phonebook_ref_list_base, phonebook_offset, phonebook_size;
+    guint32 i, element_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
 
     base_offset = offset;
     proto_tree_add_item_ret_uint(tree, hf_mbim_phonebook_read_info_element_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &element_count);
     offset += 4;
     if (element_count) {
-        phonebook_ref_list_base = offset;
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
         subtree = proto_tree_add_subtree(tree, tvb, offset, 8*element_count, ett_mbim_pair_list, NULL, "Phonebook Ref List");
         for (i = 0; i < element_count; i++) {
-            proto_tree_add_item(subtree, hf_mbim_phonebook_read_info_phonebook_offset,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_phonebook_read_info_phonebook_offset,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
             offset += 4;
-            proto_tree_add_item(subtree, hf_mbim_phonebook_read_info_phonebook_size,
-                                tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_phonebook_read_info_phonebook_size,
+                                tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
             offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
         }
         for (i = 0; i < element_count; i++) {
-            phonebook_offset = tvb_get_letohl(tvb, phonebook_ref_list_base + 8*i);
-            phonebook_size = tvb_get_letohl(tvb, phonebook_ref_list_base + 8*i + 4);
-            if (phonebook_offset && phonebook_size) {
-                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + phonebook_offset,
-                                         phonebook_size, ett_mbim_pair_list, NULL, "Phonebook Element #%u", i+1);
-                mbim_dissect_phonebook_entry(tvb, pinfo, subtree, base_offset + phonebook_offset);
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset,
+                                         p_pair_list_item->size, ett_mbim_pair_list, NULL, "Phonebook Element #%u", i+1);
+                mbim_dissect_phonebook_entry(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
             }
         }
     }
@@ -3763,6 +4109,353 @@ mbim_dissect_muticarrier_current_cid_list_info(tvbuff_t *tvb, packet_info *pinfo
         proto_tree_add_item(tree, hf_mbim_multicarrier_current_cid_list_info_cid,
                             tvb, offset, 4, ENC_LITTLE_ENDIAN);
         offset += 4;
+    }
+}
+
+static void
+mbim_dissect_thermal_config(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
+{
+    int i;
+    proto_tree *subtree;
+
+    for (i = 0; i < 4; i++) {
+        subtree = proto_tree_add_subtree_format(tree, tvb, offset, 24, ett_mbim_thermal_threshold_setting, NULL, "Threshold %u", i);
+        proto_tree_add_item(subtree, hf_mbim_thermal_config_enable, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+        proto_tree_add_item(subtree, hf_mbim_thermal_config_temp_sensor_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+        proto_tree_add_item(subtree, hf_mbim_thermal_config_alarm_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+        proto_tree_add_item(subtree, hf_mbim_thermal_config_threshold_value, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+        proto_tree_add_item(subtree, hf_mbim_thermal_config_hyst_value, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+        proto_tree_add_item(subtree, hf_mbim_thermal_config_sampling_period, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+    }
+}
+
+static void
+mbim_dissect_thermal_state_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
+{
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_current_temp_value, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_enable, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_temp_sensor_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_alarm_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_threshold_value, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_hyst_value, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_thermal_state_info_sampling_period, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+}
+
+static void
+mbim_dissect_sar_config(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset, guint32 buffer_len)
+{
+    proto_tree_add_item(tree, hf_mbim_sar_config_sar_status, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    if (buffer_len > 4) {
+        proto_tree_add_item(tree, hf_mbim_sar_config_level, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    }
+}
+
+static void
+mbim_dissect_adpclk_freq_value(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset, guint32 buffer_len)
+{
+    proto_tree_add_item(tree, hf_mbim_adpclk_freq_info_adpclk_freq_value_center_freq, tvb, offset, 8, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_adpclk_freq_info_adpclk_freq_value_freq_spread, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    if (buffer_len > 8) {
+        proto_tree_add_item(tree, hf_mbim_adpclk_freq_info_adpclk_freq_value_noise_power, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+        offset += 4;
+        if (buffer_len > 12) {
+            proto_tree_add_item(tree, hf_mbim_adpclk_freq_info_adpclk_freq_value_rssi, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            offset += 4;
+            if (buffer_len > 16) {
+                proto_tree_add_item(tree, hf_mbim_adpclk_freq_info_adpclk_freq_value_connect_status, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+            }
+        }
+    }
+}
+
+static void
+mbim_dissect_adpclk_freq_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    proto_tree *subtree;
+    gint base_offset;
+    guint32 i, elem_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
+
+    base_offset = offset;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_adpclk_freq_info_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
+    offset += 4;
+    if (elem_count) {
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
+        subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "Element Offset Length Pair");
+        for (i = 0; i < elem_count; i++) {
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_adpclk_freq_info_adpclk_freq_value_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
+            offset += 4;
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_adpclk_freq_info_adpclk_freq_value_size, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
+            offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
+        }
+        for (i = 0; i < elem_count; i++) {
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset, p_pair_list_item->size,
+                            ett_mbim_pair_list, NULL, "ADPCLK Freq Value #%u", i+1);
+                mbim_dissect_adpclk_freq_value(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset, p_pair_list_item->size);
+            }
+        }
+    }
+}
+
+static void
+mbim_dissect_nrtcws_config(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset, guint32 buffer_len)
+{
+    proto_tree_add_item(tree, hf_mbim_nrtcws_config_mode, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    if (buffer_len > 2) {
+        proto_tree_add_item(tree, hf_mbim_nrtcws_config_wlan_active, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_mbim_nrtcws_config_wlan_safe_rx, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_mbim_nrtcws_config_wlan_bandwidth, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_mbim_nrtcws_config_bt_active, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+        offset += 2;
+        proto_tree_add_item(tree, hf_mbim_nrtcws_config_bt_safe_rx, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    }
+}
+
+static void
+mbim_dissect_nrtcws_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
+{
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_lte_active, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_wlan_safe_rx_min, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_wlan_safe_rx_max, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_bt_safe_rx_min, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_bt_safe_rx_max, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_lte_sps_period, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_lte_sps_duration, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(tree, hf_mbim_nrtcws_info_lte_sps_initial_offset, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+}
+
+static void
+mbim_dissect_atds_signal_info(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
+{
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_rssi, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_ber, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_rscp, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_ecno, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_rsrq, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_rsrp, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_signal_info_rssnr, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+}
+
+static void
+mbim_dissect_atds_operator(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
+{
+    gint base_offset;
+    guint32 provider_id_offset, provider_id_size, provider_name_offset, provider_name_size;
+    proto_item *it;
+
+    base_offset = offset;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_atds_operator_provider_id_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &provider_id_offset);
+    offset += 4;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_atds_operator_provider_id_size, tvb, offset, 4, ENC_LITTLE_ENDIAN, &provider_id_size);
+    offset += 4;
+    proto_tree_add_bitmask(tree, tvb, offset, hf_mbim_atds_operator_provider_state, ett_mbim_bitmap,
+                           mbim_provider_state_fields, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_atds_operator_provider_name_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &provider_name_offset);
+    offset += 4;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_atds_operator_provider_name_size, tvb, offset, 4, ENC_LITTLE_ENDIAN, &provider_name_size);
+    offset += 4;
+    proto_tree_add_item (tree, hf_mbim_atds_operator_plmn_mode, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item (tree, hf_mbim_atds_operator_rssi, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item (tree, hf_mbim_atds_operator_error_rate, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    if (provider_id_offset && provider_id_size) {
+        it = proto_tree_add_item(tree, hf_mbim_atds_operator_provider_id, tvb, base_offset + provider_id_offset,
+                                 provider_id_size, ENC_LITTLE_ENDIAN|ENC_UTF_16);
+        if (provider_id_size > 12) {
+            expert_add_info(pinfo, it, &ei_mbim_oversized_string);
+        }
+    }
+    if (provider_name_offset && provider_name_size) {
+        it = proto_tree_add_item(tree, hf_mbim_atds_operator_provider_name, tvb, base_offset + provider_name_offset,
+                                 provider_name_size, ENC_LITTLE_ENDIAN|ENC_UTF_16);
+        if (provider_name_size > 40) {
+            expert_add_info(pinfo, it, &ei_mbim_oversized_string);
+        }
+    }
+}
+
+static void
+mbim_dissect_atds_operators(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    proto_tree *subtree;
+    gint base_offset;
+    guint32 i, elem_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
+
+    base_offset = offset;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_atds_operators_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
+    offset += 4;
+    if (elem_count) {
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
+        subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "Operators List");
+        for (i = 0; i < elem_count; i++) {
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_atds_operators_operator_offset, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
+            offset += 4;
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_atds_operators_operator_size, tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
+            offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
+        }
+        for (i = 0; i < elem_count; i++) {
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset, p_pair_list_item->size,
+                            ett_mbim_pair_list, NULL, "Operator #%u", i+1);
+                mbim_dissect_atds_operator(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
+            }
+        }
+    }
+}
+
+static void
+mbim_dissect_atds_projection_table(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, gint offset)
+{
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_type, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_bar5min, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_a5, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_b5, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_bar4min, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_a4, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_b4, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_bar3min, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_a3, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_b3, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_bar2min, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_a2, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_b2, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_bar1min, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_a1, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_b1, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_bar0min, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_a0, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item(tree, hf_mbim_atds_projection_table_b0, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+}
+
+static void
+mbim_dissect_atds_projection_tables(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    proto_tree *subtree;
+    gint base_offset;
+    guint32 i, elem_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
+
+    base_offset = offset;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_atds_projection_tables_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
+    offset += 4;
+    if (elem_count) {
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
+        subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "Projection Tables List");
+        for (i = 0; i < elem_count; i++) {
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_atds_projection_tables_projection_table_offset,
+                                         tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
+            offset += 4;
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_atds_projection_tables_projection_table_size,
+                                         tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
+            offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
+        }
+        for (i = 0; i < elem_count; i++) {
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset, p_pair_list_item->size,
+                            ett_mbim_pair_list, NULL, "Projection Table #%u", i+1);
+                mbim_dissect_atds_projection_table(tvb, pinfo, subtree, base_offset + p_pair_list_item->offset);
+            }
+        }
+    }
+}
+
+static void
+mbim_dissect_multiflow_tft_info(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset)
+{
+    proto_tree *subtree;
+    gint base_offset;
+    guint32 i, elem_count;
+    wmem_array_t *pair_list;
+    struct mbim_pair_list pair_list_item, *p_pair_list_item;
+
+    base_offset = offset;
+    proto_tree_add_item(tree, hf_mbim_multiflow_tft_info_session_id, tvb, offset, 4, ENC_LITTLE_ENDIAN);
+    offset += 4;
+    proto_tree_add_item_ret_uint(tree, hf_mbim_multiflow_tft_info_elem_count, tvb, offset, 4, ENC_LITTLE_ENDIAN, &elem_count);
+    offset += 4;
+    if (elem_count) {
+        pair_list = wmem_array_new(wmem_packet_scope(), sizeof(struct mbim_pair_list));
+        subtree = proto_tree_add_subtree(tree, tvb, offset, 8*elem_count, ett_mbim_pair_list, NULL, "TFT List");
+        for (i = 0; i < elem_count; i++) {
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_multiflow_tft_info_tft_list_offset,
+                                         tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.offset);
+            offset += 4;
+            proto_tree_add_item_ret_uint(subtree, hf_mbim_multiflow_tft_info_tft_list_size,
+                                         tvb, offset, 4, ENC_LITTLE_ENDIAN, &pair_list_item.size);
+            offset += 4;
+            wmem_array_append_one(pair_list, pair_list_item);
+        }
+        for (i = 0; i < elem_count; i++) {
+            p_pair_list_item = (struct mbim_pair_list*)wmem_array_index(pair_list, i);
+            if (p_pair_list_item->offset && p_pair_list_item->size) {
+                subtree = proto_tree_add_subtree_format(tree, tvb, base_offset + p_pair_list_item->offset, p_pair_list_item->size,
+                            ett_mbim_pair_list, NULL, "TFT #%u", i+1);
+                de_sm_tflow_temp(tvb, subtree, pinfo, base_offset + p_pair_list_item->offset, p_pair_list_item->size, NULL, 0);
+            }
+        }
     }
 }
 
@@ -4306,6 +4999,236 @@ dissect_mbim_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
                                 break;
                         }
                         break;
+                    case UUID_QMI:
+                        switch (cid) {
+                            case MBIM_CID_QMI_QMI:
+                                if (info_buff_len) {
+                                    proto_tree_add_item(subtree, hf_mbim_qmi_buffer, frag_tvb, offset, info_buff_len, ENC_NA);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_FWUSVC:
+                        switch (cid) {
+                            case MBIM_CID_INTC_MODEM_REBOOT:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    if (info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_DPTF:
+                        switch (cid) {
+                            case MBIM_CID_INTC_THERMAL_STATE:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    mbim_dissect_thermal_config(frag_tvb, pinfo, subtree, offset);
+                                } else {
+                                    proto_tree_add_item(subtree, hf_mbim_query_thermal_state_temp_sensor_id, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_SAR:
+                        switch (cid) {
+                            case MBIM_CID_INTC_SAR_CONFIG:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    mbim_dissect_sar_config(frag_tvb, pinfo, subtree, offset, info_buff_len);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_ACT:
+                        switch (cid) {
+                            case MBIM_CID_INTC_ADPCLK_MODE:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_item(subtree, hf_mbim_adpclk_activate_state, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_TRCSVC:
+                        switch (cid) {
+                            case MBIM_CID_INTC_TRACE:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_item(subtree, hf_mbim_trace_config_config, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_INTC_TRACE_DATA:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_item(subtree, hf_mbim_trace_config_config, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_NRTC:
+                        switch (cid) {
+                            case MBIM_CID_INTC_NRTAPP:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_item(subtree, hf_mbim_nrtc_app_info_period, frag_tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                                    offset += 2;
+                                    proto_tree_add_item(subtree, hf_mbim_nrtc_app_info_duration, frag_tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_INTC_NRTCWS:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    mbim_dissect_nrtcws_config(frag_tvb, pinfo, subtree, offset, info_buff_len);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_USB_PROFILE:
+                        switch (cid) {
+                            case MBIM_CID_INTC_USBPROFILE:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    guint32 at_len;
+
+                                    proto_tree_add_item_ret_uint(subtree, hf_mbim_usbprofile_cmd_length, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN, &at_len);
+                                    offset += 4;
+                                    proto_tree_add_item(subtree, hf_mbim_usbprofile_cmd_buffer, frag_tvb, offset, at_len, ENC_LITTLE_ENDIAN|ENC_UTF_16);
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_CIQ:
+                        switch (cid) {
+                            case MBIM_CID_INTC_CIQ:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    guint32 size;
+
+                                    proto_tree_add_item(subtree, hf_mbim_ciq_set_mode, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                    offset += 4;
+                                    proto_tree_add_item_ret_uint(subtree, hf_mbim_ciq_set_debug_info_size, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN, &size);
+                                    offset += 4;
+                                    proto_tree_add_item(subtree, hf_mbim_ciq_set_debug_info, frag_tvb, offset, size, ENC_LITTLE_ENDIAN|ENC_UTF_16);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_ATDS:
+                        switch (cid) {
+                            case MBIM_CID_ATDS_SIGNAL:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_LOCATION:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_OPERATORS:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    mbim_dissect_atds_operators(frag_tvb, pinfo, subtree, offset);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_RAT:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_item(subtree, hf_mbim_atds_rat_info_mode, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_REGISTER_STATE:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_SET_PROJECTION_TABLES:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    mbim_dissect_atds_projection_tables(frag_tvb, pinfo, subtree, offset);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_MULTIFLOW:
+                        switch (cid) {
+                            case MBIM_CID_MULTIFLOW_CAPS:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_MULTIFLOW_UPLINK:
+                            case MBIM_CID_MULTIFLOW_DOWNLINK:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_item(subtree, hf_mbim_set_multiflow_state_state, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_MULTIFLOW_TFT:
+                                if (cmd_type == MBIM_COMMAND_SET) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                } else if (info_buff_len) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
                     case UUID_EXT_IDX:
                         {
                             gint cid_idx;
@@ -4777,7 +5700,277 @@ dissect_mbim_control(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
                                 break;
                         }
                         break;
-                    case UUID_EXT_IDX:
+                    case UUID_QMI:
+                        switch (cid) {
+                            case MBIM_CID_QMI_QMI:
+                                if (info_buff_len) {
+                                    proto_tree_add_item(subtree, hf_mbim_qmi_buffer, frag_tvb, offset, info_buff_len, ENC_NA);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_FWUSVC:
+                        switch (cid) {
+                            case MBIM_CID_INTC_MODEM_REBOOT:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_DPTF:
+                        switch (cid) {
+                            case MBIM_CID_INTC_THERMAL_STATE:
+                                if ((msg_type == MBIM_COMMAND_DONE) && mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                    mbim_dissect_thermal_config(frag_tvb, pinfo, subtree, offset);
+                                } else {
+                                    mbim_dissect_thermal_state_info(frag_tvb, pinfo, subtree, offset);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_SAR:
+                        switch (cid) {
+                            case MBIM_CID_INTC_SAR_CONFIG:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    mbim_dissect_sar_config(frag_tvb, pinfo, subtree, offset, info_buff_len);
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_ACT:
+                        switch (cid) {
+                            case MBIM_CID_INTC_ADPCLK_MODE:
+                                if ((msg_type == MBIM_COMMAND_DONE) && info_buff_len &&
+                                    mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                } else {
+                                    mbim_dissect_adpclk_freq_info(frag_tvb, pinfo, subtree, offset);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_TRCSVC:
+                        switch (cid) {
+                            case MBIM_CID_INTC_TRACE:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    proto_tree_add_item(subtree, hf_mbim_trace_config_config, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_INTC_TRACE_DATA:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    proto_tree_add_item(subtree, hf_mbim_trace_config_config, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_NRTC:
+                        switch (cid) {
+                            case MBIM_CID_INTC_NRTAPP:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET) && info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    } else if ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_QUERY)) || info_buff_len) {
+                                        proto_tree_add_item(subtree, hf_mbim_nrtc_app_info_period, frag_tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                                        offset += 2;
+                                        proto_tree_add_item(subtree, hf_mbim_nrtc_app_info_duration, frag_tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_INTC_NRTCWS:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET) && info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    } else if ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_QUERY)) || info_buff_len) {
+                                        mbim_dissect_nrtcws_config(frag_tvb, pinfo, subtree, offset, info_buff_len);
+                                    }
+                                } else {
+                                    mbim_dissect_nrtcws_info(frag_tvb, pinfo, subtree, offset);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_USB_PROFILE:
+                        switch (cid) {
+                            case MBIM_CID_INTC_USBPROFILE:
+                                if ((msg_type == MBIM_COMMAND_DONE) && ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) || info_buff_len)) {
+                                    guint32 at_len;
+
+                                    proto_tree_add_item_ret_uint(subtree, hf_mbim_usbprofile_rsp_length, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN, &at_len);
+                                    offset += 4;
+                                    proto_tree_add_item(subtree, hf_mbim_usbprofile_rsp_buffer, frag_tvb, offset, at_len, ENC_LITTLE_ENDIAN|ENC_UTF_16);
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_INTEL_CIQ:
+                        switch (cid) {
+                            case MBIM_CID_INTC_CIQ:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET) && info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    } else if ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_QUERY)) || info_buff_len) {
+                                        proto_tree_add_item(subtree, hf_mbim_ciq_info_mode, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_ATDS:
+                        switch (cid) {
+                            case MBIM_CID_ATDS_SIGNAL:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                    } else {
+                                        mbim_dissect_atds_signal_info(frag_tvb, pinfo, subtree, offset);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_LOCATION:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                    } else {
+                                        proto_tree_add_item(subtree, hf_mbim_atds_location_info_lac, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                        offset += 4;
+                                        proto_tree_add_item(subtree, hf_mbim_atds_location_info_tac, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                        offset += 4;
+                                        proto_tree_add_item(subtree, hf_mbim_atds_location_info_cellid, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_OPERATORS:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET) && info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    } else if ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_QUERY)) || info_buff_len) {
+                                        mbim_dissect_atds_operators(frag_tvb, pinfo, subtree, offset);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_RAT:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET) && info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    } else if ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_QUERY)) || info_buff_len) {
+                                        proto_tree_add_item(subtree, hf_mbim_atds_rat_info_mode, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_REGISTER_STATE:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                    } else {
+                                        mbim_dissect_registration_state_info(frag_tvb, pinfo, subtree, offset);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            case MBIM_CID_ATDS_SET_PROJECTION_TABLES:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET) && info_buff_len) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_info_buffer, frag_tvb, offset, info_buff_len);
+                                    } else if ((mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_QUERY)) || info_buff_len) {
+                                        mbim_dissect_atds_projection_tables(frag_tvb, pinfo, subtree, offset);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                    case UUID_MULTIFLOW:
+                        switch (cid) {
+                            case MBIM_CID_MULTIFLOW_CAPS:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                        proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                    } else {
+                                        proto_tree_add_bitmask(subtree, frag_tvb, offset, hf_mbim_multiflow_caps_info_control_caps,
+                                                               ett_mbim_bitmap, mbim_multiflow_caps_info_control_caps_fields, ENC_LITTLE_ENDIAN);
+                                    }
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_MULTIFLOW_UPLINK:
+                            case MBIM_CID_MULTIFLOW_DOWNLINK:
+                                if (msg_type == MBIM_COMMAND_DONE) {
+                                    proto_tree_add_item(subtree, hf_mbim_multiflow_state_info_state, frag_tvb, offset, 4, ENC_LITTLE_ENDIAN);
+                                } else {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, info_buff_len);
+                                }
+                                break;
+                            case MBIM_CID_MULTIFLOW_TFT:
+                                if (mbim_info && (mbim_info->cmd_type == MBIM_COMMAND_SET)) {
+                                    proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                } else {
+                                    mbim_dissect_multiflow_tft_info(frag_tvb, pinfo, subtree, offset);
+                                }
+                                break;
+                            default:
+                                proto_tree_add_expert(subtree, pinfo, &ei_mbim_unexpected_msg, frag_tvb, offset, -1);
+                                break;
+                        }
+                        break;
+                     case UUID_EXT_IDX:
                         {
                             gint cid_idx;
                             mbim_dissect_fct dissect_cid;
@@ -4921,6 +6114,16 @@ dissect_mbim_bulk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%c%c%c%u", signature[0], signature[1],
                                 signature[2], signature[3]);
             dissector = ip_handle;
+        } else if ((!is_32bits && !strncmp(signature, "IPC", 3)) ||
+                   (is_32bits && !strncmp(signature, "ipc", 3))) {
+            sig_ti = proto_tree_add_uint_format_value(subtree, hf_mbim_bulk_ndp_signature, tvb, offset,
+                                                      4, tvb_get_letohl(tvb, offset), "%c%c%c%u", signature[0],
+                                                      signature[1], signature[2], signature[3]);
+            sig_tree = proto_item_add_subtree(sig_ti, ett_mbim_msg_header);
+            proto_tree_add_item(sig_tree, hf_mbim_bulk_ndp_signature_ipc_session_id, tvb, offset+3, 1, ENC_NA);
+            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%c%c%c%u", signature[0], signature[1],
+                                signature[2], signature[3]);
+            dissector = bulk_ndp_ctrl_handle;
         } else if ((!is_32bits && !strncmp(signature, "DSS", 3)) ||
                    (is_32bits && !strncmp(signature, "dss", 3))) {
             sig_ti = proto_tree_add_uint_format_value(subtree, hf_mbim_bulk_ndp_signature, tvb, offset,
@@ -4935,6 +6138,16 @@ dissect_mbim_bulk(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             if (dissector == NULL) {
                 dissector = data_handle;
             }
+        } else if ((!is_32bits && !strncmp(signature, "DSC", 3)) ||
+                   (is_32bits && !strncmp(signature, "dsc", 3))) {
+            sig_ti = proto_tree_add_uint_format_value(subtree, hf_mbim_bulk_ndp_signature, tvb, offset,
+                                                      4, tvb_get_letohl(tvb, offset), "%c%c%c%u", signature[0],
+                                                      signature[1], signature[2], signature[3]);
+            sig_tree = proto_item_add_subtree(sig_ti, ett_mbim_msg_header);
+            proto_tree_add_item(sig_tree, hf_mbim_bulk_ndp_signature_dsc_session_id, tvb, offset+3, 1, ENC_LITTLE_ENDIAN);
+            col_append_sep_fstr(pinfo->cinfo, COL_INFO, NULL, "%c%c%c%u", signature[0], signature[1],
+                                signature[2], signature[3]);
+            dissector = bulk_ndp_ctrl_handle;
         } else if ((!is_32bits && !strcmp(signature, "NCM0")) ||
                    (is_32bits && !strcmp(signature, "ncm0"))) {
             proto_tree_add_uint_format_value(subtree, hf_mbim_bulk_ndp_signature, tvb, offset, 4,
@@ -5093,17 +6306,50 @@ dissect_mbim_decode_as(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
     return 0;
 }
 
-static void
-mbim_reassembly_init(void)
+static int
+dissect_mbim_bulk_ndp_ctrl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
-    reassembly_table_init(&mbim_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
+    proto_tree *ndp_ctrl_tree;
+    proto_item *ti;
+    gint offset = 0;
+    guint32 msg_type, msg_len;
 
-static void
-mbim_reassembly_cleanup(void)
-{
-    reassembly_table_destroy(&mbim_reassembly_table);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "MBIM NDP Control");
+    col_clear(pinfo->cinfo, COL_INFO);
+
+    ti = proto_tree_add_protocol_format(tree, proto_mbim, tvb, 0, -1, "MBIM NDP Control");
+    ndp_ctrl_tree = proto_item_add_subtree(ti, ett_mbim_bulk_ndp_ctrl);
+    ti = proto_tree_add_item(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl, tvb, offset, 0, ENC_NA);
+    PROTO_ITEM_SET_HIDDEN(ti);
+
+    proto_tree_add_item_ret_uint(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl_message_type, tvb, offset, 2, ENC_LITTLE_ENDIAN, &msg_type);
+    offset += 2;
+    col_set_str(pinfo->cinfo, COL_INFO, val_to_str_const(msg_type, mbim_ndp_ctrl_msg_type_vals, "Unknown"));
+    proto_tree_add_item_ret_uint(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl_message_length, tvb, offset, 2, ENC_LITTLE_ENDIAN, &msg_len);
+    offset += 2;
+
+    switch (msg_type) {
+        case MBIM_NDP_CTRL_MULTIFLOW_STATUS:
+            {
+                guint32 watermark;
+
+                proto_tree_add_item(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl_multiflow_status, tvb, offset, 2, ENC_LITTLE_ENDIAN);
+                offset += 2;
+                watermark = tvb_get_letohl(tvb, offset);
+                if (watermark == 0xffffffff) {
+                    proto_tree_add_uint_format_value(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl_multiflow_watermark, tvb, offset, 4,
+                                                     watermark, "Not reported (0xffffffff)");
+                } else {
+                    proto_tree_add_uint_format_value(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl_multiflow_watermark, tvb, offset, 4,
+                                                     watermark, "%u payload bytes", watermark);
+                }
+            }
+            break;
+        default:
+            proto_tree_add_item(ndp_ctrl_tree, hf_mbim_bulk_ndp_ctrl_message_payload, tvb, offset, msg_len-4, ENC_NA);
+            break;
+    }
+    return tvb_captured_length(tvb);
 }
 
 static guint
@@ -5234,9 +6480,59 @@ proto_register_mbim(void)
                FT_UINT32, BASE_DEC, VALS(mbim_uuid_msfwid_cid_vals), 0,
               NULL, HFILL }
         },
-        { &hf_mbim_uuid_ext_qmux_cid,
+        { &hf_mbim_uuid_qmi_cid,
             { "CID", "mbim.control.cid",
-               FT_UINT32, BASE_DEC, VALS(mbim_uuid_ext_qmux_cid_vals), 0,
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_qmi_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_fwusvc_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_fwusvc_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_dptf_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_dptf_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_sar_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_sar_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_act_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_act_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_trcsvc_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_trcsvc_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_nrtc_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_nrtc_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_usb_profile_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_usb_profile_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_intel_ciq_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_intel_ciq_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_atds_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_atds_cid_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_uuid_multiflow_cid,
+            { "CID", "mbim.control.cid",
+               FT_UINT32, BASE_DEC, VALS(mbim_uuid_multiflow_cid_vals), 0,
               NULL, HFILL }
         },
         { &hf_mbim_cid,
@@ -5886,17 +7182,17 @@ proto_register_mbim(void)
         },
         { &hf_mbim_packet_service_info_uplink_speed,
             { "Uplink Speed", "mbim.control.packet_service_info.uplink_speed",
-               FT_UINT64, BASE_DEC, NULL, 0,
+               FT_UINT64, BASE_DEC|BASE_UNIT_STRING, &units_bit_sec, 0,
               NULL, HFILL }
         },
         { &hf_mbim_packet_service_info_downlink_speed,
             { "Downlink Speed", "mbim.control.packet_service_info.downlink_speed",
-               FT_UINT64, BASE_DEC, NULL, 0,
+               FT_UINT64, BASE_DEC|BASE_UNIT_STRING, &units_bit_sec, 0,
               NULL, HFILL }
         },
         { &hf_mbim_set_signal_state_signal_strength_interval,
             { "Signal Strength Interval", "mbim.control.set_signal_state.signal_strength_interval",
-               FT_UINT32, BASE_DEC, NULL, 0,
+               FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0,
               NULL, HFILL }
         },
         { &hf_mbim_set_signal_state_rssi_threshold,
@@ -5921,7 +7217,7 @@ proto_register_mbim(void)
         },
         { &hf_mbim_signal_state_info_signal_strength_interval,
             { "Signal Strength Interval", "mbim.control.signal_state_info.signal_strength_interval",
-               FT_UINT32, BASE_DEC, NULL, 0,
+               FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_seconds, 0,
               NULL, HFILL }
         },
         { &hf_mbim_signal_state_info_rssi_threshold,
@@ -6110,7 +7406,7 @@ proto_register_mbim(void)
               NULL, HFILL }
         },
         { &hf_mbim_provisioned_contexts_info_elem_count,
-            { "UElement Count", "mbim.control.context.provisioned_contexts_info.elem_count",
+            { "Element Count", "mbim.control.context.provisioned_contexts_info.elem_count",
                FT_UINT32, BASE_DEC, NULL, 0,
               NULL, HFILL }
         },
@@ -7684,6 +8980,536 @@ proto_register_mbim(void)
                FT_GUID, BASE_NONE, NULL, 0,
               NULL, HFILL }
         },
+        { &hf_mbim_qmi_buffer,
+            { "Buffer", "mbim.control.qmi.buffer",
+               FT_BYTES, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_config_enable,
+            { "Enable", "mbim.control.thermal_config.enable",
+               FT_UINT32, BASE_DEC, VALS(mbim_thermal_config_enable_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_config_temp_sensor_id,
+            { "Temperature Sensor ID", "mbim.control.thermal_config.temp_sensor_id",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_config_alarm_id,
+            { "Alarm ID", "mbim.control.thermal_config.alarm_id",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_config_threshold_value,
+            { "Threshold Value", "mbim.control.thermal_config.threshold_value",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_degrees_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_config_hyst_value,
+            { "Hysteresis Value", "mbim.control.thermal_config.hyst_value",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_degrees_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_config_sampling_period,
+            { "Sampling Period", "mbim.control.thermal_config.sampling_period",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_query_thermal_state_temp_sensor_id,
+            { "Temperature Sensor ID", "mbim.control.query_thermal_state.temp_sensor_id",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_current_temp_value,
+            { "Current Temperature Value", "mbim.control.thermal_state_info.current_temp_value",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_degrees_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_enable,
+            { "Enable", "mbim.control.thermal_state_info.enable",
+               FT_UINT32, BASE_DEC, VALS(mbim_thermal_config_enable_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_temp_sensor_id,
+            { "Temperature Sensor ID", "mbim.control.thermal_state_info.temp_sensor_id",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_alarm_id,
+            { "Alarm ID", "mbim.control.thermal_state_info.alarm_id",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_threshold_value,
+            { "Threshold Value", "mbim.control.thermal_state_info.threshold_value",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_degrees_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_hyst_value,
+            { "Hysteresis Value", "mbim.control.thermal_state_info.hyst_value",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_degrees_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_thermal_state_info_sampling_period,
+            { "Sampling Period", "mbim.control.thermal_state_info.sampling_period",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_sar_config_sar_status,
+            { "SAR Status", "mbim.control.sar_config.sar_status",
+               FT_UINT32, BASE_DEC, VALS(mbim_sar_status_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_sar_config_level,
+            { "Level", "mbim.control.sar_config.level",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_activate_state,
+            { "State", "mbim.control.adpclk_activate.state",
+               FT_UINT32, BASE_DEC, VALS(mbim_adpclk_activate_state_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_elem_count,
+            { "Element Count", "mbim.control.adpclk_freq_info.elem_count",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_offset,
+            { "ADPCLK Freq Value Offset", "mbim.control.adpclk_freq_info.adpclk_freq_value.offset",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_size,
+            { "ADPCLK Freq Value Size", "mbim.control.adpclk_freq_info.adpclk_freq_value.size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_center_freq,
+            { "Center Frequency", "mbim.control.adpclk_freq_info.adpclk_freq_value.center_freq",
+               FT_UINT64, BASE_DEC|BASE_UNIT_STRING, &units_hz, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_freq_spread,
+            { "Frequency Spread", "mbim.control.adpclk_freq_info.adpclk_freq_value.freq_spread",
+               FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_hz, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_noise_power,
+            { "Noise Power", "mbim.control.adpclk_freq_info.adpclk_freq_value.noise_power",
+               FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_rssi,
+            { "Relative Signal Strength Indication", "mbim.control.adpclk_freq_info.adpclk_freq_value.rssi",
+               FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_adpclk_freq_info_adpclk_freq_value_connect_status,
+            { "Connect Status", "mbim.control.adpclk_freq_info.adpclk_freq_value.connect_status",
+               FT_UINT32, BASE_DEC, VALS(mbim_connect_status_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_trace_config_config,
+            { "Configuration", "mbim.control.trace_config.config",
+               FT_UINT32, BASE_DEC, VALS(mbim_trace_config_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtc_app_info_period,
+            { "Period", "mbim.control.nrtc_app_info.period",
+               FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtc_app_info_duration,
+            { "Duration", "mbim.control.nrtc_app_info.duration",
+               FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_milliseconds, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_config_mode,
+            { "Mode", "mbim.control.nrtcws_config.mode",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_config_wlan_active,
+            { "WLAN Active", "mbim.control.nrtcws_config.wlan_active",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_config_wlan_safe_rx,
+            { "WLAN Safe Rx", "mbim.control.nrtcws_config.wlan_safe_rx",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_config_wlan_bandwidth,
+            { "WLAN Bandwidth", "mbim.control.nrtcws_config.wlan_bandwidth",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_config_bt_active,
+            { "BT Active", "mbim.control.nrtcws_config.bt_active",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_config_bt_safe_rx,
+            { "BT Safe Rx", "mbim.control.nrtcws_config.bt_safe_rx",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_lte_active,
+            { "LTE Active", "mbim.control.nrtcws_info.lte_active",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_wlan_safe_rx_min,
+            { "WLAN Safe Rx Min", "mbim.control.nrtcws_info.wlan_safe_rx_min",
+               FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_mhz, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_wlan_safe_rx_max,
+            { "WLAN Safe Rx Max", "mbim.control.nrtcws_info.wlan_safe_rx_max",
+               FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_mhz, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_bt_safe_rx_min,
+            { "BT Safe Rx Min", "mbim.control.nrtcws_info.bt_safe_rx_min",
+               FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_mhz, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_bt_safe_rx_max,
+            { "BT Safe Rx Max", "mbim.control.nrtcws_info.bt_safe_rx_max",
+               FT_UINT16, BASE_DEC|BASE_UNIT_STRING, &units_mhz, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_lte_sps_period,
+            { "LTE SPS Periodicity", "mbim.control.nrtcws_info.lte_sps_period",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_lte_sps_duration,
+            { "LTE SPS Duration", "mbim.control.nrtcws_info.lte_sps_duration",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_nrtcws_info_lte_sps_initial_offset,
+            { "LTE SPS Initial Offset", "mbim.control.nrtcws_info.lte_sps_initial_offset",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_usbprofile_cmd_length,
+            { "Length", "mbim.control.usbprofile_cmd.length",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_usbprofile_cmd_buffer,
+            { "Buffer", "mbim.control.usbprofile_cmd.buffer",
+               FT_STRING, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_usbprofile_rsp_length,
+            { "Length", "mbim.control.usbprofile_rsp.length",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_usbprofile_rsp_buffer,
+            { "Buffer", "mbim.control.usbprofile_rsp.buffer",
+               FT_STRING, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_ciq_set_mode,
+            { "Mode", "mbim.control.ciq_set.mode",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_ciq_set_debug_info_size,
+            { "Debug Info Size", "mbim.control.ciq_set.debug_info.size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_ciq_set_debug_info,
+            { "Debug Info", "mbim.control.ciq_set.debug_info",
+               FT_STRING, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_ciq_info_mode,
+            { "Mode", "mbim.control.ciq_info.mode",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_rssi,
+            { "RSSI", "mbim.control.atds_signal_info.rssi",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_rssi_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_ber,
+            { "BER", "mbim.control.atds_signal_info.ber",
+               FT_UINT32, BASE_DEC, VALS(mbim_ber_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_rscp,
+            { "RSCP", "mbim.control.atds_signal_info.rscp",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_rscp_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_ecno,
+            { "Ec/No", "mbim.control.atds_signal_info.ecno",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_ecno_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_rsrq,
+            { "RSRQ", "mbim.control.atds_signal_info.rsrq",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_rsrq_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_rsrp,
+            { "RSRP", "mbim.control.atds_signal_info.rsrp",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_rsrp_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_signal_info_rssnr,
+            { "RS SNR", "mbim.control.atds_signal_info.rssnr",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_rssnr_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_location_info_lac,
+            { "Location Area Code", "mbim.control.atds_location_info.lac",
+               FT_UINT32, BASE_HEX_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_location_info_tac,
+            { "Tracking Area Code", "mbim.control.atds_location_info.tac",
+               FT_UINT32, BASE_HEX_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_location_info_cellid,
+            { "Cell Identity", "mbim.control.atds_location_info.cellid",
+               FT_UINT32, BASE_HEX_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_id_offset,
+            { "Provider Id Offset", "mbim.control.atds_operator.provider_id_offset",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_id_size,
+            { "Provider Id Size", "mbim.control.atds_operator.provider_id_size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_state,
+            { "Provider State", "mbim.control.atds_operator.provider_state",
+               FT_UINT32, BASE_HEX, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_name_offset,
+            { "Provider Name Offset", "mbim.control.atds_operator.provider_name_offset",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_name_size,
+            { "Provider Name Size", "mbim.control.atds_operator.provider_name_size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_plmn_mode,
+            { "PLMN Mode", "mbim.control.atds_operator.plmn_mode",
+               FT_UINT32, BASE_DEC, VALS(mbim_atds_operator_plmn_mode_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_rssi,
+            { "RSSI", "mbim.control.atds_operator.rssi",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_rssi_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_error_rate,
+            { "Error Rate", "mbim.control.atds_operator.error_rate",
+               FT_UINT32, BASE_DEC, VALS(mbim_error_rate_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_id,
+            { "Provider Id", "mbim.control.atds_operator.provider_id",
+               FT_STRING, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operator_provider_name,
+            { "Provider Name", "mbim.control.atds_operator.provider_name",
+               FT_STRING, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operators_elem_count,
+            { "Element Count", "mbim.control.atds_operators.elem_count",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operators_operator_offset,
+            { "Provider Offset", "mbim.control.atds_operators.provider_offset",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_operators_operator_size,
+            { "Provider Size", "mbim.control.atds_operators.provider_size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_rat_info_mode,
+            { "Mode", "mbim.control.atds_rat_info.mode",
+               FT_UINT32, BASE_DEC, VALS(mbim_adts_rat_info_mode_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_type,
+            { "Type", "mbim.control.atds_projection_table.type",
+               FT_UINT32, BASE_DEC, VALS(mbim_adts_projection_table_type_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_bar5min,
+            { "Bar5 Min", "mbim.control.atds_projection_table.bar5min",
+               FT_INT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_a5,
+            { "A5", "mbim.control.atds_projection_table.a5",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_b5,
+            { "B5", "mbim.control.atds_projection_table.b5",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_bar4min,
+            { "Bar4 Min", "mbim.control.atds_projection_table.bar4min",
+               FT_INT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_a4,
+            { "A4", "mbim.control.atds_projection_table.a4",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_b4,
+            { "B4", "mbim.control.atds_projection_table.b4",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_bar3min,
+            { "Bar3 Min", "mbim.control.atds_projection_table.bar3min",
+               FT_INT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_a3,
+            { "A3", "mbim.control.atds_projection_table.a3",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_b3,
+            { "B3", "mbim.control.atds_projection_table.b3",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_bar2min,
+            { "Bar2 Min", "mbim.control.atds_projection_table.bar2min",
+               FT_INT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_a2,
+            { "A2", "mbim.control.atds_projection_table.a2",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_b2,
+            { "B2", "mbim.control.atds_projection_table.b2",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_bar1min,
+            { "Bar1 Min", "mbim.control.atds_projection_table.bar1min",
+               FT_INT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_a1,
+            { "A1", "mbim.control.atds_projection_table.a1",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_b1,
+            { "B1", "mbim.control.atds_projection_table.b1",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_bar0min,
+            { "Bar0 Min", "mbim.control.atds_projection_table.bar0min",
+               FT_INT32, BASE_DEC|BASE_UNIT_STRING, &units_dbm, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_a0,
+            { "A0", "mbim.control.atds_projection_table.a0",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_table_b0,
+            { "B0", "mbim.control.atds_projection_table.b0",
+               FT_UINT32, BASE_CUSTOM, CF_FUNC(mbim_projection_table_coeff_fmt), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_tables_elem_count,
+            { "Element Count", "mbim.control.atds_projection_tables.elem_count",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_tables_projection_table_offset,
+            { "Projection Table Offset", "mbim.control.atds_projection_tables.projection_table_offset",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_atds_projection_tables_projection_table_size,
+            { "Projection Table Size", "mbim.control.atds_projection_tables.projection_table_size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_caps_info_control_caps,
+            { "Control Caps", "mbim.control.multiflow_caps_info.control_caps",
+               FT_UINT32, BASE_HEX, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_caps_info_control_caps_uplink,
+            { "Uplink", "mbim.control.multiflow_caps_info.control_caps.uplink",
+               FT_BOOLEAN, 32, TFS(&tfs_supported_not_supported), 0x00000001,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_caps_info_control_caps_downlink,
+            { "Downlink", "mbim.control.multiflow_caps_info.control_caps.downlink",
+               FT_BOOLEAN, 32, TFS(&tfs_supported_not_supported), 0x00000002,
+              NULL, HFILL }
+        },
+        { &hf_mbim_set_multiflow_state_state,
+            { "State", "mbim.control.set_multiflow_state.state",
+               FT_UINT32, BASE_DEC, VALS(mbim_multiflow_state_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_state_info_state,
+            { "State", "mbim.control.multiflow_state_info.state",
+               FT_UINT32, BASE_DEC, VALS(mbim_multiflow_state_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_tft_info_session_id,
+            { "Session Id", "mbim.control.multiflow_tft_info.session_id",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_tft_info_elem_count,
+            { "Element Count", "mbim.control.multiflow_tft_info.elem_count",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_tft_info_tft_list_offset,
+            { "TFT List Offset", "mbim.control.multiflow_tft_info.tft_list_offset",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_multiflow_tft_info_tft_list_size,
+            { "TFT List Size", "mbim.control.multiflow_tft_info.tft_list_size",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
         { &hf_mbim_fragmented_payload,
             { "Fragmented Payload", "mbim.control.fragmented_payload",
                FT_BYTES, BASE_NONE, NULL, 0,
@@ -7809,8 +9635,18 @@ proto_register_mbim(void)
                FT_UINT8, BASE_DEC, NULL, 0,
               NULL, HFILL }
         },
+        { &hf_mbim_bulk_ndp_signature_ipc_session_id,
+            { "IPC Session Id", "mbim.bulk.ndp.signature.ipc_session_id",
+               FT_UINT8, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
         { &hf_mbim_bulk_ndp_signature_dss_session_id,
             { "DSS Session Id", "mbim.bulk.ndp.signature.dss_session_id",
+               FT_UINT8, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_signature_dsc_session_id,
+            { "DSC Session Id", "mbim.bulk.ndp.signature.dsc_session_id",
                FT_UINT8, BASE_DEC, NULL, 0,
               NULL, HFILL }
         },
@@ -7872,6 +9708,36 @@ proto_register_mbim(void)
         { &hf_mbim_bulk_total_nb_datagrams,
             { "Total Number Of Datagrams", "mbim.bulk.total_nb_datagrams",
                FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_ctrl,
+            { "NDP Control", "mbim.bulk.ndp_control",
+               FT_NONE, BASE_NONE, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_ctrl_message_type,
+            { "Message Type", "mbim.bulk.ndp_control.message_type",
+               FT_UINT16, BASE_HEX, VALS(mbim_ndp_ctrl_msg_type_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_ctrl_message_length,
+            { "Message Length", "mbim.bulk.ndp_control.message_length",
+               FT_UINT16, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_ctrl_multiflow_status,
+            { "Multiflow Status", "mbim.bulk.ndp_control.multiflow.status",
+               FT_UINT16, BASE_DEC, VALS(mbim_ndp_ctrl_multiflow_status_vals), 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_ctrl_multiflow_watermark,
+            { "Multiflow Watermark", "mbim.bulk.ndp_control.multiflow.watermark",
+               FT_UINT32, BASE_DEC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_mbim_bulk_ndp_ctrl_message_payload,
+            { "Message Payload", "mbim.bulk.ndp_control.message_payload",
+               FT_BYTES, BASE_NONE, NULL, 0,
               NULL, HFILL }
         },
         { &hf_mbim_fragments,
@@ -7942,8 +9808,10 @@ proto_register_mbim(void)
         &ett_mbim_buffer,
         &ett_mbim_sc_address,
         &ett_mbim_pac,
+        &ett_mbim_thermal_threshold_setting,
         &ett_mbim_fragment,
-        &ett_mbim_fragments
+        &ett_mbim_fragments,
+        &ett_mbim_bulk_ndp_ctrl
     };
 
     static ei_register_info ei[] = {
@@ -7993,14 +9861,14 @@ proto_register_mbim(void)
     expert_mbim = expert_register_protocol(proto_mbim);
     expert_register_field_array(expert_mbim, ei, array_length(ei));
 
-    register_init_routine(mbim_reassembly_init);
-    register_cleanup_routine(mbim_reassembly_cleanup);
+    reassembly_table_register(&mbim_reassembly_table,
+                          &addresses_reassembly_table_functions);
 
-    register_dissector("mbim.control", dissect_mbim_control, proto_mbim);
+    mbim_control_handle = register_dissector("mbim.control", dissect_mbim_control, proto_mbim);
     register_dissector("mbim.descriptor", dissect_mbim_descriptor, proto_mbim);
     register_dissector("mbim.bulk", dissect_mbim_bulk, proto_mbim);
     dss_dissector_table = register_dissector_table("mbim.dss_session_id",
-        "MBIM DSS Session Id", proto_mbim, FT_UINT8, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+        "MBIM DSS Session Id", proto_mbim, FT_UINT8, BASE_DEC);
 
     mbim_module = prefs_register_protocol(proto_mbim, proto_reg_handoff_mbim);
     prefs_register_obsolete_preference(mbim_module, "bulk_heuristic");
@@ -8030,6 +9898,7 @@ proto_reg_handoff_mbim(void)
         eth_fcs_handle = find_dissector_add_dependency("eth_withfcs", proto_mbim);
         ip_handle = find_dissector_add_dependency("ip", proto_mbim);
         data_handle = find_dissector("data");
+        bulk_ndp_ctrl_handle = create_dissector_handle(dissect_mbim_bulk_ndp_ctrl, proto_mbim);
         heur_dissector_add("usb.bulk", dissect_mbim_bulk_heur, "MBIM USB bulk endpoint", "mbim_usb_bulk", proto_mbim, HEURISTIC_ENABLE);
         dissector_add_for_decode_as("usb.device", mbim_decode_as_handle);
         dissector_add_for_decode_as("usb.product", mbim_decode_as_handle);
@@ -8037,7 +9906,6 @@ proto_reg_handoff_mbim(void)
         initialized = TRUE;
     }
     if (mbim_control_decode_unknown_itf != mbim_control_decode_unknown_itf_prev) {
-        dissector_handle_t mbim_control_handle = find_dissector("mbim.control");
         if (mbim_control_decode_unknown_itf) {
             dissector_add_uint("usb.control", IF_CLASS_UNKNOWN, mbim_control_handle);
         } else {

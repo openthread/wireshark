@@ -13,19 +13,7 @@
  *
  * Copied from packet-bootp.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Documentation:
@@ -46,6 +34,7 @@
 #include <epan/expert.h>
 #include <epan/prefs.h>
 #include <epan/tap.h>
+#include <epan/export_object.h>
 
 #include "packet-tftp.h"
 
@@ -53,17 +42,17 @@ void proto_register_tftp(void);
 
 /* Things we may want to remember for a whole conversation */
 typedef struct _tftp_conv_info_t {
-  guint16  blocksize;
-  gchar   *source_file, *destination_file;
+  guint16      blocksize;
+  const guint8 *source_file, *destination_file;
 
   /* Sequence analysis */
-  guint    next_block_num;
-  gboolean blocks_missing;
+  guint        next_block_num;
+  gboolean     blocks_missing;
 
   /* When exporting file object, build up list of data blocks here */
-  guint    next_tap_block_num;
-  GSList   *block_list;
-  guint    file_length;
+  guint        next_tap_block_num;
+  GSList       *block_list;
+  guint        file_length;
 } tftp_conv_info_t;
 
 
@@ -91,7 +80,7 @@ static dissector_handle_t tftp_handle;
 void proto_reg_handoff_tftp (void);
 
 /* User definable values */
-static range_t *global_tftp_port_range;
+static range_t *global_tftp_port_range = NULL;
 
 /* minimum length is an ACK message of 4 bytes */
 #define MIN_HDR_LEN  4
@@ -139,6 +128,102 @@ static const value_string tftp_error_code_vals[] = {
 };
 
 static int tftp_eo_tap = -1;
+
+/* A list of block list entries to delete from cleanup callback when window is closed. */
+typedef struct eo_info_dynamic_t {
+    gchar  *filename;
+    GSList *block_list;
+} eo_info_dynamic_t;
+static GSList *s_dynamic_info_list = NULL;
+
+/* Used for TFTP Export Object feature */
+typedef struct _tftp_eo_t {
+	guint32  pkt_num;
+	gchar    *filename;
+	guint32  payload_len;
+	GSList   *block_list;
+} tftp_eo_t;
+
+/* Tap function */
+static gboolean
+tftp_eo_packet(void *tapdata, packet_info *pinfo, epan_dissect_t *edt _U_, const void *data)
+{
+  export_object_list_t *object_list = (export_object_list_t *)tapdata;
+  const tftp_eo_t *eo_info = (const tftp_eo_t *)data;
+  export_object_entry_t *entry;
+
+  GSList *block_iterator;
+  guint  payload_data_offset = 0;
+  eo_info_dynamic_t *dynamic_info;
+
+  /* These values will be freed when the Export Object window is closed. */
+  entry = g_new(export_object_entry_t, 1);
+
+  /* Remember which frame had the last block of the file */
+  entry->pkt_num = pinfo->num;
+
+  /* Copy filename */
+  entry->filename = g_path_get_basename(eo_info->filename);
+
+  /* Iterate over list of blocks and concatenate into contiguous memory */
+  entry->payload_len = eo_info->payload_len;
+  entry->payload_data = (guint8 *)g_try_malloc((gsize)entry->payload_len);
+  for (block_iterator = eo_info->block_list; block_iterator; block_iterator = block_iterator->next) {
+    file_block_t *block = (file_block_t*)block_iterator->data;
+    memcpy(entry->payload_data + payload_data_offset,
+               block->data,
+               block->length);
+    payload_data_offset += block->length;
+  }
+
+  /* These 2 fields not used */
+  entry->hostname = NULL;
+  entry->content_type = NULL;
+
+  /* Add to list of entries to be cleaned up.  eo_info is only packet scope, so
+     need to make list only of block list now */
+  dynamic_info = g_new(eo_info_dynamic_t, 1);
+  dynamic_info->filename = eo_info->filename;
+  dynamic_info->block_list = eo_info->block_list;
+  s_dynamic_info_list = g_slist_append(s_dynamic_info_list, (eo_info_dynamic_t*)dynamic_info);
+
+  /* Pass out entry to the GUI */
+  object_list->add_entry(object_list->gui_data, entry);
+
+  return TRUE; /* State changed - window should be redrawn */
+}
+
+/* Clean up the stored parts of a single tapped entry */
+static void cleanup_tftp_eo(eo_info_dynamic_t *dynamic_info)
+{
+  GSList *block_iterator;
+  /* Free the filename */
+  g_free(dynamic_info->filename);
+
+  /* Walk list of block items */
+  for (block_iterator = dynamic_info->block_list; block_iterator; block_iterator = block_iterator->next) {
+    file_block_t *block = (file_block_t*)(block_iterator->data);
+    /* Free block data */
+    wmem_free(NULL, block->data);
+
+    /* Free block itself */
+    g_free(block);
+  }
+}
+
+/* Callback for freeing up data supplied with taps.  The taps themselves only have
+   packet scope, so only store/free dynamic memory pointers */
+static void tftp_eo_cleanup(void)
+{
+  /* Cleanup each entry in the global list */
+  GSList *dynamic_iterator;
+  for (dynamic_iterator = s_dynamic_info_list; dynamic_iterator; dynamic_iterator = dynamic_iterator->next) {
+    eo_info_dynamic_t *dynamic_info = (eo_info_dynamic_t*)dynamic_iterator->data;
+    cleanup_tftp_eo(dynamic_info);
+  }
+  /* List is empty again */
+  s_dynamic_info_list = NULL;
+}
 
 static void
 tftp_dissect_options(tvbuff_t *tvb, packet_info *pinfo, int offset,
@@ -251,10 +336,9 @@ static void dissect_tftp_message(tftp_conv_info_t *tftp_info,
 
   case TFTP_RRQ:
     i1 = tvb_strsize(tvb, offset);
-    proto_tree_add_item(tftp_tree, hf_tftp_source_file,
-                        tvb, offset, i1, ENC_ASCII|ENC_NA);
+    proto_tree_add_item_ret_string(tftp_tree, hf_tftp_source_file,
+                        tvb, offset, i1, ENC_ASCII|ENC_NA, wmem_file_scope(), &tftp_info->source_file);
 
-    tftp_info->source_file = tvb_get_string_enc(wmem_file_scope(), tvb, offset, i1, ENC_ASCII);
     /* we either have a source file name (for read requests) or a
        destination file name (for write requests) 
        when we set one of the names, we clear the other */
@@ -280,11 +364,9 @@ static void dissect_tftp_message(tftp_conv_info_t *tftp_info,
 
   case TFTP_WRQ:
     i1 = tvb_strsize(tvb, offset);
-    proto_tree_add_item(tftp_tree, hf_tftp_destination_file,
-                        tvb, offset, i1, ENC_ASCII|ENC_NA);
+    proto_tree_add_item_ret_string(tftp_tree, hf_tftp_destination_file,
+                        tvb, offset, i1, ENC_ASCII|ENC_NA, wmem_file_scope(), &tftp_info->destination_file);
 
-    tftp_info->destination_file =
-      tvb_get_string_enc(wmem_file_scope(), tvb, offset, i1, ENC_ASCII);
     tftp_info->source_file = NULL; /* see above */
 
     col_append_fstr(pinfo->cinfo, COL_INFO, ", File: %s",
@@ -338,7 +420,7 @@ static void dissect_tftp_message(tftp_conv_info_t *tftp_info,
 
     /* Show data in tree */
     if (bytes > 0) {
-      data_tvb = tvb_new_subset(tvb, offset, -1, bytes);
+      data_tvb = tvb_new_subset_length_caplen(tvb, offset, -1, bytes);
       call_data_dissector(data_tvb, pinfo, tree);
     }
 
@@ -565,22 +647,21 @@ dissect_tftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
    */
   if (value_is_in_range(global_tftp_port_range, pinfo->destport) ||
       (pinfo->match_uint == pinfo->destport)) {
-    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
+    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
                                      pinfo->srcport, 0, NO_PORT_B);
     if( (conversation == NULL) || (conversation_get_dissector(conversation, pinfo->num) != tftp_handle) ){
-      conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
+      conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
                                       pinfo->srcport, 0, NO_PORT2);
       conversation_set_dissector(conversation, tftp_handle);
     }
   } else {
-    conversation = find_conversation(pinfo->num, &pinfo->src, &pinfo->dst,
-                                     pinfo->ptype, pinfo->srcport, pinfo->destport, 0);
+    conversation = find_conversation_pinfo(pinfo, 0);
     if( (conversation == NULL) || (conversation_get_dissector(conversation, pinfo->num) != tftp_handle) ){
-      conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, PT_UDP,
+      conversation = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_UDP,
                                       pinfo->destport, pinfo->srcport, 0);
       conversation_set_dissector(conversation, tftp_handle);
     } else if (conversation->options & NO_PORT_B) {
-      if (pinfo->destport == conversation->key_ptr->port1)
+      if (pinfo->destport == conversation_key_port1(conversation->key_ptr))
         conversation_set_port2(conversation, pinfo->srcport);
       else
         return 0;
@@ -604,6 +685,11 @@ dissect_tftp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
   return tvb_captured_length(tvb);
 }
 
+
+static void
+apply_tftp_prefs(void) {
+  global_tftp_port_range = prefs_get_range_value("tftp", "udp.port");
+}
 
 void
 proto_register_tftp(void)
@@ -668,49 +754,28 @@ proto_register_tftp(void)
      { &ei_tftp_blocksize_range, { "tftp.blocksize_range", PI_RESPONSE_CODE, PI_WARN, "TFTP blocksize out of range", EXPFILL }},
   };
 
-  module_t *tftp_module;
   expert_module_t* expert_tftp;
 
-  proto_tftp = proto_register_protocol("Trivial File Transfer Protocol",
-                                       "TFTP", "tftp");
+  proto_tftp = proto_register_protocol("Trivial File Transfer Protocol", "TFTP", "tftp");
   proto_register_field_array(proto_tftp, hf, array_length(hf));
   proto_register_subtree_array(ett, array_length(ett));
   expert_tftp = expert_register_protocol(proto_tftp);
   expert_register_field_array(expert_tftp, ei, array_length(ei));
 
-  register_dissector("tftp", dissect_tftp, proto_tftp);
+  tftp_handle = register_dissector("tftp", dissect_tftp, proto_tftp);
 
-  /* Set default UDP ports */
-  range_convert_str(&global_tftp_port_range, UDP_PORT_TFTP_RANGE, MAX_UDP_PORT);
-
-  tftp_module = prefs_register_protocol(proto_tftp, proto_reg_handoff_tftp);
-  prefs_register_range_preference(tftp_module, "udp_ports",
-                                  "TFTP port numbers",
-                                  "Port numbers used for TFTP traffic "
-                                  "(default " UDP_PORT_TFTP_RANGE ")",
-                                  &global_tftp_port_range, MAX_UDP_PORT);
+  prefs_register_protocol(proto_tftp, apply_tftp_prefs);
 
   /* Register the tap for the "Export Object" function */
-  tftp_eo_tap = register_tap("tftp_eo"); /* TFTP Export Object tap */
+  tftp_eo_tap = register_export_object(proto_tftp, tftp_eo_packet, tftp_eo_cleanup);
 }
 
 void
 proto_reg_handoff_tftp(void)
 {
-  static range_t *tftp_port_range;
-  static gboolean tftp_initialized = FALSE;
+  heur_dissector_add("stun", dissect_embeddedtftp_heur, "TFTP over TURN", "tftp_stun", proto_tftp, HEURISTIC_ENABLE);
 
-  if (!tftp_initialized) {
-    tftp_handle = find_dissector("tftp");
-    heur_dissector_add("stun", dissect_embeddedtftp_heur, "TFTP over TURN", "tftp_stun", proto_tftp, HEURISTIC_ENABLE);
-    tftp_initialized = TRUE;
-  } else {
-    dissector_delete_uint_range("udp.port", tftp_port_range, tftp_handle);
-    g_free(tftp_port_range);
-  }
-
-  tftp_port_range = range_copy(global_tftp_port_range);
-  dissector_add_uint_range("udp.port", tftp_port_range, tftp_handle);
+  dissector_add_uint_range_with_preference("udp.port", UDP_PORT_TFTP_RANGE, tftp_handle);
 }
 
 /*

@@ -3,29 +3,15 @@
  * Wiretap Library
  * Copyright (c) 1998 by Gilbert Ramirez <gram@alumni.rice.edu>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-#include "config.h"
+#include <config.h>
 
 #include <string.h>
 #include <errno.h>
 
-#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
-#endif
 
 #include "wtap-int.h"
 #include "wtap_opttypes.h"
@@ -34,74 +20,27 @@
 #include "file_wrappers.h"
 #include <wsutil/file_util.h>
 #include <wsutil/buffer.h>
-#include <wsutil/ws_diag_control.h>
 
 #ifdef HAVE_PLUGINS
 
-#include <wsutil/plugins.h>
 
-/*
- * List of wiretap plugins.
- */
-typedef struct {
-	void (*register_wtap_module)(void);  /* routine to call to register a wiretap module */
-} wtap_plugin;
-
+static plugins_t *libwiretap_plugins = NULL;
 static GSList *wtap_plugins = NULL;
 
-/*
- * Callback for each plugin found.
- */
-static gboolean
-check_for_wtap_plugin(GModule *handle)
-{
-	gpointer gp;
-	wtap_plugin *plugin;
-
-	/*
-	 * Do we have a register_wtap_module routine?
-	 */
-	if (!g_module_symbol(handle, "register_wtap_module", &gp)) {
-		/* No, so this isn't a wiretap module plugin. */
-		return FALSE;
-	}
-
-	/*
-	 * Yes - this plugin includes one or more wiretap modules.
-	 * Add this one to the list of wiretap module plugins.
-	 */
-	plugin = (wtap_plugin *)g_malloc(sizeof (wtap_plugin));
-DIAG_OFF(pedantic)
-	plugin->register_wtap_module = (void (*)(void))gp;
-DIAG_ON(pedantic)
-	wtap_plugins = g_slist_append(wtap_plugins, plugin);
-	return TRUE;
-}
-
 void
-wtap_register_plugin_types(void)
+wtap_register_plugin(const wtap_plugin *plug)
 {
-	/* Piggyback the initialization here for now */
-	wtap_opttypes_initialize();
-
-	add_plugin_type("libwiretap", check_for_wtap_plugin);
+	wtap_plugins = g_slist_prepend(wtap_plugins, (wtap_plugin *)plug);
 }
 
 static void
-register_wtap_module_plugin(gpointer data, gpointer user_data _U_)
+call_plugin_register_wtap_module(gpointer data, gpointer user_data _U_)
 {
-	wtap_plugin *plugin = (wtap_plugin *)data;
+	wtap_plugin *plug = (wtap_plugin *)data;
 
-	(plugin->register_wtap_module)();
-}
-
-/*
- * For all wiretap module plugins, call their register routines.
- */
-void
-register_all_wiretap_modules(void)
-{
-	g_slist_foreach(wtap_plugins, register_wtap_module_plugin, NULL);
+	if (plug->register_wtap_module) {
+		plug->register_wtap_module();
+	}
 }
 #endif /* HAVE_PLUGINS */
 
@@ -162,73 +101,46 @@ wtap_file_tsprec(wtap *wth)
 	return wth->file_tsprec;
 }
 
-const gchar *
-wtap_file_get_shb_comment(wtap *wth)
-{
-	char* opt_comment;
-	if (wth == NULL)
-		return NULL;
-
-	wtap_optionblock_get_option_string(wth->shb_hdr, OPT_COMMENT, &opt_comment);
-	return opt_comment;
-}
-
-wtap_optionblock_t
+wtap_block_t
 wtap_file_get_shb(wtap *wth)
 {
-	return wth ? wth->shb_hdr : NULL;
+	if ((wth == NULL) || (wth->shb_hdrs == NULL) || (wth->shb_hdrs->len == 0))
+		return NULL;
+
+	return g_array_index(wth->shb_hdrs, wtap_block_t, 0);
 }
 
-wtap_optionblock_t
+GArray*
 wtap_file_get_shb_for_new_file(wtap *wth)
 {
-	wtap_optionblock_t shb_hdr;
-	char* opt_comment;
+	guint shb_count;
+	wtap_block_t shb_hdr_src, shb_hdr_dest;
+	GArray* shb_hdrs;
 
-	if (wth == NULL)
+	if ((wth == NULL) || (wth->shb_hdrs == NULL) || (wth->shb_hdrs->len == 0))
 		return NULL;
 
-	shb_hdr = wtap_optionblock_create(WTAP_OPTION_BLOCK_NG_SECTION);
+	shb_hdrs = g_array_new(FALSE, FALSE, sizeof(wtap_block_t));
 
-	/* options */
-	wtap_optionblock_get_option_string(wth->shb_hdr, OPT_COMMENT, &opt_comment);
-	wtap_optionblock_set_option_string(shb_hdr, OPT_COMMENT, opt_comment);
-
-	return shb_hdr;
-}
-
-const gchar*
-wtap_get_nrb_comment(wtap *wth)
-{
-	char* opt_comment;
-	g_assert(wth);
-
-	if ((wth == NULL) || (wth->nrb_hdr == NULL))
-		return NULL;
-
-	wtap_optionblock_get_option_string(wth->nrb_hdr, OPT_COMMENT, &opt_comment);
-	return opt_comment;
-}
-
-void
-wtap_write_nrb_comment(wtap *wth, gchar *comment)
-{
-	g_assert(wth);
-
-	if (wth == NULL)
-		return;
-
-	if (wth->nrb_hdr == NULL) {
-		wth->nrb_hdr = wtap_optionblock_create(WTAP_OPTION_BLOCK_NG_NRB);
+	for (shb_count = 0; shb_count < wth->shb_hdrs->len; shb_count++) {
+		shb_hdr_src = g_array_index(wth->shb_hdrs, wtap_block_t, shb_count);
+		shb_hdr_dest = wtap_block_create(WTAP_BLOCK_NG_SECTION);
+		wtap_block_copy(shb_hdr_dest, shb_hdr_src);
+		g_array_append_val(shb_hdrs, shb_hdr_dest);
 	}
 
-	wtap_optionblock_set_option_string(wth->nrb_hdr, OPT_COMMENT, comment);
+	return shb_hdrs;
 }
 
+/*
+ * XXX - replace with APIs that let us handle multiple comments.
+ */
 void
 wtap_write_shb_comment(wtap *wth, gchar *comment)
 {
-	wtap_optionblock_set_option_string(wth->shb_hdr, OPT_COMMENT, comment);
+	if ((wth != NULL) && (wth->shb_hdrs != NULL) && (wth->shb_hdrs->len > 0)) {
+		wtap_block_set_nth_string_option_value(g_array_index(wth->shb_hdrs, wtap_block_t, 0), OPT_COMMENT, 0, comment, (gsize)(comment ? strlen(comment) : 0));
+	}
 }
 
 wtapng_iface_descriptions_t *
@@ -250,20 +162,12 @@ wtap_free_idb_info(wtapng_iface_descriptions_t *idb_info)
 	if (idb_info == NULL)
 		return;
 
-	if (idb_info->interface_data) {
-		guint i;
-		for (i = 0; i < idb_info->interface_data->len; i++) {
-			wtap_optionblock_t idb = g_array_index(idb_info->interface_data, wtap_optionblock_t, i);
-			wtap_optionblock_free(idb);
-		}
-		g_array_free(idb_info->interface_data, TRUE);
-	}
-
+	wtap_block_array_free(idb_info->interface_data);
 	g_free(idb_info);
 }
 
 gchar *
-wtap_get_debug_if_descr(const wtap_optionblock_t if_descr,
+wtap_get_debug_if_descr(const wtap_block_t if_descr,
                         const int indent,
                         const char* line_end)
 {
@@ -277,43 +181,46 @@ wtap_get_debug_if_descr(const wtap_optionblock_t if_descr,
 
 	g_assert(if_descr);
 
-	if_descr_mand = (wtapng_if_descr_mandatory_t*)wtap_optionblock_get_mandatory_data(if_descr);
-	wtap_optionblock_get_option_string(if_descr, OPT_IDB_NAME, &tmp_content);
-	g_string_printf(info,
-			"%*cName = %s%s", indent, ' ',
-			tmp_content ? tmp_content : "UNKNOWN",
-			line_end);
+	if_descr_mand = (wtapng_if_descr_mandatory_t*)wtap_block_get_mandatory_data(if_descr);
+	if (wtap_block_get_string_option_value(if_descr, OPT_IDB_NAME, &tmp_content) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_printf(info,
+				"%*cName = %s%s", indent, ' ',
+				tmp_content ? tmp_content : "UNKNOWN",
+				line_end);
+	}
 
-	wtap_optionblock_get_option_string(if_descr, OPT_IDB_DESCR, &tmp_content);
-	g_string_append_printf(info,
-			"%*cDescription = %s%s", indent, ' ',
-			tmp_content ? tmp_content : "NONE",
-			line_end);
+	if (wtap_block_get_string_option_value(if_descr, OPT_IDB_DESCR, &tmp_content) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cDescription = %s%s", indent, ' ',
+				tmp_content ? tmp_content : "NONE",
+				line_end);
+	}
 
 	g_string_append_printf(info,
-			"%*cEncapsulation = %s (%d/%u - %s)%s", indent, ' ',
+			"%*cEncapsulation = %s (%d - %s)%s", indent, ' ',
 			wtap_encap_string(if_descr_mand->wtap_encap),
 			if_descr_mand->wtap_encap,
-			if_descr_mand->link_type,
 			wtap_encap_short_string(if_descr_mand->wtap_encap),
 			line_end);
 
-	wtap_optionblock_get_option_uint64(if_descr, OPT_IDB_SPEED, &tmp64);
-	g_string_append_printf(info,
-			"%*cSpeed = %" G_GINT64_MODIFIER "u%s", indent, ' ',
-			tmp64,
-			line_end);
+	if (wtap_block_get_uint64_option_value(if_descr, OPT_IDB_SPEED, &tmp64) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cSpeed = %" G_GINT64_MODIFIER "u%s", indent, ' ',
+				tmp64,
+				line_end);
+	}
 
 	g_string_append_printf(info,
 			"%*cCapture length = %u%s", indent, ' ',
 			if_descr_mand->snap_len,
 			line_end);
 
-	wtap_optionblock_get_option_uint8(if_descr, OPT_IDB_FCSLEN, &itmp8);
-	g_string_append_printf(info,
-			"%*cFCS length = %d%s", indent, ' ',
-			itmp8,
-			line_end);
+	if (wtap_block_get_uint8_option_value(if_descr, OPT_IDB_FCSLEN, &itmp8) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cFCS length = %d%s", indent, ' ',
+				itmp8,
+				line_end);
+	}
 
 	g_string_append_printf(info,
 			"%*cTime precision = %s (%d)%s", indent, ' ',
@@ -326,34 +233,41 @@ wtap_get_debug_if_descr(const wtap_optionblock_t if_descr,
 			if_descr_mand->time_units_per_second,
 			line_end);
 
-	wtap_optionblock_get_option_uint8(if_descr, OPT_IDB_TSRESOL, &tmp8);
-	g_string_append_printf(info,
-			"%*cTime resolution = 0x%.2x%s", indent, ' ',
-			tmp8,
-			line_end);
+	if (wtap_block_get_uint8_option_value(if_descr, OPT_IDB_TSRESOL, &tmp8) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cTime resolution = 0x%.2x%s", indent, ' ',
+				tmp8,
+				line_end);
+	}
 
-	wtap_optionblock_get_option_custom(if_descr, OPT_IDB_FILTER, (void**)&if_filter);
-	g_string_append_printf(info,
-			"%*cFilter string = %s%s", indent, ' ',
-			if_filter->if_filter_str ? if_filter->if_filter_str : "NONE",
-			line_end);
+	if (wtap_block_get_custom_option_value(if_descr, OPT_IDB_FILTER, (void**)&if_filter) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cFilter string = %s%s", indent, ' ',
+				if_filter->if_filter_str ? if_filter->if_filter_str : "NONE",
+				line_end);
 
-	wtap_optionblock_get_option_string(if_descr, OPT_IDB_OS, &tmp_content);
-	g_string_append_printf(info,
-			"%*cOperating system = %s%s", indent, ' ',
-			tmp_content ? tmp_content : "UNKNOWN",
-			line_end);
+		g_string_append_printf(info,
+				"%*cBPF filter length = %u%s", indent, ' ',
+				if_filter->bpf_filter_len,
+				line_end);
+	}
 
-	wtap_optionblock_get_option_string(if_descr, OPT_COMMENT, &tmp_content);
-	g_string_append_printf(info,
-			"%*cComment = %s%s", indent, ' ',
-			tmp_content ? tmp_content : "NONE",
-			line_end);
+	if (wtap_block_get_string_option_value(if_descr, OPT_IDB_OS, &tmp_content) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cOperating system = %s%s", indent, ' ',
+				tmp_content ? tmp_content : "UNKNOWN",
+				line_end);
+	}
 
-	g_string_append_printf(info,
-			"%*cBPF filter length = %u%s", indent, ' ',
-			if_filter->bpf_filter_len,
-			line_end);
+	/*
+	 * XXX - support multiple comments.
+	 */
+	if (wtap_block_get_nth_string_option_value(if_descr, OPT_COMMENT, 0, &tmp_content) == WTAP_OPTTYPE_SUCCESS) {
+		g_string_append_printf(info,
+				"%*cComment = %s%s", indent, ' ',
+				tmp_content ? tmp_content : "NONE",
+				line_end);
+	}
 
 	g_string_append_printf(info,
 			"%*cNumber of stat entries = %u%s", indent, ' ',
@@ -363,18 +277,35 @@ wtap_get_debug_if_descr(const wtap_optionblock_t if_descr,
 	return g_string_free(info, FALSE);
 }
 
-wtap_optionblock_t
-wtap_file_get_nrb_for_new_file(wtap *wth)
+wtap_block_t
+wtap_file_get_nrb(wtap *wth)
 {
-	wtap_optionblock_t nrb_hdr;
-
-	if (wth == NULL || wth->nrb_hdr == NULL)
+	if ((wth == NULL) || (wth->nrb_hdrs == NULL) || (wth->nrb_hdrs->len == 0))
 		return NULL;
 
-	nrb_hdr = wtap_optionblock_create(WTAP_OPTION_BLOCK_NG_NRB);
+	return g_array_index(wth->nrb_hdrs, wtap_block_t, 0);
+}
 
-	wtap_optionblock_copy_options(nrb_hdr, wth->nrb_hdr);
-	return nrb_hdr;
+GArray*
+wtap_file_get_nrb_for_new_file(wtap *wth)
+{
+	guint nrb_count;
+	wtap_block_t nrb_hdr_src, nrb_hdr_dest;
+	GArray* nrb_hdrs;
+
+	if ((wth == NULL || wth->nrb_hdrs == NULL) || (wth->nrb_hdrs->len == 0))
+		return NULL;
+
+	nrb_hdrs = g_array_new(FALSE, FALSE, sizeof(wtap_block_t));
+
+	for (nrb_count = 0; nrb_count < wth->nrb_hdrs->len; nrb_count++) {
+		nrb_hdr_src = g_array_index(wth->nrb_hdrs, wtap_block_t, nrb_count);
+		nrb_hdr_dest = wtap_block_create(WTAP_BLOCK_NG_NRB);
+		wtap_block_copy(nrb_hdr_dest, nrb_hdr_src);
+		g_array_append_val(nrb_hdrs, nrb_hdr_dest);
+	}
+
+	return nrb_hdrs;
 }
 
 /* Table of the encapsulation types we know about. */
@@ -660,8 +591,8 @@ static struct encap_type_info encap_table_base[] = {
 	/* WTAP_ENCAP_JUNIPER_VP */
 	{ "Juniper Voice PIC", "juniper-vp" },
 
-	/* WTAP_ENCAP_USB */
-	{ "Raw USB packets", "usb" },
+	/* WTAP_ENCAP_USB_FREEBSD */
+	{ "USB packets with FreeBSD header", "usb-freebsd" },
 
 	/* WTAP_ENCAP_IEEE802_16_MAC_CPS */
 	{ "IEEE 802.16 MAC Common Part Sublayer", "ieee-802-16-mac-cps" },
@@ -922,8 +853,70 @@ static struct encap_type_info encap_table_base[] = {
 	{ "ITU-T G.7041/Y.1303 Generic Framing Procedure Transparent mode", "gfp-t" },
 
 	/* WTAP_ENCAP_GFP_F */
-	{ "ITU-T G.7041/Y.1303 Generic Framing Procedure Frame-mapped mode", "gfp-f" }
+	{ "ITU-T G.7041/Y.1303 Generic Framing Procedure Frame-mapped mode", "gfp-f" },
 
+	/* WTAP_ENCAP_IP_OVER_IB_PCAP */
+	{ "IP over IB", "ip-ib" },
+
+	/* WTAP_ENCAP_JUNIPER_VN */
+	{ "Juniper VN", "juniper-vn" },
+
+	/* WTAP_ENCAP_USB_DARWIN */
+	{ "USB packets with Darwin (macOS, etc.) headers", "usb-darwin" },
+
+	/* WTAP_ENCAP_LORATAP */
+	{ "LoRaTap", "loratap"},
+
+	/* WTAP_ENCAP_3MB_ETHERNET */
+	{ "Xerox 3MB Ethernet", "xeth"},
+
+	/* WTAP_ENCAP_VSOCK */
+	{ "Linux vsock", "vsock" },
+
+	/* WTAP_ENCAP_NORDIC_BLE */
+	{ "Nordic BLE Sniffer", "nordic_ble" },
+
+	/* WTAP_ENCAP_NETMON_NET_NETEVENT */
+	{ "Network Monitor Network Event", "netmon_event" },
+
+	/* WTAP_ENCAP_NETMON_HEADER */
+	{ "Network Monitor Header", "netmon_header" },
+
+	/* WTAP_ENCAP_NETMON_NET_FILTER */
+	{ "Network Monitor Filter", "netmon_filter" },
+
+	/* WTAP_ENCAP_NETMON_NETWORK_INFO_EX */
+	{ "Network Monitor Network Info", "netmon_network_info" },
+
+	/* WTAP_ENCAP_MA_WFP_CAPTURE_V4 */
+	{ "Message Analyzer WFP Capture v4", "message_analyzer_wfp_capture_v4" },
+
+	/* WTAP_ENCAP_MA_WFP_CAPTURE_V6 */
+	{ "Message Analyzer WFP Capture v6", "message_analyzer_wfp_capture_v6" },
+
+	/* WTAP_ENCAP_MA_WFP_CAPTURE_2V4 */
+	{ "Message Analyzer WFP Capture2 v4", "message_analyzer_wfp_capture2_v4" },
+
+	/* WTAP_ENCAP_MA_WFP_CAPTURE_2V6 */
+	{ "Message Analyzer WFP Capture2 v6", "message_analyzer_wfp_capture2_v6" },
+
+	/* WTAP_ENCAP_MA_WFP_CAPTURE_AUTH_V4 */
+	{ "Message Analyzer WFP Capture Auth v4", "message_analyzer_wfp_capture_auth_v4" },
+
+	/* WTAP_ENCAP_MA_WFP_CAPTURE_AUTH_V6 */
+	{ "Message Analyzer WFP Capture Auth v6", "message_analyzer_wfp_capture_auth_v6" },
+
+	/* WTAP_ENCAP_JUNIPER_ST */
+	{ "Juniper Secure Tunnel Information", "juniper-st" },
+
+	/* WTAP_ENCAP_ETHERNET_MPACKET */
+	{ "IEEE 802.3br mPackets", "ether-mpacket" },
+
+	/* WTAP_ENCAP_DOCSIS31_XRA31 */
+	{ "DOCSIS with Excentis XRA pseudo-header", "docsis31_xra31" },
+
+	/* WTAP_ENCAP_DPAUXMON */
+	{ "DisplayPort AUX channel with Unigraf pseudo-header", "dpauxmon" },
 };
 
 WS_DLL_LOCAL
@@ -942,15 +935,20 @@ static void wtap_init_encap_types(void) {
 	g_array_append_vals(encap_table_arr,encap_table_base,wtap_num_encap_types);
 }
 
+static void wtap_cleanup_encap_types(void) {
+	if (encap_table_arr) {
+		g_array_free(encap_table_arr, TRUE);
+		encap_table_arr = NULL;
+	}
+}
+
 int wtap_get_num_encap_types(void) {
-	wtap_init_encap_types();
 	return wtap_num_encap_types;
 }
 
 
 int wtap_register_encap_type(const char* name, const char* short_name) {
 	struct encap_type_info e;
-	wtap_init_encap_types();
 
 	e.name = g_strdup(name);
 	e.short_name = g_strdup(short_name);
@@ -1107,7 +1105,10 @@ static const char *wtap_errlist[] = {
 	"That record type cannot be written in that format",
 
 	/* WTAP_ERR_UNWRITABLE_REC_DATA */
-	"That record can't be written in that format"
+	"That record can't be written in that format",
+
+	/* WTAP_ERR_DECOMPRESSION_NOT_SUPPORTED */
+	"We don't support decompressing that type of compressed file",
 };
 #define	WTAP_ERRLIST_SIZE	(sizeof wtap_errlist / sizeof wtap_errlist[0])
 
@@ -1149,10 +1150,10 @@ wtap_sequential_close(wtap *wth)
 		wth->fh = NULL;
 	}
 
-	if (wth->frame_buffer) {
-		ws_buffer_free(wth->frame_buffer);
-		g_free(wth->frame_buffer);
-		wth->frame_buffer = NULL;
+	if (wth->rec_data) {
+		ws_buffer_free(wth->rec_data);
+		g_free(wth->rec_data);
+		wth->rec_data = NULL;
 	}
 }
 
@@ -1180,9 +1181,6 @@ wtap_fdclose(wtap *wth)
 void
 wtap_close(wtap *wth)
 {
-	guint i;
-	wtap_optionblock_t wtapng_if_descr;
-
 	wtap_sequential_close(wth);
 
 	if (wth->subtype_close != NULL)
@@ -1191,21 +1189,17 @@ wtap_close(wtap *wth)
 	if (wth->random_fh != NULL)
 		file_close(wth->random_fh);
 
-	if (wth->priv != NULL)
-		g_free(wth->priv);
+	g_free(wth->priv);
 
 	if (wth->fast_seek != NULL) {
 		g_ptr_array_foreach(wth->fast_seek, g_fast_seek_item_free, NULL);
 		g_ptr_array_free(wth->fast_seek, TRUE);
 	}
 
-	wtap_optionblock_free(wth->shb_hdr);
+	wtap_block_array_free(wth->shb_hdrs);
+	wtap_block_array_free(wth->nrb_hdrs);
+	wtap_block_array_free(wth->interface_data);
 
-	for(i = 0; i < wth->interface_data->len; i++) {
-		wtapng_if_descr = g_array_index(wth->interface_data, wtap_optionblock_t, i);
-		wtap_optionblock_free(wtapng_if_descr);
-	}
-	g_array_free(wth->interface_data, TRUE);
 	g_free(wth);
 }
 
@@ -1238,8 +1232,8 @@ wtap_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 	 *
 	 * Do the same for the packet time stamp resolution.
 	 */
-	wth->phdr.pkt_encap = wth->file_encap;
-	wth->phdr.pkt_tsprec = wth->file_tsprec;
+	wth->rec.rec_header.packet_header.pkt_encap = wth->file_encap;
+	wth->rec.tsprec = wth->file_tsprec;
 
 	*err = 0;
 	*err_info = NULL;
@@ -1259,25 +1253,31 @@ wtap_read(wtap *wth, int *err, gchar **err_info, gint64 *data_offset)
 	}
 
 	/*
-	 * It makes no sense for the captured data length to be bigger
-	 * than the actual data length.
+	 * Is this a packet record?
 	 */
-	if (wth->phdr.caplen > wth->phdr.len)
-		wth->phdr.caplen = wth->phdr.len;
+	if (wth->rec.rec_type == REC_TYPE_PACKET) {
+		/*
+		 * It makes no sense for the captured data length
+		 * to be bigger than the actual data length.
+		 */
+		if (wth->rec.rec_header.packet_header.caplen > wth->rec.rec_header.packet_header.len)
+			wth->rec.rec_header.packet_header.caplen = wth->rec.rec_header.packet_header.len;
 
-	/*
-	 * Make sure that it's not WTAP_ENCAP_PER_PACKET, as that
-	 * probably means the file has that encapsulation type
-	 * but the read routine didn't set this packet's
-	 * encapsulation type.
-	 */
-	g_assert(wth->phdr.pkt_encap != WTAP_ENCAP_PER_PACKET);
+		/*
+		 * Make sure that it's not WTAP_ENCAP_PER_PACKET, as that
+		 * probably means the file has that encapsulation type
+		 * but the read routine didn't set this packet's
+		 * encapsulation type.
+		 */
+		g_assert(wth->rec.rec_header.packet_header.pkt_encap != WTAP_ENCAP_PER_PACKET);
+	}
 
 	return TRUE;	/* success */
 }
 
 /*
- * Read a given number of bytes from a file.
+ * Read a given number of bytes from a file into a buffer or, if
+ * buf is NULL, just discard them.
  *
  * If we succeed, return TRUE.
  *
@@ -1308,7 +1308,8 @@ wtap_read_bytes_or_eof(FILE_T fh, void *buf, unsigned int count, int *err,
 }
 
 /*
- * Read a given number of bytes from a file.
+ * Read a given number of bytes from a file into a buffer or, if
+ * buf is NULL, just discard them.
  *
  * If we succeed, return TRUE.
  *
@@ -1363,34 +1364,34 @@ wtap_read_so_far(wtap *wth)
 	return file_tell_raw(wth->fh);
 }
 
-struct wtap_pkthdr *
-wtap_phdr(wtap *wth)
+wtap_rec *
+wtap_get_rec(wtap *wth)
 {
-	return &wth->phdr;
+	return &wth->rec;
 }
 
 guint8 *
-wtap_buf_ptr(wtap *wth)
+wtap_get_buf_ptr(wtap *wth)
 {
-	return ws_buffer_start_ptr(wth->frame_buffer);
+	return ws_buffer_start_ptr(wth->rec_data);
 }
 
 void
-wtap_phdr_init(struct wtap_pkthdr *phdr)
+wtap_rec_init(wtap_rec *rec)
 {
-	memset(phdr, 0, sizeof(struct wtap_pkthdr));
-	ws_buffer_init(&phdr->ft_specific_data, 0);
+	memset(rec, 0, sizeof *rec);
+	ws_buffer_init(&rec->options_buf, 0);
 }
 
 void
-wtap_phdr_cleanup(struct wtap_pkthdr *phdr)
+wtap_rec_cleanup(wtap_rec *rec)
 {
-	ws_buffer_free(&phdr->ft_specific_data);
+	ws_buffer_free(&rec->options_buf);
 }
 
 gboolean
-wtap_seek_read(wtap *wth, gint64 seek_off,
-	struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info)
+wtap_seek_read(wtap *wth, gint64 seek_off, wtap_rec *rec, Buffer *buf,
+    int *err, gchar **err_info)
 {
 	/*
 	 * Set the packet encapsulation to the file's encapsulation
@@ -1402,28 +1403,70 @@ wtap_seek_read(wtap *wth, gint64 seek_off,
 	 *
 	 * Do the same for the packet time stamp resolution.
 	 */
-	phdr->pkt_encap = wth->file_encap;
-	phdr->pkt_tsprec = wth->file_tsprec;
+	rec->rec_header.packet_header.pkt_encap = wth->file_encap;
+	rec->tsprec = wth->file_tsprec;
 
-	if (!wth->subtype_seek_read(wth, seek_off, phdr, buf, err, err_info))
+	*err = 0;
+	*err_info = NULL;
+	if (!wth->subtype_seek_read(wth, seek_off, rec, buf, err, err_info))
 		return FALSE;
 
 	/*
-	 * It makes no sense for the captured data length to be bigger
-	 * than the actual data length.
+	 * Is this a packet record?
 	 */
-	if (phdr->caplen > phdr->len)
-		phdr->caplen = phdr->len;
+	if (rec->rec_type == REC_TYPE_PACKET) {
+		/*
+		 * It makes no sense for the captured data length
+		 * to be bigger than the actual data length.
+		 */
+		if (rec->rec_header.packet_header.caplen > rec->rec_header.packet_header.len)
+			rec->rec_header.packet_header.caplen = rec->rec_header.packet_header.len;
 
-	/*
-	 * Make sure that it's not WTAP_ENCAP_PER_PACKET, as that
-	 * probably means the file has that encapsulation type
-	 * but the read routine didn't set this packet's
-	 * encapsulation type.
-	 */
-	g_assert(phdr->pkt_encap != WTAP_ENCAP_PER_PACKET);
+		/*
+		 * Make sure that it's not WTAP_ENCAP_PER_PACKET, as that
+		 * probably means the file has that encapsulation type
+		 * but the read routine didn't set this packet's
+		 * encapsulation type.
+		 */
+		g_assert(rec->rec_header.packet_header.pkt_encap != WTAP_ENCAP_PER_PACKET);
+	}
 
 	return TRUE;
+}
+
+/*
+ * Initialize the library.
+ */
+void
+wtap_init(gboolean load_wiretap_plugins)
+{
+	init_open_routines();
+	wtap_opttypes_initialize();
+	wtap_init_encap_types();
+	if (load_wiretap_plugins) {
+#ifdef HAVE_PLUGINS
+		libwiretap_plugins = plugins_init(WS_PLUGIN_WIRETAP);
+		g_slist_foreach(wtap_plugins, call_plugin_register_wtap_module, NULL);
+#endif
+	}
+}
+
+/*
+ * Cleanup the library
+ */
+void
+wtap_cleanup(void)
+{
+	wtap_cleanup_encap_types();
+	wtap_opttypes_cleanup();
+	ws_buffer_cleanup();
+	cleanup_open_routines();
+#ifdef HAVE_PLUGINS
+	g_slist_free(wtap_plugins);
+	wtap_plugins = NULL;
+	plugins_cleanup(libwiretap_plugins);
+	libwiretap_plugins = NULL;
+#endif
 }
 
 /*

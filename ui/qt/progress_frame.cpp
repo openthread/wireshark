@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -27,16 +15,15 @@
 #include "ui/progress_dlg.h"
 
 #include <QDialogButtonBox>
-#include <QElapsedTimer>
 #include <QGraphicsOpacityEffect>
 #include <QBoxLayout>
 #include <QPropertyAnimation>
 
-#include "stock_icon_tool_button.h"
+#include <ui/qt/widgets/stock_icon_tool_button.h>
 #include "wireshark_application.h"
 
 // To do:
-// - Add an NSProgressIndicator to the dock icon on OS X.
+// - Add an NSProgressIndicator to the dock icon on macOS.
 // - Start adding the progress bar to dialogs.
 // - Don't complain so loudly when the user stops a capture.
 
@@ -77,13 +64,10 @@ delayed_create_progress_dlg(gpointer top_level_window, const gchar *task_title, 
 /*
  * Update the progress information of the progress bar box.
  */
-static const int app_update_freq_ = 100; // ms
 void
 update_progress_dlg(progdlg_t *dlg, gfloat percentage, const gchar *)
 {
     if (!dlg) return;
-    if (dlg->elapsed_timer->isValid() && !dlg->elapsed_timer->hasExpired(app_update_freq_)) return;
-    dlg->elapsed_timer->restart();
 
     dlg->progress_frame->setValue(percentage * 100);
 
@@ -91,9 +75,6 @@ update_progress_dlg(progdlg_t *dlg, gfloat percentage, const gchar *)
      * Flush out the update and process any input events.
      */
     WiresharkApplication::processEvents();
-
-    /* Redraw so the progress bar shows the update */
-    dlg->progress_frame->update();
 }
 
 /*
@@ -110,11 +91,9 @@ ProgressFrame::ProgressFrame(QWidget *parent) :
     ui(new Ui::ProgressFrame)
   , terminate_is_stop_(false)
   , stop_flag_(NULL)
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
   , show_timer_(-1)
   , effect_(NULL)
   , animation_(NULL)
-#endif
 #ifdef QWINTASKBARPROGRESS_H
   , update_taskbar_(false)
   , taskbar_progress_(NULL)
@@ -123,7 +102,6 @@ ProgressFrame::ProgressFrame(QWidget *parent) :
     ui->setupUi(this);
 
     progress_dialog_.progress_frame = this;
-    progress_dialog_.elapsed_timer = new QElapsedTimer();
     progress_dialog_.top_level_window = window();
 
     ui->progressBar->setStyleSheet(QString(
@@ -151,11 +129,8 @@ ProgressFrame::ProgressFrame(QWidget *parent) :
             "}"
             );
 
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     effect_ = new QGraphicsOpacityEffect(this);
     animation_ = new QPropertyAnimation(effect_, "opacity", this);
-#endif
-
     connect(this, SIGNAL(showRequested(bool,bool,gboolean*)),
             this, SLOT(show(bool,bool,gboolean*)));
     hide();
@@ -164,14 +139,12 @@ ProgressFrame::ProgressFrame(QWidget *parent) :
 ProgressFrame::~ProgressFrame()
 {
     delete ui;
-    delete progress_dialog_.elapsed_timer;
 }
 
 struct progdlg *ProgressFrame::showProgress(bool animate, bool terminate_is_stop, gboolean *stop_flag, int value)
 {
     setMaximumValue(100);
     ui->progressBar->setValue(value);
-    progress_dialog_.elapsed_timer->invalidate();
     emit showRequested(animate, terminate_is_stop, stop_flag);
     return &progress_dialog_;
 }
@@ -241,7 +214,6 @@ void ProgressFrame::setValue(int value)
     emit valueChanged(value);
 }
 
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
 void ProgressFrame::timerEvent(QTimerEvent *event)
 {
     if (event->timerId() == show_timer_) {
@@ -261,18 +233,15 @@ void ProgressFrame::timerEvent(QTimerEvent *event)
         QFrame::timerEvent(event);
     }
 }
-#endif
 
 void ProgressFrame::hide()
 {
-    progress_dialog_.elapsed_timer->invalidate();
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     show_timer_ = -1;
-#endif
     emit setHidden();
     QFrame::hide();
 #ifdef QWINTASKBARPROGRESS_H
     if (taskbar_progress_) {
+        disconnect(this, SIGNAL(valueChanged(int)), taskbar_progress_, SLOT(setValue(int)));
         taskbar_progress_->reset();
         taskbar_progress_->hide();
     }
@@ -284,9 +253,7 @@ void ProgressFrame::on_stopButton_clicked()
     emit stopLoading();
 }
 
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
 const int show_delay_ = 500; // ms
-#endif
 
 void ProgressFrame::show(bool animate, bool terminate_is_stop, gboolean *stop_flag)
 {
@@ -299,16 +266,11 @@ void ProgressFrame::show(bool animate, bool terminate_is_stop, gboolean *stop_fl
         ui->stopButton->hide();
     }
 
-#if !defined(Q_OS_MAC) || QT_VERSION > QT_VERSION_CHECK(5, 0, 0)
     if (animate) {
         show_timer_ = startTimer(show_delay_);
     } else {
         QFrame::show();
     }
-#else
-    Q_UNUSED(animate);
-    QFrame::show();
-#endif
 
 #ifdef QWINTASKBARPROGRESS_H
     // windowHandle() is picky about returning a non-NULL value so we check it
@@ -318,12 +280,12 @@ void ProgressFrame::show(bool animate, bool terminate_is_stop, gboolean *stop_fl
         if (taskbar_button) {
             taskbar_button->setWindow(window()->windowHandle());
             taskbar_progress_ = taskbar_button->progress();
-            connect(this, SIGNAL(valueChanged(int)), taskbar_progress_, SLOT(setValue(int)));
         }
     }
     if (taskbar_progress_) {
         taskbar_progress_->show();
-        taskbar_progress_->resume();
+        taskbar_progress_->reset();
+        connect(this, SIGNAL(valueChanged(int)), taskbar_progress_, SLOT(setValue(int)));
     }
 #endif
 }

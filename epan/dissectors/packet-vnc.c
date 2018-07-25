@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Dissection of the VNC (Virtual Network Computing) network traffic.
@@ -562,16 +550,9 @@ static guint vnc_slrle_encoding(tvbuff_t *tvb, packet_info *pinfo, gint *offset,
 
 static guint vnc_h264_encoding(tvbuff_t *tvb, gint *offset, proto_tree *tree);
 
-#define DEST_PORT_VNC pinfo->destport == 5500 || pinfo->destport == 5501 || \
-		pinfo->destport == 5900 || pinfo->destport == 5901 ||	\
-		pinfo->destport == vnc_preference_alternate_port
-
 #define VNC_BYTES_NEEDED(a)					\
 	if((a) > (guint)tvb_reported_length_remaining(tvb, *offset))	\
 		return (a);
-
-/* Variables for our preferences */
-static guint vnc_preference_alternate_port = 0;
 
 /* Initialize the protocol and registered fields */
 static int proto_vnc = -1; /* Protocol subtree */
@@ -915,7 +896,9 @@ static expert_field ei_vnc_reassemble = EI_INIT;
 guint8 vnc_bytes_per_pixel;
 guint8 vnc_depth;
 
+#define VNC_PORT_RANGE "5500-5501,5900-5901" /* Not IANA registered */
 
+static range_t *vnc_tcp_range = NULL;
 static dissector_handle_t vnc_handle;
 
 /* Code to dissect the packets */
@@ -969,7 +952,7 @@ dissect_vnc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 		return tvb_captured_length(tvb);  /* We're in a "startup" state; Cannot yet do "normal" processing */
 	}
 
-	if(DEST_PORT_VNC || per_conversation_info->server_port == pinfo->destport) {
+	if(value_is_in_range(vnc_tcp_range, pinfo->destport) || per_conversation_info->server_port == pinfo->destport) {
 		vnc_client_to_server(tvb, pinfo, &offset, vnc_tree);
 	}
 	else {
@@ -982,13 +965,11 @@ dissect_vnc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 static gint
 process_vendor(proto_tree *tree, gint hfindex, tvbuff_t *tvb, gint offset)
 {
-	gchar *vendor;
+	const guint8 *vendor;
 	proto_item *ti;
 
 	if (tree) {
-		vendor = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 4, ENC_ASCII);
-
-		ti = proto_tree_add_string(tree, hfindex, tvb, offset, 4, vendor);
+		ti = proto_tree_add_item_ret_string(tree, hfindex, tvb, offset, 4, ENC_ASCII|ENC_NA, wmem_packet_scope(), &vendor);
 
 		if(g_ascii_strcasecmp(vendor, "STDV") == 0)
 			proto_item_append_text(ti, " (Standard VNC vendor)");
@@ -1012,15 +993,13 @@ process_tight_capabilities(proto_tree *tree,
 	/* See vnc_unixsrc/include/rfbproto.h:rfbCapabilityInfo */
 
 	for (i = 0; i < num_capabilities; i++) {
-		char *name;
 
 		proto_tree_add_item(tree, type_index, tvb, offset, 4, ENC_BIG_ENDIAN);
 		offset += 4;
 
 		offset = process_vendor(tree, vendor_index, tvb, offset);
 
-		name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 8, ENC_ASCII);
-		proto_tree_add_string(tree, name_index, tvb, offset, 8, name);
+		proto_tree_add_item(tree, name_index, tvb, offset, 8, ENC_ASCII|ENC_NA);
 		offset += 8;
 	}
 
@@ -1078,7 +1057,7 @@ static gboolean test_vnc_protocol(tvbuff_t *tvb, packet_info *pinfo,
 
 	if (vnc_is_client_or_server_version_message(tvb, NULL, NULL)) {
 		conversation = conversation_new(pinfo->num, &pinfo->src,
-						&pinfo->dst, pinfo->ptype,
+						&pinfo->dst, conversation_pt_to_endpoint_type(pinfo->ptype),
 						pinfo->srcport,
 						pinfo->destport, 0);
 		conversation_set_dissector(conversation, vnc_handle);
@@ -1278,62 +1257,57 @@ vnc_startup_messages(tvbuff_t *tvb, packet_info *pinfo, gint offset,
 		break;
 
 	case VNC_SESSION_STATE_TIGHT_AUTH_CAPABILITIES:
+	{
+		const guint8 *vendor, *signature;
+
 		col_set_str(pinfo->cinfo, COL_INFO, "TightVNC authentication capabilities supported");
 
 		proto_tree_add_item(tree, hf_vnc_tight_num_auth_types, tvb, offset, 4, ENC_BIG_ENDIAN);
 		num_auth_types = tvb_get_ntohl(tvb, offset);
 		offset += 4;
 
-		{
-			int i;
-			guint8 *vendor, *signature;
-			for (i = 0; i < 1; i++) {
-				auth_code = tvb_get_ntohl(tvb, offset);
-				auth_item = proto_tree_add_item(tree, hf_vnc_tight_auth_code, tvb, offset, 4, ENC_BIG_ENDIAN);
-				offset += 4;
-				vendor = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 4, ENC_ASCII);
-				process_vendor(tree, hf_vnc_tight_server_vendor, tvb, offset);
-				offset += 4;
-				signature = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 8, ENC_ASCII);
-				proto_tree_add_string(tree, hf_vnc_tight_signature, tvb, offset, 8, signature);
-				offset += 8;
+		auth_code = tvb_get_ntohl(tvb, offset);
+		auth_item = proto_tree_add_item(tree, hf_vnc_tight_auth_code, tvb, offset, 4, ENC_BIG_ENDIAN);
+		offset += 4;
+		vendor = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, 4, ENC_ASCII);
+		process_vendor(tree, hf_vnc_tight_server_vendor, tvb, offset);
+		offset += 4;
+		proto_tree_add_item_ret_string(tree, hf_vnc_tight_signature, tvb, offset, 8, ENC_ASCII|ENC_NA, wmem_packet_scope(), &signature);
 
-				switch(auth_code) {
-					case VNC_SECURITY_TYPE_NONE:
-						if ((g_ascii_strcasecmp(vendor, "STDV") != 0) || (g_ascii_strcasecmp(signature, "NOAUTH__") != 0)) {
-							expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
-						}
-						break;
-					case VNC_SECURITY_TYPE_VNC:
-						if ((g_ascii_strcasecmp(vendor, "STDV") != 0) || (g_ascii_strcasecmp(signature, "VNCAUTH_") != 0)) {
-							expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
-						}
-						break;
-					case VNC_SECURITY_TYPE_VENCRYPT:
-						if ((g_ascii_strcasecmp(vendor, "VENC") != 0) || (g_ascii_strcasecmp(signature, "VENCRYPT") != 0)) {
-							expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
-						}
-						break;
-					case VNC_SECURITY_TYPE_GTK_VNC_SASL:
-						if ((g_ascii_strcasecmp(vendor, "GTKV") != 0) || (g_ascii_strcasecmp(signature, "SASL____") != 0)) {
-							expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
-						}
-						break;
-					case VNC_TIGHT_AUTH_TGHT_ULGNAUTH:
-						if ((g_ascii_strcasecmp(vendor, "TGHT") != 0) || (g_ascii_strcasecmp(signature, "ULGNAUTH") != 0)) {
-							expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
-						}
-						break;
-					case VNC_TIGHT_AUTH_TGHT_XTRNAUTH:
-						if ((g_ascii_strcasecmp(vendor, "TGHT") != 0) || (g_ascii_strcasecmp(signature, "XTRNAUTH") != 0)) {
-							expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
-						}
-						break;
-					default:
-						expert_add_info(pinfo, auth_item, &ei_vnc_unknown_tight_vnc_auth);
-						break;
+		switch(auth_code) {
+			case VNC_SECURITY_TYPE_NONE:
+				if ((g_ascii_strcasecmp(vendor, "STDV") != 0) || (g_ascii_strcasecmp(signature, "NOAUTH__") != 0)) {
+					expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
 				}
-			}
+				break;
+			case VNC_SECURITY_TYPE_VNC:
+				if ((g_ascii_strcasecmp(vendor, "STDV") != 0) || (g_ascii_strcasecmp(signature, "VNCAUTH_") != 0)) {
+					expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
+				}
+				break;
+			case VNC_SECURITY_TYPE_VENCRYPT:
+				if ((g_ascii_strcasecmp(vendor, "VENC") != 0) || (g_ascii_strcasecmp(signature, "VENCRYPT") != 0)) {
+					expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
+				}
+				break;
+			case VNC_SECURITY_TYPE_GTK_VNC_SASL:
+				if ((g_ascii_strcasecmp(vendor, "GTKV") != 0) || (g_ascii_strcasecmp(signature, "SASL____") != 0)) {
+					expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
+				}
+				break;
+			case VNC_TIGHT_AUTH_TGHT_ULGNAUTH:
+				if ((g_ascii_strcasecmp(vendor, "TGHT") != 0) || (g_ascii_strcasecmp(signature, "ULGNAUTH") != 0)) {
+					expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
+				}
+				break;
+			case VNC_TIGHT_AUTH_TGHT_XTRNAUTH:
+				if ((g_ascii_strcasecmp(vendor, "TGHT") != 0) || (g_ascii_strcasecmp(signature, "XTRNAUTH") != 0)) {
+					expert_add_info(pinfo, auth_item, &ei_vnc_auth_code_mismatch);
+				}
+				break;
+			default:
+				expert_add_info(pinfo, auth_item, &ei_vnc_unknown_tight_vnc_auth);
+				break;
 		}
 
 		if (num_auth_types == 0)
@@ -1341,7 +1315,7 @@ vnc_startup_messages(tvbuff_t *tvb, packet_info *pinfo, gint offset,
 		else
 			per_conversation_info->vnc_next_state = VNC_SESSION_STATE_TIGHT_AUTH_TYPE_REPLY;
 		break;
-
+	}
 	case VNC_SESSION_STATE_TIGHT_AUTH_TYPE_REPLY:
 		col_set_str(pinfo->cinfo, COL_INFO, "TightVNC authentication type selected by client");
 		auth_code = tvb_get_ntohl(tvb, offset);
@@ -2369,9 +2343,9 @@ vnc_hextile_encoding(tvbuff_t *tvb, packet_info *pinfo, gint *offset,
 			if(subencoding_mask & 0x1) { /* Raw */
 				raw_length = tile_width * tile_height * bytes_per_pixel;
 
+				VNC_BYTES_NEEDED(raw_length);
 				proto_tree_add_item(tile_tree, hf_vnc_hextile_raw_value, tvb,
 						    *offset, raw_length, ENC_NA);
-				VNC_BYTES_NEEDED(raw_length);
 				*offset += raw_length;
 			} else {
 				if(subencoding_mask & 0x2) { /* Background Specified */
@@ -2938,7 +2912,7 @@ vnc_h264_encoding(tvbuff_t *tvb, gint *offset, proto_tree *tree)
 	return 0; /* bytes_needed */
 }
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 static guint
 vnc_zrle_encoding(tvbuff_t *tvb, packet_info *pinfo, gint *offset,
 		  proto_tree *tree, const guint16 width, const guint16 height)
@@ -2949,7 +2923,7 @@ vnc_zrle_encoding(tvbuff_t *tvb, packet_info *pinfo _U_, gint *offset,
 #endif
 {
 	guint32 data_len;
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 	guint8 palette_size;
 	guint8 bytes_per_cpixel = vnc_get_bytes_per_pixel(pinfo);
 	gint uncomp_offset = 0;
@@ -2972,7 +2946,7 @@ vnc_zrle_encoding(tvbuff_t *tvb, packet_info *pinfo _U_, gint *offset,
 	proto_tree_add_item(tree, hf_vnc_zrle_data, tvb, *offset,
 			    data_len, ENC_NA);
 
-#ifdef HAVE_LIBZ
+#ifdef HAVE_ZLIB
 	uncomp_tvb = tvb_child_uncompress(tvb, tvb, *offset, data_len);
 
 	if(uncomp_tvb != NULL) {
@@ -3020,7 +2994,7 @@ vnc_zrle_encoding(tvbuff_t *tvb, packet_info *pinfo _U_, gint *offset,
 	} else {
 		proto_tree_add_expert(tree, pinfo, &ei_vnc_zrle_failed, tvb, *offset, data_len);
 	}
-#endif /* HAVE_LIBZ */
+#endif /* HAVE_ZLIB */
 
 	*offset += data_len;
 
@@ -3467,6 +3441,11 @@ vnc_get_depth(packet_info *pinfo)
 	return per_packet_info->depth;
 }
 
+/* Preference callbacks */
+static void
+apply_vnc_prefs(void) {
+    vnc_tcp_range = prefs_get_range_value("vnc", "tcp.port");
+}
 
 /* Register the protocol with Wireshark */
 void
@@ -4744,8 +4723,7 @@ proto_register_vnc(void)
 	};
 
 	/* Register the protocol name and description */
-	proto_vnc = proto_register_protocol("Virtual Network Computing",
-					    "VNC", "vnc");
+	proto_vnc = proto_register_protocol("Virtual Network Computing", "VNC", "vnc");
 
 	/* Required function calls to register the header fields and subtrees */
 	proto_register_field_array(proto_vnc, hf, array_length(hf));
@@ -4754,7 +4732,7 @@ proto_register_vnc(void)
 	expert_register_field_array(expert_vnc, ei, array_length(ei));
 
 	/* Register our preferences module */
-	vnc_module = prefs_register_protocol(proto_vnc, proto_reg_handoff_vnc);
+	vnc_module = prefs_register_protocol(proto_vnc, apply_vnc_prefs);
 
 	prefs_register_bool_preference(vnc_module, "desegment",
 				       "Reassemble VNC messages spanning multiple TCP segments.",
@@ -4762,62 +4740,19 @@ proto_register_vnc(void)
 				       "multiple TCP segments.  To use this option, you must also enable "
 				       "\"Allow subdissectors to reassemble TCP streams\" in the TCP protocol settings.",
 				       &vnc_preference_desegment);
-
-	prefs_register_uint_preference(vnc_module, "alternate_port", "Alternate TCP port",
-				       "Decode this port's traffic as VNC in addition to the default ports (5500, 5501, 5900, 5901)",
-				       10, &vnc_preference_alternate_port);
-
 }
 
 void
 proto_reg_handoff_vnc(void)
 {
-	static gboolean inited = FALSE;
+	vnc_handle = create_dissector_handle(dissect_vnc, proto_vnc);
 
-	/* This is a behind the scenes variable that is not changed by the user.
-	 * This stores last setting of the vnc_preference_alternate_port.  Used to keep
-	 * track of when the user has changed the setting so that we can delete
-	 * and re-register with the new port number. */
-	static guint vnc_preference_alternate_port_last = 0;
-
-	if(!inited) {
-		vnc_handle = create_dissector_handle(dissect_vnc, proto_vnc);
-
-		dissector_add_uint("tcp.port", 5500, vnc_handle);
-		dissector_add_uint("tcp.port", 5501, vnc_handle);
-		dissector_add_uint("tcp.port", 5900, vnc_handle);
-		dissector_add_uint("tcp.port", 5901, vnc_handle);
-
-		heur_dissector_add("tcp", test_vnc_protocol, "VNC over TCP", "vnc_tcp", proto_vnc, HEURISTIC_ENABLE);
-		/* We don't register a port for the VNC HTTP server because
-		 * that simply provides a java program for download via the
-		 * HTTP protocol.  The java program then connects to a standard
-		 * VNC port. */
-
-		inited = TRUE;
-	} else {  /* only after preferences have been read/changed */
-		if(vnc_preference_alternate_port != vnc_preference_alternate_port_last &&
-		   vnc_preference_alternate_port != 5500 &&
-		   vnc_preference_alternate_port != 5501 &&
-		   vnc_preference_alternate_port != 5900 &&
-		   vnc_preference_alternate_port != 5901) {
-			if (vnc_preference_alternate_port_last != 0) {
-				dissector_delete_uint("tcp.port",
-						 vnc_preference_alternate_port_last,
-						 vnc_handle);
-			}
-			/* Save this setting to see if has changed later */
-	      		vnc_preference_alternate_port_last =
-				vnc_preference_alternate_port;
-
-			/* Register the new port setting */
-			if (vnc_preference_alternate_port != 0) {
-				dissector_add_uint("tcp.port",
-					      vnc_preference_alternate_port,
-					      vnc_handle);
-			}
-		}
-	}
+	dissector_add_uint_range_with_preference("tcp.port", VNC_PORT_RANGE, vnc_handle);
+	heur_dissector_add("tcp", test_vnc_protocol, "VNC over TCP", "vnc_tcp", proto_vnc, HEURISTIC_ENABLE);
+	/* We don't register a port for the VNC HTTP server because
+	 * that simply provides a java program for download via the
+	 * HTTP protocol.  The java program then connects to a standard
+	 * VNC port. */
 }
 
 /*

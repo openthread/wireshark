@@ -1,23 +1,11 @@
 /* packet-pcapng.c
- * Dissector to handle pcap-ng file-type-specific blocks.
+ * Dissector to handle pcapng file-type-specific blocks.
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -41,13 +29,13 @@ dissect_pcapng_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 	 * is one.
 	 */
 	if (!dissector_try_uint(pcapng_block_type_dissector_table,
-	    pinfo->pseudo_header->ftsrec.record_type, tvb, pinfo, tree)) {
+	    pinfo->rec->rec_header.ft_specific_header.record_type, tvb, pinfo, tree)) {
 		/*
 		 * There isn't one; just do a minimal display.
 		 */
-		col_set_str(pinfo->cinfo, COL_PROTOCOL, "PCAP-NG");
-		col_add_fstr(pinfo->cinfo, COL_INFO, "PCAP-NG block, type %u",
-		    pinfo->pseudo_header->ftsrec.record_type);
+		col_set_str(pinfo->cinfo, COL_PROTOCOL, "PCAPNG");
+		col_add_fstr(pinfo->cinfo, COL_INFO, "Pcapng block, type %u",
+		    pinfo->rec->rec_header.ft_specific_header.record_type);
 
 		proto_tree_add_item(tree, proto_pcapng_block, tvb, 0, -1, ENC_NA);
 	}
@@ -56,10 +44,10 @@ dissect_pcapng_block(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* 
 
 void proto_register_pcapng_block(void)
 {
-	proto_pcapng_block = proto_register_protocol("PCAP-NG block",
-	    "PCAP-NG", "pcapng");
+	proto_pcapng_block = proto_register_protocol("Pcapng block",
+	    "PCAPNG", "pcapng");
 	pcapng_block_type_dissector_table = register_dissector_table("pcapng.block_type",
-	    "pcap-ng block type", proto_pcapng_block, FT_UINT32, BASE_DEC, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+	    "pcapng block type", proto_pcapng_block, FT_UINT32, BASE_DEC);
 }
 
 void

@@ -4,19 +4,7 @@
  *
  * Copyright 2009-2010 Atheros Communications
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -28,6 +16,7 @@
 #include "packet-ieee80211.h"
 
 void proto_register_p2p(void);
+void proto_reg_handoff_p2p(void);
 
 enum {
   P2P_ATTR_STATUS = 0,
@@ -428,6 +417,8 @@ static expert_field ei_wifi_p2p_attr_dev_info_dev_name_type = EI_INIT;
 static expert_field ei_wifi_p2p_attr_len = EI_INIT;
 static expert_field ei_wifi_p2p_anqp_length = EI_INIT;
 static expert_field ei_wifi_p2p_anqp_unexpected_padding = EI_INIT;
+
+static dissector_handle_t wifi_display_ie_handle;
 
 static void dissect_wifi_p2p_capability(proto_item *tlv_root,
                                         proto_item *tlv_item,
@@ -1057,12 +1048,13 @@ static void dissect_persistent_group(proto_item *tlv_root,
 
 }
 
-
-void dissect_wifi_p2p_ie(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
-                         int offset, gint size)
+static int
+dissect_wifi_p2p_ie(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
 {
   guint16 slen = 0;
   guint8 stype = 0;
+  int offset = 0;
+  int size = tvb_reported_length(tvb);
   proto_item *tlv_root, *tlv_item;
 
   while (size > 0) {
@@ -1170,11 +1162,14 @@ void dissect_wifi_p2p_ie(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
     offset += 3 + slen;
     size -= 3 + slen;
   }
+
+  return tvb_captured_length(tvb);
 }
 
-int dissect_wifi_p2p_public_action(packet_info *pinfo, proto_tree *tree,
-                                   tvbuff_t *tvb, int offset)
+static int
+dissect_wifi_p2p_public_action(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 {
+  int offset = 0;
   guint8 subtype;
   proto_tree_add_item(tree, hf_p2p_public_action_subtype, tvb, offset, 1,
                       ENC_BIG_ENDIAN);
@@ -1190,26 +1185,35 @@ int dissect_wifi_p2p_public_action(packet_info *pinfo, proto_tree *tree,
   return offset;
 }
 
-int dissect_wifi_p2p_action(proto_tree *tree, tvbuff_t *tvb, int offset)
+static int
+dissect_wifi_p2p_action(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data _U_)
 {
+  int offset = 0;
+
   proto_tree_add_item(tree, hf_p2p_action_subtype, tvb, offset, 1, ENC_BIG_ENDIAN);
   offset++;
   proto_tree_add_item(tree, hf_p2p_action_dialog_token, tvb, offset, 1, ENC_BIG_ENDIAN);
   offset++;
+
   /* Followed by variable length IEs dissected by packet-ieee80211.c */
   return offset;
 }
 
-void dissect_wifi_p2p_anqp(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
-                           int offset, gboolean request)
+static int
+dissect_wifi_p2p_anqp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, void *data)
 {
+  int offset = 0;
   proto_item *item;
+  anqp_info_dissector_data_t* anqp_data = (anqp_info_dissector_data_t*)data;
+  tvbuff_t *next_tvb;
+
+  DISSECTOR_ASSERT(anqp_data);
 
   item = proto_tree_add_item(tree, hf_p2p_anqp_service_update_indicator, tvb,
                              offset, 2, ENC_LITTLE_ENDIAN);
   offset += 2;
 
-  while (tvb_reported_length_remaining(tvb, offset) >= (request ? 4 : 5)) {
+  while (tvb_reported_length_remaining(tvb, offset) >= (anqp_data->request ? 4 : 5)) {
     guint16 len;
     proto_tree *tlv;
     guint8 type, id, sd_proto;
@@ -1217,11 +1221,11 @@ void dissect_wifi_p2p_anqp(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
     len = tvb_get_letohs(tvb, offset);
     if (len < 2) {
       expert_add_info_format(pinfo, item, &ei_wifi_p2p_anqp_length, "Too short Service TLV field");
-      return;
+      return offset;
     }
     if (len > tvb_reported_length_remaining(tvb, offset + 2)) {
       expert_add_info_format(pinfo, item, &ei_wifi_p2p_anqp_length, "Too short frame for Service TLV field");
-      return;
+      return offset;
     }
 
     type = tvb_get_guint8(tvb, offset + 2);
@@ -1238,7 +1242,7 @@ void dissect_wifi_p2p_anqp(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
                         offset, 1, ENC_BIG_ENDIAN);
     proto_tree_add_item(tlv, hf_p2p_anqp_service_transaction_id, tvb,
                         offset + 1, 1, ENC_BIG_ENDIAN);
-    if (request) {
+    if (anqp_data->request) {
       proto_tree_add_item(tlv, hf_p2p_anqp_query_data, tvb,
                           offset + 2, len - 2, ENC_NA);
     } else {
@@ -1246,8 +1250,10 @@ void dissect_wifi_p2p_anqp(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
                           offset + 2, 1, ENC_BIG_ENDIAN);
       proto_tree_add_item(tlv, hf_p2p_anqp_response_data, tvb,
                           offset + 3, len - 3, ENC_NA);
-      if (sd_proto == 4)
-        dissect_wifi_display_ie(pinfo, tlv, tvb, offset + 3, len - 3);
+      if (sd_proto == 4) {
+        next_tvb = tvb_new_subset_length(tvb, offset + 3, len - 3);
+        call_dissector(wifi_display_ie_handle, next_tvb, pinfo, tlv);
+      }
     }
     offset += len;
   }
@@ -1255,6 +1261,8 @@ void dissect_wifi_p2p_anqp(packet_info *pinfo, proto_tree *tree, tvbuff_t *tvb,
   if (tvb_reported_length_remaining(tvb, offset) > 0) {
     expert_add_info(pinfo, item, &ei_wifi_p2p_anqp_unexpected_padding);
   }
+
+  return tvb_captured_length(tvb);
 }
 
 void
@@ -1811,6 +1819,17 @@ proto_register_p2p(void)
 
   expert_p2p = expert_register_protocol(proto_p2p);
   expert_register_field_array(expert_p2p, ei, array_length(ei));
+}
+
+void
+proto_reg_handoff_p2p(void)
+{
+  dissector_add_uint("wlan.action.wifi_alliance.subtype", WFA_SUBTYPE_P2P, create_dissector_handle(dissect_wifi_p2p_action, proto_p2p));
+  dissector_add_uint("wlan.anqp.wifi_alliance.subtype", WFA_SUBTYPE_P2P, create_dissector_handle(dissect_wifi_p2p_anqp, proto_p2p));
+  dissector_add_uint("wlan.ie.wifi_alliance.subtype", WFA_SUBTYPE_P2P, create_dissector_handle(dissect_wifi_p2p_ie, proto_p2p));
+  dissector_add_uint("wlan.pa.wifi_alliance.subtype", WFA_SUBTYPE_P2P, create_dissector_handle(dissect_wifi_p2p_public_action, proto_p2p));
+
+  wifi_display_ie_handle = find_dissector_add_dependency("wifi_display_ie", proto_p2p);
 }
 
 /*

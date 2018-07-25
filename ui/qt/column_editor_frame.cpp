@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -34,6 +22,7 @@
 
 #include <QPushButton>
 #include <QComboBox>
+#include <QKeyEvent>
 
 ColumnEditorFrame::ColumnEditorFrame(QWidget *parent) :
     AccordionFrame(parent),
@@ -51,11 +40,22 @@ ColumnEditorFrame::ColumnEditorFrame(QWidget *parent) :
     for (int i = 0; i < NUM_COL_FMTS; i++) {
         ui->typeComboBox->addItem(col_format_desc(i), QVariant(i));
     }
+
+    connect(ui->fieldsNameLineEdit, SIGNAL(textChanged(QString)),
+            ui->fieldsNameLineEdit, SLOT(checkCustomColumn(QString)));
 }
 
 ColumnEditorFrame::~ColumnEditorFrame()
 {
     delete ui;
+}
+
+bool ColumnEditorFrame::syntaxIsValid(void)
+{
+    // Fields must be a valid filter.
+    // Occurrence must be empty or valid.
+    return ((ui->fieldsNameLineEdit->syntaxState() == SyntaxLineEdit::Valid) &&
+            (ui->occurrenceLineEdit->syntaxState() != SyntaxLineEdit::Invalid));
 }
 
 void ColumnEditorFrame::setFields(int index)
@@ -67,10 +67,7 @@ void ColumnEditorFrame::setFields(int index)
         ui->fieldsNameLineEdit->checkCustomColumn(saved_fields_);
         ui->occurrenceLineEdit->setText(saved_occurrence_);
         ui->occurrenceLineEdit->checkInteger(saved_occurrence_);
-        if ((ui->fieldsNameLineEdit->syntaxState() != SyntaxLineEdit::Valid) ||
-            (ui->occurrenceLineEdit->syntaxState() != SyntaxLineEdit::Valid)) {
-            ok = false;
-        }
+        ok = syntaxIsValid();
     } else {
         ui->fieldsNameLineEdit->clear();
         ui->fieldsNameLineEdit->setSyntaxState(SyntaxLineEdit::Empty);
@@ -90,6 +87,14 @@ void ColumnEditorFrame::editColumn(int column)
     setFields(ui->typeComboBox->currentIndex());
 }
 
+void ColumnEditorFrame::showEvent(QShowEvent *event)
+{
+    ui->titleLineEdit->setFocus();
+    ui->titleLineEdit->selectAll();
+
+    AccordionFrame::showEvent(event);
+}
+
 void ColumnEditorFrame::on_typeComboBox_activated(int index)
 {
     setFields(index);
@@ -103,12 +108,7 @@ void ColumnEditorFrame::on_fieldsNameLineEdit_textEdited(const QString &fields)
         ui->occurrenceLineEdit->setText(saved_occurrence_);
     }
 
-    bool ok = true;
-    if ((ui->fieldsNameLineEdit->syntaxState() == SyntaxLineEdit::Invalid) ||
-        ((ui->typeComboBox->currentIndex() == COL_CUSTOM) &&
-        (ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Empty)))
-        ok = false;
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ok);
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(syntaxIsValid());
 
     saved_fields_ = fields;
 }
@@ -121,12 +121,7 @@ void ColumnEditorFrame::on_occurrenceLineEdit_textEdited(const QString &occurren
         ui->fieldsNameLineEdit->setText(saved_fields_);
     }
 
-    bool ok = true;
-    if ((ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Invalid) ||
-        ((ui->typeComboBox->currentIndex() == COL_CUSTOM) &&
-        (ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Empty)))
-        ok = false;
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(ok);
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(syntaxIsValid());
 
     saved_occurrence_ = occurrence;
 }
@@ -158,6 +153,27 @@ void ColumnEditorFrame::on_buttonBox_accepted()
     }
 
     on_buttonBox_rejected();
+}
+
+void ColumnEditorFrame::keyPressEvent(QKeyEvent *event)
+{
+    if (event->modifiers() == Qt::NoModifier) {
+        if (event->key() == Qt::Key_Escape) {
+            on_buttonBox_rejected();
+        } else if (event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return) {
+            if (ui->buttonBox->button(QDialogButtonBox::Ok)->isEnabled()) {
+                on_buttonBox_accepted();
+            } else if (ui->fieldsNameLineEdit->syntaxState() == SyntaxLineEdit::Empty) {
+                emit pushFilterSyntaxStatus(tr("Missing fields."));
+            } else if (ui->fieldsNameLineEdit->syntaxState() != SyntaxLineEdit::Valid) {
+                emit pushFilterSyntaxStatus(tr("Invalid fields."));
+            } else if (ui->occurrenceLineEdit->syntaxState() == SyntaxLineEdit::Invalid) {
+                emit pushFilterSyntaxStatus(tr("Invalid occurrence value."));
+            }
+        }
+    }
+
+    AccordionFrame::keyPressEvent(event);
 }
 
 /*

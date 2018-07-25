@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * GED125
  * This is Cisco's protocol that runs atop TCP (ged125 is in the payload of TCP).
@@ -155,7 +143,6 @@ static expert_field ei_ged125_TrunkCount_invalid = EI_INIT;
 static dissector_handle_t ged125_handle;
 
 /* Preferences */
-static guint global_tcp_port_ged125 = 0;
 static gboolean ged125_desegment_body = TRUE;
 
 #define GED125_FAILURE_CONF_VALUE 1
@@ -590,7 +577,7 @@ Media_Specifier_dissect(tvbuff_t* tvb, proto_tree* tree, gint* offset, guint32 l
 	guint8 media_protocol;
 
 	media_protocol = tvb_get_guint8(tvb, *offset);
-	proto_tree_add_item(tree, hf_ged125_floating_media_protocol, tvb, *offset, 1, ENC_BIG_ENDIAN);
+	proto_tree_add_item(tree, hf_ged125_floating_media_protocol, tvb, *offset, 1, ENC_NA|ENC_ASCII);
 	*offset += 1;
 
 	switch (media_protocol)
@@ -599,7 +586,7 @@ Media_Specifier_dissect(tvbuff_t* tvb, proto_tree* tree, gint* offset, guint32 l
 	case 'S':
 	case 'O':
 	case 'F':
-		proto_tree_add_item(tree, hf_ged125_floating_library_designator, tvb, *offset, 1, ENC_BIG_ENDIAN);
+		proto_tree_add_item(tree, hf_ged125_floating_library_designator, tvb, *offset, 1, ENC_NA|ENC_ASCII);
 		*offset += 1;
 		proto_tree_add_item(tree, hf_ged125_floating_payload_strg, tvb, *offset, length - 2, ENC_NA|ENC_ASCII);
 		break;
@@ -1696,12 +1683,12 @@ proto_register_ged125 (void)
 
 		{ &hf_ged125_floating_media_protocol,
 		  { "Media Protocol", "ged125.media_protocol",
-			FT_UINT8, BASE_DEC, VALS(floating_media_protocol_vals), 0x0,
+			FT_CHAR, BASE_HEX, VALS(floating_media_protocol_vals), 0x0,
 			"Type of media", HFILL }},
 
 		{ &hf_ged125_floating_library_designator,
 		  { "Library Designator", "ged125.library_designator",
-			FT_UINT8, BASE_DEC, VALS(floating_media_library_designator_vals), 0x0,
+			FT_CHAR, BASE_HEX, VALS(floating_media_library_designator_vals), 0x0,
 			"System or Application", HFILL }},
 
 		{ &hf_ged125_Data_Playback_Type,
@@ -1756,10 +1743,6 @@ proto_register_ged125 (void)
 
 	ged125_module = prefs_register_protocol(proto_ged125, NULL);
 
-	prefs_register_uint_preference(ged125_module, "tcp_port","GED125 TCP Port",
-							"Set up the TCP port for GED125",
-							10, &global_tcp_port_ged125);
-
 	prefs_register_bool_preference(ged125_module, "desegment_body",
 		 "Reassemble GED125 bodies spanning multiple TCP segments",
 		 "Whether the GED125 dissector should desegment all messages spanning multiple TCP segments",
@@ -1769,17 +1752,8 @@ proto_register_ged125 (void)
 void
 proto_reg_handoff_ged125(void)
 {
-	static guint old_ged125_tcp_port = 0;
-
 	/* Register TCP port for dissection */
-	if (old_ged125_tcp_port != 0 && old_ged125_tcp_port != global_tcp_port_ged125)
-		dissector_delete_uint("tcp.port", old_ged125_tcp_port, ged125_handle);
-
-
-	if (global_tcp_port_ged125 != 0 && old_ged125_tcp_port != global_tcp_port_ged125)
-		dissector_add_uint("tcp.port", global_tcp_port_ged125, ged125_handle);
-
-	old_ged125_tcp_port = global_tcp_port_ged125;
+	dissector_add_for_decode_as_with_preference("tcp.port", ged125_handle);
 }
 
 /*

@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -33,6 +21,7 @@
 #include "packet-dcerpc.h"
 #include "packet-dcerpc-nt.h"
 #include "packet-windows-common.h"
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 
 int hf_nt_cs_len = -1;
@@ -525,7 +514,7 @@ typedef struct {
 	pol_value *list;		 /* List of policy handle entries */
 } pol_hash_value;
 
-static GHashTable *pol_hash = NULL;
+static wmem_map_t *pol_hash = NULL;
 
 /* Hash function */
 
@@ -571,7 +560,7 @@ static pol_value *find_pol_handle(e_ctx_hnd *policy_hnd, guint32 frame,
 	pol_value *pol;
 
 	memcpy(&key.policy_hnd, policy_hnd, sizeof(key.policy_hnd));
-	if ((*valuep = (pol_hash_value *)g_hash_table_lookup(pol_hash, &key))) {
+	if ((*valuep = (pol_hash_value *)wmem_map_lookup(pol_hash, &key))) {
 		/*
 		 * Look for the first value such that both:
 		 *
@@ -624,7 +613,7 @@ static void add_pol_handle(e_ctx_hnd *policy_hnd, guint32 frame,
 		pol->next = NULL;
 		key = (pol_hash_key *)wmem_alloc(wmem_file_scope(), sizeof(pol_hash_key));
 		memcpy(&key->policy_hnd, policy_hnd, sizeof(key->policy_hnd));
-		g_hash_table_insert(pol_hash, key, value);
+		wmem_map_insert(pol_hash, key, value);
 	} else {
 		/*
 		 * Put the new value in the hash value's policy handle
@@ -789,7 +778,7 @@ void dcerpc_store_polhnd_name(e_ctx_hnd *policy_hnd, packet_info *pinfo,
 		if (pol->name && name) {
 #ifdef DEBUG_HASH_COLL
 			if (strcmp(pol->name, name) != 0)
-				g_warning("dcerpc_smb: pol_hash name collision %s/%s\n", value->name, name);
+				ws_g_warning("dcerpc_smb: pol_hash name collision %s/%s\n", value->name, name);
 #endif
 			/* pol->name is wmem_file_scope() allocated, don't free it now */
 		}
@@ -864,18 +853,6 @@ gboolean dcerpc_fetch_polhnd_data(e_ctx_hnd *policy_hnd,
 	}
 
 	return pol != NULL;
-}
-
-/* Initialise policy handle hash */
-
-static void init_pol_hash(void)
-{
-	pol_hash = g_hash_table_new(pol_hash_fn, pol_hash_compare);
-}
-
-static void cleanup_pol_hash(void)
-{
-	g_hash_table_destroy(pol_hash);
 }
 
 /* Dissect a NT status code */
@@ -1260,7 +1237,7 @@ void cb_wstr_postprocess(packet_info *pinfo, proto_tree *tree _U_,
 	/* Save string to dcv->private_data */
 	if (options & CB_STR_SAVE) {
 		dcerpc_call_value *dcv = (dcerpc_call_value *)di->call_data;
-		dcv->private_data = s;
+		dcv->private_data = wmem_strdup(wmem_file_scope(), s);
 	}
 }
 
@@ -1323,7 +1300,7 @@ void cb_str_postprocess(packet_info *pinfo, proto_tree *tree _U_,
 	if (options & CB_STR_SAVE) {
 		dcerpc_call_value *dcv = (dcerpc_call_value *)di->call_data;
 
-		dcv->private_data = s;
+		dcv->private_data = wmem_strdup(wmem_file_scope(), s);
 	}
 }
 
@@ -2020,8 +1997,8 @@ void dcerpc_smb_init(int proto_dcerpc)
 	/* Initialise policy handle hash */
 	expert_dcerpc_nt = expert_register_protocol(proto_dcerpc);
 	expert_register_field_array(expert_dcerpc_nt, ei, array_length(ei));
-	register_init_routine(&init_pol_hash);
-	register_cleanup_routine(&cleanup_pol_hash);
+
+	pol_hash = wmem_map_new_autoreset(wmem_epan_scope(), wmem_file_scope(), pol_hash_fn, pol_hash_compare);
 }
 
 /*

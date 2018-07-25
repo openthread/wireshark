@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -917,7 +905,7 @@ static int dissect_isi_sim(tvbuff_t *tvb, packet_info *pinfo, proto_item *isitre
 					proto_tree_add_item(tree, hf_isi_sim_imsi_length, tvb, 3, 1, ENC_BIG_ENDIAN);
 
 					/*
-					next_tvb = tvb_new_subset(tvb, 0, -1, -1);
+					next_tvb = tvb_new_subset_remaining(tvb, 0);
 					proto_tree_add_item(tree, hf_isi_sim_imsi_byte_1, next_tvb, 4, 1, ENC_LITTLE_ENDIAN);
 					dissect_e212_mcc_mnc(next_tvb, pinfo, tree, 4, FALSE );
 					proto_tree_add_item(tree, hf_E212_msin, tvb, 2, 7, FALSE);
@@ -2126,7 +2114,7 @@ proto_register_isi(void)
 	expert_register_field_array(expert_isi, ei, array_length(ei));
 
 	/* create new dissector table for isi resource */
-	isi_resource_dissector_table = register_dissector_table("isi.resource", "ISI resource", proto_isi, FT_UINT8, BASE_HEX, DISSECTOR_TABLE_ALLOW_DUPLICATE);
+	isi_resource_dissector_table = register_dissector_table("isi.resource", "ISI resource", proto_isi, FT_UINT8, BASE_HEX);
 }
 
 /* Handler registration */

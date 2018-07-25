@@ -10,19 +10,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -31,8 +19,6 @@
 #include <epan/expert.h>
 
 static int proto_hcrt = -1;
-
-static range_t *hcrt_port_range_default;
 
 #define HCRT_UDP_PORTS_DEFAULT "47000"
 
@@ -462,26 +448,14 @@ void proto_register_hcrt(void)
         &ett_hcrt_body,
     };
 
-    proto_hcrt = proto_register_protocol (
-        "Hotline Command-Response Transaction protocol", /* name */
-        "HCrt",                                          /* short name */
-        "hcrt"                                           /* abbrev     */
-        );
+    proto_hcrt = proto_register_protocol ("Hotline Command-Response Transaction protocol", "HCrt", "hcrt");
 
     proto_register_field_array(proto_hcrt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
     expert_hcrt = expert_register_protocol(proto_hcrt);
     expert_register_field_array(expert_hcrt, ei, array_length(ei));
 
-    /* Set default UDP ports */
-    range_convert_str(&hcrt_port_range_default, HCRT_UDP_PORTS_DEFAULT, MAX_UDP_PORT);
-
     hcrt_module = prefs_register_protocol(proto_hcrt, proto_reg_handoff_hcrt);
-    prefs_register_range_preference(hcrt_module,
-        "dissector_udp_port",
-        "UDP port",
-        "The UDP port used in L3 communications (default " HCRT_UDP_PORTS_DEFAULT ")",
-        &hcrt_port_range_default, MAX_UDP_PORT);
     prefs_register_uint_preference(hcrt_module,
         "dissector_ethertype",
         "Ethernet type",
@@ -493,26 +467,22 @@ void proto_reg_handoff_hcrt(void)
 {
     static dissector_handle_t hcrt_handle;
     static gboolean hcrt_prefs_initialized = FALSE;
-    static range_t* hcrt_port_range;
     static gint hcrt_ethertype;
 
     if (!hcrt_prefs_initialized) {
         hcrt_handle = create_dissector_handle(dissect_hcrt, proto_hcrt);
         /* Also register as a dissector that can be selected by a TCP port number via
         "decode as" */
-        dissector_add_for_decode_as("tcp.port", hcrt_handle);
+        dissector_add_for_decode_as_with_preference("tcp.port", hcrt_handle);
+        dissector_add_uint_range_with_preference("udp.port", HCRT_UDP_PORTS_DEFAULT, hcrt_handle);
         hcrt_prefs_initialized = TRUE;
     } else {
         dissector_delete_uint("ethertype", hcrt_ethertype, hcrt_handle);
-        dissector_delete_uint_range("udp.port", hcrt_port_range, hcrt_handle);
-        g_free(hcrt_port_range);
     }
 
-    hcrt_port_range = range_copy(hcrt_port_range_default);
     hcrt_ethertype = ethertype_pref;
 
     dissector_add_uint("ethertype", hcrt_ethertype, hcrt_handle);
-    dissector_add_uint_range("udp.port", hcrt_port_range, hcrt_handle);
 }
 
 /*

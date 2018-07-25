@@ -4,19 +4,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #ifndef FOLLOW_STREAM_DIALOG_H
@@ -57,7 +45,7 @@ public:
     bool follow(QString previous_filter = QString(), bool use_stream_index = false, int stream_num = -1);
 
 public slots:
-    void captureFileClosing();
+    void captureEvent(CaptureEvent e);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event);
@@ -70,6 +58,8 @@ private slots:
     void on_leFind_returnPressed();
 
     void helpButton();
+    void backButton();
+    void close();
     void filterOut();
     void useRegexFind(bool use_regex);
     void findText(bool go_back = true);
@@ -108,6 +98,7 @@ private:
     QPushButton             *b_find_;
     QPushButton             *b_print_;
     QPushButton             *b_save_;
+    QPushButton             *b_back_;
 
     follow_type_t           follow_type_;
     follow_info_t           follow_info_;
@@ -116,7 +107,9 @@ private:
     QString                 data_out_filename_;
     static const int        max_document_length_;
     bool                    truncated_;
+    QString                 previous_filter_;
     QString                 filter_out_filter_;
+    QString                 output_filter_;
     int                     client_buffer_count_;
     int                     server_buffer_count_;
     int                     client_packet_count_;
@@ -126,9 +119,9 @@ private:
     int                     turns_;
     QMap<int,guint32>       text_pos_to_packet_;
 
-    bool                    save_as_;
     bool                    use_regex_find_;
-    QFile                   file_;
+
+    bool                    terminating_;
 };
 
 #endif // FOLLOW_STREAM_DIALOG_H

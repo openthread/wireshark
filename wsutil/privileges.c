@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 2006 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -43,14 +31,6 @@
 void
 init_process_policies(void)
 {
-	HMODULE kernel32Handle;
-	typedef BOOL (WINAPI *SetProcessDEPPolicyHandler)(DWORD);
-	SetProcessDEPPolicyHandler PSetProcessDEPPolicy;
-
-#ifndef PROCESS_DEP_ENABLE
-#define PROCESS_DEP_ENABLE 1
-#endif
-
 	/*
 	 * If we have SetProcessDEPPolicy(), turn "data execution
 	 * prevention" on - i.e., if the MMU lets you set execute
@@ -60,19 +40,8 @@ init_process_policies(void)
 	 * we don't care (we did our best), so we don't check for
 	 * errors.
 	 *
-	 * XXX - if the GetModuleHandle() call fails, should we report
-	 * an error?  That "shouldn't happen" - it's the equivalent
-	 * of libc.{so,sl,a} or libSystem.dylib being missing on UN*X.
 	 */
-	kernel32Handle = GetModuleHandle(_T("kernel32.dll"));
-	if (kernel32Handle != NULL) {
-		PSetProcessDEPPolicy = (SetProcessDEPPolicyHandler) GetProcAddress(kernel32Handle, "SetProcessDEPPolicy");
-		if (PSetProcessDEPPolicy) {
-			PSetProcessDEPPolicy(PROCESS_DEP_ENABLE);
-		}
-	}
-
-	npf_sys_is_running();
+	SetProcessDEPPolicy(PROCESS_DEP_ENABLE);
 }
 
 /*
@@ -127,35 +96,9 @@ get_cur_groupname(void) {
 	return groupname;
 }
 
-/*
- * If npf.sys is running, return TRUE.
- */
-gboolean
-npf_sys_is_running() {
-	SC_HANDLE h_scm, h_serv;
-	SERVICE_STATUS ss;
-
-	h_scm = OpenSCManager(NULL, NULL, 0);
-	if (!h_scm)
-		return FALSE;
-
-	h_serv = OpenService(h_scm, _T("npf"), SC_MANAGER_CONNECT|SERVICE_QUERY_STATUS);
-	if (!h_serv)
-		return FALSE;
-
-	if (QueryServiceStatus(h_serv, &ss)) {
-		if (ss.dwCurrentState & SERVICE_RUNNING)
-			return TRUE;
-	}
-	return FALSE;
-}
-
-
 #else /* _WIN32 */
 
-#ifdef HAVE_SYS_TYPES_H
-# include <sys/types.h>
-#endif
+#include <sys/types.h>
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -272,7 +215,7 @@ relinquish_special_privs_perm(void)
 	 * real and effective group and user IDs to the original
 	 * values of the real and effective group and user IDs.
 	 * If we're not, don't bother - doing so seems to mung
-	 * our group set, at least in OS X 10.5.
+	 * our group set, at least in Mac OS X 10.5.
 	 *
 	 * (Set the effective UID last - that takes away our
 	 * rights to set anything else.)

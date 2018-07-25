@@ -8,19 +8,7 @@
  *
  * Modified 2010 by Mellanox Technologies Ltd.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef __PACKET_INFINIBAND_H_
 #define __PACKET_INFINIBAND_H_
@@ -31,6 +19,11 @@
 /* infiniband-specific information for conversations */
 typedef struct {
     guint64 service_id;         /* service id specified when the (RC) channel was set-up */
+    gboolean client_to_server;  /* message direction */
+    guint32 src_qp;             /* originator src qp as this is not present in RC packets */
+
+    /* store mad data so that it can be parsed for private data by ULP */
+    guint8 mad_private_data[MAD_DATA_SIZE];
 } conversation_infiniband_data;
 
 /* OpCodeValues
@@ -108,12 +101,25 @@ typedef struct {
 #define UC_RDMA_WRITE_ONLY              42 /*0x00101010 */
 #define UC_RDMA_WRITE_ONLY_IMM          43 /*0x00101011 */
 
+/* ComMgt class Attributes */
+#define ATTR_CM_REQ             0x0010
+#define ATTR_CM_REJ             0x0012
+#define ATTR_CM_REP             0x0013
+#define ATTR_CM_RTU             0x0014
+#define ATTR_CM_DREQ            0x0015
+#define ATTR_CM_DRSP            0x0016
+
 /*
  * Private data passed from the infiniband dissector to payload subdissectors.
  */
 struct infinibandinfo {
     guint8 opCode;              /* OpCode from BTH header. */
     gboolean dctConnect;        /* indicator for DCT connect/disconnect */
+    guint16 cm_attribute_id;    /* attribute id for CM messages */
+    proto_tree* payload_tree;
+    guint32 reth_remote_key;    /* Remote Key from RETH header */
+    guint32 reth_dma_length;    /* DMA Length from RETH header */
+    guint32 packet_seq_num;     /* Packet sequence number */
 };
 
 #endif

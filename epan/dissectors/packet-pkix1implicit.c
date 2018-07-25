@@ -13,19 +13,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -67,7 +55,7 @@ static int hf_pkix1implicit_bmpString = -1;       /* BMPString */
 static int hf_pkix1implicit_utf8String = -1;      /* UTF8String */
 
 /*--- End of included file: packet-pkix1implicit-hf.c ---*/
-#line 43 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
+#line 31 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
 
 /* Initialize the subtree pointers */
 
@@ -81,7 +69,7 @@ static gint ett_pkix1implicit_T_noticeNumbers = -1;
 static gint ett_pkix1implicit_DisplayText = -1;
 
 /*--- End of included file: packet-pkix1implicit-ett.c ---*/
-#line 46 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
+#line 34 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
 
 
 int
@@ -305,7 +293,7 @@ static int dissect_UserNotice_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, pro
 
 
 /*--- End of included file: packet-pkix1implicit-fn.c ---*/
-#line 62 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
+#line 50 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
 
 
 /*--- proto_register_pkix1implicit ----------------------------------------------*/
@@ -378,7 +366,7 @@ void proto_register_pkix1implicit(void) {
         NULL, HFILL }},
 
 /*--- End of included file: packet-pkix1implicit-hfarr.c ---*/
-#line 70 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
+#line 58 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
   };
 
   /* List of subtrees */
@@ -394,7 +382,7 @@ void proto_register_pkix1implicit(void) {
     &ett_pkix1implicit_DisplayText,
 
 /*--- End of included file: packet-pkix1implicit-ettarr.c ---*/
-#line 75 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
+#line 63 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
   };
 
   /* Register protocol */
@@ -450,6 +438,6 @@ void proto_reg_handoff_pkix1implicit(void) {
 
 
 /*--- End of included file: packet-pkix1implicit-dis-tab.c ---*/
-#line 90 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
+#line 78 "./asn1/pkix1implicit/packet-pkix1implicit-template.c"
 }
 

@@ -10,19 +10,7 @@
  *
  * Copied from packet-imap.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -124,7 +112,7 @@ dissect_acap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
      */
     col_add_fstr(pinfo->cinfo, COL_INFO, "%s: %s",
         is_request ? "Request" : "Response",
-        format_text(line, linelen));
+        format_text(wmem_packet_scope(), line, linelen));
 
     if (tree) {
         ti = proto_tree_add_item(tree, hfi_acap, tvb, offset, -1,
@@ -159,10 +147,10 @@ dissect_acap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         if (tokenlen != 0) {
             if (is_request) {
                 proto_tree_add_string(reqresp_tree, &hfi_acap_request_tag, tvb, offset,
-                    tokenlen, format_text(line, tokenlen));
+                    tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
             } else {
                 proto_tree_add_string(reqresp_tree, &hfi_acap_response_tag, tvb, offset,
-                    tokenlen, format_text(line, tokenlen));
+                    tokenlen, format_text(wmem_packet_scope(), line, tokenlen));
             }
             offset += (int)(next_token - line);
             linelen -= (int)(next_token - line);
@@ -175,10 +163,10 @@ dissect_acap(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_
         if (linelen != 0) {
             if (is_request) {
                 proto_tree_add_string(reqresp_tree, &hfi_acap_request_data, tvb, offset,
-                    linelen, format_text(line, linelen));
+                    linelen, format_text(wmem_packet_scope(), line, linelen));
             } else {
                 proto_tree_add_string(reqresp_tree, &hfi_acap_response_data, tvb, offset,
-                    linelen, format_text(line, linelen));
+                    linelen, format_text(wmem_packet_scope(), line, linelen));
             }
         }
 
@@ -228,7 +216,7 @@ proto_register_acap(void)
 void
 proto_reg_handoff_acap(void)
 {
-    dissector_add_uint("tcp.port", TCP_PORT_ACAP, acap_handle);
+    dissector_add_uint_with_preference("tcp.port", TCP_PORT_ACAP, acap_handle);
 }
 
 /*

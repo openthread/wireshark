@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -329,7 +317,6 @@ dissect_btavctp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             call_data_dissector(next_tvb, pinfo, tree);
 
         } else if (packet_type == PACKET_TYPE_END) {
-            guint    i_length = 0;
 
             fragments = (fragments_t *)wmem_tree_lookup32_array_le(reassembling, key);
             if (!(fragments && fragments->interface_id == interface_id &&
@@ -375,22 +362,16 @@ dissect_btavctp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
                 expert_add_info(pinfo, pitem, &ei_btavctp_unexpected_frame);
                 call_data_dissector(next_tvb, pinfo, tree);
             } else {
-                guint8   *reassembled;
+                guint8   *reassembled = NULL;
                 bluetooth_uuid_t  uuid;
 
                 for (i_frame = 1; i_frame <= fragments->count; ++i_frame) {
                     fragment = (fragment_t *)wmem_tree_lookup32_le(fragments->fragment, i_frame);
-                    length += fragment->length;
-                }
-
-                reassembled = (guint8 *) wmem_alloc(wmem_file_scope(), length);
-
-                for (i_frame = 1; i_frame <= fragments->count; ++i_frame) {
-                    fragment = (fragment_t *)wmem_tree_lookup32_le(fragments->fragment, i_frame);
-                    memcpy(reassembled + i_length,
-                            fragment->data,
-                            fragment->length);
-                    i_length += fragment->length;
+                    if (fragment) {
+                        reassembled = (guint8*)wmem_realloc(pinfo->pool, reassembled, length + fragment->length);
+                        memcpy(reassembled + length, fragment->data, fragment->length);
+                        length += fragment->length;
+                    }
                 }
 
                 next_tvb = tvb_new_child_real_data(tvb, reassembled, length, length);
@@ -479,7 +460,7 @@ proto_register_btavctp(void)
     expert_btavctp = expert_register_protocol(proto_btavctp);
     expert_register_field_array(expert_btavctp, ei, array_length(ei));
 
-    module = prefs_register_protocol(proto_btavctp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_btavctp, NULL);
     prefs_register_static_text_preference(module, "avctp.version",
             "Bluetooth Protocol AVCTP version: 1.4",
             "Version of protocol supported by this dissector.");

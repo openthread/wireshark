@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #define NEW_PROTO_TREE_API
@@ -26,6 +14,8 @@
 
 #include <epan/packet.h>
 #include <wsutil/str_util.h>
+
+#include "packet-http.h"
 
 void proto_register_http_urlencoded(void);
 void proto_reg_handoff_http_urlencoded(void);
@@ -123,18 +113,27 @@ dissect_form_urlencoded(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, voi
 	proto_item	*ti;
 	gint		offset = 0, next_offset;
 	const char	*data_name;
+	http_message_info_t *message_info;
 
 	data_name = pinfo->match_string;
 	if (! (data_name && data_name[0])) {
 		/*
 		 * No information from "match_string"
 		 */
-		data_name = (char *)data;
-		if (! (data_name && data_name[0])) {
+		message_info = (http_message_info_t *)data;
+		if (message_info == NULL) {
 			/*
 			 * No information from dissector data
 			 */
 			data_name = NULL;
+		} else {
+			data_name = message_info->media_str;
+			if (! (data_name && data_name[0])) {
+				/*
+				 * No information from dissector data
+				 */
+				data_name = NULL;
+			}
 		}
 	}
 

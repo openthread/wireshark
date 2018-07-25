@@ -5,19 +5,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -88,6 +76,10 @@ static gint ett_slarp = -1;
 
 static dissector_table_t subdissector_table;
 
+static dissector_handle_t chdlc_handle;
+
+static capture_dissector_handle_t ip_cap_handle;
+
 static const value_string chdlc_address_vals[] = {
   {CHDLC_ADDR_UNICAST,   "Unicast"},
   {CHDLC_ADDR_MULTICAST, "Multicast"},
@@ -111,14 +103,14 @@ const value_string chdlc_vals[] = {
   {0,                     NULL}
 };
 
-gboolean
+static gboolean
 capture_chdlc( const guchar *pd, int offset, int len, capture_packet_info_t *cpinfo, const union wtap_pseudo_header *pseudo_header) {
   if (!BYTES_ARE_IN_FRAME(offset, len, 4))
     return FALSE;
 
   switch (pntoh16(&pd[offset + 2])) {
     case ETHERTYPE_IP:
-      return capture_ip(pd, offset + 4, len, cpinfo, pseudo_header);
+      return call_capture_dissector(ip_cap_handle, pd, offset + 4, len, cpinfo, pseudo_header);
   }
 
   return FALSE;
@@ -194,7 +186,7 @@ dissect_chdlc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     proto_tree_add_item(fh_tree, hf_chdlc_control, tvb, 1, 1, ENC_NA);
   }
 
-  decode_fcs(tvb, fh_tree, chdlc_fcs_decode, 2);
+  decode_fcs(tvb, pinfo, fh_tree, chdlc_fcs_decode, 2);
 
   chdlctype(proto, tvb, 4, pinfo, tree, fh_tree, hf_chdlc_proto);
   return tvb_captured_length(tvb);
@@ -231,9 +223,9 @@ proto_register_chdlc(void)
   /* subdissector code */
   subdissector_table = register_dissector_table("chdlc.protocol",
                                                 "Cisco HDLC protocol", proto_chdlc,
-                                                FT_UINT16, BASE_HEX, DISSECTOR_TABLE_NOT_ALLOW_DUPLICATE);
+                                                FT_UINT16, BASE_HEX);
 
-  register_dissector("chdlc", dissect_chdlc, proto_chdlc);
+  chdlc_handle = register_dissector("chdlc", dissect_chdlc, proto_chdlc);
 
   /* Register the preferences for the chdlc protocol */
   chdlc_module = prefs_register_protocol(proto_chdlc, NULL);
@@ -245,20 +237,24 @@ proto_register_chdlc(void)
         &chdlc_fcs_decode,
         fcs_options, ENC_BIG_ENDIAN);
 
+  register_capture_dissector("chdlc", capture_chdlc, proto_chdlc);
+
 }
 
 void
 proto_reg_handoff_chdlc(void)
 {
-  dissector_handle_t chdlc_handle;
+  capture_dissector_handle_t chdlc_cap_handle;
 
-  chdlc_handle = find_dissector("chdlc");
   dissector_add_uint("wtap_encap", WTAP_ENCAP_CHDLC, chdlc_handle);
   dissector_add_uint("wtap_encap", WTAP_ENCAP_CHDLC_WITH_PHDR, chdlc_handle);
   dissector_add_uint("juniper.proto", JUNIPER_PROTO_CHDLC, chdlc_handle);
   dissector_add_uint("l2tp.pw_type", L2TPv3_PROTOCOL_CHDLC, chdlc_handle);
 
-  register_capture_dissector("wtap_encap", WTAP_ENCAP_CHDLC, capture_chdlc, proto_chdlc);
+  chdlc_cap_handle = find_capture_dissector("chdlc");
+  capture_dissector_add_uint("wtap_encap", WTAP_ENCAP_CHDLC, chdlc_cap_handle);
+
+  ip_cap_handle = find_capture_dissector("ip");
 }
 
 

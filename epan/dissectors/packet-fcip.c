@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -651,7 +639,7 @@ proto_reg_handoff_fcip (void)
     heur_dissector_add("tcp", dissect_fcip_heur, "FCIP over TCP", "fcip_tcp", proto_fcip, HEURISTIC_ENABLE);
 
     fcip_handle = create_dissector_handle(dissect_fcip_handle, proto_fcip);
-    dissector_add_for_decode_as("tcp.port", fcip_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", fcip_handle);
 
     fc_handle   = find_dissector_add_dependency("fc", proto_fcip);
 }

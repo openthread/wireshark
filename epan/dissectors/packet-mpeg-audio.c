@@ -13,19 +13,7 @@
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -64,7 +52,7 @@ static int hf_mpeg_audio_track = -1;              /* INTEGER_0_255 */
 static int hf_mpeg_audio_genre = -1;              /* T_genre */
 
 /*--- End of included file: packet-mpeg-audio-hf.c ---*/
-#line 33 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
+#line 21 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
 
 /*--- Included file: packet-mpeg-audio-ett.c ---*/
 #line 1 "./asn1/mpeg-audio/packet-mpeg-audio-ett.c"
@@ -72,7 +60,7 @@ static gint ett_mpeg_audio_Audio = -1;
 static gint ett_mpeg_audio_ID3v1 = -1;
 
 /*--- End of included file: packet-mpeg-audio-ett.c ---*/
-#line 34 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
+#line 22 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
 
 /*--- Included file: packet-mpeg-audio-fn.c ---*/
 #line 1 "./asn1/mpeg-audio/packet-mpeg-audio-fn.c"
@@ -348,7 +336,7 @@ static const value_string mpeg_audio_T_genre_vals[] = {
   {  64, "native-american" },
   {  65, "cabaret" },
   {  66, "new-wave" },
-  {  67, "psychadelic" },
+  {  67, "psychedelic" },
   {  68, "rave" },
   {  69, "showtunes" },
   {  70, "trailer" },
@@ -443,7 +431,7 @@ dissect_mpeg_audio_ID3v1(tvbuff_t *tvb _U_, int offset _U_, asn1_ctx_t *actx _U_
 
 
 /*--- End of included file: packet-mpeg-audio-fn.c ---*/
-#line 35 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
+#line 23 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
 
 void proto_register_mpeg_audio(void);
 void proto_reg_handoff_mpeg_audio(void);
@@ -650,7 +638,7 @@ proto_register_mpeg_audio(void)
         NULL, HFILL }},
 
 /*--- End of included file: packet-mpeg-audio-hfarr.c ---*/
-#line 149 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
+#line 137 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
 		{ &hf_mpeg_audio_data,
 			{ "Data", "mpeg-audio.data",
 				FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
@@ -674,7 +662,7 @@ proto_register_mpeg_audio(void)
     &ett_mpeg_audio_ID3v1,
 
 /*--- End of included file: packet-mpeg-audio-ettarr.c ---*/
-#line 166 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
+#line 154 "./asn1/mpeg-audio/packet-mpeg-audio-template.c"
 	};
 
 	proto_mpeg_audio = proto_register_protocol(

@@ -1,6 +1,4 @@
-++++++++++++++++++++++++++++++++++++++
-<!-- WSDG Chapter Libraries -->
-++++++++++++++++++++++++++++++++++++++
+// WSDG Chapter Libraries
 
 [[ChapterLibraries]]
 
@@ -13,11 +11,11 @@
 Several libraries are needed to build and run Wireshark. Most of them
 are split into three packages:
 
-. 'Runtime'. System and third party libraries such as 'MSVCR110.dll' and 'libglib-2.0-0.dll'.
+. _Runtime_. System and third party libraries such as _MSVCR110.dll_ and _libglib-2.0-0.dll_.
 
-. 'Developer'. Documentation, header files, import libraries, and other files needed for compilation.
+. _Developer_. Documentation, header files, import libraries, and other files needed for compilation.
 
-. 'Source'. Library sources, which are usually not required to
+. _Source_. Library sources, which are usually not required to
 build Wireshark.
 
 [TIP]
@@ -57,19 +55,10 @@ Most of the Win32 binary libraries you will find on the web are in this
 format. You will recognize MSVC libraries by the .lib/.dll file extension.
 
 
-[[ChLibsFormatWin32Cygwin]]
-
-
-==== Win32: cygwin gcc
-
-Cygwin provides most of the required libraries (with file extension .a or .lib)
-for Wireshark suitable for cygwin's gcc compiler.
-
-
 [[ChLibsSetup]]
 
 
-=== Win32: Automated library download
+=== Win32: Automated Library Download
 
 The required libraries (apart from Qt) are automatically downloaded as part of
 the CMake generation step, and subsequently as required when libraries are updated.
@@ -88,61 +77,59 @@ must be set appropriately.
 === Qt
 
 The Qt library is used to build the UI for Wireshark and is used to provide a
-platform independent UI.
+platform independent UI. Wireshark can be built with Qt 5.2 or later.
+
 For more information on the Qt libraries, see <<ChUIQt>>.
 
 [[ChLibsUnixQt]]
 
 ==== Unix
 
-TBD.
+Most Linux distributions provide Qt and its development libraries as standard packages.
+The required libraries and tools will likely be split across several packages. For example,
+building on Ubuntu requires _qttools5-dev_, _qttools5-dev-tools_, _libqt5svg5-dev_,
+_qtmultimedia5-dev_, and possibly others.
+
+The Qt Project provides an installation tool for macOS, similar to Windows.
+It is available at https://www.qt.io/download-open-source/#section-2[].
 
 [[ChLibsWin32Qt]]
 
 ==== Win32 MSVC
 
-Qt5 must be installed manually, from the Qt installers page
-http://www.qt.io/download-open-source/#section-2[], using the version of Qt
+Qt5 must be installed manually from the Qt installers page
+https://www.qt.io/download-open-source/#section-2[] using the version of Qt
 appropriate for your compiler.  Note that separate installations (into different directories) of Qt
 are required for 32 bit and 64 bit builds.  The environment variable QT5_BASE_DIR should be
 set as appropriate for your environment and should point to the Qt directory that contains the
-bin directory, e.g. C:\Qt\Qt5.5.0\5.5\msvc2013
+bin directory, e.g. _C:\Qt\5.9.5\msvc2017_64_.
 
-[[ChLibsGtk]]
+[[ChLibsGLib]]
 
-=== GTK+ / GLib / GDK / Pango / ATK / GNU gettext / GNU libiconv
+=== GLib And Supporting Libraries
 
-The Glib library is used as a basic platform abstraction library, it's
-not related to graphical user interface (GUI) things. For a detailed
-description about GLib, see <<ChCodeGLib>>.
+The GLib library is used as a basic platform abstraction library and can
+be used in both CLI and GUI applications. For a detailed description
+about GLib see <<ChCodeGLib>>.
 
-The GTK and its dependent libraries are used to build the older, deprecated, Wireshark GUI.
-For a detailed description of the GTK libraries, see <<ChUIGTK>>.
+GLib depends on GNU libiconv, GNU gettext, and other libraries. You will
+typically not come into contact with these while doing Wireshark
+development. Wireshark's build system check for and require both GLib
+and its dependencies.
 
-All other libraries are dependent on the two libraries mentioned above,
-you will typically not come in touch with these while doing Wireshark
-development.
-
-As the requirements for the GLib/GTK libraries have increased in the past,
-the required additional libraries depend on the GLib/GTK versions you have.
-The 2.x versions require all mentioned libs.
-
-[[ChLibsUnixGTK]]
+[[ChLibsUnixGLib]]
 
 ==== Unix
 
-The GLib/GTK+ libraries are available for many unix-like platforms and
-Cygwin.
+The GLib library is available for most Linux distributions and UNIX
+flavors. If it isn't already installed and isn't available as a package
+for your platform, you can get it at http://www.gtk.org[].
 
-If these libraries aren't already installed and also aren't available as a
-package for your platform, you can get them at
-http://www.gtk.org/download.html[].
-
-[[ChLibsWin32GTK]]
+[[ChLibsWin32GLib]]
 
 ==== Win32 MSVC
 
-You can get the latest version at http://www.gtk.org/download.html[].
+You can get the latest version at http://www.gtk.org[].
 
 [[ChLibsSMI]]
 
@@ -164,7 +151,7 @@ http://www.ibr.cs.tu-bs.de/projects/libsmi/[].
 
 Wireshark uses the source libSMI distribution at
 http://www.ibr.cs.tu-bs.de/projects/libsmi/[].
-LibSMI is cross-compiled using MinGW32. It's stored in the libsmi zip archive at
+LibSMI is cross-compiled using MinGW32. It’s stored in the libsmi zip archive at
 https://anonsvn.wireshark.org/wireshark-win32-libs/trunk/packages/[].
 
 [[ChLibsCares]]
@@ -222,20 +209,20 @@ locally.
 === libpcap/WinPcap (optional)
 
 Libpcap and WinPcap provide that packet capture capabilities that are central
-to Wireshark's core functionality.
+to Wireshark’s core functionality.
 
 [[ChLibsLibpcap]]
 
 ==== Unix: libpcap
 
 If this library isn't already installed or available as a package for your
-platform, you can get it at http://www.tcpdump.org/[].
+platform, you can get it at {tcpdump-main-url}.
 
 [[ChLibsWinpPcap]]
 
 ==== Win32 MSVC: WinPcap
 
-You can get the "Windows packet capture library" at:
+You can get the ``Windows packet capture library'' at:
 https://www.winpcap.org/install/[]
 
 [[ChLibsGNUTLS]]
@@ -262,10 +249,11 @@ https://anonsvn.wireshark.org/wireshark-win32-libs/trunk/packages/[].
 
 [[ChLibsGcrypt]]
 
-=== Gcrypt (optional)
+=== Gcrypt
 
-The Gcrypt Library is a low-level encryption library that provides
-support for many ciphers, such as DES, 3DES, AES, Blowfish, and others..
+The Gcrypt Library is a low-level cryptographic library that provides
+support for many ciphers and message authentication codes, such as DES, 3DES,
+AES, Blowfish, SHA-1, SHA-256, and others.
 
 [[ChLibsUnixGcrypt]]
 
@@ -324,48 +312,19 @@ http://www.lua.org/download.html[].
 We provide a copy of the official package at
 https://anonsvn.wireshark.org/wireshark-win32-libs/trunk/packages/[].
 
-[[ChLibsPortAudio]]
+[[ChLibsMaxMindDB]]
 
-=== PortAudio (optional)
+=== MaxMindDB (optional)
 
-The PortAudio library enables audio output for RTP streams.
+MaxMind Inc. publishes a set of IP geolocation databases and related
+open source libraries. They can be used to map IP addresses to
+geographical locations and other information.
 
-[[ChLibsUnixPortAudio]]
-
-==== Unix
-
-If this library isn't already installed or available as a
+If libmaxminddb library isn't already installed or available as a
 package for your platform, you can get it at
-http://www.portaudio.com/download.html[].
+https://github.com/maxmind/libmaxminddb[].
 
-[[ChLibsWin32PortAudio]]
-
-==== Win32 MSVC
-
-The PortAudio sources are downloaded from
-https://anonsvn.wireshark.org/wireshark-win32-libs/trunk/packages/[] and compiled
-locally.
-
-[[ChLibsGeoIP]]
-
-=== GeoIP (optional)
-
-MaxMind Inc. publishes a GeoIP database for use in open source software.
-It can be used to map IP addresses to geographical locations.
-
-[[ChLibsUnixGeoIP]]
-
-==== Unix
-
-If this library isn't already installed or available as a
-package for your platform, you can get it at
-http://www.maxmind.com/app/c[].
-
-[[ChLibsWin32GeoIP]]
-
-==== Win32 MSVC
-
-We provide a package cross-compiled using MinGW32 at
+We provide a package for Windows at
 https://anonsvn.wireshark.org/wireshark-win32-libs/trunk/packages/[].
 
 [[ChLibsWinSparkle]]
@@ -381,6 +340,4 @@ WinSparkle is an easy-to-use software update library for Windows developers.
 We provide a copy of the WinSparkle package at
 https://anonsvn.wireshark.org/wireshark-win32-libs/trunk/packages/[].
 
-++++++++++++++++++++++++++++++++++++++
-<!-- End of WSDG Chapter Libraries -->
-++++++++++++++++++++++++++++++++++++++
+// End of WSDG Chapter Libraries

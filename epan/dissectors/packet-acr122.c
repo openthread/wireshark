@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See thehf_class
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -91,6 +79,7 @@ static gint ett_status_word_sw2                                            = -1;
 
 static expert_field ei_unknown_command_or_invalid_parameters          = EI_INIT;
 
+static dissector_handle_t  acr122_handle;
 static dissector_handle_t  pn532_handle;
 
 static wmem_tree_t *command_info = NULL;
@@ -885,7 +874,7 @@ proto_register_acr122(void)
     command_info = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
     proto_acr122 = proto_register_protocol("Advanced Card Systems ACR122", "ACR 122", "acr122");
-    register_dissector("acr122", dissect_acr122, proto_acr122);
+    acr122_handle = register_dissector("acr122", dissect_acr122, proto_acr122);
 
     proto_register_field_array(proto_acr122, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -902,6 +891,7 @@ void
 proto_reg_handoff_acr122(void)
 {
     pn532_handle = find_dissector_add_dependency("pn532", proto_acr122);
+    dissector_add_for_decode_as("usbccid.subdissector", acr122_handle);
 }
 
 /*

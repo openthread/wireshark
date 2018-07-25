@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -137,6 +125,8 @@ static const enum_val_t pref_hsp_role[] = {
     { NULL, NULL, 0 }
 };
 
+static const unit_name_string units_slash15 = { "/15", NULL };
+
 void proto_register_bthsp(void);
 void proto_reg_handoff_bthsp(void);
 
@@ -194,7 +184,6 @@ dissect_vgs_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     value = get_uint_parameter(parameter_stream, parameter_length);
 
     pitem = proto_tree_add_uint(tree, hf_vgs, tvb, offset, parameter_length, value);
-    proto_item_append_text(pitem, "/15");
 
     if (value > 15) {
         expert_add_info(pinfo, pitem, &ei_vgs_gain);
@@ -218,7 +207,6 @@ dissect_vgm_parameter(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     value = get_uint_parameter(parameter_stream, parameter_length);
 
     pitem = proto_tree_add_uint(tree, hf_vgm, tvb, offset, parameter_length, value);
-    proto_item_append_text(pitem, "/15");
 
     if (value > 15) {
         expert_add_info(pinfo, pitem, &ei_vgm_gain);
@@ -323,7 +311,7 @@ dissect_at_command(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             offset, 0, "Command %u", command_number);
     command_tree = proto_item_add_subtree(command_item, ett_bthsp_command);
 
-    if (!command_number) col_append_fstr(pinfo->cinfo, COL_INFO, "%s", col_str);
+    if (!command_number) col_append_str(pinfo->cinfo, COL_INFO, col_str);
 
     if (role == ROLE_HS) {
         if (command_number) {
@@ -999,7 +987,7 @@ dissect_bthsp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         }
     } else {
         col_append_fstr(pinfo->cinfo, COL_INFO, "Fragment: %s",
-                tvb_format_text_wsp(tvb, offset, tvb_captured_length_remaining(tvb, offset)));
+                tvb_format_text_wsp(wmem_packet_scope(), tvb, offset, tvb_captured_length_remaining(tvb, offset)));
         pitem = proto_tree_add_item(main_tree, hf_fragmented, tvb, 0, 0, ENC_NA);
         PROTO_ITEM_SET_GENERATED(pitem);
         proto_tree_add_item(main_tree, hf_fragment, tvb, offset,
@@ -1089,12 +1077,12 @@ proto_register_bthsp(void)
         },
         { &hf_vgs,
            { "Gain",                             "bthsp.vgs",
-           FT_UINT8, BASE_DEC, NULL, 0,
+           FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_slash15, 0,
            NULL, HFILL}
         },
         { &hf_vgm,
            { "Gain",                             "bthsp.vgm",
-           FT_UINT8, BASE_DEC, NULL, 0,
+           FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_slash15, 0,
            NULL, HFILL}
         },
         { &hf_ckpd,
@@ -1126,7 +1114,7 @@ proto_register_bthsp(void)
     proto_register_field_array(proto_bthsp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    module = prefs_register_protocol(proto_bthsp, NULL);
+    module = prefs_register_protocol_subtree("Bluetooth", proto_bthsp, NULL);
     prefs_register_static_text_preference(module, "hsp.version",
             "Bluetooth Profile HSP version: 1.2",
             "Version of profile supported by this dissector.");

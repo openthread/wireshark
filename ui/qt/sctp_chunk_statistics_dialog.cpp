@@ -4,27 +4,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "sctp_chunk_statistics_dialog.h"
 #include <ui_sctp_chunk_statistics_dialog.h>
 #include "uat_dialog.h"
 
-#include <string>
+#include <wsutil/strtoi.h>
 
+#include <ui/qt/utils/qt_ui_utils.h>
 
 SCTPChunkStatisticsDialog::SCTPChunkStatisticsDialog(QWidget *parent, sctp_assoc_info_t *assoc, capture_file *cf) :
     QDialog(parent),
@@ -38,25 +27,16 @@ SCTPChunkStatisticsDialog::SCTPChunkStatisticsDialog(QWidget *parent, sctp_assoc
             | Qt::WindowMaximizeButtonHint
             | Qt::WindowCloseButtonHint;
     this->setWindowFlags(flags);
-#if (QT_VERSION < QT_VERSION_CHECK(5, 0, 0))
-    ui->tableWidget->verticalHeader()->setClickable(true);
-    ui->tableWidget->verticalHeader()->setMovable(true);
-#else
     ui->tableWidget->verticalHeader()->setSectionsClickable(true);
     ui->tableWidget->verticalHeader()->setSectionsMovable(true);
-#endif
 
 
     ui->tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui->tableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
 
-#if (QT_VERSION < QT_VERSION_CHECK(5, 0, 0))
-    ui->tableWidget->horizontalHeader()->setResizeMode(QHeaderView::ResizeToContents);
-#else
     ui->tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-#endif
 
-    this->setWindowTitle(QString(tr("SCTP Chunk Statistics: %1 Port1 %2 Port2 %3")).arg(cf_get_display_name(cap_file_)).arg(selected_assoc->port1).arg(selected_assoc->port2));
+    this->setWindowTitle(QString(tr("SCTP Chunk Statistics: %1 Port1 %2 Port2 %3")).arg(gchar_free_to_qstring(cf_get_display_name(cap_file_))).arg(selected_assoc->port1).arg(selected_assoc->port2));
  //   connect(ui->tableWidget->verticalHeader(), SIGNAL(sectionMoved(int,int,int)), this, SLOT(on_sectionMoved(int, int, int)));
 
     ctx_menu_.addAction(ui->actionHideChunkType);
@@ -96,7 +76,11 @@ void SCTPChunkStatisticsDialog::fillTable(bool all)
     FILE* fp = NULL;
 
     pref_t *pref = prefs_find_preference(prefs_find_module("sctp"),"statistics_chunk_types");
-    uat_t *uat = pref->varp.uat;
+    if (!pref) {
+        g_log(NULL, G_LOG_LEVEL_ERROR, "Can't find preference sctp/statistics_chunk_types");
+        return;
+    }
+    uat_t *uat = prefs_get_uat_value(pref);
     gchar* fname = uat_get_actual_filename(uat,TRUE);
     bool init = false;
 
@@ -105,16 +89,21 @@ void SCTPChunkStatisticsDialog::fillTable(bool all)
     } else {
         fp = ws_fopen(fname,"r");
 
-        if (!fp && errno == ENOENT) {
-            init = true;
+        if (!fp) {
+            if (errno == ENOENT) {
+                init = true;
+            } else {
+                g_log(NULL, G_LOG_LEVEL_ERROR, "Can't open %s: %s", fname, g_strerror(errno));
+                return;
+            }
         }
     }
     g_free (fname);
 
     if (init || all) {
-        int j = 0;
+        int i, j = 0;
 
-        for (int i = 0; i < chunks.size(); i++) {
+        for (i = 0; i < chunks.size(); i++) {
             if (!chunks.value(i).hide) {
                 ui->tableWidget->setRowCount(ui->tableWidget->rowCount()+1);
                 ui->tableWidget->setVerticalHeaderItem(j, new QTableWidgetItem(QString("%1").arg(chunks.value(i).name)));
@@ -124,7 +113,7 @@ void SCTPChunkStatisticsDialog::fillTable(bool all)
                 j++;
             }
         }
-        for (int i = 0; i < chunks.size(); i++) {
+        for (i = 0; i < chunks.size(); i++) {
             if (chunks.value(i).hide) {
                 ui->tableWidget->setRowCount(ui->tableWidget->rowCount()+1);
                 ui->tableWidget->setVerticalHeaderItem(j, new QTableWidgetItem(QString("%1").arg(chunks.value(i).name)));
@@ -145,10 +134,13 @@ void SCTPChunkStatisticsDialog::fillTable(bool all)
             if (line[0] == '#')
                 continue;
             token = strtok(line, ",");
+            if (!token)
+                continue;
             /* Get rid of the quotation marks */
             QString ch = QString(token).mid(1, (int)strlen(token)-2);
             g_strlcpy(id, qPrintable(ch), sizeof id);
-            temp.id = atoi(id);
+            if (!ws_strtoi32(id, NULL, &temp.id))
+                continue;
             temp.hide = 0;
             temp.name[0] = '\0';
             while(token != NULL) {
@@ -159,8 +151,8 @@ void SCTPChunkStatisticsDialog::fillTable(bool all)
                     } else if ((strstr(token, "Show"))) {
                         temp.hide = 0;
                     } else {
-                        QString ch = QString(token).mid(1, (int)strlen(token)-2);
-                        g_strlcpy(temp.name, qPrintable(ch), sizeof temp.name);
+                        QString ch2 = QString(token).mid(1, (int)strlen(token)-2);
+                        g_strlcpy(temp.name, qPrintable(ch2), sizeof temp.name);
                     }
                 }
             }
@@ -176,7 +168,7 @@ void SCTPChunkStatisticsDialog::fillTable(bool all)
             i++;
         }
         j = ui->tableWidget->rowCount();
-        for (int i = 0; i < chunks.size(); i++) {
+        for (i = 0; i < chunks.size(); i++) {
             if (chunks.value(i).hide) {
                 ui->tableWidget->setRowCount(ui->tableWidget->rowCount()+1);
                 ui->tableWidget->setVerticalHeaderItem(j, new QTableWidgetItem(QString("%1").arg(chunks.value(i).name)));
@@ -208,8 +200,12 @@ void SCTPChunkStatisticsDialog::on_pushButton_clicked()
     FILE* fp;
 
     pref_t *pref = prefs_find_preference(prefs_find_module("sctp"),"statistics_chunk_types");
+    if (!pref) {
+        g_log(NULL, G_LOG_LEVEL_ERROR, "Can't find preference sctp/statistics_chunk_types");
+        return;
+    }
 
-    uat_t *uat = pref->varp.uat;
+    uat_t *uat = prefs_get_uat_value(pref);
 
     gchar* fname = uat_get_actual_filename(uat,TRUE);
 
@@ -260,9 +256,9 @@ void SCTPChunkStatisticsDialog::on_actionHideChunkType_triggered()
 {
     int row;
 
-    QTableWidgetItem *item = ui->tableWidget->itemAt(selected_point.x(), selected_point.y()-60);
-    if (item) {
-        row = item->row();
+    QTableWidgetItem *itemPoint = ui->tableWidget->itemAt(selected_point.x(), selected_point.y()-60);
+    if (itemPoint) {
+        row = itemPoint->row();
         ui->tableWidget->hideRow(row);
         QTableWidgetItem *item = ui->tableWidget->verticalHeaderItem(row);
         QMap<int, struct chunkTypes>::iterator iter;
@@ -281,19 +277,24 @@ void SCTPChunkStatisticsDialog::on_actionChunkTypePreferences_triggered()
     gchar* err = NULL;
 
     pref_t *pref = prefs_find_preference(prefs_find_module("sctp"),"statistics_chunk_types");
-    uat_t *uat = pref->varp.uat;
+    if (!pref) {
+        g_log(NULL, G_LOG_LEVEL_ERROR, "Can't find preference sctp/statistics_chunk_types");
+        return;
+    }
+
+    uat_t *uat = prefs_get_uat_value(pref);
     uat_clear(uat);
 
-    if (!uat_load(pref->varp.uat, &err)) {
+    if (!uat_load(uat, &err)) {
         /* XXX - report this through the GUI */
-        printf("Error loading table '%s': %s",pref->varp.uat->name,err);
+        g_log(NULL, G_LOG_LEVEL_WARNING, "Error loading table '%s': %s", uat->name, err);
         g_free(err);
     }
 
-    UatDialog *uatdialog = new UatDialog(this, pref->varp.uat);
+    UatDialog *uatdialog = new UatDialog(this, uat);
     uatdialog->exec();
     // Emitting PacketDissectionChanged directly from a QDialog can cause
-    // problems on OS X.
+    // problems on macOS.
     wsApp->flushAppSignals();
 
     ui->tableWidget->clear();

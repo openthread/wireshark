@@ -7,19 +7,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Protocol ref:
  * http://tools.ietf.org/html/draft-davie-stt-07
@@ -74,9 +62,7 @@ static int hf_stt_pkt_len = -1;
 static int hf_stt_seg_off = -1;
 static int hf_stt_pkt_id = -1;
 static int hf_stt_checksum = -1;
-static int hf_stt_checksum_bad = -1;
-static int hf_stt_checksum_good = -1;
-static int hf_stt_checksum_calculated = -1;
+static int hf_stt_checksum_status = -1;
 static int hf_stt_tcp_data = -1;
 static int hf_stt_tcp_data_offset = -1;
 static int hf_stt_tcp_flags = -1;
@@ -122,7 +108,6 @@ static int hf_reassembled_in = -1;
 static int hf_reassembled_length = -1;
 
 static int ett_stt = -1;
-static int ett_stt_checksum = -1;
 static int ett_stt_tcp_data = -1;
 static int ett_stt_tcp_flags = -1;
 static int ett_stt_flgs = -1;
@@ -170,19 +155,6 @@ static const fragment_items frag_items = {
     "STT segments"
 };
 
-static void
-stt_segment_init(void)
-{
-    reassembly_table_init(&stt_reassembly_table,
-                          &addresses_reassembly_table_functions);
-}
-
-static void
-stt_segment_cleanup(void)
-{
-    reassembly_table_destroy(&stt_reassembly_table);
-}
-
 static tvbuff_t *
 handle_segment(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                guint32 pkt_id, guint16 pkt_len, guint16 seg_off)
@@ -221,18 +193,7 @@ handle_segment(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 static void
 dissect_stt_checksum(tvbuff_t *tvb, packet_info *pinfo, proto_tree *stt_tree)
 {
-    proto_tree *checksum_tree;
-    proto_item *item;
-    guint16 checksum = tvb_get_ntohs(tvb, 16);
-    gboolean can_checksum;
-    guint16 computed_cksum;
-    gboolean checksum_good = FALSE, checksum_bad = FALSE;
-
-    item = proto_tree_add_uint_format_value(stt_tree, hf_stt_checksum,
-                                            tvb, 16, 2, checksum,
-                                            "0x%04x", checksum);
-
-    can_checksum = !pinfo->fragmented &&
+    gboolean can_checksum = !pinfo->fragmented &&
                    tvb_bytes_exist(tvb, 0, tvb_reported_length(tvb));
 
     if (can_checksum && pref_check_checksum) {
@@ -262,41 +223,13 @@ dissect_stt_checksum(tvbuff_t *tvb, packet_info *pinfo, proto_tree *stt_tree)
             break;
         }
         SET_CKSUM_VEC_TVB(cksum_vec[3], tvb, 0, tvb_reported_length(tvb));
-        computed_cksum = in_cksum(cksum_vec, 4);
 
-        checksum_good = (computed_cksum == 0);
-        checksum_bad = !checksum_good;
-
-        if (checksum_good) {
-            proto_item_append_text(item, " [correct]");
-        } else if (checksum_bad) {
-            guint16 expected_cksum = in_cksum_shouldbe(checksum, computed_cksum);
-
-            proto_item_append_text(item, " [incorrect, should be 0x%04x (maybe caused by \"TCP checksum offload\"?)]",
-                                   expected_cksum);
-
-            expert_add_info(pinfo, item, &ei_stt_checksum_bad);
-            checksum = expected_cksum;
-        }
-    } else if (pref_check_checksum) {
-        proto_item_append_text(item, " [unchecked, not all data available]");
+        proto_tree_add_checksum(stt_tree, tvb, 16, hf_stt_checksum, hf_stt_checksum_status, &ei_stt_checksum_bad, pinfo,
+                             in_cksum(cksum_vec, 4), ENC_BIG_ENDIAN, PROTO_CHECKSUM_VERIFY);
     } else {
-        proto_item_append_text(item, " [validation disabled]");
+        proto_tree_add_checksum(stt_tree, tvb, 16, hf_stt_checksum, hf_stt_checksum_status, &ei_stt_checksum_bad, pinfo,
+                             0, ENC_BIG_ENDIAN, PROTO_CHECKSUM_NO_FLAGS);
     }
-
-    checksum_tree = proto_item_add_subtree(item, ett_stt_checksum);
-
-    if (checksum_good || checksum_bad) {
-        item = proto_tree_add_uint(checksum_tree, hf_stt_checksum_calculated,
-                                   tvb, 16, 2, checksum);
-        PROTO_ITEM_SET_GENERATED(item);
-    }
-    item = proto_tree_add_boolean(checksum_tree, hf_stt_checksum_good, tvb,
-                                  16, 2, checksum_good);
-    PROTO_ITEM_SET_GENERATED(item);
-    item = proto_tree_add_boolean(checksum_tree, hf_stt_checksum_bad, tvb,
-                                  16, 2, checksum_bad);
-    PROTO_ITEM_SET_GENERATED(item);
 }
 
 static int
@@ -352,11 +285,10 @@ dissect_tcp_tree(tvbuff_t *tvb, packet_info *pinfo, proto_tree *stt_tree)
     proto_item_set_text(tcp_item, "TCP Data");
 
     data_offset = hi_nibble(tvb_get_guint8(tvb, offset)) * 4;
-    data_offset_item = proto_tree_add_uint_format_value(tcp_tree,
-                                                        hf_stt_tcp_data_offset,
-                                                        tvb, offset, 1,
-                                                        data_offset,
-                                                        "%u bytes", data_offset);
+    data_offset_item = proto_tree_add_uint(tcp_tree,
+                                            hf_stt_tcp_data_offset,
+                                            tvb, offset, 1,
+                                            data_offset);
     if (data_offset != STT_TCP_HDR_LEN) {
         expert_add_info(pinfo, data_offset_item, &ei_stt_data_offset_bad);
     }
@@ -580,12 +512,10 @@ dissect_stt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 static gboolean
 dissect_stt_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                 void *data)
+                 void *iph)
 {
-    ws_ip *iph = (ws_ip*)data;
-
     /* Make sure we at least have a TCP header */
-    if (iph->ip_p != IP_PROTO_TCP ||
+    if (ws_ip_protocol(iph) != IP_PROTO_TCP ||
         tvb_captured_length(tvb) < STT_TCP_HDR_LEN) {
         return FALSE;
     }
@@ -646,7 +576,7 @@ proto_register_stt(void)
         },
         { &hf_stt_tcp_data_offset,
           { "Data Offset", "stt.tcp.data_offset",
-            FT_UINT8, BASE_DEC, NULL, 0x0,
+            FT_UINT8, BASE_DEC|BASE_UNIT_STRING, &units_byte_bytes, 0x0,
             NULL, HFILL,
           },
         },
@@ -834,22 +764,10 @@ proto_register_stt(void)
             "Details at: http://www.wireshark.org/docs/wsug_html_chunked/ChAdvChecksums.html", HFILL
           },
         },
-        { &hf_stt_checksum_good,
-          { "Good Checksum", "stt.checksum.good",
-            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-            "True: checksum matches packet content; False: doesn't match content or not checked", HFILL
-          },
-        },
-        { &hf_stt_checksum_bad,
-          { "Bad Checksum", "stt.checksum.bad",
-            FT_BOOLEAN, BASE_NONE, NULL, 0x0,
-            "True: checksum doesn't match packet content; False: matches content or not checked", HFILL
-         },
-        },
-        { &hf_stt_checksum_calculated,
-          { "Calculated Checksum", "stt.checksum.calculated",
-            FT_UINT16, BASE_HEX, NULL, 0x0,
-            "The expected STT checksum field as calculated from the STT segment", HFILL
+        { &hf_stt_checksum_status,
+          { "Checksum Status", "stt.checksum.status",
+            FT_UINT8, BASE_NONE, VALS(proto_checksum_vals), 0x0,
+            NULL, HFILL
           },
         },
 
@@ -923,7 +841,6 @@ proto_register_stt(void)
         &ett_stt_tcp_flags,
         &ett_stt_flgs,
         &ett_stt_vlan,
-        &ett_stt_checksum,
         &ett_segment,
         &ett_segments
     };
@@ -978,8 +895,8 @@ proto_register_stt(void)
                                    "Whether to validate the STT checksum or not.",
                                    &pref_check_checksum);
 
-    register_init_routine(stt_segment_init);
-    register_cleanup_routine(stt_segment_cleanup);
+    reassembly_table_register(&stt_reassembly_table,
+                          &addresses_reassembly_table_functions);
 }
 
 void

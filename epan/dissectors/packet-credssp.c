@@ -14,19 +14,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -85,7 +73,7 @@ static int hf_credssp_authInfo = -1;              /* T_authInfo */
 static int hf_credssp_pubKeyAuth = -1;            /* OCTET_STRING */
 
 /*--- End of included file: packet-credssp-hf.c ---*/
-#line 55 "./asn1/credssp/packet-credssp-template.c"
+#line 43 "./asn1/credssp/packet-credssp-template.c"
 
 /* Initialize the subtree pointers */
 static gint ett_credssp = -1;
@@ -101,7 +89,7 @@ static gint ett_credssp_TSCredentials = -1;
 static gint ett_credssp_TSRequest = -1;
 
 /*--- End of included file: packet-credssp-ett.c ---*/
-#line 59 "./asn1/credssp/packet-credssp-template.c"
+#line 47 "./asn1/credssp/packet-credssp-template.c"
 
 
 /*--- Included file: packet-credssp-fn.c ---*/
@@ -332,7 +320,7 @@ static int dissect_TSRequest_PDU(tvbuff_t *tvb _U_, packet_info *pinfo _U_, prot
 
 
 /*--- End of included file: packet-credssp-fn.c ---*/
-#line 61 "./asn1/credssp/packet-credssp-template.c"
+#line 49 "./asn1/credssp/packet-credssp-template.c"
 
 /*
 * Dissect CredSSP PDUs
@@ -381,13 +369,7 @@ dissect_credssp_heur(tvbuff_t *tvb, packet_info *pinfo, proto_tree *parent_tree,
           ver = tvb_get_guint8(tvb, offset);
           if((length == 1) && ((ver == 2) || (ver == 3))) {
             if (have_tap_listener(exported_pdu_tap)) {
-              exp_pdu_data_t *exp_pdu_data;
-              guint8 tags_bit_field;
-
-              tags_bit_field = EXP_PDU_TAG_IP_SRC_BIT + EXP_PDU_TAG_IP_DST_BIT + EXP_PDU_TAG_SRC_PORT_BIT+
-                  EXP_PDU_TAG_DST_PORT_BIT + EXP_PDU_TAG_ORIG_FNO_BIT;
-
-              exp_pdu_data = load_export_pdu_tags(pinfo, EXP_PDU_TAG_PROTO_NAME, "credssp", &tags_bit_field, 1);
+              exp_pdu_data_t *exp_pdu_data = export_pdu_create_common_tags(pinfo, "credssp", EXP_PDU_TAG_PROTO_NAME);
 
               exp_pdu_data->tvb_captured_length = tvb_captured_length(tvb);
               exp_pdu_data->tvb_reported_length = tvb_reported_length(tvb);
@@ -513,7 +495,7 @@ void proto_register_credssp(void) {
         "OCTET_STRING", HFILL }},
 
 /*--- End of included file: packet-credssp-hfarr.c ---*/
-#line 153 "./asn1/credssp/packet-credssp-template.c"
+#line 135 "./asn1/credssp/packet-credssp-template.c"
   };
 
   /* List of subtrees */
@@ -531,7 +513,7 @@ void proto_register_credssp(void) {
     &ett_credssp_TSRequest,
 
 /*--- End of included file: packet-credssp-ettarr.c ---*/
-#line 159 "./asn1/credssp/packet-credssp-template.c"
+#line 141 "./asn1/credssp/packet-credssp-template.c"
   };
 
 

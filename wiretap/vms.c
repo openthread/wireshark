@@ -3,19 +3,7 @@
  * Wiretap Library
  * Copyright (c) 2001 by Marc Milgram <ethereal@mmilgram.NOSPAMmail.net>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* Notes:
@@ -29,6 +17,8 @@
 #include "wtap-int.h"
 #include "vms.h"
 #include "file_wrappers.h"
+
+#include <wsutil/strtoi.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -139,10 +129,10 @@ to handle them.
 static gboolean vms_read(wtap *wth, int *err, gchar **err_info,
     gint64 *data_offset);
 static gboolean vms_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info);
+    wtap_rec *rec, Buffer *buf, int *err, gchar **err_info);
 static gboolean parse_single_hex_dump_line(char* rec, guint8 *buf,
     long byte_offset, int in_off, int remaining_bytes);
-static gboolean parse_vms_packet(FILE_T fh, struct wtap_pkthdr *phdr,
+static gboolean parse_vms_packet(FILE_T fh, wtap_rec *rec,
     Buffer *buf, int *err, gchar **err_info);
 
 #ifdef TCPIPTRACE_FRAGMENTS_HAVE_HEADER_LINE
@@ -270,18 +260,18 @@ static gboolean vms_read(wtap *wth, int *err, gchar **err_info,
     *data_offset = offset;
 
     /* Parse the packet */
-    return parse_vms_packet(wth->fh, &wth->phdr, wth->frame_buffer, err, err_info);
+    return parse_vms_packet(wth->fh, &wth->rec, wth->rec_data, err, err_info);
 }
 
 /* Used to read packets in random-access fashion */
 static gboolean
-vms_seek_read(wtap *wth, gint64 seek_off, struct wtap_pkthdr *phdr,
+vms_seek_read(wtap *wth, gint64 seek_off, wtap_rec *rec,
     Buffer *buf, int *err, gchar **err_info)
 {
     if (file_seek(wth->random_fh, seek_off - 1, SEEK_SET, err) == -1)
         return FALSE;
 
-    if (!parse_vms_packet(wth->random_fh, phdr, buf, err, err_info)) {
+    if (!parse_vms_packet(wth->random_fh, rec, buf, err, err_info)) {
         if (*err == 0)
             *err = WTAP_ERR_SHORT_READ;
         return FALSE;
@@ -316,19 +306,20 @@ isdumpline( gchar *line )
 
 /* Parses a packet record. */
 static gboolean
-parse_vms_packet(FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info)
+parse_vms_packet(FILE_T fh, wtap_rec *rec, Buffer *buf, int *err, gchar **err_info)
 {
-    char   line[VMS_LINE_LENGTH + 1];
-    int    num_items_scanned;
-    int    pkt_len = 0;
-    int    pktnum;
-    int    csec = 101;
+    char    line[VMS_LINE_LENGTH + 1];
+    int     num_items_scanned;
+    guint32 pkt_len = 0;
+    int     pktnum;
+    int     csec = 101;
     struct tm tm;
     char mon[4] = {'J', 'A', 'N', 0};
-    gchar *p;
+    gchar  *p;
+    const gchar *endp;
     static const gchar months[] = "JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC";
-    int    i;
-    int    offset = 0;
+    guint32 i;
+    int     offset = 0;
     guint8 *pd;
 
     tm.tm_year = 1970;
@@ -371,7 +362,7 @@ parse_vms_packet(FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf, int *err, gch
             /* We will need to add code to handle new format */
             if (num_items_scanned != 8) {
                 *err = WTAP_ERR_BAD_FILE;
-                *err_info = g_strdup_printf("vms: header line not valid");
+                *err_info = g_strdup("vms: header line not valid");
                 return FALSE;
             }
         }
@@ -382,14 +373,29 @@ parse_vms_packet(FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf, int *err, gch
 
             if ( !*p ) {
                 *err = WTAP_ERR_BAD_FILE;
-                *err_info = g_strdup_printf("vms: Length field not valid");
+                *err_info = g_strdup("vms: Length field not valid");
                 return FALSE;
             }
 
-            pkt_len = atoi(p);
+            if (!ws_strtou32(p, &endp, &pkt_len) || (*endp != '\0' && !g_ascii_isspace(*endp))) {
+                *err = WTAP_ERR_BAD_FILE;
+                *err_info = g_strdup_printf("vms: Length field '%s' not valid", p);
+                return FALSE;
+            }
             break;
         }
     } while (! isdumpline(line));
+    if (pkt_len > WTAP_MAX_PACKET_SIZE_STANDARD) {
+        /*
+         * Probably a corrupt capture file; return an error,
+         * so that our caller doesn't blow up trying to allocate
+         * space for an immensely-large packet.
+         */
+        *err = WTAP_ERR_BAD_FILE;
+        *err_info = g_strdup_printf("vms: File has %u-byte packet, bigger than maximum of %u",
+                                    pkt_len, WTAP_MAX_PACKET_SIZE_STANDARD);
+        return FALSE;
+    }
 
     p = strstr(months, mon);
     if (p)
@@ -397,12 +403,12 @@ parse_vms_packet(FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf, int *err, gch
     tm.tm_year -= 1900;
     tm.tm_isdst = -1;
 
-    phdr->rec_type = REC_TYPE_PACKET;
-    phdr->presence_flags = WTAP_HAS_TS;
-    phdr->ts.secs = mktime(&tm);
-    phdr->ts.nsecs = csec * 10000000;
-    phdr->caplen = pkt_len;
-    phdr->len = pkt_len;
+    rec->rec_type = REC_TYPE_PACKET;
+    rec->presence_flags = WTAP_HAS_TS;
+    rec->ts.secs = mktime(&tm);
+    rec->ts.nsecs = csec * 10000000;
+    rec->rec_header.packet_header.caplen = pkt_len;
+    rec->rec_header.packet_header.len = pkt_len;
 
     /* Make sure we have enough room for the packet */
     ws_buffer_assure_space(buf, pkt_len);
@@ -435,7 +441,7 @@ parse_vms_packet(FILE_T fh, struct wtap_pkthdr *phdr, Buffer *buf, int *err, gch
         if (!parse_single_hex_dump_line(line, pd, i,
                                         offset, pkt_len - i)) {
             *err = WTAP_ERR_BAD_FILE;
-            *err_info = g_strdup_printf("vms: hex dump not valid");
+            *err_info = g_strdup("vms: hex dump not valid");
             return FALSE;
         }
     }

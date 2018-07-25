@@ -6,24 +6,10 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
- * USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
-
 
 #include "packet_list_utils.h"
 
@@ -34,6 +20,8 @@ right_justify_column (gint col, capture_file *cf)
 {
     header_field_info *hfi;
     gboolean right_justify = FALSE;
+    guint num_fields, *field_idx, ii;
+    guint right_justify_count = 0;
 
     if (!cf) return FALSE;
 
@@ -54,15 +42,27 @@ right_justify_column (gint col, capture_file *cf)
             break;
 
         case COL_CUSTOM:
-            hfi = proto_registrar_get_byname(cf->cinfo.columns[col].col_custom_fields);
-            /* Check if this is a valid field and we have no strings lookup table */
-            if ((hfi != NULL) && ((hfi->strings == NULL) || !get_column_resolved(col))) {
-                /* Check for bool, framenum and decimal/octal integer types */
-                if ((hfi->type == FT_BOOLEAN) || (hfi->type == FT_FRAMENUM) ||
-                        (((hfi->display == BASE_DEC) || (hfi->display == BASE_OCT)) &&
-                         (IS_FT_INT(hfi->type) || IS_FT_UINT(hfi->type)))) {
-                    right_justify = TRUE;
+            num_fields = g_slist_length(cf->cinfo.columns[col].col_custom_fields_ids);
+            for (ii = 0; ii < num_fields; ii++) {
+                field_idx = (guint *) g_slist_nth_data(cf->cinfo.columns[col].col_custom_fields_ids, ii);
+                hfi = proto_registrar_get_nth(*field_idx);
+
+                /* Check if this is a valid field and we have no strings lookup table */
+                if ((hfi != NULL) && ((hfi->strings == NULL) || !get_column_resolved(col))) {
+                    /* Check for bool, framenum, double, float, relative time and decimal/octal integer types */
+                    if ((hfi->type == FT_BOOLEAN) || (hfi->type == FT_FRAMENUM) || (hfi->type == FT_DOUBLE) ||
+                        (hfi->type == FT_FLOAT) || (hfi->type == FT_RELATIVE_TIME) ||
+                        (((FIELD_DISPLAY(hfi->display) == BASE_DEC) || (FIELD_DISPLAY(hfi->display) == BASE_OCT)) &&
+                         (IS_FT_INT(hfi->type) || IS_FT_UINT(hfi->type))))
+                    {
+                        right_justify_count++;
+                    }
                 }
+            }
+
+            if ((num_fields > 0) && (right_justify_count == num_fields)) {
+                /* All custom fields must meet the right-justify criteria */
+                right_justify = TRUE;
             }
             break;
 
@@ -78,21 +78,26 @@ resolve_column (gint col, capture_file *cf)
 {
     header_field_info *hfi;
     gboolean resolve = FALSE;
+    guint num_fields, *field_idx, ii;
 
     if (!cf) return FALSE;
 
     switch (cf->cinfo.columns[col].col_fmt) {
 
         case COL_CUSTOM:
-            hfi = proto_registrar_get_byname(cf->cinfo.columns[col].col_custom_fields);
-            /* Check if this is a valid field */
-            if (hfi != NULL) {
+            num_fields = g_slist_length(cf->cinfo.columns[col].col_custom_fields_ids);
+            for (ii = 0; ii < num_fields; ii++) {
+                field_idx = (guint *) g_slist_nth_data(cf->cinfo.columns[col].col_custom_fields_ids, ii);
+                hfi = proto_registrar_get_nth(*field_idx);
+
                 /* Check if we have an OID or a strings table with integer values */
                 if ((hfi->type == FT_OID) || (hfi->type == FT_REL_OID) ||
-                        ((hfi->strings != NULL) &&
-                         ((hfi->type == FT_BOOLEAN) || (hfi->type == FT_FRAMENUM) ||
-                          IS_FT_INT(hfi->type) || IS_FT_UINT(hfi->type)))) {
+                    ((hfi->strings != NULL) &&
+                     ((hfi->type == FT_BOOLEAN) || (hfi->type == FT_FRAMENUM) ||
+                      IS_FT_INT(hfi->type) || IS_FT_UINT(hfi->type))))
+                {
                     resolve = TRUE;
+                    break;
                 }
             }
             break;

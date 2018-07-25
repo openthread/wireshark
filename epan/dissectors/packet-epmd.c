@@ -14,19 +14,7 @@
  *
  * Copied from packet-time.c
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -58,6 +46,8 @@ static int hf_epmd_result = -1;
 static int hf_epmd_creation = -1;
 
 static gint ett_epmd = -1;
+
+static dissector_handle_t epmd_handle = NULL;
 
 /* Other dissectors */
 static dissector_handle_t edp_handle = NULL;
@@ -119,9 +109,9 @@ const value_string epmd_version_vals[] = {
 
 static void
 dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, gint offset, proto_tree *tree) {
-    guint8       type;
-    guint16      name_length = 0;
-    const gchar *name        = NULL;
+    guint8        type;
+    guint16       name_length = 0;
+    const guint8 *name        = NULL;
 
     proto_tree_add_item(tree, hf_epmd_len, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
@@ -144,8 +134,7 @@ dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, gint offset, proto_tree 
             offset += 2;
             name_length = tvb_get_ntohs(tvb, offset);
             proto_tree_add_item(tree, hf_epmd_name_len, tvb, offset, 2, ENC_BIG_ENDIAN);
-            proto_tree_add_item(tree, hf_epmd_name, tvb, offset + 2, name_length, ENC_ASCII|ENC_NA);
-            name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, name_length, ENC_ASCII);
+            proto_tree_add_item_ret_string(tree, hf_epmd_name, tvb, offset + 2, name_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &name);
             offset += 2 + name_length;
             if (tvb_reported_length_remaining(tvb, offset) >= 2) {
                 guint16 elen=0;
@@ -160,16 +149,14 @@ dissect_epmd_request(packet_info *pinfo, tvbuff_t *tvb, gint offset, proto_tree 
         case EPMD_PORT_REQ:
         case EPMD_PORT2_REQ:
             name_length = tvb_captured_length_remaining(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_name, tvb, offset, name_length, ENC_ASCII|ENC_NA);
-            name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, name_length, ENC_ASCII);
+            proto_tree_add_item_ret_string(tree, hf_epmd_name, tvb, offset, name_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &name);
             break;
 
         case EPMD_ALIVE_REQ:
             proto_tree_add_item(tree, hf_epmd_port_no, tvb, offset, 2, ENC_BIG_ENDIAN);
             offset += 2;
             name_length = tvb_captured_length_remaining(tvb, offset);
-            proto_tree_add_item(tree, hf_epmd_name, tvb, offset, name_length, ENC_ASCII|ENC_NA);
-            name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset, name_length, ENC_ASCII);
+            proto_tree_add_item_ret_string(tree, hf_epmd_name, tvb, offset, name_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &name);
             break;
 
         case EPMD_NAMES_REQ:
@@ -195,7 +182,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, gint offset, proto_tree
     guint8          type, result;
     guint32         port;
     guint16         name_length = 0;
-    const gchar    *name        = NULL;
+    const guint8   *name        = NULL;
     conversation_t *conv        = NULL;
 
     port = tvb_get_ntohl(tvb, offset);
@@ -247,8 +234,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, gint offset, proto_tree
             offset += 2;
             name_length = tvb_get_ntohs(tvb, offset);
             proto_tree_add_item(tree, hf_epmd_name_len, tvb, offset, 2, ENC_BIG_ENDIAN);
-            proto_tree_add_item(tree, hf_epmd_name, tvb, offset + 2, name_length, ENC_ASCII|ENC_NA);
-            name = tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, name_length, ENC_ASCII);
+            proto_tree_add_item_ret_string(tree, hf_epmd_name, tvb, offset + 2, name_length, ENC_ASCII|ENC_NA, wmem_packet_scope(), &name);
             offset += 2 + name_length;
             if (tvb_reported_length_remaining(tvb, offset) >= 2) {
                 guint16 elen=0;
@@ -260,7 +246,7 @@ dissect_epmd_response(packet_info *pinfo, tvbuff_t *tvb, gint offset, proto_tree
             }
             col_append_fstr(pinfo->cinfo, COL_INFO, " %s port=%d", name, port);
             if (!pinfo->fd->flags.visited) {
-                conv = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, PT_TCP, port, 0, NO_PORT2);
+                conv = conversation_new(pinfo->num, &pinfo->src, &pinfo->dst, ENDPOINT_TCP, port, 0, NO_PORT2);
                 conversation_set_dissector(conv, edp_handle);
             }
             break;
@@ -412,17 +398,14 @@ proto_register_epmd(void)
     proto_epmd = proto_register_protocol(PNAME, PSNAME, PFNAME);
     proto_register_field_array(proto_epmd, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-    register_dissector(PFNAME, dissect_epmd, proto_epmd);
+    epmd_handle = register_dissector(PFNAME, dissect_epmd, proto_epmd);
 }
 
 void
 proto_reg_handoff_epmd(void) {
-    dissector_handle_t epmd_handle;
-
-    epmd_handle = find_dissector("epmd");
     edp_handle = find_dissector("erldp");
 
-    dissector_add_uint("tcp.port", EPMD_PORT, epmd_handle);
+    dissector_add_uint_with_preference("tcp.port", EPMD_PORT, epmd_handle);
 }
 
 /*

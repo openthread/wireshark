@@ -10,28 +10,16 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "wslua_file_common.h"
-
+#include <wsutil/ws_printf.h> /* ws_g_warning */
 
 /* WSLUA_CONTINUE_MODULE File */
 
 
-WSLUA_CLASS_DEFINE(FileHandler,NOP,NOP);
+WSLUA_CLASS_DEFINE(FileHandler,NOP);
 /*
     A FileHandler object, created by a call to FileHandler.new(arg1, arg2, ...).
     The FileHandler object lets you create a file-format reader, or writer, or
@@ -55,7 +43,7 @@ static int push_error_handler(lua_State* L, const gchar* funcname) {
 }
 
 
-/* During file routines, we cannot allow the FileHandler to get de-registered, since
+/* During file routines, we cannot allow the FileHandler to get deregistered, since
    that would change the GArray's in file_access.c and hilarity would ensue. So we
    set this to true right before pcall(), and back to false afterwards */
 static gboolean in_routine = FALSE;
@@ -63,19 +51,19 @@ static gboolean in_routine = FALSE;
 /* This does the verification and setup common to all open/read/seek_read/close routines */
 #define INIT_FILEHANDLER_ROUTINE(name,retval) \
     if (!fh) { \
-        g_warning("Error in file %s: no Lua FileHandler object", #name); \
+        ws_g_warning("Error in file %s: no Lua FileHandler object", #name); \
         return retval; \
     } \
     if (!fh->registered) { \
-        g_warning("Error in file %s: Lua FileHandler is not registered", #name); \
+        ws_g_warning("Error in file %s: Lua FileHandler is not registered", #name); \
         return retval; \
     } \
     if (!fh->L) { \
-        g_warning("Error in file %s: no FileHandler Lua state", #name); \
+        ws_g_warning("Error in file %s: no FileHandler Lua state", #name); \
         return retval; \
     } \
     if (fh->name##_ref == LUA_NOREF) { \
-        g_warning("Error in file %s: no FileHandler %s routine reference", #name, #name); \
+        ws_g_warning("Error in file %s: no FileHandler %s routine reference", #name, #name); \
         return retval; \
     } \
     L = fh->L; \
@@ -83,14 +71,14 @@ static gboolean in_routine = FALSE;
     push_error_handler(L, #name " routine"); \
     lua_rawgeti(L, LUA_REGISTRYINDEX, fh->name##_ref); \
     if (!lua_isfunction(L, -1)) { \
-         g_warning("Error in file %s: no FileHandler %s routine function in Lua", #name, #name); \
+         ws_g_warning("Error in file %s: no FileHandler %s routine function in Lua", #name, #name); \
         return retval; \
     } \
-    /* now guard against de-registering during pcall() */ \
+    /* now guard against deregistering during pcall() */ \
     in_routine = TRUE;
 
 #define END_FILEHANDLER_ROUTINE() \
-    /* now allow de-registering again */ \
+    /* now allow deregistering again */ \
     in_routine = TRUE;
 
 
@@ -101,16 +89,16 @@ static gboolean in_routine = FALSE;
 
 #define CASE_ERROR(name) \
     case LUA_ERRRUN: \
-        g_warning("Run-time error while calling FileHandler %s routine", name); \
+        ws_g_warning("Run-time error while calling FileHandler %s routine", name); \
         break; \
     case LUA_ERRMEM: \
-        g_warning("Memory alloc error while calling FileHandler %s routine", name); \
+        ws_g_warning("Memory alloc error while calling FileHandler %s routine", name); \
         break; \
     case LUA_ERRERR: \
-        g_warning("Error in error handling while calling FileHandler %s routine", name); \
+        ws_g_warning("Error in error handling while calling FileHandler %s routine", name); \
         break; \
     case LUA_ERRGCMM: \
-        g_warning("Error in garbage collector while calling FileHandler %s routine", name); \
+        ws_g_warning("Error in garbage collector while calling FileHandler %s routine", name); \
         break; \
     default: \
         g_assert_not_reached(); \
@@ -118,19 +106,19 @@ static gboolean in_routine = FALSE;
 
 #define CASE_ERROR_ERRINFO(name) \
     case LUA_ERRRUN: \
-        g_warning("Run-time error while calling FileHandler %s routine", name); \
+        ws_g_warning("Run-time error while calling FileHandler %s routine", name); \
         *err_info = g_strdup_printf("Run-time error while calling FileHandler %s routine", name); \
         break; \
     case LUA_ERRMEM: \
-        g_warning("Memory alloc error while calling FileHandler %s routine", name); \
+        ws_g_warning("Memory alloc error while calling FileHandler %s routine", name); \
         *err_info = g_strdup_printf("Memory alloc error while calling FileHandler %s routine", name); \
         break; \
     case LUA_ERRERR: \
-        g_warning("Error in error handling while calling FileHandler %s routine", name); \
+        ws_g_warning("Error in error handling while calling FileHandler %s routine", name); \
         *err_info = g_strdup_printf("Error in error handling while calling FileHandler %s routine", name); \
         break; \
     case LUA_ERRGCMM: \
-        g_warning("Error in garbage collector while calling FileHandler %s routine", name); \
+        ws_g_warning("Error in garbage collector while calling FileHandler %s routine", name); \
         *err_info = g_strdup_printf("Error in garbage collector while calling FileHandler %s routine", name); \
         break; \
     default: \
@@ -144,7 +132,7 @@ wslua_filehandler_read(wtap *wth, int *err, gchar **err_info,
                       gint64 *data_offset);
 static gboolean
 wslua_filehandler_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf,
+    wtap_rec *rec, Buffer *buf,
     int *err, gchar **err_info);
 static void
 wslua_filehandler_close(wtap *wth);
@@ -199,7 +187,7 @@ wslua_filehandler_open(wtap *wth, int *err, gchar **err_info)
             wth->subtype_read = wslua_filehandler_read;
         }
         else {
-            g_warning("Lua file format module lacks a read routine");
+            ws_g_warning("Lua file format module lacks a read routine");
             return WTAP_OPEN_NOT_MINE;
         }
 
@@ -207,7 +195,7 @@ wslua_filehandler_open(wtap *wth, int *err, gchar **err_info)
             wth->subtype_seek_read = wslua_filehandler_seek_read;
         }
         else {
-            g_warning("Lua file format module lacks a seek-read routine");
+            ws_g_warning("Lua file format module lacks a seek-read routine");
             return WTAP_OPEN_NOT_MINE;
         }
 
@@ -237,7 +225,7 @@ wslua_filehandler_open(wtap *wth, int *err, gchar **err_info)
     }
     else {
         /* not a valid return type */
-        g_warning("FileHandler read_open routine returned %d", retval);
+        ws_g_warning("FileHandler read_open routine returned %d", retval);
         if (err) {
             *err = WTAP_ERR_INTERNAL;
         }
@@ -272,15 +260,22 @@ wslua_filehandler_read(wtap *wth, int *err, gchar **err_info,
         *err = errno = 0;
     }
 
-    wth->phdr.opt_comment = NULL;
+    wth->rec.opt_comment = NULL;
 
     fp = push_File(L, wth->fh);
     fc = push_CaptureInfo(L, wth, FALSE);
-    fi = push_FrameInfo(L, &wth->phdr, wth->frame_buffer);
+    fi = push_FrameInfo(L, &wth->rec, wth->rec_data);
 
     switch ( lua_pcall(L,3,1,1) ) {
         case 0:
-            if (lua_isnumber(L,-1)) {
+            /*
+             * Return values for FileHandler:read():
+             * Integer is the number of read bytes.
+             * Boolean false indicates an error.
+             * XXX handling of boolean true is not documented. Currently it will
+             * succeed without advancing data offset. Should it fail instead?
+             */
+            if (lua_type(L, -1) == LUA_TNUMBER) {
                 *data_offset = wslua_togint64(L, -1);
                 retval = 1;
                 break;
@@ -305,7 +300,7 @@ wslua_filehandler_read(wtap *wth, int *err, gchar **err_info,
  */
 static gboolean
 wslua_filehandler_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf,
+    wtap_rec *rec, Buffer *buf,
     int *err, gchar **err_info)
 {
     FileHandler fh = (FileHandler)(wth->wslua_data);
@@ -321,24 +316,24 @@ wslua_filehandler_seek_read(wtap *wth, gint64 seek_off,
     if (err) {
         *err = errno = 0;
     }
-    phdr->opt_comment = NULL;
+    rec->opt_comment = NULL;
 
     fp = push_File(L, wth->random_fh);
     fc = push_CaptureInfo(L, wth, FALSE);
-    fi = push_FrameInfo(L, phdr, buf);
+    fi = push_FrameInfo(L, rec, buf);
     lua_pushnumber(L, (lua_Number)seek_off);
 
     switch ( lua_pcall(L,4,1,1) ) {
         case 0:
-            if (lua_isstring(L,-1)) {
-                size_t len = 0;
-                const gchar* fd = lua_tolstring(L, -1, &len);
-                if (len < WTAP_MAX_PACKET_SIZE)
-                    memcpy(ws_buffer_start_ptr(buf), fd, len);
-                retval = 1;
-                break;
-            }
-            retval = wslua_optboolint(L,-1,0);
+            /*
+             * Return values for FileHandler:seek_read():
+             * Boolean true for successful parsing, false/nil on error.
+             * Numbers (including zero) are interpreted as success for
+             * compatibility to match FileHandker:seek semantics.
+             * (Other values are unspecified/undocumented, but happen to be
+             * treated as success.)
+             */
+            retval = lua_toboolean(L, -1);
             break;
         CASE_ERROR_ERRINFO("seek_read")
     }
@@ -461,7 +456,7 @@ wslua_filehandler_can_write_encap(int encap, void* data)
 
 /* some declarations */
 static gboolean
-wslua_filehandler_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
+wslua_filehandler_dump(wtap_dumper *wdh, const wtap_rec *rec,
                       const guint8 *pd, int *err, gchar **err_info);
 static gboolean
 wslua_filehandler_dump_finish(wtap_dumper *wdh, int *err);
@@ -510,7 +505,7 @@ wslua_filehandler_dump_open(wtap_dumper *wdh, int *err)
             wdh->subtype_write = wslua_filehandler_dump;
         }
         else {
-            g_warning("FileHandler was not set with a write function, even though write_open() returned true");
+            ws_g_warning("FileHandler was not set with a write function, even though write_open() returned true");
             return 0;
         }
 
@@ -532,7 +527,7 @@ wslua_filehandler_dump_open(wtap_dumper *wdh, int *err)
  * else FALSE.
 */
 static gboolean
-wslua_filehandler_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
+wslua_filehandler_dump(wtap_dumper *wdh, const wtap_rec *rec,
                       const guint8 *pd, int *err, gchar **err_info _U_)
 {
     FileHandler fh = (FileHandler)(wdh->wslua_data);
@@ -551,7 +546,7 @@ wslua_filehandler_dump(wtap_dumper *wdh, const struct wtap_pkthdr *phdr,
 
     fp = push_Wdh(L, wdh);
     fc = push_CaptureInfoConst(L,wdh);
-    fi = push_FrameInfoConst(L, phdr, pd);
+    fi = push_FrameInfoConst(L, rec, pd);
 
     errno = WTAP_ERR_CANT_WRITE;
     switch ( lua_pcall(L,3,1,1) ) {
@@ -614,7 +609,7 @@ wslua_filehandler_dump_finish(wtap_dumper *wdh, int *err)
 WSLUA_CONSTRUCTOR FileHandler_new(lua_State* L) {
     /* Creates a new FileHandler */
 #define WSLUA_ARG_FileHandler_new_NAME 1 /* The name of the file type, for display purposes only. E.g., "Wireshark - pcapng" */
-#define WSLUA_ARG_FileHandler_new_SHORTNAME 2 /* the file type short name, used as a shortcut in various places. E.g., "pcapng". Note: the name cannot already be in use. */
+#define WSLUA_ARG_FileHandler_new_SHORTNAME 2 /* The file type short name, used as a shortcut in various places. E.g., "pcapng". Note: The name cannot already be in use. */
 #define WSLUA_ARG_FileHandler_new_DESCRIPTION 3 /* Descriptive text about this file format, for display purposes only */
 #define WSLUA_ARG_FileHandler_new_TYPE 4 /* The type of FileHandler, "r"/"w"/"rw" for reader/writer/both, include "m" for magic, "s" for strong heuristic */
 
@@ -628,14 +623,17 @@ WSLUA_CONSTRUCTOR FileHandler_new(lua_State* L) {
     fh->is_writer = (strchr(type,'w') != NULL) ? TRUE : FALSE;
 
     if (fh->is_reader && wtap_has_open_info(short_name)) {
+        g_free(fh);
         return luaL_error(L, "FileHandler.new: '%s' short name already exists for a reader!", short_name);
     }
 
     if (fh->is_writer && wtap_short_string_to_file_type_subtype(short_name) > -1) {
+        g_free(fh);
         return luaL_error(L, "FileHandler.new: '%s' short name already exists for a writer!", short_name);
     }
 
     fh->type = g_strdup(type);
+    fh->extensions = NULL;
     fh->finfo.name = g_strdup(name);
     fh->finfo.short_name = g_strdup(short_name);
     fh->finfo.default_file_extension = NULL;
@@ -712,7 +710,7 @@ WSLUA_FUNCTION wslua_register_filehandler(lua_State* L) {
     FileHandler fh = checkFileHandler(L,WSLUA_ARG_register_filehandler_FILEHANDLER);
 
     if (in_routine)
-        return luaL_error(L,"a FileHAndler cannot be registered during reading/writing callback functions");
+        return luaL_error(L,"a FileHandler cannot be registered during reading/writing callback functions");
 
     if (fh->registered)
         return luaL_error(L,"this FileHandler is already registered");
@@ -721,6 +719,16 @@ WSLUA_FUNCTION wslua_register_filehandler(lua_State* L) {
         return luaL_error(L,"this FileHandler is not complete enough to register");
 
     if (fh->is_writer) {
+        if (fh->extensions && fh->extensions[0]) {
+            char *extension = g_strdup(fh->extensions);
+            char *extra_extensions = strchr(extension, ';');
+            if (extra_extensions) {
+                /* Split "cap;pcap" -> "cap" and "pcap" */
+                *extra_extensions++ = '\0';
+            }
+            fh->finfo.default_file_extension = extension;
+            fh->finfo.additional_file_extensions = extra_extensions;
+        }
         fh->finfo.can_write_encap = wslua_dummy_can_write_encap;
         fh->finfo.wslua_info = (wtap_wslua_file_info_t*) g_malloc0(sizeof(wtap_wslua_file_info_t));
         fh->finfo.wslua_info->wslua_can_write_encap = wslua_filehandler_can_write_encap;
@@ -734,7 +742,7 @@ WSLUA_FUNCTION wslua_register_filehandler(lua_State* L) {
         struct open_info oi = { NULL, OPEN_INFO_HEURISTIC, NULL, NULL, NULL, NULL };
         oi.name = fh->finfo.short_name;
         oi.open_routine = wslua_filehandler_open;
-        oi.extensions = fh->finfo.additional_file_extensions;
+        oi.extensions = fh->extensions;
         oi.wslua_data = (void*)(fh);
         if (strchr(fh->type,'m') != NULL) {
             oi.type = OPEN_INFO_MAGIC;
@@ -752,13 +760,13 @@ WSLUA_FUNCTION wslua_register_filehandler(lua_State* L) {
 }
 
 WSLUA_FUNCTION wslua_deregister_filehandler(lua_State* L) {
-    /* De-register the FileHandler from Wireshark/tshark, so it no longer gets used for reading/writing/display.
+    /* Deregister the FileHandler from Wireshark/tshark, so it no longer gets used for reading/writing/display.
        This function cannot be called inside the reading/writing callback functions. */
-#define WSLUA_ARG_register_filehandler_FILEHANDLER 1 /* the FileHandler object to be de-registered */
+#define WSLUA_ARG_register_filehandler_FILEHANDLER 1 /* the FileHandler object to be deregistered */
     FileHandler fh = checkFileHandler(L,WSLUA_ARG_register_filehandler_FILEHANDLER);
 
     if (in_routine)
-        return luaL_error(L,"A FileHAndler cannot be de-registered during reading/writing callback functions");
+        return luaL_error(L,"A FileHandler cannot be deregistered during reading/writing callback functions");
 
     if (!fh->registered)
         return 0;
@@ -823,10 +831,11 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,read_open);
         3. A `FrameInfo` object
 
     The purpose of the Lua function set to this `read` field is to read the next packet from the file, and setting the parsed/read
-    packet into the frame buffer using `FrameInfo.data = foo` or `FrameInfo:read_data()`.
+    packet into the frame buffer using `FrameInfo.data = foo` or `FrameInfo:read_data(file, frame.captured_length)`.
 
     The called Lua function should return the file offset/position number where the packet begins, or false if it hit an
-    error.  The file offset will be saved by Wireshark and passed into the set `seek_read()` Lua function later. */
+    error.  The file offset will be saved by Wireshark and passed into the set `seek_read()` Lua function later.
+    */
 WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,read);
 
 /* WSLUA_ATTRIBUTE FileHandler_seek_read WO The Lua function to be called when Wireshark wants to read a packet from the file at the given offset.
@@ -836,6 +845,25 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,read);
         2. A `CaptureInfo` object
         3. A `FrameInfo` object
         4. The file offset number previously set by the `read()` function call
+
+    The called Lua function should return true if the read was successful, or false if it hit an error.
+    Since 2.4.0, a number is also acceptable to signal success, this allows for reuse of `FileHandler:read`:
+
+    [source,lua]
+    ----
+    local function fh_read(file, capture, frame) ... end
+    myfilehandler.read = fh_read
+
+    function myfilehandler.seek_read(file, capture, frame, offset)
+        if not file:seek("set", offset) then
+            -- Seeking failed, return failure
+            return false
+        end
+
+        -- Now try to read one frame
+        return fh_read(file, capture, frame)
+    end
+    ----
  */
 WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,seek_read);
 
@@ -916,13 +944,15 @@ WSLUA_ATTRIBUTE_FUNC_SETTER(FileHandler,write_close);
     number when the FileHandler is registered. */
 WSLUA_ATTRIBUTE_NAMED_NUMBER_GETTER(FileHandler,type,file_type);
 
-/* WSLUA_ATTRIBUTE FileHandler_extensions RW One or more file extensions that this file type usually uses.
+/* WSLUA_ATTRIBUTE FileHandler_extensions RW One or more semicolon-separated file extensions that this file type usually uses.
 
     For readers using heuristics to determine file type, Wireshark will try the readers of the file's
     extension first, before trying other readers.  But ultimately Wireshark tries all file readers
-    for any file extension, until it finds one that accepts the file. */
-WSLUA_ATTRIBUTE_NAMED_STRING_GETTER(FileHandler,extensions,finfo.additional_file_extensions);
-WSLUA_ATTRIBUTE_NAMED_STRING_SETTER(FileHandler,extensions,finfo.additional_file_extensions,TRUE);
+    for any file extension, until it finds one that accepts the file.
+
+    (Since 2.6) For writers, the first extension is used to suggest the default file extension. */
+WSLUA_ATTRIBUTE_STRING_GETTER(FileHandler,extensions);
+WSLUA_ATTRIBUTE_STRING_SETTER(FileHandler,extensions,TRUE);
 
 /* WSLUA_ATTRIBUTE FileHandler_writing_must_seek RW true if the ability to seek is required when writing
     this file format, else false.

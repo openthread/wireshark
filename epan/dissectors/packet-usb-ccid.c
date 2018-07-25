@@ -10,34 +10,27 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  */
 #include "config.h"
 
+#include <epan/decode_as.h>
 #include <epan/packet.h>
 #include <epan/prefs.h>
 #include "packet-usb.h"
 
 static int proto_ccid = -1;
 
+static dissector_table_t subdissector_table;
+
 static int hf_ccid_bMessageType = -1;
 static int hf_ccid_dwLength = -1;
 static int hf_ccid_bSlot = -1;
 static int hf_ccid_bSeq = -1;
 static int hf_ccid_bStatus = -1;
+static int hf_ccid_bStatus_bmIccStatus = -1;
+static int hf_ccid_bStatus_bmCommandStatus = -1;
 static int hf_ccid_bError = -1;
 static int hf_ccid_bRFU = -1;
 static int hf_ccid_abRFU = -1;
@@ -62,13 +55,24 @@ static int hf_ccid_bNumClockSupported = -1;
 static int hf_ccid_dwDataRate = -1;
 static int hf_ccid_dwMaxDataRate = -1;
 static int hf_ccid_bNumDataRatesSupported = -1;
+static int hf_ccid_dwMaxIFSD = -1;
 static int hf_ccid_dwSynchProtocols = -1;
 static int hf_ccid_dwMechanical = -1;
 static int hf_ccid_dwFeatures = -1;
 static int hf_ccid_dwFeatures_autoParam = -1;
 static int hf_ccid_dwFeatures_autoIccActivation = -1;
+static int hf_ccid_dwFeatures_autoIccVoltSelect = -1;
 static int hf_ccid_dwFeatures_autoIccClk = -1;
 static int hf_ccid_dwFeatures_autoBaudRate = -1;
+static int hf_ccid_dwFeatures_autoParamNegotiation = -1;
+static int hf_ccid_dwFeatures_autoPPS = -1;
+static int hf_ccid_dwFeatures_stopIccClk = -1;
+static int hf_ccid_dwFeatures_nadValNot0accept = -1;
+static int hf_ccid_dwFeatures_autoIfsd = -1;
+static int hf_ccid_dwFeatures_levelExchangeTDPU = -1;
+static int hf_ccid_dwFeatures_levelExchangeShortAPDU = -1;
+static int hf_ccid_dwFeatures_levelExchangeShortExtentedAPDU = -1;
+static int hf_ccid_dwFeatures_UsbWakeUp = -1;
 static int hf_ccid_dwMaxCCIDMessageLength = -1;
 static int hf_ccid_bClassGetResponse = -1;
 static int hf_ccid_bClassEnvelope = -1;
@@ -80,6 +84,16 @@ static int hf_ccid_bPINSupport_modify = -1;
 static int hf_ccid_bPINSupport_vrfy = -1;
 static int hf_ccid_bMaxCCIDBusySlots = -1;
 static int hf_ccid_Reserved = -1;
+static int hf_ccid_bmSlotICCState = -1;
+static int hf_ccid_bmSlotICCState_slot0Current = -1;
+static int hf_ccid_bmSlotICCState_slot0Changed = -1;
+static int hf_ccid_bmSlotICCState_slot1Current = -1;
+static int hf_ccid_bmSlotICCState_slot1Changed = -1;
+static int hf_ccid_bmSlotICCState_slot2Current = -1;
+static int hf_ccid_bmSlotICCState_slot2Changed = -1;
+static int hf_ccid_bmSlotICCState_slot3Current = -1;
+static int hf_ccid_bmSlotICCState_slot3Changed = -1;
+static int hf_ccid_bHardwareErrorCode = -1;
 
 static dissector_handle_t usb_ccid_handle;
 
@@ -98,10 +112,20 @@ static const int *dwProtocols_fields[] = {
 
 static const int *bFeatures_fields[] = {
     /* XXX - add the missing components */
-    &hf_ccid_dwFeatures_autoIccActivation,
     &hf_ccid_dwFeatures_autoParam,
+    &hf_ccid_dwFeatures_autoIccActivation,
+    &hf_ccid_dwFeatures_autoIccVoltSelect,
     &hf_ccid_dwFeatures_autoIccClk,
     &hf_ccid_dwFeatures_autoBaudRate,
+    &hf_ccid_dwFeatures_autoParamNegotiation,
+    &hf_ccid_dwFeatures_autoPPS,
+    &hf_ccid_dwFeatures_stopIccClk,
+    &hf_ccid_dwFeatures_nadValNot0accept,
+    &hf_ccid_dwFeatures_autoIfsd,
+    &hf_ccid_dwFeatures_levelExchangeTDPU,
+    &hf_ccid_dwFeatures_levelExchangeShortAPDU,
+    &hf_ccid_dwFeatures_levelExchangeShortExtentedAPDU,
+    &hf_ccid_dwFeatures_UsbWakeUp,
     NULL
 };
 
@@ -111,6 +135,23 @@ static const int *bPINSupport_fields[] = {
     NULL
 };
 
+static const int *bmSlotICCState_fields[] = {
+    &hf_ccid_bmSlotICCState_slot0Current,
+    &hf_ccid_bmSlotICCState_slot0Changed,
+    &hf_ccid_bmSlotICCState_slot1Current,
+    &hf_ccid_bmSlotICCState_slot1Changed,
+    &hf_ccid_bmSlotICCState_slot2Current,
+    &hf_ccid_bmSlotICCState_slot2Changed,
+    &hf_ccid_bmSlotICCState_slot3Current,
+    &hf_ccid_bmSlotICCState_slot3Changed,
+    NULL
+};
+
+static const int *bStatus_fields[] = {
+    &hf_ccid_bStatus_bmIccStatus,
+    &hf_ccid_bStatus_bmCommandStatus,
+    NULL
+};
 
 /* smart card descriptor, as defined in section 5.1
    of the USB CCID specification */
@@ -138,6 +179,10 @@ static const int *bPINSupport_fields[] = {
 #define RDR_PC_PARAMS          0x82
 #define RDR_PC_ESCAPE          0x83
 #define RDR_PC_DATA_CLOCK      0x84
+
+/* Standardised Interupt IN message types */
+#define RDR_PC_NOTIF_SLOT_CHNG 0x50
+#define RDR_PC_HWERROR         0x51
 
 void proto_register_ccid(void);
 void proto_reg_handoff_ccid(void);
@@ -173,6 +218,10 @@ static const value_string ccid_opcode_vals[] = {
     {RDR_PC_ESCAPE          , "RDR_to_PC_Escape"},
     {RDR_PC_DATA_CLOCK      , "RDR_to_PC_DataRateAndClockFrequency"},
 
+    /* Standardised Interupt IN message types */
+    {RDR_PC_NOTIF_SLOT_CHNG , "RDR_to_PC_NotifySlotChange"},
+    {RDR_PC_HWERROR         , "RDR_to_PC_HardwareError"},
+
     /* End of message types */
     {0x00, NULL}
 };
@@ -200,6 +249,10 @@ static const value_string ccid_messagetypes_vals[] = {
     {RDR_PC_PARAMS          , "Reader to PC: Parameters"},
     {RDR_PC_ESCAPE          , "Reader to PC: Escape"},
     {RDR_PC_DATA_CLOCK      , "Reader to PC: Data Rate and Clock Frequency"},
+
+    /* Standardised Interupt IN message types */
+    {RDR_PC_NOTIF_SLOT_CHNG , "Reader to PC: Notify Slot Change"},
+    {RDR_PC_HWERROR         , "Reader to PC: Hardware Error"},
 
     /* End of message types */
     {0x00, NULL}
@@ -241,6 +294,28 @@ static const value_string ccid_proto_structs_vals[] = {
     {0x00, NULL}
 };
 
+static const value_string ccid_status_icc_status_vals[] = {
+    /* Standardised icc status */
+    { 0x00, "An ICC is present and active" },
+    { 0x01, "An ICC is present and inactive" },
+    { 0x02, "No ICC is present" },
+    { 0x03, "RFU" },
+
+    /* End of icc status */
+    { 0x00, NULL }
+};
+
+static const value_string ccid_status_cmd_status_vals[] = {
+    /* Standardised status values */
+    { 0x00, "Processed without error " },
+    { 0x01, "Failed" },
+    { 0x02, "Time Extension is requested " },
+    { 0x03, "RFU" },
+
+    /* End of status values */
+    { 0x00, NULL }
+};
+
 /* Subtree handles: set by register_subtree_array */
 static gint ett_ccid      = -1;
 static gint ett_ccid_desc = -1;
@@ -249,24 +324,8 @@ static gint ett_ccid_protocols = -1;
 static gint ett_ccid_features = -1;
 static gint ett_ccid_lcd_layout = -1;
 static gint ett_ccid_pin_support = -1;
-
-/* Table of payload types - adapted from the I2C dissector */
-enum {
-    SUB_DATA = 0,
-    SUB_ISO7816,
-    SUB_GSM_SIM_CMD,
-    SUB_PN532,
-    SUB_ACR122_PN532,
-    SUB_GSM_SIM_RSP,
-
-    SUB_MAX
-};
-
-typedef gboolean (*sub_checkfunc_t)(packet_info *);
-
-static dissector_handle_t sub_handles[SUB_MAX];
-static gint sub_selected = SUB_DATA;
-
+static gint ett_ccid_slot_change = -1;
+static gint ett_ccid_status = -1;
 
 static gint
 dissect_usb_ccid_descriptor(tvbuff_t *tvb, packet_info *pinfo _U_,
@@ -310,13 +369,11 @@ dissect_usb_ccid_descriptor(tvbuff_t *tvb, packet_info *pinfo _U_,
             ENC_LITTLE_ENDIAN);
     offset += 4;
 
-    freq_item = proto_tree_add_item(desc_tree, hf_ccid_dwDefaultClock, tvb,
+    proto_tree_add_item(desc_tree, hf_ccid_dwDefaultClock, tvb,
             offset, 4, ENC_LITTLE_ENDIAN);
-    proto_item_append_text(freq_item, " kHz");
     offset += 4;
-    freq_item = proto_tree_add_item(desc_tree, hf_ccid_dwMaximumClock, tvb,
+    proto_tree_add_item(desc_tree, hf_ccid_dwMaximumClock, tvb,
             offset, 4, ENC_LITTLE_ENDIAN);
-    proto_item_append_text(freq_item, " kHz");
     offset += 4;
     num_clock_supp = tvb_get_guint8(tvb, offset);
     freq_item = proto_tree_add_item(desc_tree, hf_ccid_bNumClockSupported, tvb,
@@ -335,7 +392,8 @@ dissect_usb_ccid_descriptor(tvbuff_t *tvb, packet_info *pinfo _U_,
             tvb, offset, 1, ENC_LITTLE_ENDIAN);
     offset++;
 
-    /* skip dwMaxIFSD */
+    proto_tree_add_item(desc_tree, hf_ccid_dwMaxIFSD,
+        tvb, offset, 4, ENC_LITTLE_ENDIAN);
     offset += 4;
 
     proto_tree_add_item(desc_tree, hf_ccid_dwSynchProtocols,
@@ -391,6 +449,7 @@ dissect_ccid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
     proto_item *item;
     proto_tree *ccid_tree;
     guint8      cmd;
+    guint32     payload_len;
     tvbuff_t   *next_tvb;
     usb_conv_info_t  *usb_conv_info;
 
@@ -424,7 +483,7 @@ dissect_ccid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         if (tvb_get_letohl(tvb, 1) != 0)
         {
             next_tvb = tvb_new_subset_remaining(tvb, 10);
-            call_dissector(sub_handles[SUB_DATA], next_tvb, pinfo, tree);
+            call_data_dissector(next_tvb, pinfo, tree);
         }
         break;
 
@@ -467,7 +526,8 @@ dissect_ccid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 
     case PC_RDR_XFR_BLOCK:
     case PC_RDR_ESCAPE:
-        proto_tree_add_item(ccid_tree, hf_ccid_dwLength, tvb, 1, 4, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item_ret_uint(ccid_tree, hf_ccid_dwLength,
+                tvb, 1, 4, ENC_LITTLE_ENDIAN, &payload_len);
         proto_tree_add_item(ccid_tree, hf_ccid_bSlot, tvb, 5, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bSeq, tvb, 6, 1, ENC_LITTLE_ENDIAN);
 
@@ -478,68 +538,39 @@ dissect_ccid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
             proto_tree_add_item(ccid_tree, hf_ccid_wLevelParameter, tvb, 8, 2, ENC_LITTLE_ENDIAN);
         }
 
-        if (tvb_get_letohl(tvb, 1) != 0)
-        {
-            next_tvb = tvb_new_subset_remaining(tvb, 10);
+        if (payload_len == 0)
+            break;
 
-            /* See if the dissector isn't Data */
-            if (sub_selected != SUB_DATA) {
+        next_tvb = tvb_new_subset_length(tvb, 10, payload_len);
+        /* sent/received is from the perspective of the card reader */
+        pinfo->p2p_dir = P2P_DIR_SENT;
 
-                if (sub_selected == SUB_PN532) {
-                    call_dissector_with_data(sub_handles[sub_selected], tvb_new_subset_remaining(tvb, 10), pinfo, tree, usb_conv_info);
-                } else if (sub_selected == SUB_ACR122_PN532) {
-                    pinfo->p2p_dir = P2P_DIR_SENT;
-                    call_dissector_with_data(sub_handles[sub_selected], tvb_new_subset_remaining(tvb, 10), pinfo, tree, usb_conv_info);
-                } else if (sub_selected == SUB_ISO7816) {
-                    /* sent/received is from the perspective of the card reader */
-                    pinfo->p2p_dir = P2P_DIR_SENT;
-                    call_dissector(sub_handles[SUB_ISO7816], next_tvb, pinfo, tree);
-                } else { /* The user probably wanted GSM SIM, or something else */
-                    call_dissector(sub_handles[sub_selected], next_tvb, pinfo, tree);
-                }
-
-            } else if (usb_conv_info->deviceVendor == 0x072F && usb_conv_info->deviceProduct == 0x2200) {
-                    pinfo->p2p_dir = P2P_DIR_SENT;
-                    call_dissector_with_data(sub_handles[SUB_ACR122_PN532], tvb_new_subset_remaining(tvb, 10), pinfo, tree, usb_conv_info);
-            } else { /* The user only wants plain data */
-                call_dissector(sub_handles[SUB_DATA], next_tvb, pinfo, tree);
-            }
+        if (!dissector_try_payload_new(subdissector_table, next_tvb, pinfo, tree, TRUE, usb_conv_info)) {
+            call_data_dissector(next_tvb, pinfo, tree);
         }
         break;
 
     case RDR_PC_DATA_BLOCK:
     case RDR_PC_ESCAPE:
-        proto_tree_add_item(ccid_tree, hf_ccid_dwLength, tvb, 1, 4, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item_ret_uint(ccid_tree, hf_ccid_dwLength,
+                tvb, 1, 4, ENC_LITTLE_ENDIAN, &payload_len);
         proto_tree_add_item(ccid_tree, hf_ccid_bSlot, tvb, 5, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bSeq, tvb, 6, 1, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(ccid_tree, hf_ccid_bStatus, tvb, 7, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_bitmask(ccid_tree, tvb, 7, hf_ccid_bStatus, ett_ccid_status, bStatus_fields, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bError, tvb, 8, 1, ENC_LITTLE_ENDIAN);
         if (cmd == RDR_PC_ESCAPE)
             proto_tree_add_item(ccid_tree, hf_ccid_bRFU, tvb, 9, 1, ENC_LITTLE_ENDIAN);
         else
             proto_tree_add_item(ccid_tree, hf_ccid_bChainParameter, tvb, 9, 1, ENC_LITTLE_ENDIAN);
 
-        if (tvb_get_letohl(tvb, 1) != 0)
-        {
-            next_tvb = tvb_new_subset_remaining(tvb, 10);
+        if (payload_len == 0)
+            break;
 
-            if (sub_selected == SUB_PN532) {
-                next_tvb= tvb_new_subset_length(tvb, 10, tvb_get_guint8(tvb, 1));
-                call_dissector_with_data(sub_handles[SUB_PN532], next_tvb, pinfo, tree, usb_conv_info);
-            } else if (sub_selected == SUB_ACR122_PN532) {
-                pinfo->p2p_dir = P2P_DIR_RECV;
-                call_dissector_with_data(sub_handles[SUB_ACR122_PN532], tvb_new_subset_remaining(tvb, 10), pinfo, tree, usb_conv_info);
-            } else if (sub_selected == SUB_GSM_SIM_CMD) {  /* Try to dissect responses to GSM SIM packets */
-                call_dissector(sub_handles[SUB_GSM_SIM_RSP], next_tvb, pinfo, tree);
-            } else if (sub_selected == SUB_ISO7816) {
-                pinfo->p2p_dir = P2P_DIR_RECV;
-                call_dissector(sub_handles[SUB_ISO7816], next_tvb, pinfo, tree);
-            } else if (usb_conv_info->deviceVendor == 0x072F && usb_conv_info->deviceProduct == 0x2200) {
-                pinfo->p2p_dir = P2P_DIR_RECV;
-                call_dissector_with_data(sub_handles[SUB_ACR122_PN532], tvb_new_subset_remaining(tvb, 10), pinfo, tree, usb_conv_info);
-            } else {
-                call_dissector(sub_handles[SUB_DATA], next_tvb, pinfo, tree);
-            }
+        next_tvb = tvb_new_subset_length(tvb, 10, payload_len);
+        pinfo->p2p_dir = P2P_DIR_RECV;
+
+        if (!dissector_try_payload_new(subdissector_table, next_tvb, pinfo, tree, TRUE, usb_conv_info)) {
+            call_data_dissector(next_tvb, pinfo, tree);
         }
         break;
 
@@ -547,10 +578,35 @@ dissect_ccid(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
         proto_tree_add_item(ccid_tree, hf_ccid_dwLength, tvb, 1, 4, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bSlot, tvb, 5, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bSeq, tvb, 6, 1, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(ccid_tree, hf_ccid_bStatus, tvb, 7, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_bitmask(ccid_tree, tvb, 7, hf_ccid_bStatus, ett_ccid_status, bStatus_fields, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bError, tvb, 8, 1, ENC_LITTLE_ENDIAN);
         proto_tree_add_item(ccid_tree, hf_ccid_bClockStatus, tvb, 9, 1, ENC_LITTLE_ENDIAN);
         break;
+
+    case RDR_PC_PARAMS:
+        proto_tree_add_item(ccid_tree, hf_ccid_dwLength, tvb, 1, 4, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(ccid_tree, hf_ccid_bSlot, tvb, 5, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(ccid_tree, hf_ccid_bSeq, tvb, 6, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_bitmask(ccid_tree, tvb, 7, hf_ccid_bStatus, ett_ccid_status, bStatus_fields, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(ccid_tree, hf_ccid_bError, tvb, 8, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(ccid_tree, hf_ccid_bProtocolNum, tvb, 8, 1, ENC_LITTLE_ENDIAN);
+        break;
+
+    /*Interupt IN*/
+    case RDR_PC_NOTIF_SLOT_CHNG:
+        proto_tree_add_bitmask(ccid_tree, tvb, 1,
+            hf_ccid_bmSlotICCState, ett_ccid_slot_change, bmSlotICCState_fields,
+            ENC_LITTLE_ENDIAN);
+        break;
+
+    case RDR_PC_HWERROR:
+        proto_tree_add_item(ccid_tree, hf_ccid_bSlot, tvb, 1, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(ccid_tree, hf_ccid_bSeq, tvb, 2, 1, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(ccid_tree, hf_ccid_bHardwareErrorCode, tvb, 3, 1, ENC_LITTLE_ENDIAN);
+        break;
+
+
+
     }
 
     /* TODO: Try use "offset" instead of hardcoded constants */
@@ -577,6 +633,12 @@ proto_register_ccid(void)
         {&hf_ccid_bStatus,
          { "Status", "usbccid.bStatus", FT_UINT8, BASE_DEC,
            NULL, 0x0, NULL, HFILL }},
+        {&hf_ccid_bStatus_bmIccStatus,
+         { "Status", "usbccid.bStatus.bmIccStatus", FT_UINT8, BASE_DEC,
+           VALS(ccid_status_icc_status_vals), 0x03, NULL, HFILL }},
+        {&hf_ccid_bStatus_bmCommandStatus,
+         { "Status", "usbccid.bStatus.bmCommandStatus", FT_UINT8, BASE_DEC,
+           VALS(ccid_status_cmd_status_vals), 0xC0, NULL, HFILL }},
         {&hf_ccid_bError,
          { "Error", "usbccid.bError", FT_UINT8, BASE_DEC,
            NULL, 0x0, NULL, HFILL }},
@@ -633,10 +695,10 @@ proto_register_ccid(void)
             TFS(&tfs_supported_not_supported), 0x02, NULL, HFILL }},
         {&hf_ccid_dwDefaultClock,
          { "default clock frequency", "usbccid.dwDefaultClock",
-             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+             FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_khz, 0x0, NULL, HFILL }},
         {&hf_ccid_dwMaximumClock,
          { "maximum clock frequency", "usbccid.dwMaximumClock",
-             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+             FT_UINT32, BASE_DEC|BASE_UNIT_STRING, &units_khz, 0x0, NULL, HFILL }},
         {&hf_ccid_bNumClockSupported,
          { "number of supported clock frequencies", "usbccid.bNumClockSupported",
              FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -649,6 +711,9 @@ proto_register_ccid(void)
         {&hf_ccid_bNumDataRatesSupported,
          { "number of supported data rates", "usbccid.bNumDataRatesSupported",
              FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        { &hf_ccid_dwMaxIFSD,
+         { "maximum IFSD supported", "usbccid.dwMaxIFSD",
+             FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
         {&hf_ccid_dwSynchProtocols,
          { "supported protocol types", "usbccid.dwSynchProtocols",
              FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
@@ -662,6 +727,10 @@ proto_register_ccid(void)
          { "Automatic activation of ICC on inserting",
              "usbccid.dwFeatures.autoIccActivation", FT_BOOLEAN, 32,
              TFS(&tfs_supported_not_supported), 0x04, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_autoIccVoltSelect,
+         { "Automatic ICC voltage selection",
+             "usbccid.dwFeatures.autoParamNegotiation", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x08, NULL, HFILL }},
         {&hf_ccid_dwFeatures_autoParam,
          { "Automatic parameter configuration based on ATR",
              "usbccid.dwFeatures.autoParam", FT_BOOLEAN, 32,
@@ -674,6 +743,42 @@ proto_register_ccid(void)
          { "Automatic baud rate change",
              "usbccid.dwFeatures.autoBaudRate", FT_BOOLEAN, 32,
              TFS(&tfs_supported_not_supported), 0x20, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_autoParamNegotiation,
+         { "Automatic parameters negotiation",
+             "usbccid.dwFeatures.autoParamNegotiation", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x40, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_autoPPS,
+         { "Automatic PPS",
+             "usbccid.dwFeatures.autoPPS", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x80, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_stopIccClk,
+         { "CCID can set ICC in clock stop mode",
+             "usbccid.dwFeatures.stopIccClk", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x100, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_nadValNot0accept,
+         { "NAD value other than 00 accepted",
+             "usbccid.dwFeatures.nadValNot0accept", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x200, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_autoIfsd,
+         { "Automatic IFSD exchange as first exchange",
+             "usbccid.dwFeatures.autoIfsd", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x400, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_levelExchangeTDPU,
+         { "TPDU level exchanges",
+             "usbccid.dwFeatures.levelExchangeTDPU", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x010000, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_levelExchangeShortAPDU,
+         { "Short APDU level exchange",
+             "usbccid.dwFeatures.levelExchangeShortAPDU", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x020000, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_levelExchangeShortExtentedAPDU,
+         { "Short and Extended APDU level exchange",
+             "usbccid.dwFeatures.levelExchangeShortExtentedAPDU", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x040000, NULL, HFILL }},
+        {&hf_ccid_dwFeatures_UsbWakeUp,
+         { "USB Wake up signaling supported on card insertion and removal",
+             "usbccid.dwFeatures.UsbWakeUp", FT_BOOLEAN, 32,
+             TFS(&tfs_supported_not_supported), 0x00100000, NULL, HFILL }},
         {&hf_ccid_dwMaxCCIDMessageLength,
          { "maximum CCID message length", "usbccid.dwMaxCCIDMessageLength",
              FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -706,7 +811,37 @@ proto_register_ccid(void)
              FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
         {&hf_ccid_Reserved,
          { "Reserved for Future Use", "usbccid.hf_ccid_Reserved",
-             FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }}
+             FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+        { &hf_ccid_bmSlotICCState,
+         { "Slot ICC State", "usbccid.hf_ccid_bmSlotICCState",
+             FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot0Current,
+         { "Slot 0 Current Status", "usbccid.hf_ccid_bmSlotICCState.slot0Current",
+             FT_BOOLEAN, 8, TFS(&tfs_present_not_present), 0x01, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot0Changed,
+         { "Slot 0 Status changed", "usbccid.hf_ccid_bmSlotICCState.slot0Changed",
+             FT_BOOLEAN, 8, TFS(&tfs_yes_no), 0x02, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot1Current,
+         { "Slot 1 Current Status", "usbccid.hf_ccid_bmSlotICCState.slot1Current",
+             FT_BOOLEAN, 8, TFS(&tfs_present_not_present), 0x04, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot1Changed,
+         { "Slot 1 Status changed", "usbccid.hf_ccid_bmSlotICCState.slot1Changed",
+             FT_BOOLEAN, 8, TFS(&tfs_yes_no), 0x08, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot2Current,
+         { "Slot 2 Current Status", "usbccid.hf_ccid_bmSlotICCState.slot2Current",
+             FT_BOOLEAN, 8, TFS(&tfs_present_not_present), 0x10, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot2Changed,
+         { "Slot 2 Status changed", "usbccid.hf_ccid_bmSlotICCState.slot2Changed",
+             FT_BOOLEAN, 8, TFS(&tfs_yes_no), 0x20, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot3Current,
+         { "Slot 3 Current Status", "usbccid.hf_ccid_bmSlotICCState.slot3Current",
+             FT_BOOLEAN, 8, TFS(&tfs_present_not_present), 0x40, NULL, HFILL } },
+        { &hf_ccid_bmSlotICCState_slot3Changed,
+         { "Slot 3 Status changed", "usbccid.hf_ccid_bmSlotICCState.slot3Changed",
+             FT_BOOLEAN, 8, TFS(&tfs_yes_no), 0x80, NULL, HFILL } },
+        { &hf_ccid_bHardwareErrorCode,
+         { "Hardware Error Code", "usbccid.hf_ccid_bHardwareErrorCode",
+             FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL } },
     };
 
     static gint *ett[] = {
@@ -716,16 +851,9 @@ proto_register_ccid(void)
         &ett_ccid_protocols,
         &ett_ccid_features,
         &ett_ccid_lcd_layout,
-        &ett_ccid_pin_support
-    };
-
-    static const enum_val_t sub_enum_vals[] = {
-        { "data", "Data", SUB_DATA },
-        { "iso7816", "Generic ISO 7816", SUB_ISO7816 },
-        { "gsm_sim", "GSM SIM", SUB_GSM_SIM_CMD },
-        { "pn532", "NXP PN532", SUB_PN532},
-        { "acr122", "ACR122 PN532", SUB_ACR122_PN532},
-        { NULL, NULL, 0 }
+        &ett_ccid_pin_support,
+        &ett_ccid_slot_change,
+        &ett_ccid_status
     };
 
     module_t *pref_mod;
@@ -734,11 +862,12 @@ proto_register_ccid(void)
     proto_register_field_array(proto_ccid, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
-    pref_mod = prefs_register_protocol(proto_ccid, NULL);
-    prefs_register_enum_preference(pref_mod, "prtype", "PC -> Reader Payload Type", "How commands from the PC to the reader are interpreted",
-        &sub_selected, sub_enum_vals, FALSE);
+    pref_mod = prefs_register_protocol_obsolete(proto_ccid);
+    prefs_register_obsolete_preference(pref_mod, "prtype");
 
     usb_ccid_handle = register_dissector("usbccid", dissect_ccid, proto_ccid);
+
+    subdissector_table = register_decode_as_next_proto(proto_ccid, "Transport", "usbccid.subdissector", "USB CCID payload", NULL);
 }
 
 /* Handler registration */
@@ -756,13 +885,6 @@ proto_reg_handoff_ccid(void)
     dissector_add_for_decode_as("usb.device", usb_ccid_handle);
     dissector_add_for_decode_as("usb.product", usb_ccid_handle);
     dissector_add_for_decode_as("usb.protocol", usb_ccid_handle);
-
-    sub_handles[SUB_DATA] = find_dissector("data");
-    sub_handles[SUB_ISO7816] = find_dissector_add_dependency("iso7816", proto_ccid);
-    sub_handles[SUB_GSM_SIM_CMD] = find_dissector_add_dependency("gsm_sim.command", proto_ccid);
-    sub_handles[SUB_PN532] = find_dissector_add_dependency("pn532", proto_ccid);
-    sub_handles[SUB_ACR122_PN532] = find_dissector_add_dependency("acr122", proto_ccid);
-    sub_handles[SUB_GSM_SIM_RSP] = find_dissector_add_dependency("gsm_sim.response", proto_ccid);
 }
 
 /*

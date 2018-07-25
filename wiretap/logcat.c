@@ -2,19 +2,7 @@
  *
  * Copyright 2014, Michal Labedzki for Tieto Corporation
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 #include "config.h"
@@ -166,7 +154,7 @@ gint logcat_exported_pdu_length(const guint8 *pd) {
 }
 
 static gboolean logcat_read_packet(struct logcat_phdr *logcat, FILE_T fh,
-    struct wtap_pkthdr *phdr, Buffer *buf, int *err, gchar **err_info)
+    wtap_rec *rec, Buffer *buf, int *err, gchar **err_info)
 {
     gint                 packet_size;
     guint16              payload_length;
@@ -186,6 +174,12 @@ static gboolean logcat_read_packet(struct logcat_phdr *logcat, FILE_T fh,
     } else {
         return FALSE;
     }
+    /*
+     * The maximum value of payload_length is 65535, which, even after
+     * the size of the logger entry structure is added to it, is less
+     * than WTAP_MAX_PACKET_SIZE_STANDARD will ever be, so we don't need to check
+     * it.
+     */
 
     ws_buffer_assure_space(buf, packet_size);
     pd = ws_buffer_start_ptr(buf);
@@ -199,14 +193,14 @@ static gboolean logcat_read_packet(struct logcat_phdr *logcat, FILE_T fh,
         return FALSE;
     }
 
-    phdr->rec_type = REC_TYPE_PACKET;
-    phdr->presence_flags = WTAP_HAS_TS;
-    phdr->ts.secs = (time_t) GINT32_FROM_LE(log_entry->sec);
-    phdr->ts.nsecs = GINT32_FROM_LE(log_entry->nsec);
-    phdr->caplen = packet_size;
-    phdr->len = packet_size;
+    rec->rec_type = REC_TYPE_PACKET;
+    rec->presence_flags = WTAP_HAS_TS;
+    rec->ts.secs = (time_t) GINT32_FROM_LE(log_entry->sec);
+    rec->ts.nsecs = GINT32_FROM_LE(log_entry->nsec);
+    rec->rec_header.packet_header.caplen = packet_size;
+    rec->rec_header.packet_header.len = packet_size;
 
-    phdr->pseudo_header.logcat.version = logcat->version;
+    rec->rec_header.packet_header.pseudo_header.logcat.version = logcat->version;
 
     return TRUE;
 }
@@ -217,18 +211,18 @@ static gboolean logcat_read(wtap *wth, int *err, gchar **err_info,
     *data_offset = file_tell(wth->fh);
 
     return logcat_read_packet((struct logcat_phdr *) wth->priv, wth->fh,
-        &wth->phdr, wth->frame_buffer, err, err_info);
+        &wth->rec, wth->rec_data, err, err_info);
 }
 
 static gboolean logcat_seek_read(wtap *wth, gint64 seek_off,
-    struct wtap_pkthdr *phdr, Buffer *buf,
+    wtap_rec *rec, Buffer *buf,
     int *err, gchar **err_info)
 {
     if (file_seek(wth->random_fh, seek_off, SEEK_SET, err) == -1)
         return FALSE;
 
     if (!logcat_read_packet((struct logcat_phdr *) wth->priv, wth->random_fh,
-         phdr, buf, err, err_info)) {
+         rec, buf, err, err_info)) {
         if (*err == 0)
             *err = WTAP_ERR_SHORT_READ;
         return FALSE;
@@ -311,18 +305,18 @@ int logcat_dump_can_write_encap(int encap)
 }
 
 static gboolean logcat_binary_dump(wtap_dumper *wdh,
-    const struct wtap_pkthdr *phdr,
+    const wtap_rec *rec,
     const guint8 *pd, int *err, gchar **err_info _U_)
 {
     int caplen;
 
     /* We can only write packet records. */
-    if (phdr->rec_type != REC_TYPE_PACKET) {
+    if (rec->rec_type != REC_TYPE_PACKET) {
         *err = WTAP_ERR_UNWRITABLE_REC_TYPE;
         return FALSE;
     }
 
-    caplen = phdr->caplen;
+    caplen = rec->rec_header.packet_header.caplen;
 
     /* Skip EXPORTED_PDU*/
     if (wdh->encap == WTAP_ENCAP_WIRESHARK_UPPER_PDU) {
@@ -341,20 +335,9 @@ static gboolean logcat_binary_dump(wtap_dumper *wdh,
     return TRUE;
 }
 
-gboolean logcat_binary_dump_open(wtap_dumper *wdh, int *err)
+gboolean logcat_binary_dump_open(wtap_dumper *wdh, int *err _U_)
 {
     wdh->subtype_write = logcat_binary_dump;
-
-    switch (wdh->encap) {
-        case WTAP_ENCAP_LOGCAT:
-        case WTAP_ENCAP_WIRESHARK_UPPER_PDU:
-            wdh->tsprecision = WTAP_TSPREC_USEC;
-            break;
-
-        default:
-            *err = WTAP_ERR_UNWRITABLE_FILE_TYPE;
-            return FALSE;
-    }
 
     return TRUE;
 }

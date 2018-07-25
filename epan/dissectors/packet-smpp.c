@@ -27,19 +27,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * ----------
  *
@@ -54,8 +42,8 @@
 #include <epan/packet.h>
 #include <epan/exceptions.h>
 #include <epan/stats_tree.h>
-
 #include <epan/prefs.h>
+#include <wsutil/time_util.h>
 #include "packet-tcp.h"
 #include "packet-smpp.h"
 
@@ -272,6 +260,8 @@ static gint ett_dlist_resp      = -1;
 static gint ett_opt_params      = -1;
 static gint ett_opt_param       = -1;
 static gint ett_dcs             = -1;
+
+static dissector_handle_t smpp_handle;
 
 /* Reassemble SMPP TCP segments */
 static gboolean reassemble_over_tcp = TRUE;
@@ -1174,10 +1164,7 @@ smpp_mktime(const char *datestr, time_t *secs, int *nsecs)
     r_time.tm_isdst = -1;
 
     if (relative == FALSE) {
-        struct tm *gm, *local_time;
-        int gm_hour, gm_min;
-
-        *secs = mktime(&r_time);
+        *secs = mktime_utc(&r_time);
         *nsecs = 0;
         if (*secs == (time_t)(-1)) {
             return relative;
@@ -1191,27 +1178,6 @@ smpp_mktime(const char *datestr, time_t *secs, int *nsecs)
         else if (datestr[15] == '+')
             /* Represented time is ahead of UTC, shift it backward to UTC */
             *secs -= t_diff;
-
-        /* Subtract out the timezone information since we adjusted for
-         * the presented time's timezone above and will display in UTC.
-         *
-         * To do that, first determine how the time is represented in the
-         * local time zone and in UTC.
-         */
-        if (((gm = gmtime(secs)) == NULL) || ((local_time = localtime(secs)) == NULL)) {
-            *secs = (time_t)(-1);
-            *nsecs = 0;
-            return relative;
-        }
-
-        gm_hour = gm->tm_hour;
-        gm_min  = gm->tm_min;
-        /* Then subtract out the difference between those times (whether the
-         * difference is measured in hours, minutes, or both).
-         */
-        *secs -= 3600*(gm_hour - local_time->tm_hour);
-        *secs -= 60*(gm_min - local_time->tm_min);
-
     } else {
         *secs = r_time.tm_sec + 60 *
             (r_time.tm_min + 60 *
@@ -1928,7 +1894,7 @@ submit_sm(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
     const char *src_str = NULL;
     const char *dst_str = NULL;
     address   save_src, save_dst;
-    nstime_t  zero_time = {0, 0};
+    nstime_t  zero_time = NSTIME_INIT_ZERO;
 
     smpp_handle_string_z(tree, tvb, hf_smpp_service_type, &offset, "(Default)");
     smpp_handle_int1(tree, tvb, hf_smpp_source_addr_ton, &offset);
@@ -1983,7 +1949,7 @@ submit_sm(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
             /* Set SMPP source and destination address */
             set_address(&(pinfo->src), AT_STRINGZ, 1+(int)strlen(src_str), src_str);
             set_address(&(pinfo->dst), AT_STRINGZ, 1+(int)strlen(dst_str), dst_str);
-            tvb_msg = tvb_new_subset (tvb, offset,
+            tvb_msg = tvb_new_subset_length_caplen (tvb, offset,
                     MIN(length, tvb_reported_length(tvb) - offset), length);
             call_dissector (gsm_sms_handle, tvb_msg, pinfo, top_tree);
             /* Restore original addresses */
@@ -2004,7 +1970,7 @@ replace_sm(proto_tree *tree, tvbuff_t *tvb)
     int          offset = 0;
     guint8       flag;
     guint8       length;
-    nstime_t  zero_time = {0, 0};
+    nstime_t  zero_time = NSTIME_INIT_ZERO;
 
     smpp_handle_string(tree, tvb, hf_smpp_message_id, &offset);
     smpp_handle_int1(tree, tvb, hf_smpp_source_addr_ton, &offset);
@@ -2033,7 +1999,6 @@ replace_sm(proto_tree *tree, tvbuff_t *tvb)
     if (length)
         proto_tree_add_item(tree, hf_smpp_short_message,
                             tvb, offset, length, ENC_NA);
-    offset += length;
 }
 
 static void
@@ -2057,7 +2022,7 @@ submit_multi(proto_tree *tree, tvbuff_t *tvb)
     int          offset = 0;
     guint8       flag;
     guint8       length;
-    nstime_t     zero_time = {0, 0};
+    nstime_t     zero_time = NSTIME_INIT_ZERO;
 
     smpp_handle_string_z(tree, tvb, hf_smpp_service_type, &offset, "(Default)");
     smpp_handle_int1(tree, tvb, hf_smpp_source_addr_ton, &offset);
@@ -2155,7 +2120,7 @@ static void
 broadcast_sm(proto_tree *tree, tvbuff_t *tvb)
 {
     int          offset = 0;
-    nstime_t     zero_time = {0, 0};
+    nstime_t     zero_time = NSTIME_INIT_ZERO;
 
     smpp_handle_string_z(tree, tvb, hf_smpp_service_type, &offset, "(Default)");
     smpp_handle_int1(tree, tvb, hf_smpp_source_addr_ton, &offset);
@@ -2407,13 +2372,13 @@ dissect_smpp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data)
             tvbuff_t *pdu_tvb;
 
             if (pdu_len < 1)
-                THROW(ReportedBoundsError);
+                return offset;
 
             if (pdu_real_len <= 0)
                 return offset;
             if (pdu_real_len > pdu_len)
                 pdu_real_len = pdu_len;
-            pdu_tvb = tvb_new_subset(tvb, offset, pdu_real_len, pdu_len);
+            pdu_tvb = tvb_new_subset_length_caplen(tvb, offset, pdu_real_len, pdu_len);
             dissect_smpp_pdu(pdu_tvb, pinfo, tree, data);
             offset += pdu_len;
             first = FALSE;
@@ -2515,11 +2480,11 @@ dissect_smpp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
          * Reported length: command_length
          */
         if (tvb_captured_length_remaining(tvb, offset - 16 + command_length) > 0) {
-            pdu_tvb = tvb_new_subset(tvb, offset - 16,
+            pdu_tvb = tvb_new_subset_length_caplen(tvb, offset - 16,
                     command_length,     /* Physical length */
                     command_length);    /* Length reported by the protocol */
         } else {
-            pdu_tvb = tvb_new_subset(tvb, offset - 16,
+            pdu_tvb = tvb_new_subset_length_caplen(tvb, offset - 16,
                     tvb_captured_length_remaining(tvb, offset - 16),/* Physical length */
                     command_length);    /* Length reported by the protocol */
         }
@@ -2571,7 +2536,7 @@ dissect_smpp_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data
              */
             if (command_length <= tvb_reported_length(pdu_tvb))
             {
-                tvbuff_t *tmp_tvb = tvb_new_subset(pdu_tvb, 16,
+                tvbuff_t *tmp_tvb = tvb_new_subset_length_caplen(pdu_tvb, 16,
                         -1, command_length - 16);
                 if (command_id & 0x80000000)
                 {
@@ -2972,7 +2937,7 @@ proto_register_smpp(void)
         },
         {   &hf_smpp_short_message,
             {   "Message", "smpp.message",
-                FT_NONE, BASE_NONE, NULL, 0x00,
+                FT_BYTES, BASE_NONE, NULL, 0x00,
                 "The actual message or data.",
                 HFILL
             }
@@ -3765,7 +3730,7 @@ proto_register_smpp(void)
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Allow other dissectors to find this one by name. */
-    register_dissector("smpp", dissect_smpp, proto_smpp);
+    smpp_handle = register_dissector("smpp", dissect_smpp, proto_smpp);
 
     /* Register for tapping */
     smpp_tap = register_tap("smpp");
@@ -3784,8 +3749,6 @@ proto_register_smpp(void)
 void
 proto_reg_handoff_smpp(void)
 {
-    dissector_handle_t smpp_handle;
-
     /*
      * SMPP can be spoken on any port under TCP or X.25
      * ...how *do* we do that under X.25?
@@ -3795,8 +3758,7 @@ proto_reg_handoff_smpp(void)
      * to specify that a given X.25 circuit is to be dissected as SMPP,
      * however.
      */
-    smpp_handle = find_dissector("smpp");
-    dissector_add_for_decode_as("tcp.port", smpp_handle);
+    dissector_add_for_decode_as_with_preference("tcp.port", smpp_handle);
     heur_dissector_add("tcp", dissect_smpp_heur, "SMPP over TCP", "smpp_tcp", proto_smpp, HEURISTIC_ENABLE);
     heur_dissector_add("x.25", dissect_smpp_heur, "SMPP over X.25", "smpp_x25", proto_smpp, HEURISTIC_ENABLE);
 

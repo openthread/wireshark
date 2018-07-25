@@ -8,19 +8,7 @@
  * By Gerald Combs <gerald@wireshark.org>
  * Copyright 1998 Gerald Combs
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 
@@ -196,18 +184,6 @@ static t38_packet_info t38_info_arr[MAX_T38_MESSAGES_IN_PACKET];
 static int t38_info_current=0;
 static t38_packet_info *t38_info=NULL;
 
-static void t38_defragment_init(void)
-{
-	/* Init reassembly table */
-	reassembly_table_init(&data_reassembly_table,
-                              &addresses_reassembly_table_functions);
-}
-
-static void t38_defragment_cleanup(void)
-{
-    reassembly_table_destroy(&data_reassembly_table);
-}
-
 
 /* Set up an T38 conversation */
 void t38_add_address(packet_info *pinfo,
@@ -235,14 +211,14 @@ void t38_add_address(packet_info *pinfo,
          * Check if the ip address and port combination is not
          * already registered as a conversation.
          */
-        p_conversation = find_conversation( setup_frame_number, addr, &null_addr, PT_UDP, port, other_port,
+        p_conversation = find_conversation( setup_frame_number, addr, &null_addr, ENDPOINT_UDP, port, other_port,
                                 NO_ADDR_B | (!other_port ? NO_PORT_B : 0));
 
         /*
          * If not, create a new conversation.
          */
         if ( !p_conversation || p_conversation->setup_frame != setup_frame_number) {
-                p_conversation = conversation_new( setup_frame_number, addr, &null_addr, PT_UDP,
+                p_conversation = conversation_new( setup_frame_number, addr, &null_addr, ENDPOINT_UDP,
                                            (guint32)port, (guint32)other_port,
                                                                    NO_ADDR2 | (!other_port ? NO_PORT2 : 0));
         }
@@ -343,7 +319,7 @@ force_reassemble_seq(reassembly_table *table, packet_info *pinfo, guint32 id)
 	  last_fd=fd_i;
 	}
 
-	data = (guint8 *) g_malloc(size);
+	data = (guint8 *) wmem_alloc(pinfo->pool, size);
 	fd_head->tvb_data = tvb_new_real_data(data, size, size);
 	fd_head->len = size;		/* record size for caller	*/
 
@@ -430,13 +406,13 @@ init_t38_info_conv(packet_info *pinfo)
 
 	/* find the conversation used for Reassemble and Setup Info */
 	p_conv = find_conversation(pinfo->num, &pinfo->net_dst, &pinfo->net_src,
-                                   pinfo->ptype,
+                                   conversation_pt_to_endpoint_type(pinfo->ptype),
                                    pinfo->destport, pinfo->srcport, NO_ADDR_B | NO_PORT_B);
 
 	/* create a conv if it doen't exist */
 	if (!p_conv) {
 		p_conv = conversation_new(pinfo->num, &pinfo->net_src, &pinfo->net_dst,
-			      pinfo->ptype, pinfo->srcport, pinfo->destport, NO_ADDR_B | NO_PORT_B);
+			      conversation_pt_to_endpoint_type(pinfo->ptype), pinfo->srcport, pinfo->destport, NO_ADDR_B | NO_PORT_B);
 
 		/* Set dissector */
 		conversation_set_dissector(p_conv, t38_udp_handle);
@@ -485,7 +461,7 @@ init_t38_info_conv(packet_info *pinfo)
 		p_add_proto_data(wmem_file_scope(), pinfo, proto_t38, 0, p_t38_packet_conv);
 	}
 
-	if (addresses_equal(&p_conv->key_ptr->addr1, &pinfo->net_src)) {
+	if (addresses_equal(conversation_key_addr1(p_conv->key_ptr), &pinfo->net_src)) {
 		p_t38_conv_info = &(p_t38_conv->src_t38_info);
 		p_t38_packet_conv_info = &(p_t38_packet_conv->src_t38_info);
 	} else {
@@ -721,13 +697,13 @@ proto_register_t38(void)
 	expert_register_field_array(expert_t38, ei, array_length(ei));
 	register_dissector("t38_udp", dissect_t38_udp, proto_t38);
 
-	/* Init reassemble tables for HDLC */
-	register_init_routine(t38_defragment_init);
-	register_cleanup_routine(t38_defragment_cleanup);
+	/* Register reassemble tables for HDLC */
+	reassembly_table_register(&data_reassembly_table,
+                              &addresses_reassembly_table_functions);
 
 	t38_tap = register_tap("t38");
 
-	t38_module = prefs_register_protocol(proto_t38, proto_reg_handoff_t38);
+	t38_module = prefs_register_protocol(proto_t38, NULL);
 	prefs_register_bool_preference(t38_module, "use_pre_corrigendum_asn1_specification",
 	    "Use the Pre-Corrigendum ASN.1 specification",
 	    "Whether the T.38 dissector should decode using the Pre-Corrigendum T.38 "
@@ -739,8 +715,6 @@ proto_register_t38(void)
 		"be dissected as RTP packet or T.38 packet. If enabled there is a risk that T.38 UDPTL "
 		"packets with sequence number higher than 32767 may be dissected as RTP.",
 	    &dissect_possible_rtpv2_packets_as_rtp);
-	prefs_register_obsolete_preference(t38_module, "tcp.port");
-	prefs_register_obsolete_preference(t38_module, "udp.port");
 	prefs_register_bool_preference(t38_module, "reassembly",
 		"Reassemble T.38 PDUs over TPKT over TCP",
 		"Whether the dissector should reassemble T.38 PDUs spanning multiple TCP segments "
@@ -764,16 +738,12 @@ proto_register_t38(void)
 void
 proto_reg_handoff_t38(void)
 {
-	static gboolean t38_prefs_initialized = FALSE;
-
-	if (!t38_prefs_initialized) {
-		t38_udp_handle=create_dissector_handle(dissect_t38_udp, proto_t38);
-		t38_tcp_handle=create_dissector_handle(dissect_t38_tcp, proto_t38);
-		t38_tcp_pdu_handle=create_dissector_handle(dissect_t38_tcp_pdu, proto_t38);
-		rtp_handle = find_dissector_add_dependency("rtp", proto_t38);
-		t30_hdlc_handle = find_dissector_add_dependency("t30.hdlc""rtp", proto_t38);
-		data_handle = find_dissector("data");
-		t38_prefs_initialized = TRUE;
-	}
+	t38_udp_handle=create_dissector_handle(dissect_t38_udp, proto_t38);
+	t38_tcp_handle=create_dissector_handle(dissect_t38_tcp, proto_t38);
+	t38_tcp_pdu_handle=create_dissector_handle(dissect_t38_tcp_pdu, proto_t38);
+	rtp_handle = find_dissector_add_dependency("rtp", proto_t38);
+	t30_hdlc_handle = find_dissector_add_dependency("t30.hdlc", proto_t38);
+	data_handle = find_dissector("data");
+	dissector_add_for_decode_as("tcp.port", t38_tcp_handle);
+	dissector_add_for_decode_as("udp.port", t38_udp_handle);
 }
-

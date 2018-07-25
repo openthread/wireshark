@@ -1,27 +1,15 @@
 /* tvbparse.h
-*
-* an API for text tvb parsers
-*
-* Copyright 2005, Luis E. Garcia Ontanon <luis@ontanon.org>
-*
-* Wireshark - Network traffic analyzer
-* By Gerald Combs <gerald@wireshark.org>
-* Copyright 1998 Gerald Combs
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software
-* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+ *
+ * an API for text tvb parsers
+ *
+ * Copyright 2005, Luis E. Garcia Ontanon <luis@ontanon.org>
+ *
+ * Wireshark - Network traffic analyzer
+ * By Gerald Combs <gerald@wireshark.org>
+ * Copyright 1998 Gerald Combs
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
 /*
  The intention behind this is to ease the writing of dissectors that have to
@@ -121,7 +109,7 @@ struct _tvbparse_wanted_t {
             const tvbparse_wanted_t* subelem;
         } until;
         struct {
-            GHashTable* table;
+            wmem_map_t* table;
             struct _tvbparse_wanted_t* key;
             struct _tvbparse_wanted_t* other;
         } hash;
@@ -148,6 +136,7 @@ struct _tvbparse_t {
     int end_offset;
     void* data;
     const tvbparse_wanted_t* ignore;
+    int recursion_depth;
 };
 
 

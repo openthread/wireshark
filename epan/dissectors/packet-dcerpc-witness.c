@@ -56,7 +56,6 @@ static gint hf_witness_witness_RegisterEx_client_computer_name = -1;
 static gint hf_witness_witness_RegisterEx_context_handle = -1;
 static gint hf_witness_witness_RegisterEx_flags = -1;
 static gint hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION = -1;
-static gint hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_NONE = -1;
 static gint hf_witness_witness_RegisterEx_ip_address = -1;
 static gint hf_witness_witness_RegisterEx_net_name = -1;
 static gint hf_witness_witness_RegisterEx_share_name = -1;
@@ -182,10 +181,6 @@ static int witness_dissect_element_notifyResponse_message_data(tvbuff_t *tvb _U_
 static int witness_dissect_element_notifyResponse_type(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, guint32 *type);
 static int witness_dissect_element_notifyResponse_length(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_);
 static int witness_dissect_element_notifyResponse_num(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *tree _U_, dcerpc_info* di _U_, guint8 *drep _U_);
-static const true_false_string witness_RegisterEx_flags_WITNESS_REGISTER_NONE_tfs = {
-   "WITNESS_REGISTER_NONE is SET",
-   "WITNESS_REGISTER_NONE is NOT SET",
-};
 static const true_false_string witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION_tfs = {
    "WITNESS_REGISTER_IP_NOTIFICATION is SET",
    "WITNESS_REGISTER_IP_NOTIFICATION is NOT SET",
@@ -407,48 +402,26 @@ witness_dissect_enum_interfaceInfo_state(tvbuff_t *tvb _U_, int offset _U_, pack
 int
 witness_dissect_bitmap_interfaceInfo_flags(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * witness_witness_interfaceInfo_flags_fields[] = {
+		&hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_IPv4_VALID,
+		&hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_IPv6_VALID,
+		&hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_WITNESS_IF,
+		NULL
+	};
 	guint32 flags;
 	ALIGN_TO_4_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 4, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_witness_witness_interfaceInfo_flags);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_witness_witness_interfaceInfo_flags, witness_witness_interfaceInfo_flags_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint32(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_IPv4_VALID, tvb, offset-4, 4, flags);
-	if (flags&( 0x01 )){
-		proto_item_append_text(item, "WITNESS_INFO_IPv4_VALID");
-		if (flags & (~( 0x01 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x01 ));
-
-	proto_tree_add_boolean(tree, hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_IPv6_VALID, tvb, offset-4, 4, flags);
-	if (flags&( 0x02 )){
-		proto_item_append_text(item, "WITNESS_INFO_IPv6_VALID");
-		if (flags & (~( 0x02 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x02 ));
-
-	proto_tree_add_boolean(tree, hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_WITNESS_IF, tvb, offset-4, 4, flags);
-	if (flags&( 0x04 )){
-		proto_item_append_text(item, "WITNESS_INFO_WITNESS_IF");
-		if (flags & (~( 0x04 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x04 ));
-
-	if (flags) {
+	if (flags & (~0x00000007)) {
+		flags &= (~0x00000007);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -730,56 +703,27 @@ witness_dissect_struct_ResourceChange(tvbuff_t *tvb _U_, int offset _U_, packet_
 int
 witness_dissect_bitmap_IPaddrInfo_flags(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * witness_witness_IPaddrInfo_flags_fields[] = {
+		&hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_V4,
+		&hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_V6,
+		&hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_ONLINE,
+		&hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_OFFLINE,
+		NULL
+	};
 	guint32 flags;
 	ALIGN_TO_4_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 4, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_witness_witness_IPaddrInfo_flags);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_witness_witness_IPaddrInfo_flags, witness_witness_IPaddrInfo_flags_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint32(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_V4, tvb, offset-4, 4, flags);
-	if (flags&( 0x01 )){
-		proto_item_append_text(item, "WITNESS_IPADDR_V4");
-		if (flags & (~( 0x01 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x01 ));
-
-	proto_tree_add_boolean(tree, hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_V6, tvb, offset-4, 4, flags);
-	if (flags&( 0x02 )){
-		proto_item_append_text(item, "WITNESS_IPADDR_V6");
-		if (flags & (~( 0x02 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x02 ));
-
-	proto_tree_add_boolean(tree, hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_ONLINE, tvb, offset-4, 4, flags);
-	if (flags&( 0x08 )){
-		proto_item_append_text(item, "WITNESS_IPADDR_ONLINE");
-		if (flags & (~( 0x08 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x08 ));
-
-	proto_tree_add_boolean(tree, hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_OFFLINE, tvb, offset-4, 4, flags);
-	if (flags&( 0x10 )){
-		proto_item_append_text(item, "WITNESS_IPADDR_OFFLINE");
-		if (flags & (~( 0x10 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x10 ));
-
-	if (flags) {
+	if (flags & (~0x0000001b)) {
+		flags &= (~0x0000001b);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -1010,40 +954,24 @@ witness_dissect_element_notifyResponse_num(tvbuff_t *tvb _U_, int offset _U_, pa
 int
 witness_dissect_bitmap_RegisterEx_flags(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo _U_, proto_tree *parent_tree _U_, dcerpc_info* di _U_, guint8 *drep _U_, int hf_index _U_, guint32 param _U_)
 {
-	proto_item *item = NULL;
-	proto_tree *tree = NULL;
-
+	proto_item *item;
+	static const int * witness_witness_RegisterEx_flags_fields[] = {
+		&hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION,
+		NULL
+	};
 	guint32 flags;
 	ALIGN_TO_4_BYTES;
 
-	if (parent_tree) {
-		item = proto_tree_add_item(parent_tree, hf_index, tvb, offset, 4, DREP_ENC_INTEGER(drep));
-		tree = proto_item_add_subtree(item,ett_witness_witness_RegisterEx_flags);
-	}
+	item = proto_tree_add_bitmask_with_flags(parent_tree, tvb, offset, hf_index,
+				ett_witness_witness_RegisterEx_flags, witness_witness_RegisterEx_flags_fields, DREP_ENC_INTEGER(drep), BMT_NO_FALSE);
 
-	offset = dissect_ndr_uint32(tvb, offset, pinfo, tree, di, drep, -1, &flags);
-	proto_item_append_text(item, ": ");
+	offset = dissect_ndr_uint32(tvb, offset, pinfo, parent_tree, di, drep, -1, &flags);
 
 	if (!flags)
-		proto_item_append_text(item, "(No values set)");
+		proto_item_append_text(item, ": (No values set)");
 
-	proto_tree_add_boolean(tree, hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_NONE, tvb, offset-4, 4, flags);
-	if (flags&( 0x00 )){
-		proto_item_append_text(item, "WITNESS_REGISTER_NONE");
-		if (flags & (~( 0x00 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x00 ));
-
-	proto_tree_add_boolean(tree, hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION, tvb, offset-4, 4, flags);
-	if (flags&( 0x01 )){
-		proto_item_append_text(item, "WITNESS_REGISTER_IP_NOTIFICATION");
-		if (flags & (~( 0x01 )))
-			proto_item_append_text(item, ", ");
-	}
-	flags&=(~( 0x01 ));
-
-	if (flags) {
+	if (flags & (~0x00000001)) {
+		flags &= (~0x00000001);
 		proto_item_append_text(item, "Unknown bitmap value 0x%x", flags);
 	}
 
@@ -1505,117 +1433,115 @@ void proto_register_dcerpc_witness(void)
 {
 	static hf_register_info hf[] = {
 	{ &hf_witness_opnum,
-		{ "Operation", "witness.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Operation", "witness.opnum", FT_UINT16, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_werror,
-		{ "Windows Error", "witness.werror", FT_UINT32, BASE_HEX, VALS(WERR_errors), 0, NULL, HFILL }},
+	  { "Windows Error", "witness.werror", FT_UINT32, BASE_HEX, VALS(WERR_errors), 0, NULL, HFILL }},
 	{ &hf_witness_witness_AsyncNotify_context_handle,
-		{ "Context Handle", "witness.witness_AsyncNotify.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Context Handle", "witness.witness_AsyncNotify.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_AsyncNotify_response,
-		{ "Response", "witness.witness_AsyncNotify.response", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Response", "witness.witness_AsyncNotify.response", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_GetInterfaceList_interface_list,
-		{ "Interface List", "witness.witness_GetInterfaceList.interface_list", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Interface List", "witness.witness_GetInterfaceList.interface_list", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfoList_addr,
-		{ "Addr", "witness.witness_IPaddrInfoList.addr", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Addr", "witness.witness_IPaddrInfoList.addr", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfoList_length,
-		{ "Length", "witness.witness_IPaddrInfoList.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Length", "witness.witness_IPaddrInfoList.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfoList_num,
-		{ "Num", "witness.witness_IPaddrInfoList.num", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Num", "witness.witness_IPaddrInfoList.num", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfoList_reserved,
-		{ "Reserved", "witness.witness_IPaddrInfoList.reserved", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Reserved", "witness.witness_IPaddrInfoList.reserved", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_flags,
-		{ "Flags", "witness.witness_IPaddrInfo.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Flags", "witness.witness_IPaddrInfo.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_OFFLINE,
-		{ "Witness Ipaddr Offline", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_OFFLINE", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_OFFLINE_tfs), ( 0x10 ), NULL, HFILL }},
+	  { "WITNESS IPADDR OFFLINE", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_OFFLINE", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_OFFLINE_tfs), ( 0x10 ), NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_ONLINE,
-		{ "Witness Ipaddr Online", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_ONLINE", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_ONLINE_tfs), ( 0x08 ), NULL, HFILL }},
+	  { "WITNESS IPADDR ONLINE", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_ONLINE", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_ONLINE_tfs), ( 0x08 ), NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_V4,
-		{ "Witness Ipaddr V4", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_V4", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_V4_tfs), ( 0x01 ), NULL, HFILL }},
+	  { "WITNESS IPADDR V4", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_V4", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_V4_tfs), ( 0x01 ), NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_flags_WITNESS_IPADDR_V6,
-		{ "Witness Ipaddr V6", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_V6", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_V6_tfs), ( 0x02 ), NULL, HFILL }},
+	  { "WITNESS IPADDR V6", "witness.witness_IPaddrInfo_flags.WITNESS_IPADDR_V6", FT_BOOLEAN, 32, TFS(&witness_IPaddrInfo_flags_WITNESS_IPADDR_V6_tfs), ( 0x02 ), NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_ipv4,
-		{ "Ipv4", "witness.witness_IPaddrInfo.ipv4", FT_IPv4, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ipv4", "witness.witness_IPaddrInfo.ipv4", FT_IPv4, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_IPaddrInfo_ipv6,
-		{ "Ipv6", "witness.witness_IPaddrInfo.ipv6", FT_IPv6, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ipv6", "witness.witness_IPaddrInfo.ipv6", FT_IPv6, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_client_computer_name,
-		{ "Client Computer Name", "witness.witness_RegisterEx.client_computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Client Computer Name", "witness.witness_RegisterEx.client_computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_context_handle,
-		{ "Context Handle", "witness.witness_RegisterEx.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Context Handle", "witness.witness_RegisterEx.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_flags,
-		{ "Flags", "witness.witness_RegisterEx.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Flags", "witness.witness_RegisterEx.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION,
-		{ "Witness Register Ip Notification", "witness.witness_RegisterEx_flags.WITNESS_REGISTER_IP_NOTIFICATION", FT_BOOLEAN, 32, TFS(&witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION_tfs), ( 0x01 ), NULL, HFILL }},
-	{ &hf_witness_witness_RegisterEx_flags_WITNESS_REGISTER_NONE,
-		{ "Witness Register None", "witness.witness_RegisterEx_flags.WITNESS_REGISTER_NONE", FT_BOOLEAN, 32, TFS(&witness_RegisterEx_flags_WITNESS_REGISTER_NONE_tfs), ( 0x00 ), NULL, HFILL }},
+	  { "WITNESS REGISTER IP NOTIFICATION", "witness.witness_RegisterEx_flags.WITNESS_REGISTER_IP_NOTIFICATION", FT_BOOLEAN, 32, TFS(&witness_RegisterEx_flags_WITNESS_REGISTER_IP_NOTIFICATION_tfs), ( 0x01 ), NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_ip_address,
-		{ "Ip Address", "witness.witness_RegisterEx.ip_address", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ip Address", "witness.witness_RegisterEx.ip_address", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_net_name,
-		{ "Net Name", "witness.witness_RegisterEx.net_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Net Name", "witness.witness_RegisterEx.net_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_share_name,
-		{ "Share Name", "witness.witness_RegisterEx.share_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Share Name", "witness.witness_RegisterEx.share_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_timeout,
-		{ "Timeout", "witness.witness_RegisterEx.timeout", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Timeout", "witness.witness_RegisterEx.timeout", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_RegisterEx_version,
-		{ "Version", "witness.witness_RegisterEx.version", FT_UINT32, BASE_DEC, VALS(witness_witness_version_vals), 0, NULL, HFILL }},
+	  { "Version", "witness.witness_RegisterEx.version", FT_UINT32, BASE_DEC, VALS(witness_witness_version_vals), 0, NULL, HFILL }},
 	{ &hf_witness_witness_Register_client_computer_name,
-		{ "Client Computer Name", "witness.witness_Register.client_computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Client Computer Name", "witness.witness_Register.client_computer_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_Register_context_handle,
-		{ "Context Handle", "witness.witness_Register.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Context Handle", "witness.witness_Register.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_Register_ip_address,
-		{ "Ip Address", "witness.witness_Register.ip_address", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ip Address", "witness.witness_Register.ip_address", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_Register_net_name,
-		{ "Net Name", "witness.witness_Register.net_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Net Name", "witness.witness_Register.net_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_Register_version,
-		{ "Version", "witness.witness_Register.version", FT_UINT32, BASE_DEC, VALS(witness_witness_version_vals), 0, NULL, HFILL }},
+	  { "Version", "witness.witness_Register.version", FT_UINT32, BASE_DEC, VALS(witness_witness_version_vals), 0, NULL, HFILL }},
 	{ &hf_witness_witness_ResourceChange_length,
-		{ "Length", "witness.witness_ResourceChange.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Length", "witness.witness_ResourceChange.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_ResourceChange_name,
-		{ "Name", "witness.witness_ResourceChange.name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Name", "witness.witness_ResourceChange.name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_ResourceChange_type,
-		{ "Type", "witness.witness_ResourceChange.type", FT_UINT32, BASE_DEC, VALS(witness_witness_ResourceChange_type_vals), 0, NULL, HFILL }},
+	  { "Type", "witness.witness_ResourceChange.type", FT_UINT32, BASE_DEC, VALS(witness_witness_ResourceChange_type_vals), 0, NULL, HFILL }},
 	{ &hf_witness_witness_UnRegister_context_handle,
-		{ "Context Handle", "witness.witness_UnRegister.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Context Handle", "witness.witness_UnRegister.context_handle", FT_BYTES, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_flags,
-		{ "Flags", "witness.witness_interfaceInfo.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
+	  { "Flags", "witness.witness_interfaceInfo.flags", FT_UINT32, BASE_HEX, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_IPv4_VALID,
-		{ "Witness Info Ipv4 Valid", "witness.witness_interfaceInfo_flags.WITNESS_INFO_IPv4_VALID", FT_BOOLEAN, 32, TFS(&witness_interfaceInfo_flags_WITNESS_INFO_IPv4_VALID_tfs), ( 0x01 ), NULL, HFILL }},
+	  { "WITNESS INFO IPv4 VALID", "witness.witness_interfaceInfo_flags.WITNESS_INFO_IPv4_VALID", FT_BOOLEAN, 32, TFS(&witness_interfaceInfo_flags_WITNESS_INFO_IPv4_VALID_tfs), ( 0x01 ), NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_IPv6_VALID,
-		{ "Witness Info Ipv6 Valid", "witness.witness_interfaceInfo_flags.WITNESS_INFO_IPv6_VALID", FT_BOOLEAN, 32, TFS(&witness_interfaceInfo_flags_WITNESS_INFO_IPv6_VALID_tfs), ( 0x02 ), NULL, HFILL }},
+	  { "WITNESS INFO IPv6 VALID", "witness.witness_interfaceInfo_flags.WITNESS_INFO_IPv6_VALID", FT_BOOLEAN, 32, TFS(&witness_interfaceInfo_flags_WITNESS_INFO_IPv6_VALID_tfs), ( 0x02 ), NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_flags_WITNESS_INFO_WITNESS_IF,
-		{ "Witness Info Witness If", "witness.witness_interfaceInfo_flags.WITNESS_INFO_WITNESS_IF", FT_BOOLEAN, 32, TFS(&witness_interfaceInfo_flags_WITNESS_INFO_WITNESS_IF_tfs), ( 0x04 ), NULL, HFILL }},
+	  { "WITNESS INFO WITNESS IF", "witness.witness_interfaceInfo_flags.WITNESS_INFO_WITNESS_IF", FT_BOOLEAN, 32, TFS(&witness_interfaceInfo_flags_WITNESS_INFO_WITNESS_IF_tfs), ( 0x04 ), NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_group_name,
-		{ "Group Name", "witness.witness_interfaceInfo.group_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Group Name", "witness.witness_interfaceInfo.group_name", FT_STRING, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_ipv4,
-		{ "Ipv4", "witness.witness_interfaceInfo.ipv4", FT_IPv4, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ipv4", "witness.witness_interfaceInfo.ipv4", FT_IPv4, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_ipv6,
-		{ "Ipv6", "witness.witness_interfaceInfo.ipv6", FT_IPv6, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ipv6", "witness.witness_interfaceInfo.ipv6", FT_IPv6, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_state,
-		{ "State", "witness.witness_interfaceInfo.state", FT_UINT16, BASE_DEC, VALS(witness_witness_interfaceInfo_state_vals), 0, NULL, HFILL }},
+	  { "State", "witness.witness_interfaceInfo.state", FT_UINT16, BASE_DEC, VALS(witness_witness_interfaceInfo_state_vals), 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceInfo_version,
-		{ "Version", "witness.witness_interfaceInfo.version", FT_UINT32, BASE_DEC, VALS(witness_witness_version_vals), 0, NULL, HFILL }},
+	  { "Version", "witness.witness_interfaceInfo.version", FT_UINT32, BASE_DEC, VALS(witness_witness_version_vals), 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceList_interfaces,
-		{ "Interfaces", "witness.witness_interfaceList.interfaces", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Interfaces", "witness.witness_interfaceList.interfaces", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_interfaceList_num_interfaces,
-		{ "Num Interfaces", "witness.witness_interfaceList.num_interfaces", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Num Interfaces", "witness.witness_interfaceList.num_interfaces", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_length,
-		{ "Length", "witness.witness_notifyResponse.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Length", "witness.witness_notifyResponse.length", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_message_client_move,
-		{ "Client Move", "witness.witness_notifyResponse_message.client_move", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Client Move", "witness.witness_notifyResponse_message.client_move", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_message_data,
-		{ "Data", "witness.witness_notifyResponse_message.data", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Data", "witness.witness_notifyResponse_message.data", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_message_ip_change,
-		{ "Ip Change", "witness.witness_notifyResponse_message.ip_change", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Ip Change", "witness.witness_notifyResponse_message.ip_change", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_message_resource_change,
-		{ "Resource Change", "witness.witness_notifyResponse_message.resource_change", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Resource Change", "witness.witness_notifyResponse_message.resource_change", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_message_share_move,
-		{ "Share Move", "witness.witness_notifyResponse_message.share_move", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Share Move", "witness.witness_notifyResponse_message.share_move", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_messages,
-		{ "Messages", "witness.witness_notifyResponse.messages", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Messages", "witness.witness_notifyResponse.messages", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_messages_,
-		{ "Messages", "witness.witness_notifyResponse.messages_", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
+	  { "Messages", "witness.witness_notifyResponse.messages_", FT_NONE, BASE_NONE, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_num,
-		{ "Num", "witness.witness_notifyResponse.num", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
+	  { "Num", "witness.witness_notifyResponse.num", FT_UINT32, BASE_DEC, NULL, 0, NULL, HFILL }},
 	{ &hf_witness_witness_notifyResponse_type,
-		{ "Type", "witness.witness_notifyResponse.type", FT_UINT32, BASE_DEC, VALS(witness_witness_notifyResponse_type_vals), 0, NULL, HFILL }},
+	  { "Type", "witness.witness_notifyResponse.type", FT_UINT32, BASE_DEC, VALS(witness_witness_notifyResponse_type_vals), 0, NULL, HFILL }},
 	};
 
 
