@@ -2771,8 +2771,8 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     //18 bytes of data
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_seqno, tvb, offset, 1, ENC_NA);
                     offset += 1;
-                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_rrdelay, tvb, offset, 4, ENC_NA);
-                    offset += 4;
+                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_rrdelay, tvb, offset, 2, ENC_NA);
+                    offset += 2;
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_mlrtimeout, tvb, offset, 4, ENC_NA);
                     offset += 4;
                     /*proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_data, tvb, offset, tlv_len - 2, ENC_NA);
@@ -4288,15 +4288,15 @@ proto_register_thread_nwd(void)
         },
 
         { &hf_thread_nwd_tlv_service_s_data_rrdelay,
-        { "Service Data - Reregistration Delay",
+        { "Service Data - Reregistration Delay(s)",
             "thread_nwd.tlv.service.s_data.rrdelay",
-            FT_UINT32, BASE_DEC, NULL, 0x0,
+            FT_UINT16, BASE_DEC, NULL, 0x0,
             "Service data in raw bytes",
             HFILL }
         },
 
         { &hf_thread_nwd_tlv_service_s_data_mlrtimeout,
-        { "Service Data - MLR Timeout",
+        { "Service Data - MLR Timeout(s)",
             "thread_nwd.tlv.service.s_data.mlrtimeout",
             FT_UINT32, BASE_DEC, NULL, 0x0,
             "Service data in raw bytes",
