@@ -127,6 +127,23 @@ static int hf_mle_tlv_active_op_dataset = -1; /* SPEC-472 */
 static int hf_mle_tlv_pending_op_dataset = -1; /* SPEC-472 */
 #endif
 
+//Added for Thread 1.2 support
+/* New suppport*/
+static int hf_mle_tlv_metric_type_id_flags = -1;
+static int hf_mle_tlv_value = -1;
+static int hf_mle_tlv_query_id = -1;
+static int hf_mle_tlv_link_sub_tlv = -1;
+static int hf_mle_tlv_link_status = -1;
+static int hf_mle_tlv_link_status_sub_tlv = -1;
+
+/*Link TLVs*/
+static int hf_mle_tlv_link_forward_series = -1;
+static int hf_mle_tlv_link_concatenation_link_metric_typeid_flags = -1;
+static int hf_mle_tlv_link_timeout = -1;
+static int hf_mle_tlv_link_forward_series_flags = -1;
+
+
+/* End of New support */
 static gint ett_mle = -1;
 static gint ett_mle_tlv = -1;
 static gint ett_mle_neighbor = -1;
@@ -194,6 +211,13 @@ static const value_string mle_conn_tlv_flags_pp_enums[] = {
 #define MLE_CMD_ANNOUNCE              15
 #define MLE_CMD_DISCOVERY_REQUEST     16
 #define MLE_CMD_DISCOVERY_RESPONSE    17
+//Added new for Thread 1.2
+#define MLE_CMD_LINK_METRICS_MANAGEMENT_REQUEST  18
+#define MLE_CMD_LINK_METRICS_MANAGEMENT_RESPONSE 19
+#define MLE_CMD_LINK_PROBE                       20
+#define MLE_CMD_CIM_DISCOVERY_REQUEST                21
+#define MLE_CMD_CIM_DISCOVERY_RESPONSE               22
+#define MLE_CMD_CIM_ANNOUNCE                         23
 
 static const value_string mle_command_vals[] = {
     { MLE_CMD_REQUEST,                  "Link Request" },
@@ -214,6 +238,12 @@ static const value_string mle_command_vals[] = {
     { MLE_CMD_ANNOUNCE,                 "Announce" },
     { MLE_CMD_DISCOVERY_REQUEST,        "Discovery Request" },
     { MLE_CMD_DISCOVERY_RESPONSE,       "Discovery Response" },
+    { MLE_CMD_LINK_METRICS_MANAGEMENT_REQUEST, "Link Metrics Management Request" },
+    { MLE_CMD_LINK_METRICS_MANAGEMENT_RESPONSE, "Link Metrics Management Response" },
+    { MLE_CMD_LINK_PROBE, "Link Probe" },
+    { MLE_CMD_CIM_DISCOVERY_REQUEST,    "CIM Discovery Request" },
+    { MLE_CMD_CIM_DISCOVERY_RESPONSE,   "CIM Discovery Response" },
+    { MLE_CMD_CIM_ANNOUNCE,             "CIM Announce" },
     { 0, NULL}
 };
 
@@ -245,6 +275,20 @@ static const value_string mle_command_vals[] = {
 #define MLE_TLV_PENDING_OP_DATASET          25 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
 #define MLE_TLV_THREAD_DISCOVERY            26 /* Defined in Ch04_Mesh Link Establishment v1.1-rc1 */
 
+#define MLE_TLV_CIM_DEVICE_INTERFACE_DATA   27 /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_CIM_PROVISIONER_INTERFACE_DATA 28 /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_CIM_PROVISIONING_DATASET    29 /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_CIM_DISCOVERY_REQUEST       30 /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_SECURE_DISSEMINATION        31 /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+
+#define MLE_TLV_CSL_CHANNEL                 80  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_CSL_SYNCHRONIZED_TIMEOUT    85  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_CSL_ACCURACY                86  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_LINK_METRICS_QUERY          87  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_LINK_METRICS_MANAGEMENT     88  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_LINK_METRICS_REPORT         89  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+#define MLE_TLV_LINK_PROBE                  90  /* Defined in Ch04_Mesh Link Establishment v1.2-Draft3 */
+
 static const value_string mle_tlv_vals[] = {
     { MLE_TLV_SOURCE_ADDRESS,           "Source Address" },
     { MLE_TLV_MODE,                     "Mode" },
@@ -273,8 +317,60 @@ static const value_string mle_tlv_vals[] = {
     { MLE_TLV_ACTIVE_OP_DATASET,        "Active Operational Dataset"},
     { MLE_TLV_PENDING_OP_DATASET,       "Pending Operational Dataset"},
     { MLE_TLV_THREAD_DISCOVERY,         "Thread Discovery"},
+    { MLE_TLV_CSL_CHANNEL,              "CSL Channel"},
+    { MLE_TLV_CSL_SYNCHRONIZED_TIMEOUT, "CSL Synchronized Timeout"},
+    { MLE_TLV_CSL_ACCURACY,             "CSL Accuracy"},
+    { MLE_TLV_LINK_METRICS_QUERY,       "Link Metrics Query"},
+    { MLE_TLV_LINK_METRICS_MANAGEMENT,  "Link Metrics Management"},
+    { MLE_TLV_LINK_METRICS_REPORT,      "Link Metrics Report"},
+    { MLE_TLV_LINK_PROBE,               "Link Probe"},
     { 0, NULL}
 };
+
+
+/*Link Metrics*/
+#define LINK_METRICS_REPORT_SUB_TLV          0
+#define LINK_METRICS_QUERY_ID_SUB_TLV        1
+#define LINK_METRICS_QUERY_OPTIONS_SUB_TLV   2
+#define FORWARD_PROBING_REGISTRATION_SUB_TLV 3
+#define REVERSE_PROBING_REGISTRATION_SUB_TLV 4
+#define LINK_METRICS_STATUS_SUB_TLV          5
+#define LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV   6
+#define ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV 7
+
+static const value_string mle_tlv_link_param_vals[] = {
+    { LINK_METRICS_REPORT_SUB_TLV,     "Links Metrics Report" },
+    { LINK_METRICS_QUERY_ID_SUB_TLV,      "Link Metrics Query" },
+    { LINK_METRICS_QUERY_OPTIONS_SUB_TLV, "Link Metrics Query Options" },
+    { FORWARD_PROBING_REGISTRATION_SUB_TLV , "Forward Probing Registration" },
+    { REVERSE_PROBING_REGISTRATION_SUB_TLV , "Reverse Probing Registration" },
+    { LINK_METRICS_STATUS_SUB_TLV , "Link Metrics Status" },
+    { LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV , "Link Metrics Tracking Capabilities" },
+    { ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV , "Enhance Ack Link Metrics Configuration" },
+    { 0, NULL}
+};
+
+#define LINK_SUCCESS                                 0
+#define LINK_FAILURE_CANNOT_REPORT_REQUESTED_METRIC_TYPE  1
+#define LINK_FAILURE_CANNOT_SUPPORT_NEW_SERIES_REGISTRATION 2
+#define LINK_FAILURE_SERIES_ID_ALREADY_REGISTERED         3
+#define LINK_FAILURE_SERIES_ID_NOT_RECOGNIZED                4
+#define LINK_FAILURE_ENHANCED_ACK_METRICS_CONFIGURATION_NOT_SUPPORTED 5
+#define LINK_FAILURE_OTHER_FAILURE                          254
+
+static const value_string mle_tlv_link_sub_tlv_vals[] = {
+    { LINK_SUCCESS,     "Success" },
+    { LINK_FAILURE_CANNOT_REPORT_REQUESTED_METRIC_TYPE, "Failure - Cannot Report Requested Metric Type" },
+    { LINK_FAILURE_CANNOT_SUPPORT_NEW_SERIES_REGISTRATION, " Failure - Cannot Support New Series Registration" },
+    { LINK_FAILURE_SERIES_ID_ALREADY_REGISTERED , "Failure - Series ID Already Registered" },
+    { LINK_FAILURE_SERIES_ID_NOT_RECOGNIZED , "Failure - Series ID not Recognized" },
+    { LINK_FAILURE_ENHANCED_ACK_METRICS_CONFIGURATION_NOT_SUPPORTED , "Failure - Enhanced ACK Metrics Configuration Not Supported" },
+    { LINK_FAILURE_OTHER_FAILURE , "Failure - Other Failure" },
+    { 0, NULL}
+};
+
+
+/* Link Metrics End*/
 
 #define LQI_FLAGS_C         0x80
 #define LQI_FLAGS_SIZE      0x0F
@@ -1263,6 +1359,109 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 }
                 break;
 
+            case MLE_TLV_CSL_CHANNEL:
+                {
+                    /* Check length is consistent */
+                    if (tlv_len != 3) {
+                        expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, ENC_NA);
+                    } else {
+                        /* Channel page */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel_page, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                        /* Channel */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_channel, payload_tvb, offset+1, 2, ENC_BIG_ENDIAN);
+                    }
+                    offset += tlv_len;
+                }
+                break;
+            case MLE_TLV_CSL_SYNCHRONIZED_TIMEOUT:/*Defined in Ch04_Mesh Link Establishment v1.2*/
+            case MLE_TLV_CSL_ACCURACY:
+            break;
+            case MLE_TLV_LINK_METRICS_QUERY:
+            case MLE_TLV_LINK_METRICS_MANAGEMENT:
+            case MLE_TLV_LINK_METRICS_REPORT:
+            {
+                proto_item_append_text(ti, ")");
+                guint8 sub_tlv = tvb_get_guint8(payload_tvb, offset);
+
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                offset++;
+                /* Length */
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                offset++;
+
+                switch (sub_tlv) {
+                case LINK_METRICS_REPORT_SUB_TLV:
+                        /* Channel page */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_metric_type_id_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        /* Channel */
+                        offset++;
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_value, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        offset++;
+
+                    break;
+                case LINK_METRICS_QUERY_ID_SUB_TLV:
+                    /* Query ID */
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_query_id, tvb, offset, tlv_len, ENC_BIG_ENDIAN);
+                    offset++;
+                    break;
+                case LINK_METRICS_QUERY_OPTIONS_SUB_TLV:
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_pmt_join, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    offset++;
+                    break;
+                case FORWARD_PROBING_REGISTRATION_SUB_TLV:
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series, payload_tvb, offset, 1, ENC_NA);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series_flags, payload_tvb, offset, 1, ENC_NA);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_timeout, payload_tvb, offset, 1, ENC_NA);
+                    offset++;
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_concatenation_link_metric_typeid_flags, payload_tvb, offset, 2, ENC_NA);
+                    offset+=2;
+                    break;
+                case REVERSE_PROBING_REGISTRATION_SUB_TLV:
+                    break;
+                case LINK_METRICS_STATUS_SUB_TLV:
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_status_sub_tlv, payload_tvb, offset, 1, ENC_NA);
+                    offset++;
+                    break;
+                    break;
+                case LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV:
+                    break;
+                case ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV:
+                    break;
+                                 
+                default:
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_unknown, payload_tvb, offset, tlv_len - 5, ENC_NA);
+                    offset += tlv_len - 5;
+                    break;
+                }
+            }
+            break;
+            case MLE_TLV_LINK_PROBE:
+            {
+                proto_item_append_text(ti, ")");
+                //guint8 sub_tlv = tvb_get_guint8(payload_tvb, offset);
+
+                proto_tree_add_item(tlv_tree, hf_mle_tlv_link_status, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                offset++;
+
+            }
+        /* {
+                proto_item_append_text(ti, ")");
+                tvbuff_t *sub_tvb;
+                if (tlv_len > 0) {
+                    sub_tvb = tvb_new_subset_length(payload_tvb, offset, tlv_len);
+                    dissect_link(sub_tvb, pinfo, tlv_tree);
+                }
+                offset += tlv_len;
+            }*/
+            break;
+            case MLE_TLV_CIM_DEVICE_INTERFACE_DATA:
+            case MLE_TLV_CIM_PROVISIONER_INTERFACE_DATA:
+            case MLE_TLV_CIM_PROVISIONING_DATASET:
+            case MLE_TLV_CIM_DISCOVERY_REQUEST:
+            case MLE_TLV_SECURE_DISSEMINATION:
             default:
                 proto_item_append_text(ti, ")");
                 proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, ENC_NA);
@@ -1418,7 +1617,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_mle_frm_cntr,
       { "MLE Frame Counter",
         "mle.tlv.mle_frm_cntr",
@@ -1427,7 +1625,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_unknown,
       { "Unknown",
         "mle.tlv.unknown",
@@ -1436,7 +1633,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_lqi_c,
       { "Complete Flag",
         "mle.tlv.lqi.complete",
@@ -1445,7 +1641,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_lqi_size,
       { "Address Size",
         "mle.tlv.lqi.size",
@@ -1454,7 +1649,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_neighbor,
       { "Neighbor Record",
         "mle.tlv.neighbor",
@@ -1463,7 +1657,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_neighbor_flagI,
       { "Incoming",
         "mle.tlv.neighbor.flagI",
@@ -1472,7 +1665,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_neighbor_flagO,
       { "Outgoing",
         "mle.tlv.neighbor.flagO",
@@ -1481,7 +1673,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_neighbor_flagP,
       { "Priority",
         "mle.tlv.neighbor.flagP",
@@ -1490,7 +1681,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_neighbor_idr,
       { "Inverse Delivery Ratio",
         "mle.tlv.neighbor.idr",
@@ -1499,7 +1689,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_neighbor_addr,
       { "Address",
         "mle.tlv.neighbor.addr",
@@ -1508,7 +1697,6 @@ proto_register_mle(void)
         HFILL
       }
     },
-
     { &hf_mle_tlv_network_param_id,
       { "Parameter ID",
         "mle.tlv.network.param_id",
@@ -1942,14 +2130,95 @@ proto_register_mle(void)
     },
     { &hf_mle_tlv_pending_op_dataset,
       { "Pending Operational Dataset",
-        "mle.tlv.active_op_dataset",
+        "mle.tlv.pending_op_dataset",
         FT_BYTES, BASE_NONE, NULL, 0x0,
         "Thread Pending Operational Dataset",
         HFILL
       }
     },
 #endif
-  };
+  { &hf_mle_tlv_link_forward_series,
+    { "Link Forward Series",
+       "mle.tlv.link_forward_series",
+  FT_UINT8, BASE_DEC, NULL, 0x0,
+  "Link Sub TLV",
+  HFILL
+      }
+  },
+  { &hf_mle_tlv_link_forward_series_flags,
+    { "Link Forward Series Flags",
+       "mle.tlv.link_forward_series",
+    FT_UINT8, BASE_DEC, NULL, 0x0,
+    "Link Sub TLV",
+    HFILL
+    }
+    },
+    { &hf_mle_tlv_link_timeout,
+{ "Link Timeout",
+   "mle.tlv.link_timeout",
+FT_UINT8, BASE_DEC, NULL, 0x0,
+"Link Sub TLV",
+HFILL
+    }
+    },
+    { &hf_mle_tlv_link_concatenation_link_metric_typeid_flags,
+{ "Concatenation of Link Metric Type ID Flags",
+   "mle.tlv.link_concatentation_link_metric_typeid_flags",
+FT_UINT8, BASE_DEC, NULL, 0x0,
+"Link Sub TLV",
+HFILL
+    }
+    },
+    { &hf_mle_tlv_link_status,
+{ "Link Status",
+  "mle.tlv.link_status",
+  FT_UINT8, BASE_DEC,  VALS(mle_tlv_link_param_vals), 0x0,
+  "Link Sub TLV",
+  HFILL
+}
+    },
+    { &hf_mle_tlv_link_status_sub_tlv,
+{ "Link Sub TLV Status",
+  "mle.tlv.link_status_sub_tlv",
+  FT_UINT8, BASE_DEC,  VALS(mle_tlv_link_sub_tlv_vals), 0x0,
+  "Thread Link Sub TLV Status",
+  HFILL
+}
+    },
+    { &hf_mle_tlv_link_sub_tlv,
+{ "Link Metrics Sub TLV",
+  "mle.tlv.link_sub_tlv",
+  FT_UINT8, BASE_DEC,  VALS(mle_tlv_link_param_vals), 0x0,
+  "Link Sub TLV",
+  HFILL
+}
+    },
+
+  { &hf_mle_tlv_metric_type_id_flags,
+{ "Metric Type ID Flags",
+  "mle.tlv.metric_type_id_flags",
+  FT_BYTES, BASE_NONE, NULL, 0x0,
+  "Thread Metric Type ID Flags",
+  HFILL
+}
+  },
+  { &hf_mle_tlv_value,
+{ "Value",
+  "mle.tlv.value",
+  FT_BYTES, BASE_NONE, NULL, 0x0,
+  "Thread Value",
+  HFILL
+}
+    },
+  { &hf_mle_tlv_query_id,
+{ "Pending Operational Dataset",
+  "mle.tlv.query_id",
+  FT_BYTES, BASE_NONE, NULL, 0x0,
+  "Thread Pending Operational Dataset",
+  HFILL
+}
+  },
+};
 
   static gint *ett[] = {
     &ett_mle,

@@ -115,9 +115,15 @@ typedef struct _bluetooth_data_t {
 
 } bluetooth_data_t;
 
+#define BT_LINK_TYPE_UNKNOWN 0
+#define BT_LINK_TYPE_ACL     1
+#define BT_LINK_TYPE_SCO     2
+#define BT_LINK_TYPE_LL      3
+
 typedef struct _chandle_session_t {
     guint32  connect_in_frame;
     guint32  disconnect_in_frame;
+    guint32  link_type;
 } chandle_session_t;
 
 typedef struct _remote_bdaddr_t {
@@ -277,6 +283,10 @@ typedef struct _bluetooth_eir_ad_data_t {
     guint8           *bd_addr;
 } bluetooth_eir_ad_data_t;
 
+typedef struct _bluetooth_eir_ad_service_data_t {
+    bluetooth_eir_ad_data_t *bt_eir_ad_data;
+    bluetooth_uuid_t         uuid;
+} bluetooth_eir_ad_service_data_t;
 
 extern int bluetooth_device_tap;
 extern int bluetooth_hci_summary_tap;

@@ -1245,7 +1245,13 @@ get_persconffile_dir_no_profile(void)
 #ifdef _WIN32
     if (env == NULL) {
         /* for backward compatibility */
-        env = g_getenv("WIRESHARK_APPDATA");
+        /*WARNING:*/
+        /* This is only for Thread Wireshark release. Not for public release*/
+        env = g_getenv("WIRESHARK_APPDATA_THREAD");
+        if (env == NULL)
+        {
+            env = g_getenv("WIRESHARK_APPDATA");
+        }
     }
 #endif
     if (env != NULL) {

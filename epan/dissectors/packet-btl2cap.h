@@ -10,6 +10,8 @@
 #ifndef __PACKET_BTL2CAP_H__
 #define __PACKET_BTL2CAP_H__
 
+#include "packet-bluetooth.h"
+
 #define BTL2CAP_PSM_SDP               0x0001
 #define BTL2CAP_PSM_RFCOMM            0x0003
 #define BTL2CAP_PSM_TCS_BIN           0x0005
@@ -56,6 +58,41 @@ typedef struct _btl2cap_data_t {
     guint32   remote_bd_addr_oui;
     guint32   remote_bd_addr_id;
 } btl2cap_data_t;
+
+/* Name:
+*		btl2cap_psm_set_uuid
+*
+*  Parameters:
+*		interface_id - ID of Bluetooth interface
+*		adapter_id   - ID of Bluetooth adapter
+*		le_psm       - PSM value for LE credit based flow control L2CAP transmission associated with a service
+*		uuid		 - Service UUID
+*
+*  Return value:
+*		None
+*
+*  Purpose:
+*		This function associates LE_PSM value with a service UUID.
+*
+*/
+void    btl2cap_psm_set_uuid(guint32 interface_id, guint32 adapter_id, guint32 le_psm, bluetooth_uuid_t uuid);
+
+/* Name:
+*		btl2cap_psm_get_uuid
+*
+*  Parameters:
+*		interface_id - ID of Bluetooth interface
+*		adapter_id   - ID of Bluetooth adapter
+*		le_psm       - PSM value for LE credit based flow control L2CAP transmission associated with a service
+*
+*  Return value:
+*		UUID 		 - UUID of associated service
+*
+*  Purpose:
+*		This function retrieves the value of previously associated UUID to a given PSM value.
+*		It might be used to call service dissector.
+*/
+guint16 btl2cap_psm_get_uuid(guint32 interface_id, guint32 adapter_id, guint32 le_psm);
 
 extern int proto_btl2cap;
 

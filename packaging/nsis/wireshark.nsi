@@ -31,12 +31,15 @@ ${StrRep}
 !macroend
 !define !defineifexist "!insertmacro !defineifexist"
 
+!define THREAD_NAME "Thread1.2"
+!define THREAD_VERSION "0.5"
+
 ; ============================================================================
 ; Header configuration
 ; ============================================================================
 
 ; The file to write
-OutFile "${OUTFILE_DIR}\${PROGRAM_NAME}-${WIRESHARK_TARGET_PLATFORM}-${VERSION}.exe"
+OutFile "${OUTFILE_DIR}\${PROGRAM_NAME}-${WIRESHARK_TARGET_PLATFORM}-${VERSION}-${THREAD_NAME}-${THREAD_VERSION}.exe"
 ; Installer icon
 Icon "${TOP_SRC_DIR}\image\wiresharkinst.ico"
 
@@ -170,17 +173,17 @@ ComponentText "The following components are available for installation."
 ; Directory selection page configuration
 ; ============================================================================
 ; The text to prompt the user to enter a directory
-DirText "Choose a directory in which to install ${PROGRAM_NAME}."
+DirText "Choose a directory in which to install ${PROGRAM_NAME}_Thread."
 
 ; The default installation directory
 !if ${WIRESHARK_TARGET_PLATFORM} == "win64"
-  InstallDir $PROGRAMFILES64\${PROGRAM_NAME}
+  InstallDir $PROGRAMFILES64\${PROGRAM_NAME}_Thread
 !else
-  InstallDir $PROGRAMFILES\${PROGRAM_NAME}
+  InstallDir $PROGRAMFILES\${PROGRAM_NAME}_Thread
 !endif
 
 ; See if this is an upgrade; if so, use the old InstallDir as default
-InstallDirRegKey HKEY_LOCAL_MACHINE SOFTWARE\${PROGRAM_NAME} "InstallDir"
+InstallDirRegKey HKEY_LOCAL_MACHINE SOFTWARE\${PROGRAM_NAME}_Thread "InstallDir"
 
 
 ; ============================================================================
@@ -317,7 +320,7 @@ lbl_winversion_supported:
 
   ; Copied from http://nsis.sourceforge.net/Auto-uninstall_old_before_installing_new
   ReadRegStr $OLD_UNINSTALLER HKLM \
-    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}" \
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}_Thread" \
     "UninstallString"
   StrCmp $OLD_UNINSTALLER "" check_wix
 
@@ -389,7 +392,7 @@ check_wix:
       "DisplayName"
     ; MessageBox MB_OK|MB_ICONINFORMATION "Reading HKLM SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$1 DisplayName = $2"
     ; Look for "Wireshark".
-    StrCmp $WIX_DISPLAYNAME "${PROGRAM_NAME}" wix_found wix_reg_enum_loop
+    StrCmp $WIX_DISPLAYNAME "${PROGRAM_NAME}_Thread" wix_found wix_reg_enum_loop
 
     wix_found:
       ReadRegStr $WIX_DISPLAYVERSION HKLM \
@@ -833,7 +836,7 @@ File "${STAGING_DIR}\help\faq.txt"
 ; http://nsis.sourceforge.net/Add_uninstall_information_to_Add/Remove_Programs
 ; https://msdn.microsoft.com/en-us/library/ms954376.aspx
 ; https://msdn.microsoft.com/en-us/library/windows/desktop/aa372105.aspx
-!define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}"
+!define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}_Thread"
 
 WriteRegStr HKEY_LOCAL_MACHINE "${UNINSTALL_PATH}" "Comments" "${DISPLAY_NAME}"
 !ifdef QT_DIR

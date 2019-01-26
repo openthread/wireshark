@@ -161,8 +161,8 @@ deletionSuccess:
 ${Loop}
 
 
-DeleteRegKey HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}"
-DeleteRegKey HKEY_LOCAL_MACHINE "Software\${PROGRAM_NAME}"
+DeleteRegKey HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PROGRAM_NAME}_Thread"
+DeleteRegKey HKEY_LOCAL_MACHINE "Software\${PROGRAM_NAME}_Thread"
 DeleteRegKey HKEY_LOCAL_MACHINE "Software\Microsoft\Windows\CurrentVersion\App Paths\${PROGRAM_NAME}.exe"
 
 Call un.Disassociate
@@ -332,9 +332,9 @@ Section /o "Un.Personal Settings" un.SecPersonalSettings
 ;-------------------------------------------
 SectionIn 2
 SetShellVarContext current
-Delete "$APPDATA\${PROGRAM_NAME}\*.*"
-RMDir "$APPDATA\${PROGRAM_NAME}"
-DeleteRegKey HKCU "Software\${PROGRAM_NAME}"
+Delete "$APPDATA\${PROGRAM_NAME}_Thread\*.*"
+RMDir "$APPDATA\${PROGRAM_NAME}_Thread"
+DeleteRegKey HKCU "Software\${PROGRAM_NAME}_Thread"
 SectionEnd
 
 ;VAR un.WINPCAP_UNINSTALL

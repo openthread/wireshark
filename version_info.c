@@ -373,14 +373,14 @@ void
 show_version(const gchar *prog_name_str, GString *comp_info_str,
 	     GString *runtime_info_str)
 {
-	ws_debug_printf("%s %s\n"
+	ws_debug_printf("%s %s %s\n"
 	       "\n"
 	       "%s"
 	       "\n"
 	       "%s"
 	       "\n"
 	       "%s",
-	       prog_name_str, get_ws_vcs_version_info(), get_copyright_info(),
+	       prog_name_str, "Thread1.2-0.5",get_ws_vcs_version_info(), get_copyright_info(),
 	       comp_info_str->str, runtime_info_str->str);
 }
 

@@ -161,6 +161,8 @@ static expert_field ei_btl2cap_unknown_command_code = EI_INIT;
 static dissector_table_t l2cap_psm_dissector_table;
 static dissector_table_t l2cap_cid_dissector_table;
 
+static wmem_tree_t *le_psm_uuid_tree;
+
 /* This table maps cid values to psm values.
  * The same table is used both for SCID and DCID.
  * For Remote CIDs (Receive Request SCID or Sent Response DCID)
@@ -597,6 +599,63 @@ get_service_uuid(packet_info *pinfo, btl2cap_data_t *l2cap_data, guint16 psm, gb
         return service_info->uuid.bt_uuid;
     }
 
+    return 0;
+}
+
+void btl2cap_psm_set_uuid(guint32 interface_id, guint32 adapter_id, guint32 le_psm, bluetooth_uuid_t psm_uuid)
+{
+    wmem_tree_key_t    key[4];
+    guint32            k_interface_id;
+    guint32            k_adapter_id;
+    guint32            k_le_psm;
+    bluetooth_uuid_t  *uuid;
+
+    k_interface_id = interface_id;
+    k_adapter_id = adapter_id;
+    k_le_psm = le_psm;
+
+    uuid = wmem_new(wmem_file_scope(), bluetooth_uuid_t);
+    *uuid = psm_uuid;
+
+    key[0].length = 1;
+    key[0].key = &k_interface_id;
+    key[1].length = 1;
+    key[1].key = &k_adapter_id;
+    key[2].length = 1;
+    key[2].key = &k_le_psm;
+    key[3].length = 0;
+    key[3].key = NULL;
+
+    wmem_tree_insert32_array(le_psm_uuid_tree, key, uuid);
+}
+
+guint16 btl2cap_psm_get_uuid(guint32 interface_id, guint32 adapter_id, guint32 le_psm)
+{
+    wmem_tree_key_t    key[4];
+    guint32            k_interface_id;
+    guint32            k_adapter_id;
+    guint32            k_le_psm;
+    bluetooth_uuid_t  *uuid;
+
+    k_interface_id = interface_id;
+    k_adapter_id = adapter_id;
+    k_le_psm = le_psm;
+
+    key[0].length = 1;
+    key[0].key = &k_interface_id;
+    key[1].length = 1;
+    key[1].key = &k_adapter_id;
+    key[2].length = 1;
+    key[2].key = &k_le_psm;
+    key[3].length = 0;
+    key[3].key = NULL;
+
+    uuid = wmem_tree_lookup32_array(le_psm_uuid_tree, key);
+
+    if (uuid)
+    {
+        return uuid->bt_uuid;
+    }
     return 0;
 }
 
@@ -2066,6 +2125,11 @@ dissect_le_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
         bt_uuid = get_service_uuid(pinfo, l2cap_data, psm, is_local_psm);
 
+        if (bt_uuid == 0)
+        {
+            bt_uuid = btl2cap_psm_get_uuid(l2cap_data->interface_id, l2cap_data->adapter_id, psm);
+        }
+
         uuid.size = 2;
         uuid.bt_uuid = bt_uuid;
         uuid.data[0] = bt_uuid >> 8;
@@ -3370,6 +3434,7 @@ proto_register_btl2cap(void)
     expert_register_field_array(expert_btl2cap, ei, array_length(ei));
 
     cid_to_psm_table     = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
+    le_psm_uuid_tree     = wmem_tree_new_autoreset(wmem_epan_scope(), wmem_file_scope());
 
     register_decode_as(&btl2cap_cid_da);
     register_decode_as(&btl2cap_psm_da);
