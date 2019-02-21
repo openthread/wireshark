@@ -137,6 +137,7 @@ static int hf_mle_tlv_link_status = -1;
 static int hf_mle_tlv_link_status_sub_tlv = -1;
 
 /*Link TLVs*/
+static int hf_mle_tlv_link_query_options = -1;
 static int hf_mle_tlv_link_forward_series = -1;
 static int hf_mle_tlv_link_concatenation_link_metric_typeid_flags = -1;
 static int hf_mle_tlv_link_timeout = -1;
@@ -333,9 +334,9 @@ static const value_string mle_tlv_vals[] = {
 #define LINK_METRICS_QUERY_ID_SUB_TLV        1
 #define LINK_METRICS_QUERY_OPTIONS_SUB_TLV   2
 #define FORWARD_PROBING_REGISTRATION_SUB_TLV 3
-#define REVERSE_PROBING_REGISTRATION_SUB_TLV 4
+//#define REVERSE_PROBING_REGISTRATION_SUB_TLV 4
 #define LINK_METRICS_STATUS_SUB_TLV          5
-#define LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV   6
+//#define LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV   6
 #define ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV 7
 
 static const value_string mle_tlv_link_param_vals[] = {
@@ -343,9 +344,9 @@ static const value_string mle_tlv_link_param_vals[] = {
     { LINK_METRICS_QUERY_ID_SUB_TLV,      "Link Metrics Query" },
     { LINK_METRICS_QUERY_OPTIONS_SUB_TLV, "Link Metrics Query Options" },
     { FORWARD_PROBING_REGISTRATION_SUB_TLV , "Forward Probing Registration" },
-    { REVERSE_PROBING_REGISTRATION_SUB_TLV , "Reverse Probing Registration" },
+  //  { REVERSE_PROBING_REGISTRATION_SUB_TLV , "Reverse Probing Registration" },
     { LINK_METRICS_STATUS_SUB_TLV , "Link Metrics Status" },
-    { LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV , "Link Metrics Tracking Capabilities" },
+  //  { LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV , "Link Metrics Tracking Capabilities" },
     { ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV , "Enhance Ack Link Metrics Configuration" },
     { 0, NULL}
 };
@@ -1382,59 +1383,59 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             case MLE_TLV_LINK_METRICS_REPORT:
             {
                 proto_item_append_text(ti, ")");
-                guint8 sub_tlv = tvb_get_guint8(payload_tvb, offset);
+                while (tvb_offset_exists(payload_tvb, offset)) {
+                    guint8 sub_tlv = tvb_get_guint8(payload_tvb, offset);
 
-                proto_tree_add_item(tlv_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                offset++;
-                /* Length */
-                proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                offset++;
-
-                switch (sub_tlv) {
-                case LINK_METRICS_REPORT_SUB_TLV:
-                        /* Channel page */
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_metric_type_id_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
-                        /* Channel */
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    offset++;
+                    /* Length */
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    guint8 length_sub_tlv = tvb_get_guint8(payload_tvb,offset);
+                    offset++;
+                    switch (sub_tlv) {
+                    case LINK_METRICS_REPORT_SUB_TLV:
+                         /* Channel page */
+                         proto_tree_add_item(tlv_tree, hf_mle_tlv_metric_type_id_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+                         /* Channel */
+                         offset++;
+                         proto_tree_add_item(tlv_tree, hf_mle_tlv_value, tvb, offset, 1, ENC_BIG_ENDIAN);
+                         offset++;
+                         break;
+                    case LINK_METRICS_QUERY_ID_SUB_TLV:
+                        /* Query ID */
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_query_id, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                         offset++;
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_value, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        break;
+                    case LINK_METRICS_QUERY_OPTIONS_SUB_TLV:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_query_options, payload_tvb, offset, length_sub_tlv, ENC_NA);
+                        offset+= length_sub_tlv;
+                        break;
+                    case FORWARD_PROBING_REGISTRATION_SUB_TLV:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series, payload_tvb, offset, 1, ENC_NA);
                         offset++;
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series_flags, payload_tvb, offset, 1, ENC_NA);
+                        offset++;
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_timeout, payload_tvb, offset, 1, ENC_NA);
+                        offset++;
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_concatenation_link_metric_typeid_flags, payload_tvb, offset, 2, ENC_NA);
+                        offset+=2;
+                        break;
+                    //case REVERSE_PROBING_REGISTRATION_SUB_TLV:
+                    //    break;
+                    case LINK_METRICS_STATUS_SUB_TLV:
+                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_status_sub_tlv, payload_tvb, offset, 1, ENC_NA);
+                        offset++;
+                        break;
+                    //case LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV:
+                    //    break;
+                    case ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV:
+                        break;
 
-                    break;
-                case LINK_METRICS_QUERY_ID_SUB_TLV:
-                    /* Query ID */
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_query_id, tvb, offset, tlv_len, ENC_BIG_ENDIAN);
-                    offset++;
-                    break;
-                case LINK_METRICS_QUERY_OPTIONS_SUB_TLV:
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_pmt_join, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                    offset++;
-                    break;
-                case FORWARD_PROBING_REGISTRATION_SUB_TLV:
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series, payload_tvb, offset, 1, ENC_NA);
-                    offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series_flags, payload_tvb, offset, 1, ENC_NA);
-                    offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_timeout, payload_tvb, offset, 1, ENC_NA);
-                    offset++;
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_concatenation_link_metric_typeid_flags, payload_tvb, offset, 2, ENC_NA);
-                    offset+=2;
-                    break;
-                case REVERSE_PROBING_REGISTRATION_SUB_TLV:
-                    break;
-                case LINK_METRICS_STATUS_SUB_TLV:
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_status_sub_tlv, payload_tvb, offset, 1, ENC_NA);
-                    offset++;
-                    break;
-                    break;
-                case LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV:
-                    break;
-                case ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV:
-                    break;
-                                 
-                default:
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_unknown, payload_tvb, offset, tlv_len - 5, ENC_NA);
-                    offset += tlv_len - 5;
-                    break;
+                    //default:
+                    //    proto_tree_add_item(tlv_tree, hf_mle_tlv_network_unknown, payload_tvb, offset, tlv_len - 5, ENC_NA);
+                    //    offset += tlv_len - 5;
+                    //    break;
+                    }
                 }
             }
             break;
@@ -2137,6 +2138,14 @@ proto_register_mle(void)
       }
     },
 #endif
+   { &hf_mle_tlv_link_query_options,
+    { "Link Query options",
+       "mle.tlv.link_forward_series",
+  FT_BYTES, BASE_NONE, NULL, 0x0,
+  "Link Sub TLV",
+  HFILL
+      }
+  },
   { &hf_mle_tlv_link_forward_series,
     { "Link Forward Series",
        "mle.tlv.link_forward_series",
@@ -2211,10 +2220,10 @@ HFILL
 }
     },
   { &hf_mle_tlv_query_id,
-{ "Pending Operational Dataset",
+{ "Query ID",
   "mle.tlv.query_id",
-  FT_BYTES, BASE_NONE, NULL, 0x0,
-  "Thread Pending Operational Dataset",
+  FT_UINT8, BASE_HEX, NULL, 0x0,
+  "Query ID",
   HFILL
 }
   },
