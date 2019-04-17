@@ -119,6 +119,8 @@ static int hf_mle_tlv_hold_time = -1;
 #endif
 static int hf_mle_tlv_channel_page = -1; /* v1.1-draft-2 */
 static int hf_mle_tlv_channel = -1; /* v1.1-draft-2 */
+static int hf_mle_tlv_csl_accuracy = -1; /* v1.2-draft-5 */
+static int hf_mle_tlv_csl_synchronied_timeout = -1; /* v1.2-draft-5 */
 static int hf_mle_tlv_pan_id = -1; /* v1.1-draft-2 */
 static int hf_mle_tlv_active_tstamp = -1; /* SPEC-472 */
 static int hf_mle_tlv_pending_tstamp = -1; /* SPEC-472 */
@@ -872,7 +874,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 } else {
                     guint32 to_data = 0;
                     proto_tree_add_item_ret_uint(tlv_tree, hf_mle_tlv_timeout, payload_tvb, offset, 4, ENC_BIG_ENDIAN, &to_data);
-                    proto_item_append_text(ti, " = %d", (guint16)to_data);
+                    proto_item_append_text(ti, " = %u", to_data);
                 }
                 proto_item_append_text(ti, ")");
                 offset += tlv_len;
@@ -1376,8 +1378,33 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 }
                 break;
             case MLE_TLV_CSL_SYNCHRONIZED_TIMEOUT:/*Defined in Ch04_Mesh Link Establishment v1.2*/
+                /* Check length is consistent */
+                if (tlv_len != 4) {
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, ENC_NA);
+                } else {
+                    /*  CSL synchronized timeout */
+                    guint32 to_data = 0;
+                    proto_tree_add_item_ret_uint(tlv_tree, hf_mle_tlv_csl_synchronied_timeout, payload_tvb, offset, 4, ENC_BIG_ENDIAN, &to_data);
+                    proto_item_append_text(ti, " = %u", to_data);
+                }
+                proto_item_append_text(ti, ")");
+                offset += tlv_len;
+                break;
             case MLE_TLV_CSL_ACCURACY:
-            break;
+                /* Check length is consistent */
+                if (tlv_len != 1) {
+                    expert_add_info(pinfo, proto_root, &ei_mle_tlv_length_failed);
+                    proto_tree_add_item(tlv_tree, hf_mle_tlv_unknown, payload_tvb, offset, tlv_len, ENC_NA);
+                } else {
+                    /*  CSL accuracy */
+                    guint32 to_data = 0;
+                    proto_tree_add_item_ret_uint(tlv_tree, hf_mle_tlv_csl_accuracy, payload_tvb, offset, 1, ENC_BIG_ENDIAN, &to_data);
+                    proto_item_append_text(ti, " = %u", to_data);
+                }
+                proto_item_append_text(ti, ")");
+                offset += tlv_len;
+                break;
             case MLE_TLV_LINK_METRICS_QUERY:
             case MLE_TLV_LINK_METRICS_MANAGEMENT:
             case MLE_TLV_LINK_METRICS_REPORT:
@@ -2089,6 +2116,24 @@ proto_register_mle(void)
       { "Channel",
         "mle.tlv.channel",
         FT_UINT16, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_csl_synchronied_timeout,
+      { "CSL Synchronized Timeout",
+        "mle.tlv.csl_synchronized_timeout",
+        FT_UINT32, BASE_DEC, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_csl_accuracy,
+      { "CSL Accuracy",
+        "mle.tlv.csl_accuracy",
+        FT_UINT8, BASE_DEC, NULL, 0x0,
         NULL,
         HFILL
       }
