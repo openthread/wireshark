@@ -54,6 +54,11 @@ static int hf_mle_tlv_source_addr = -1;
 static int hf_mle_tlv_mode_device_type = -1;
 static int hf_mle_tlv_mode_idle_rx = -1;
 static int hf_mle_tlv_mode_sec_data_req = -1;
+static int hf_mle_tlv_mode_receiver_on_idle = -1;
+static int hf_mle_tlv_mode_reserved1 = -1;
+static int hf_mle_tlv_mode_reserved2 = -1;
+static int hf_mle_tlv_mode_device_type_bit= -1;
+static int hf_mle_tlv_mode_network_data = -1;
 static int hf_mle_tlv_mode_nwk_data = -1;
 static int hf_mle_tlv_timeout = -1;
 static int hf_mle_tlv_challenge = -1;
@@ -132,6 +137,10 @@ static int hf_mle_tlv_pending_op_dataset = -1; /* SPEC-472 */
 //Added for Thread 1.2 support
 /* New suppport*/
 static int hf_mle_tlv_metric_type_id_flags = -1;
+static int hf_mle_tlv_metric_type_id_flags_l = -1;
+static int hf_mle_tlv_metric_type_id_flags_e = -1;
+static int hf_mle_tlv_metric_type_id_flags_type = -1;
+static int hf_mle_tlv_metric_type_id_flags_metric = -1;
 static int hf_mle_tlv_value = -1;
 static int hf_mle_tlv_query_id = -1;
 static int hf_mle_tlv_link_sub_tlv = -1;
@@ -140,6 +149,9 @@ static int hf_mle_tlv_link_status_sub_tlv = -1;
 
 /*Link TLVs*/
 static int hf_mle_tlv_link_query_options = -1;
+static int hf_mle_tlv_link_enh_ack_flags = -1;
+static int hf_mle_tlv_link_requested_type_id_flags = -1;
+static int hf_mle_tlv_csl_sychronized_timeout = -1;
 static int hf_mle_tlv_link_forward_series = -1;
 static int hf_mle_tlv_link_concatenation_link_metric_typeid_flags = -1;
 static int hf_mle_tlv_link_timeout = -1;
@@ -372,6 +384,14 @@ static const value_string mle_tlv_link_sub_tlv_vals[] = {
     { 0, NULL}
 };
 
+#define CLEAR_ENHANCED_ACK_LINK_METRICS_CONFIGURATION     0
+#define REGISTER_ENHANCED_ACK_LINK_METRICS_CONFIGURATION  1
+
+static const value_string mle_tlv_link_enh_ack_flags_vals[] = {
+    { CLEAR_ENHANCED_ACK_LINK_METRICS_CONFIGURATION,    "Clear Enhanced ACK Link Metrics Configuration" },
+    { REGISTER_ENHANCED_ACK_LINK_METRICS_CONFIGURATION, "Register Enhanced ACK Link Metrics Configuration" },
+    { 0, NULL}
+};
 
 /* Link Metrics End*/
 
@@ -849,14 +869,18 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             case MLE_TLV_MODE:
                 if (tlv_len == 1) {
                     guint8 capability;
-
                     capability = tvb_get_guint8(payload_tvb, offset);
                     proto_item_append_text(ti, " = %02x)", capability);
                     /* Get and display capability info. (blatantly plagiarised from packet-ieee802154.c */
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_nwk_data, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_device_type, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_sec_data_req, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_idle_rx, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+
+                    proto_tree_add_bits_item(tlv_tree, hf_mle_tlv_mode_reserved1, payload_tvb, (offset * 8) + 0, 4, ENC_NA);//R1
+                    proto_tree_add_bits_item(tlv_tree, hf_mle_tlv_mode_receiver_on_idle, payload_tvb, (offset * 8) + 4, 1, ENC_NA);//Receiver
+                    proto_tree_add_bits_item(tlv_tree, hf_mle_tlv_mode_reserved2, payload_tvb, (offset * 8) + 5, 1, ENC_NA);//R2
+                    proto_tree_add_bits_item(tlv_tree, hf_mle_tlv_mode_device_type_bit, payload_tvb, (offset * 8) +6, 1, ENC_NA);//Device Type
+                    proto_tree_add_bits_item(tlv_tree, hf_mle_tlv_mode_network_data, payload_tvb, (offset * 8) +7, 1, ENC_NA);//Network Data
+                    //proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_device_type, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    //proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_sec_data_req, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    //proto_tree_add_item(tlv_tree, hf_mle_tlv_mode_idle_rx, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                 }
                 else {
                     /* TLV Length must be 1 */
@@ -874,7 +898,7 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                 } else {
                     guint32 to_data = 0;
                     proto_tree_add_item_ret_uint(tlv_tree, hf_mle_tlv_timeout, payload_tvb, offset, 4, ENC_BIG_ENDIAN, &to_data);
-                    proto_item_append_text(ti, " = %u", to_data);
+                    proto_item_append_text(ti, " = %d", (guint16)to_data);
                 }
                 proto_item_append_text(ti, ")");
                 offset += tlv_len;
@@ -1410,52 +1434,74 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
             case MLE_TLV_LINK_METRICS_REPORT:
             {
                 proto_item_append_text(ti, ")");
+                proto_item *sub_item;
+                proto_tree *sub_tree;
+
                 while (tvb_offset_exists(payload_tvb, offset)) {
                     guint8 sub_tlv = tvb_get_guint8(payload_tvb, offset);
 
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    sub_item = proto_tree_add_item(tlv_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                     offset++;
                     /* Length */
                     proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                     guint8 length_sub_tlv = tvb_get_guint8(payload_tvb,offset);
                     offset++;
+                    sub_tree = proto_tree_add_subtree(tlv_tree, payload_tvb, offset, -1, 1, &sub_item, "Sub TLV");
                     switch (sub_tlv) {
                     case LINK_METRICS_REPORT_SUB_TLV:
-                         /* Channel page */
-                         proto_tree_add_item(tlv_tree, hf_mle_tlv_metric_type_id_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
-                         /* Channel */
-                         offset++;
-                         proto_tree_add_item(tlv_tree, hf_mle_tlv_value, tvb, offset, 1, ENC_BIG_ENDIAN);
-                         offset++;
-                         break;
+                        /* Type ID Flags */
+                        //sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_metric_type_id_flags, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//E
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_l, payload_tvb, (offset * 8) + 1, 1, ENC_NA);//L
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_type, payload_tvb, (offset * 8) + 2, 3, ENC_NA);//Type enum
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Metric enum
+                        /* Type ID Flags */
+                        offset++;
+                        sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                        offset++;
+                        break;
                     case LINK_METRICS_QUERY_ID_SUB_TLV:
                         /* Query ID */
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_query_id, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(sub_tree, hf_mle_tlv_query_id, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                         offset++;
                         break;
                     case LINK_METRICS_QUERY_OPTIONS_SUB_TLV:
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_query_options, payload_tvb, offset, length_sub_tlv, ENC_NA);
+                        proto_tree_add_item(sub_tree, hf_mle_tlv_link_query_options, payload_tvb, offset, length_sub_tlv, ENC_NA);
                         offset+= length_sub_tlv;
                         break;
                     case FORWARD_PROBING_REGISTRATION_SUB_TLV:
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series, payload_tvb, offset, 1, ENC_NA);
+                        proto_tree_add_item(sub_tree, hf_mle_tlv_link_forward_series, payload_tvb, offset, 1, ENC_NA);
                         offset++;
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_forward_series_flags, payload_tvb, offset, 1, ENC_NA);
+                        proto_tree_add_item(sub_tree, hf_mle_tlv_link_forward_series_flags, payload_tvb, offset, 1, ENC_NA);
                         offset++;
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_timeout, payload_tvb, offset, 1, ENC_NA);
-                        offset++;
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_concatenation_link_metric_typeid_flags, payload_tvb, offset, 2, ENC_NA);
-                        offset+=2;
+                        //sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_link_timeout, payload_tvb, offset, 1, ENC_NA);
+                        //offset++;
+                        //proto_tree_add_item(sub_tree, hf_mle_tlv_link_concatenation_link_metric_typeid_flags, payload_tvb, offset, 1, ENC_NA);
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//Receiver
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_l, payload_tvb, (offset * 8) + 1, 1, ENC_NA);//Receiver
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_type, payload_tvb, (offset * 8) + 2, 3, ENC_NA);//Receiver
+                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Receiver
+                        offset+=1;
                         break;
                     //case REVERSE_PROBING_REGISTRATION_SUB_TLV:
                     //    break;
                     case LINK_METRICS_STATUS_SUB_TLV:
-                        proto_tree_add_item(tlv_tree, hf_mle_tlv_link_status_sub_tlv, payload_tvb, offset, 1, ENC_NA);
+                        proto_tree_add_item(sub_tree, hf_mle_tlv_link_status_sub_tlv, payload_tvb, offset, 1, ENC_NA);
                         offset++;
                         break;
                     //case LINK_METRICS_TRACKING_CAPABILITIES_SUB_TLV:
                     //    break;
                     case ENHANCED_ACK_LINK_METRICS_CONFIGURATION_SUB_TLV:
+                        if(length_sub_tlv == 1)
+                        {
+                           sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_link_enh_ack_flags, payload_tvb, offset, 1, ENC_NA);
+                        }
+                        else
+                        {
+                           sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_link_enh_ack_flags, payload_tvb, offset, 1, ENC_NA);
+                           sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_link_requested_type_id_flags, payload_tvb, offset+1, (length_sub_tlv-1), ENC_NA);
+                        }
+                        offset+= length_sub_tlv;
                         break;
 
                     //default:
@@ -1599,6 +1645,50 @@ proto_register_mle(void)
         NULL,
         HFILL
       }
+    },
+
+    { &hf_mle_tlv_mode_receiver_on_idle,
+      { "R(Reciever/rx)-on-idle",
+        "mle.tlv.mode.receiver_on_idle",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_mode_reserved1,
+      { "R1(Reserved)",
+        "mle.tlv.mode.reserved1",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+        { &hf_mle_tlv_mode_reserved2,
+      { "R2(Reserved)",
+        "mle.tlv.mode.reserved2",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+
+    { &hf_mle_tlv_mode_device_type_bit,
+      { "D(Device Type)",
+    "mle.tlv.mode.device_type_bit",
+    FT_UINT8, BASE_HEX, NULL, 0x0,
+    NULL,
+    HFILL
+  }
+    },
+
+    { &hf_mle_tlv_mode_network_data,
+  { "N(Network Data)",
+    "mle.tlv.mode.network_data",
+    FT_UINT8, BASE_HEX, NULL, 0x0,
+    NULL,
+    HFILL
+  }
     },
 
     { &hf_mle_tlv_mode_idle_rx,
@@ -1842,6 +1932,38 @@ proto_register_mle(void)
       }
     },
 #endif
+    { &hf_mle_tlv_metric_type_id_flags_l,
+      { "L",
+        "mle.tlv.metric_type_id_flags.l",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+        { &hf_mle_tlv_metric_type_id_flags_e,
+      { "E",
+        "mle.tlv.metric_type_id_flags.e",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+        { &hf_mle_tlv_metric_type_id_flags_type,
+      { "Type/average enum",
+        "mle.tlv.metric_type_id_flags.type",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
+    { &hf_mle_tlv_metric_type_id_flags_metric,
+      { "Metric enum",
+        "mle.tlv.metric_type_id_flags.metric",
+        FT_UINT8, BASE_HEX, NULL, 0x0,
+        NULL,
+        HFILL
+      }
+    },
     { &hf_mle_tlv_addr16,
       { "Address16",
         "mle.tlv.addr16",
@@ -2188,6 +2310,30 @@ proto_register_mle(void)
        "mle.tlv.link_forward_series",
   FT_BYTES, BASE_NONE, NULL, 0x0,
   "Link Sub TLV",
+  HFILL
+      }
+  },
+    { &hf_mle_tlv_csl_sychronized_timeout,
+      { "CSL Synchronized Timeout",
+        "mle.tlv.link_csl_synchronized_timeout",
+        FT_UINT32, BASE_HEX, NULL, 0x0,
+        "CSL Synchronized Timeout",
+        HFILL
+      }
+    },
+   { &hf_mle_tlv_link_enh_ack_flags,
+    { "Enh-ACK Flags",
+       "mle.tlv.link_enh_ack_flags",
+  FT_UINT8, BASE_DEC, VALS(mle_tlv_link_enh_ack_flags_vals), 0x0,
+  " Thread Enh-ACK Flags",
+  HFILL
+      }
+  },
+     { &hf_mle_tlv_link_requested_type_id_flags,
+    { "Requested Type ID flags",
+       "mle.tlv.link_requested_type_id_flags",
+  FT_BYTES, BASE_NONE, NULL, 0x0,
+  "Requested Type ID flags",
   HFILL
       }
   },

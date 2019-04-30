@@ -331,6 +331,7 @@ static int hf_thread_nwd_tlv_border_router_c = -1;
 static int hf_thread_nwd_tlv_border_router_r = -1;
 static int hf_thread_nwd_tlv_border_router_o = -1;
 static int hf_thread_nwd_tlv_border_router_n = -1;
+static int hf_thread_nwd_tlv_border_router_dp = -1;//Thread 1.2 Draft3
 
 /* 6LoWPAN ID TLV fields */
 static int hf_thread_nwd_tlv_6lowpan_id_6co_context_length = -1;
@@ -448,6 +449,7 @@ static dissector_handle_t thread_bl_handle;
 #define THREAD_NWD_TLV_BORDER_ROUTER_R      0x02
 #define THREAD_NWD_TLV_BORDER_ROUTER_O      0x01
 #define THREAD_NWD_TLV_BORDER_ROUTER_N      0x80
+#define THREAD_NWD_TLV_BORDER_ROUTER_DP     0x40 //Thread 1.2 Draft5
 
 #define THREAD_BCN_PROTOCOL_ID              0x03
 #define THREAD_BCN_JOINING                  0x01
@@ -2686,6 +2688,7 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_o, tvb, offset, 1, ENC_BIG_ENDIAN);
                             offset++;
                             proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_n, tvb, offset, 1, ENC_BIG_ENDIAN);
+                            proto_tree_add_item(border_router_tree, hf_thread_nwd_tlv_border_router_dp, tvb, offset, 1, ENC_BIG_ENDIAN);
                             offset++;
                         }
                     }
@@ -4188,6 +4191,14 @@ proto_register_thread_nwd(void)
             "thread_nwd.tlv.border_router.flag.n",
             FT_BOOLEAN, 8, TFS(&tfs_available_not_available), THREAD_NWD_TLV_BORDER_ROUTER_N,
             "Value of P_nd_dns",
+            HFILL }
+        },
+
+        { &hf_thread_nwd_tlv_border_router_dp,
+            { "DP Flag",
+            "thread_nwd.tlv.border_router.flag.dp",
+            FT_BOOLEAN, 8, TFS(&tfs_available_not_available), THREAD_NWD_TLV_BORDER_ROUTER_DP,
+            "Value of P_dp",
             HFILL }
         },
 
