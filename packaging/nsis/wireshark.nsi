@@ -32,7 +32,7 @@ ${StrRep}
 !define !defineifexist "!insertmacro !defineifexist"
 
 !define THREAD_NAME "Thread1.2"
-!define THREAD_VERSION "0.55"
+!define THREAD_VERSION "0.64"
 
 ; ============================================================================
 ; Header configuration
