@@ -392,7 +392,7 @@ show_version(const gchar *prog_name_str, GString *comp_info_str,
 const char *
 get_ws_vcs_version_info(void)
 {
-	return "Thread1.2-0.64";
+	return "Thread1.2-0.68";
 }
 
 void

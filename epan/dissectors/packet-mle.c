@@ -365,21 +365,19 @@ static const value_string mle_tlv_link_param_vals[] = {
     { 0, NULL}
 };
 
-#define LINK_SUCCESS                                 0
-#define LINK_FAILURE_CANNOT_REPORT_REQUESTED_METRIC_TYPE  1
-#define LINK_FAILURE_CANNOT_SUPPORT_NEW_SERIES_REGISTRATION 2
-#define LINK_FAILURE_SERIES_ID_ALREADY_REGISTERED         3
-#define LINK_FAILURE_SERIES_ID_NOT_RECOGNIZED                4
-#define LINK_FAILURE_ENHANCED_ACK_METRICS_CONFIGURATION_NOT_SUPPORTED 5
+#define LINK_SUCCESS                                        0
+#define LINK_FAILURE_CANNOT_SUPPORT_NEW_SERIES_REGISTRATION 1
+#define LINK_FAILURE_SERIES_ID_ALREADY_REGISTERED           2
+#define LINK_FAILURE_SERIES_ID_NOT_RECOGNIZED               3
+#define LINK_FAILURE_NO_MATCHING_FRAMES_RECEIVED            4
 #define LINK_FAILURE_OTHER_FAILURE                          254
 
 static const value_string mle_tlv_link_sub_tlv_vals[] = {
     { LINK_SUCCESS,     "Success" },
-    { LINK_FAILURE_CANNOT_REPORT_REQUESTED_METRIC_TYPE, "Failure - Cannot Report Requested Metric Type" },
     { LINK_FAILURE_CANNOT_SUPPORT_NEW_SERIES_REGISTRATION, " Failure - Cannot Support New Series Registration" },
     { LINK_FAILURE_SERIES_ID_ALREADY_REGISTERED , "Failure - Series ID Already Registered" },
     { LINK_FAILURE_SERIES_ID_NOT_RECOGNIZED , "Failure - Series ID not Recognized" },
-    { LINK_FAILURE_ENHANCED_ACK_METRICS_CONFIGURATION_NOT_SUPPORTED , "Failure - Enhanced ACK Metrics Configuration Not Supported" },
+    { LINK_FAILURE_NO_MATCHING_FRAMES_RECEIVED , "Failure - No matching frames received" },
     { LINK_FAILURE_OTHER_FAILURE , "Failure - Other Failure" },
     { 0, NULL}
 };
@@ -1439,16 +1437,16 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
 
                 while (tvb_offset_exists(payload_tvb, offset)) {
                     guint8 sub_tlv = tvb_get_guint8(payload_tvb, offset);
-
-                    sub_item = proto_tree_add_item(tlv_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    sub_tree = proto_tree_add_subtree(tlv_tree, payload_tvb, offset, -1, 1, &sub_item, "Sub TLV");
+                    sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_link_sub_tlv, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                     offset++;
                     /* Length */
-                    proto_tree_add_item(tlv_tree, hf_mle_tlv_length, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                    proto_tree_add_item(sub_tree, hf_mle_tlv_length, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                     guint8 length_sub_tlv = tvb_get_guint8(payload_tvb,offset);
                     offset++;
-                    sub_tree = proto_tree_add_subtree(tlv_tree, payload_tvb, offset, -1, 1, &sub_item, "Sub TLV");
                     switch (sub_tlv) {
                     case LINK_METRICS_REPORT_SUB_TLV:
+                        guint8 metrics_tlv = tvb_get_guint8(payload_tvb, offset);
                         /* Type ID Flags */
                         //sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_metric_type_id_flags, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
                         proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//E
@@ -1457,8 +1455,17 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                         proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Metric enum
                         /* Type ID Flags */
                         offset++;
-                        sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                        offset++;
+                        //latest draft the length is 1 indicates that the extended value is 4 else 1
+                        if((metrics_tlv & 0x40) == 0x40)
+                        {
+                            sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 4, ENC_BIG_ENDIAN);
+                            offset+=4;
+                        }
+                        else
+                        {
+                            sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                            offset++;
+                        }
                         break;
                     case LINK_METRICS_QUERY_ID_SUB_TLV:
                         /* Query ID */
@@ -1473,15 +1480,19 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                         proto_tree_add_item(sub_tree, hf_mle_tlv_link_forward_series, payload_tvb, offset, 1, ENC_NA);
                         offset++;
                         proto_tree_add_item(sub_tree, hf_mle_tlv_link_forward_series_flags, payload_tvb, offset, 1, ENC_NA);
+                        guint8 forward_series_flag = tvb_get_guint8(payload_tvb, offset);
                         offset++;
                         //sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_link_timeout, payload_tvb, offset, 1, ENC_NA);
                         //offset++;
                         //proto_tree_add_item(sub_tree, hf_mle_tlv_link_concatenation_link_metric_typeid_flags, payload_tvb, offset, 1, ENC_NA);
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//Receiver
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_l, payload_tvb, (offset * 8) + 1, 1, ENC_NA);//Receiver
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_type, payload_tvb, (offset * 8) + 2, 3, ENC_NA);//Receiver
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Receiver
-                        offset+=1;
+                        if (forward_series_flag > 0)
+                        {
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//Receiver
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_l, payload_tvb, (offset * 8) + 1, 1, ENC_NA);//Receiver
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_type, payload_tvb, (offset * 8) + 2, 3, ENC_NA);//Receiver
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Receiver
+                            offset+=1;
+                        }
                         break;
                     //case REVERSE_PROBING_REGISTRATION_SUB_TLV:
                     //    break;

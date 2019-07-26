@@ -1337,14 +1337,20 @@ dissect_thread_address(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void
                 break;
 
             case THREAD_ADDRESS_TLV_IPV6_ADDRESS:
-                if (tlv_len != 16) {
+                if ((tlv_len % 16) != 0) {
                     expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
-                    proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, ENC_NA);
+                    proto_tree_add_item(tlv_tree, hf_thread_address_tlv_unknown, tvb, offset, tlv_len, ENC_NA);
+                    offset += tlv_len;
                 }
                 else {
-                    proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ipv6_addr, tvb, offset, tlv_len, ENC_NA);
+                    //Need to only take 16 bytes for the IPv6 adress
+                    //proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ipv6_addr, tvb, offset, tlv_len, ENC_NA);
+                    for (int i = 0; i < (tlv_len / 16); i++)
+                    {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ipv6_addr, tvb, offset, 16, ENC_NA);
+                        offset += 16;
+                    }
                 }
-                offset += tlv_len;
                 break;
 
             default:
@@ -1777,14 +1783,18 @@ dissect_thread_bl(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                 break;
 
             case THREAD_NM_TLV_IPV6_ADDRESS:
-                if (tlv_len != 16) {
+                if ((tlv_len % 16) != 0) {
                     expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                     proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, ENC_NA);
+                    offset += tlv_len;
                 }
                 else {
-                    proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ipv6_addr, tvb, offset, tlv_len, ENC_NA);
+                    for(int i = 0; i < (tlv_len/16) ; i ++)
+                    {
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_ipv6_addr, tvb, offset, 16, ENC_NA);
+                        offset += 16;
+                    }
                 }
-                offset += tlv_len;
                 break;
 
             default:
