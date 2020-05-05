@@ -21,31 +21,42 @@
 
 #define MASKBIT(sh) (1<<sh)
 
-/* ToBLE field sizes */
+/* ToBLE Beacon mandatory field sizes */
+#define TOBLE_CONNECTION_FLAGS_SIZE       sizeof(guint8)
+#define TOBLE_DISCOVERY_FLAGS_SIZE        sizeof(guint8)
+
+/* ToBLE Beacon optional field sizes */
 #define TOBLE_HEADER_SIZE                 sizeof(guint8)
-#define TOBLE_FLAGS_SIZE                  sizeof(guint8)
-#define TOBLE_DISCOVERY_ID_SIZE           sizeof(guint64)
-#define TOBLE_LE_PSM_SIZE                 sizeof(guint8)
-#define TOBLE_JOINER_UDP_TLV_SIZE         sizeof(guint32)
-#define TOBLE_COMMISSIONER_UDP_TLV_SIZE   sizeof(guint32)
-#define TOBLE_NETWORK_NAME_TYPE_SIZE      sizeof(guint8)
-#define TOBLE_NETWORK_NAME_LENGTH_SIZE    sizeof(guint8)
-#define TOBLE_STEERING_DATA_TYPE_SIZE     sizeof(guint8)
-#define TOBLE_STEERING_DATA_LENGTH_SIZE   sizeof(guint8)
+#define TOBLE_PSM_SIZE                    sizeof(guint8)
+#define TOBLE_PANID_SIZE                  sizeof(guint16)
+#define TOBLE_SRC16_SIZE                  sizeof(guint16)
+#define TOBLE_SRC64_SIZE                  sizeof(guint64)
+#define TOBLE_DST16_SIZE                  sizeof(guint16)
+#define TOBLE_DST64_SIZE                  sizeof(guint64)
 
-/* ToBLE bit field masks */
-#define TOBLE_HEADER_VERSION_MASK               0xf0
-#define TOBLE_HEADER_OPCODE_MASK                0x0f
-#define TOBLE_FLAG_BORDER_AGENT_MASK            MASKBIT(7)
-#define TOBLE_FLAG_DIRECT_COMMISSIONING_MASK    MASKBIT(6)
-#define TOBLE_FLAG_UNCONFIGURED_MASK            MASKBIT(5)
-#define TOBLE_FLAG_JOINING_PERMITTED_MASK       MASKBIT(4)
-#define TOBLE_FLAG_ACTIVE_ROUTER_MASK           MASKBIT(3)
-#define TOBLE_FLAG_ROUTER_CAPABLE_MASK          MASKBIT(2)
-#define TOBLE_FLAG_RESERVED_MASK                MASKBIT(1)
-#define TOBLE_FLAG_L2CAP_TRANSPORT_MASK         MASKBIT(0)
+/* ToBLE Beacon and Scan Response bit field masks */
+#define TOBLE_CONTROL_FIELD_VERSION_MASK        0xf0
+#define TOBLE_CONTROL_FIELD_OPCODE_MASK         0x0f
 
-#define TOBLE_BEACON_HEADER_VALUE 0x30
+/* ToBLE Beacon bit field masks */
+#define TOBLE_CONNECTION_FLAGS_L2_MASK    MASKBIT(7)
+#define TOBLE_CONNECTION_FLAGS_RSVD_MASK        0x78
+#define TOBLE_CONNECTION_FLAGS_EXT_MASK   MASKBIT(2)
+#define TOBLE_CONNECTION_FLAGS_TX_MASK    MASKBIT(1)
+#define TOBLE_CONNECTION_FLAGS_C_MASK     MASKBIT(0)
+
+#define TOBLE_DISCOVERY_FLAGS_RSVD_MASK         0xc0
+#define TOBLE_DISCOVERY_FLAGS_D_MASK      MASKBIT(5)
+#define TOBLE_DISCOVERY_FLAGS_B_MASK      MASKBIT(4)
+#define TOBLE_DISCOVERY_FLAGS_J_MASK      MASKBIT(3)
+#define TOBLE_DISCOVERY_FLAGS_A_MASK      MASKBIT(2)
+#define TOBLE_DISCOVERY_FLAGS_R_MASK      MASKBIT(1)
+#define TOBLE_DISCOVERY_FLAGS_U_MASK      MASKBIT(0)
+
+// TODO: we should rather use the ToBLE Service Data Header in conjunction with the opcode
+// Dissector will stop working if verson changes e.g. from 3 to 4.
+#define TOBLE_BEACON_HEADER_VALUE              0x30
+#define TOBLE_SCAN_RESPONSE_HEADER_VALUE       0x31
 
 /* Underlying protocols */
 static int proto_btle = -1;     /* for advertising and scanning data */
@@ -53,68 +64,140 @@ static int proto_btle = -1;     /* for advertising and scanning data */
 /* WPAN dissector handle */
 static dissector_handle_t wpan_dissector_handle;
 
-/* ToBLE beacon header fields */
-static int service_toble = -1;
-static int hf_toble_header = -1;
-static int hf_toble_header_version = -1;
-static int hf_toble_header_opcode = -1;
-static int hf_toble_flags = -1;
-static int hf_toble_flag_border_agent = -1;
-static int hf_toble_flag_direct_commissioning = -1;
-static int hf_toble_flag_unconfigured = -1;
-static int hf_toble_flag_joining_permitted = -1;
-static int hf_toble_flag_router = -1;
-static int hf_toble_flag_scanning_capable = -1;
-static int hf_toble_flag_reserved = -1;
-static int hf_toble_flag_l2cap_transport = -1;
-static int hf_toble_joiner_iid = -1;
-static int hf_toble_extended_panid = -1;
-static int hf_toble_le_psm = -1;
-static int hf_toble_joiner_udp_tlv = -1;
-static int hf_toble_commissioner_udp_tlv = -1;
+/* ToBLE Service Data Header */
+static int toble_service_data_header = -1;
 
-/* ToBLE scan resonse header fields */
-static int hf_toble_network_name_type = -1;
-static int hf_toble_network_name_length = -1;
-static int hf_toble_network_name_value = -1;
-static int hf_toble_steering_data_type = -1;
-static int hf_toble_steering_data_length = -1;
-static int hf_toble_steering_data_value = -1;
+/* ToBLE Control Field */
+static int hf_toble_beacon_control_field_header = -1;
+static int hf_toble_beacon_control_field_header_version = -1;
+static int hf_toble_beacon_control_field_header_opcode = -1;
+
+/* ToBLE Connection Flags */
+static int hf_toble_connection_flags = -1;
+static int hf_toble_connection_flag_l2cap = -1;
+static int hf_toble_connection_flag_reserved = -1;
+static int hf_toble_connection_flag_has_extended_dst_address = -1;
+static int hf_toble_connection_flag_tx_ready = -1;
+static int hf_toble_connection_flag_connect_ready = -1;
+
+/* ToBLE Discovery Flags */
+static int hf_toble_discovery_flags = -1;
+static int hf_toble_discovery_flag_reserved = -1;
+static int hf_toble_discovery_flag_dtc_enabled = -1;
+static int hf_toble_discovery_flag_border_agent_enabled = -1;
+static int hf_toble_discovery_flag_joining_permitted = -1;
+static int hf_toble_discovery_flag_active_router = -1;
+static int hf_toble_discovery_flag_router_capable = -1;
+static int hf_toble_discovery_flag_unconfigured = -1;
+
+/* Optional Fields */
+static int hf_toble_psm   = -1;
+static int hf_toble_panid = -1;
+static int hf_toble_src16 = -1;
+static int hf_toble_src64 = -1;
+static int hf_toble_dst16 = -1;
+static int hf_toble_dst64 = -1;
+
+static int hf_toble_scan_tlv_joiner_iid    = -1;
+static int hf_toble_scan_tlv_network_name  = -1;
+static int hf_toble_scan_tlv_steering_data = -1;
+
+static int hf_toble_scan_tlv_type   = -1;
+static int hf_toble_scan_tlv_length = -1;
+static int hf_toble_scan_tlv_value  = -1;
 
 /* Initialize the subtree pointers */
 static gint ett_toble_beacon = -1;
-static gint ett_toble_scan_response = -1;
-static gint ett_toble_header = -1;
-static gint ett_toble_flags = -1;
+static gint ett_toble_beacon_service_data_header = -1;
+static gint ett_toble_scan_response_service_data_header = -1;
 
-/* ToBLE beacon header bit fileds */
+static gint ett_toble_connection_flags = -1;
+static gint ett_toble_discovery_flags = -1;
+static gint ett_toble_joiner_iid = -1;
+static gint ett_toble_network_name = -1;
+static gint ett_toble_steering_data = -1;
+
+/* ToBLE Beacon Control Field fileds */
 static const int *hfx_toble_header_bit_fields[] =
 {
-    &hf_toble_header_version,
-    &hf_toble_header_opcode,
+    &hf_toble_beacon_control_field_header_version,
+    &hf_toble_beacon_control_field_header_opcode,
     NULL
 };
 
-/* ToBLE beacon flags */
-static const int *hfx_toble_flags_bit_fields[] =
+/* ToBLE Beacon Connection flags */
+static const int *hfx_toble_connection_flags_bit_fields[] =
 {
-    &hf_toble_flag_border_agent,
-    &hf_toble_flag_direct_commissioning,
-    &hf_toble_flag_unconfigured,
-    &hf_toble_flag_joining_permitted,
-    &hf_toble_flag_router,
-    &hf_toble_flag_scanning_capable,
-    &hf_toble_flag_reserved,
-    &hf_toble_flag_l2cap_transport,
+    &hf_toble_connection_flag_l2cap,
+    &hf_toble_connection_flag_reserved,
+    &hf_toble_connection_flag_has_extended_dst_address,
+    &hf_toble_connection_flag_tx_ready,
+    &hf_toble_connection_flag_connect_ready,
+    NULL
+};
+
+/* ToBLE Beacon Discovery flags */
+static const int *hfx_toble_discovery_flags_bit_fields[] =
+{
+    &hf_toble_discovery_flag_reserved,
+    &hf_toble_discovery_flag_dtc_enabled,
+    &hf_toble_discovery_flag_border_agent_enabled,
+    &hf_toble_discovery_flag_joining_permitted,
+    &hf_toble_discovery_flag_active_router,
+    &hf_toble_discovery_flag_router_capable,
+    &hf_toble_discovery_flag_unconfigured,
     NULL
 };
 
 /* Opcode value description */
-static const value_string toble_beacon_opcode[] =
+static const value_string toble_opcode[] =
 {
-    { 0x00, "Discovery" },
+    { 0x00, "Beacon" },
+    { 0x01, "Scan Response"},
     { 0, NULL }
 };
+
+guint dissect_toble_tlv(tvbuff_t *tvb, proto_tree *tree, guint offset)
+{
+    proto_item *ti = NULL;
+    proto_tree *tt = NULL;
+    guint8      type;
+    guint8      length;
+
+    type = tvb_get_guint8(tvb, offset);
+
+    switch (type)
+    {
+    case 0x03: /* Network name TLV */
+        ti = proto_tree_add_item(tree, hf_toble_scan_tlv_network_name, tvb, 3, -1, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_network_name);
+        break;
+
+    case 0x13: /* Joiner IID TLV */
+        ti = proto_tree_add_item(tree, hf_toble_scan_tlv_joiner_iid, tvb, 0, -1, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_joiner_iid);
+        break;
+
+    case 0x66: /* Steering data TLV */
+        ti = proto_tree_add_item(tree, hf_toble_scan_tlv_steering_data, tvb, 0, -1, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_steering_data);
+        break;
+
+    default:
+        return 0;
+    }
+
+    offset += 1;
+
+    length = tvb_get_guint8(tvb, offset);
+    offset += 1;
+
+    proto_tree_add_uint(tt, hf_toble_scan_tlv_type, tvb, offset - 2, 1, type);
+    proto_tree_add_uint(tt, hf_toble_scan_tlv_length, tvb, offset - 1, 1, length);
+    proto_tree_add_item(tt, hf_toble_scan_tlv_value, tvb, offset, length, ENC_LITTLE_ENDIAN);
+
+    return length + 2;
+}
 
 /* Name:
  *      dissect_ll_frame
@@ -134,130 +217,133 @@ static const value_string toble_beacon_opcode[] =
 int dissect_ll_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     /* Main item and tree */
-    proto_item *ti;
-    proto_tree *header_tree;
-    proto_tree *flags_tree;
+    proto_item *ti; /* Temporary item variable */
+    proto_tree *tt; /* Temporary tree variable */
     proto_tree *entry_tree;
 
     guint8      header;     /* ToBLE beacon header. Used to deretmine if this is a beacon or scan response */
     guint       offset = 0; /* Dissection offset. */
 
-    bluetooth_eir_ad_service_data_t *bt_eir_ad_data = data;
+    bluetooth_eir_ad_service_data_t *bt_eir_ad_data = (bluetooth_eir_ad_service_data_t *)data;
 
     /* Create main item and tree */
-    ti = proto_tree_add_item(tree, service_toble, tvb, 0, -1, ENC_LITTLE_ENDIAN);
+    ti = proto_tree_add_item(tree, toble_service_data_header, tvb, 0, -1, ENC_LITTLE_ENDIAN);
     entry_tree = proto_item_add_subtree(ti, ett_toble_beacon);
 
     /* Get header value */
     header = tvb_get_guint8(tvb, offset);
 
     /* Dissector recognizes ToBLE beacon by checking the first byte.
-     *  If it is equal to 0x30 (version = 3, opcode = 0 - discovery) */
+     *  If it is equal to 0x30 (version = 3, opcode = 0 - beacon) */
     /* Check if this is a beacon header */
     if (header == TOBLE_BEACON_HEADER_VALUE)
     {
         /* This is likely a ToBLE discovery beacon */
-        guint8 flags;
-        guint8 le_psm;
+        guint8 connection_flags;
+        guint8 psm;
 
-        col_append_str(pinfo->cinfo, COL_INFO, ", ToBLE beacon");
+        col_append_str(pinfo->cinfo, COL_INFO, ", ToBLE Beacon");
 
         /* Display header information (version and opcode) */
-        ti = proto_tree_add_item(entry_tree, hf_toble_header, tvb, offset, TOBLE_HEADER_SIZE, ENC_LITTLE_ENDIAN);
-        header_tree = proto_item_add_subtree(ti, ett_toble_header);
+        ti = proto_tree_add_item(entry_tree, hf_toble_beacon_control_field_header, tvb, offset, TOBLE_HEADER_SIZE, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_beacon_service_data_header);
 
-        proto_tree_add_bitmask_list(header_tree, tvb, offset, TOBLE_HEADER_SIZE, hfx_toble_header_bit_fields, ENC_NA);
+        proto_tree_add_bitmask_list(tt, tvb, offset, TOBLE_HEADER_SIZE, hfx_toble_header_bit_fields, ENC_NA);
         offset += TOBLE_HEADER_SIZE;
 
-        /* Get flags */
-        flags = tvb_get_guint8(tvb, offset);
-        /* Display beacon flags */
-        ti = proto_tree_add_item(entry_tree, hf_toble_flags, tvb, offset, TOBLE_FLAGS_SIZE, ENC_LITTLE_ENDIAN);
-        flags_tree = proto_item_add_subtree(ti, ett_toble_flags);
+        /* Get connection flags */
+        connection_flags = tvb_get_guint8(tvb, offset);
 
-        proto_tree_add_bitmask_list(flags_tree, tvb, offset, TOBLE_FLAGS_SIZE, hfx_toble_flags_bit_fields, ENC_NA);
-        offset += TOBLE_FLAGS_SIZE; /* Two octet offset */
+        ti = proto_tree_add_item(entry_tree, hf_toble_connection_flags, tvb, offset, TOBLE_CONNECTION_FLAGS_SIZE, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_connection_flags);
 
-        if (flags & TOBLE_FLAG_UNCONFIGURED_MASK)
-        {
-            /* Discovery ID field displayed as extended PANID */
-            proto_tree_add_item(entry_tree, hf_toble_extended_panid, tvb, offset, TOBLE_DISCOVERY_ID_SIZE, ENC_LITTLE_ENDIAN);
-        }
-        else
-        {
-            /* Discovery ID field displayed as Joiner IID */
-            proto_tree_add_item(entry_tree, hf_toble_joiner_iid, tvb, offset, TOBLE_DISCOVERY_ID_SIZE, ENC_LITTLE_ENDIAN);
-        }
-        offset += TOBLE_DISCOVERY_ID_SIZE;
+        proto_tree_add_bitmask_list(tt, tvb, offset, TOBLE_CONNECTION_FLAGS_SIZE, hfx_toble_connection_flags_bit_fields, ENC_NA);
+        offset += TOBLE_CONNECTION_FLAGS_SIZE; /* One octet offset */
 
-        if (flags & TOBLE_FLAG_L2CAP_TRANSPORT_MASK)
+        /* Get discovery flags */
+        // discovery_flags = tvb_get_guint8(tvb, offset);
+
+        ti = proto_tree_add_item(entry_tree, hf_toble_discovery_flags, tvb, offset, TOBLE_DISCOVERY_FLAGS_SIZE, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_discovery_flags);
+
+        proto_tree_add_bitmask_list(tt, tvb, offset, TOBLE_DISCOVERY_FLAGS_SIZE, hfx_toble_discovery_flags_bit_fields, ENC_NA);
+        offset += TOBLE_DISCOVERY_FLAGS_SIZE;
+
+        if (connection_flags & TOBLE_CONNECTION_FLAGS_L2_MASK)
         {
-            /* Display ToBLE L2CAP PSM */
-            le_psm = tvb_get_guint8(tvb, offset);
-            proto_tree_add_item(entry_tree, hf_toble_le_psm, tvb, offset, TOBLE_LE_PSM_SIZE, ENC_LITTLE_ENDIAN);
-            offset += TOBLE_LE_PSM_SIZE;
+            /* Display L2CAP PSM */
+            psm = tvb_get_guint8(tvb, offset);
+            proto_tree_add_item(entry_tree, hf_toble_psm, tvb, offset, TOBLE_PSM_SIZE, ENC_LITTLE_ENDIAN);
+            offset += TOBLE_PSM_SIZE;
 
             if (pinfo->fd->flags.visited == FALSE)
             {
-                btl2cap_psm_set_uuid(bt_eir_ad_data->bt_eir_ad_data->interface_id, bt_eir_ad_data->bt_eir_ad_data->adapter_id, le_psm, bt_eir_ad_data->uuid);
+                btl2cap_psm_set_uuid(bt_eir_ad_data->bt_eir_ad_data->interface_id, bt_eir_ad_data->bt_eir_ad_data->adapter_id, psm, bt_eir_ad_data->uuid);
             }
         }
 
-        if (flags & TOBLE_FLAG_UNCONFIGURED_MASK)
+        if (connection_flags & TOBLE_CONNECTION_FLAGS_C_MASK)
         {
-            /* Display Joiner UDP TLV */
-            proto_tree_add_item(entry_tree, hf_toble_joiner_udp_tlv, tvb, offset, TOBLE_JOINER_UDP_TLV_SIZE, ENC_LITTLE_ENDIAN);
-            offset += TOBLE_JOINER_UDP_TLV_SIZE;
+            /* Display PanID */
+            proto_tree_add_item(entry_tree, hf_toble_panid, tvb, offset, TOBLE_PANID_SIZE, ENC_LITTLE_ENDIAN);
+            offset += TOBLE_PANID_SIZE;
+
+            /* Display SRC16 address */
+            proto_tree_add_item(entry_tree, hf_toble_src16, tvb, offset, TOBLE_SRC16_SIZE, ENC_LITTLE_ENDIAN);
+            offset += TOBLE_SRC16_SIZE;
+
+            /* Display SRC64 address */
+            proto_tree_add_item(entry_tree, hf_toble_src64, tvb, offset, TOBLE_SRC64_SIZE, ENC_BIG_ENDIAN);
+            offset += TOBLE_SRC64_SIZE;
         }
 
-        if (flags & TOBLE_FLAG_BORDER_AGENT_MASK)
+        if (connection_flags & TOBLE_CONNECTION_FLAGS_TX_MASK)
         {
-            /* Display Commissioner UDP TLV */
-            proto_tree_add_item(entry_tree, hf_toble_commissioner_udp_tlv, tvb, offset, TOBLE_COMMISSIONER_UDP_TLV_SIZE, ENC_LITTLE_ENDIAN);
-            offset += TOBLE_COMMISSIONER_UDP_TLV_SIZE;
+            /* Display DST16 if TX=1 and EXT=0 */
+            if(!(connection_flags & TOBLE_CONNECTION_FLAGS_EXT_MASK))
+            {
+                proto_tree_add_item(entry_tree, hf_toble_dst16, tvb, offset, TOBLE_DST16_SIZE, ENC_LITTLE_ENDIAN);
+                offset += TOBLE_DST16_SIZE;
+            }
+            else /* Display DST64 if TX=1 and EXT=1 */
+            {
+                proto_tree_add_item(entry_tree, hf_toble_dst64, tvb, offset, TOBLE_DST64_SIZE, ENC_BIG_ENDIAN);
+                offset += TOBLE_DST64_SIZE;
+            }
         }
+    }
+    /* Dissector recognizes ToBLE beacon by checking the first byte.
+     *  If it is equal to 0x31 (version = 3, opcode = 1 - scan response) */
+    /* Check if this is a scan response header */
+    else if (header == TOBLE_SCAN_RESPONSE_HEADER_VALUE)
+    {
+        guint length = -1;
 
+        col_append_str(pinfo->cinfo, COL_INFO, ", ToBLE Scan Response");
+
+        /* Display header information (version and opcode) */
+        ti = proto_tree_add_item(entry_tree, hf_toble_beacon_control_field_header, tvb, offset, TOBLE_HEADER_SIZE, ENC_LITTLE_ENDIAN);
+        tt = proto_item_add_subtree(ti, ett_toble_scan_response_service_data_header);
+
+        proto_tree_add_bitmask_list(tt, tvb, offset, TOBLE_HEADER_SIZE, hfx_toble_header_bit_fields, ENC_NA);
+        offset += TOBLE_HEADER_SIZE;
+
+        while (tvb_reported_length_remaining(tvb, offset) != 0 && length != 0)
+        {
+            length = dissect_toble_tlv(tvb, entry_tree, offset);
+            offset += length;
+        }
     }
     else
     {
-        guint8 length;
-        /* This is a scan response */
-        col_append_str(pinfo->cinfo, COL_INFO, ", ToBLE scan response");
-
-        /* Display network name TLV */
-        /* Type */
-        proto_tree_add_item(entry_tree, hf_toble_network_name_type, tvb, offset, TOBLE_NETWORK_NAME_TYPE_SIZE, ENC_LITTLE_ENDIAN);
-        offset += TOBLE_NETWORK_NAME_TYPE_SIZE;
-
-        /* Length */
-        length = tvb_get_guint8(tvb, offset);
-        proto_tree_add_item(entry_tree, hf_toble_network_name_length, tvb, offset, TOBLE_NETWORK_NAME_LENGTH_SIZE, ENC_LITTLE_ENDIAN);
-        offset += TOBLE_NETWORK_NAME_LENGTH_SIZE;
-
-        /* Value */
-        proto_tree_add_item(entry_tree, hf_toble_network_name_value, tvb, offset, length, ENC_LITTLE_ENDIAN);
-        offset += length;
-
-        /* Display steering data TLV */
-        /* Type */
-        proto_tree_add_item(entry_tree, hf_toble_steering_data_type, tvb, offset, TOBLE_STEERING_DATA_TYPE_SIZE, ENC_LITTLE_ENDIAN);
-        offset += TOBLE_STEERING_DATA_TYPE_SIZE;
-
-        /* Length */
-        length = tvb_get_guint8(tvb, offset);
-        proto_tree_add_item(entry_tree, hf_toble_steering_data_length, tvb, offset, TOBLE_STEERING_DATA_LENGTH_SIZE, ENC_LITTLE_ENDIAN);
-        offset += TOBLE_STEERING_DATA_LENGTH_SIZE;
-
-        /* Value */
-        proto_tree_add_item(entry_tree, hf_toble_steering_data_value, tvb, offset, length, ENC_LITTLE_ENDIAN);
-        offset += length;
+        // Should not be here! How to throw an error?
     }
 
     return tvb_captured_length(tvb);
 }
 
 /* Name:
- *      dissect_service_toble
+ *      dissect_toble_service_data_header
  *
  *  Parameters:
  *      tvb     -   buffer to be dissected
@@ -272,7 +358,7 @@ int dissect_ll_frame(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *
  *      Dissection procedure for ToBLE data, both advertisement and WPAN
  */
 static int
-dissect_service_toble(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+dissect_toble_service_data_header(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     int                prev_proto;
     wmem_list_frame_t *prev_layer;
@@ -327,9 +413,9 @@ proto_register_btsvc_toble(void)
     /* Setup list of header fields. */
     static hf_register_info hf[] =
     {
-        /* ToBLE discovery beacon header fields */
+        /* ToBLE Beacon header fields */
         {
-            &hf_toble_header,
+            &hf_toble_beacon_control_field_header,
             {
                 "Header", "toble.header",
                 FT_UINT8, BASE_HEX,
@@ -338,106 +424,206 @@ proto_register_btsvc_toble(void)
             }
         },
         {
-            &hf_toble_header_version,
+            &hf_toble_beacon_control_field_header_version,
             {
                 "Version", "toble.header.version",
                 FT_UINT8, BASE_DEC,
-                NULL, TOBLE_HEADER_VERSION_MASK,
+                NULL, TOBLE_CONTROL_FIELD_VERSION_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_header_opcode,
+            &hf_toble_beacon_control_field_header_opcode,
             {
                 "Opcode", "toble.header.opcode",
                 FT_UINT8, BASE_HEX,
-                VALS(toble_beacon_opcode), TOBLE_HEADER_OPCODE_MASK,
+                VALS(toble_opcode), TOBLE_CONTROL_FIELD_OPCODE_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flags,
+            &hf_toble_connection_flags,
             {
-                "Flags", "toble.flags",
+                "Connection flags", "toble.connection",
                 FT_UINT8, BASE_HEX,
                 NULL, 0x0,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_border_agent,
+            &hf_toble_connection_flag_l2cap,
             {
-                "Border agent", "toble.flags.border_agent",
+                "L2CAP transport", "toble.connection.l2cap",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_BORDER_AGENT_MASK,
+                NULL, TOBLE_CONNECTION_FLAGS_L2_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_direct_commissioning,
+            &hf_toble_connection_flag_reserved,
             {
-                "Direct commissioning", "toble.flags.direct_commissioning",
+                "Reserved", "roble.role.reserved",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_DIRECT_COMMISSIONING_MASK,
+                NULL, TOBLE_CONNECTION_FLAGS_RSVD_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_unconfigured,
+            &hf_toble_connection_flag_has_extended_dst_address,
             {
-                "Unconfigured", "toble.flags.unconfigured",
+                "Has Extended Destination Address", "toble.connection.has_extended_dst_address",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_UNCONFIGURED_MASK,
+                NULL, TOBLE_CONNECTION_FLAGS_EXT_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_joining_permitted,
+            &hf_toble_connection_flag_tx_ready,
             {
-                "Joining permitted", "toble.flags.joining_permitted",
+                "Transmission Ready", "toble.connection.tx_ready",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_JOINING_PERMITTED_MASK,
+                NULL, TOBLE_CONNECTION_FLAGS_TX_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_router,
+            &hf_toble_connection_flag_connect_ready,
             {
-                "Active router", "toble.flags.active_router",
+                "Connect ready", "toble.connection.connect_ready",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_ACTIVE_ROUTER_MASK,
+                NULL, TOBLE_CONNECTION_FLAGS_C_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_scanning_capable,
+            &hf_toble_discovery_flags,
             {
-                "Router capable", "toble.flags.router_capable",
-                FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_ROUTER_CAPABLE_MASK,
+                "Discovery flags", "toble.discovery",
+                FT_UINT8, BASE_HEX,
+                NULL, 0x0,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_reserved,
+            &hf_toble_discovery_flag_reserved,
             {
-                "Reserved", "toble.flags.reserved",
+                "Reserved", "toble.discovery.reserved",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_RESERVED_MASK,
+                NULL, TOBLE_DISCOVERY_FLAGS_RSVD_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_flag_l2cap_transport,
+            &hf_toble_discovery_flag_dtc_enabled,
             {
-                "L2CAP transport", "toble.flags.l2cap_transport",
+                "DTC enabled", "toble.discovery.dtc_enabled",
                 FT_BOOLEAN, 8,
-                NULL, TOBLE_FLAG_L2CAP_TRANSPORT_MASK,
+                NULL, TOBLE_DISCOVERY_FLAGS_D_MASK,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_joiner_iid,
+            &hf_toble_discovery_flag_border_agent_enabled,
+            {
+                "Border Agent Enabled", "toble.discovery.border_agent_enabled",
+                FT_BOOLEAN, 8,
+                NULL, TOBLE_DISCOVERY_FLAGS_B_MASK,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_discovery_flag_joining_permitted,
+            {
+                "Joining Permitted", "toble.discovery.joininig_permitted",
+                FT_BOOLEAN, 8,
+                NULL, TOBLE_DISCOVERY_FLAGS_J_MASK,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_discovery_flag_active_router,
+            {
+                "Active Router", "toble.discovery.active_router",
+                FT_BOOLEAN, 8,
+                NULL, TOBLE_DISCOVERY_FLAGS_A_MASK,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_discovery_flag_router_capable,
+            {
+                "Router Capable", "toble.discovery.router_capable",
+                FT_BOOLEAN, 8,
+                NULL, TOBLE_DISCOVERY_FLAGS_R_MASK,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_discovery_flag_unconfigured,
+            {
+                "Unconfigured", "toble.discovery.unconfigured",
+                FT_BOOLEAN, 8,
+                NULL, TOBLE_DISCOVERY_FLAGS_U_MASK,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_psm,
+            {
+                "PSM", "toble.psm",
+                FT_UINT8, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_panid,
+            {
+                "PAN ID", "toble.panid",
+                FT_UINT16, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_src16,
+            {
+                "SRC16 (RLOC)", "toble.src16",
+                FT_UINT16, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_src64,
+            {
+                "SRC64 (MAC64)", "toble.src64",
+                FT_UINT64, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_dst16,
+            {
+                "DST16 (RLOC)", "toble.dst16",
+                FT_UINT16, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_dst64,
+            {
+                "DST64 (MAC64)", "toble.dst64",
+                FT_UINT64, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        /* ToBLE scan response header fields */
+            {
+            &hf_toble_scan_tlv_joiner_iid,
             {
                 "Joiner IID", "toble.joiner_iid",
                 FT_UINT64, BASE_HEX,
@@ -446,91 +632,45 @@ proto_register_btsvc_toble(void)
             }
         },
         {
-            &hf_toble_extended_panid,
+            &hf_toble_scan_tlv_network_name,
             {
-                "Extended PAN Identifier(XPANID)", "toble.xpanid",
-                FT_UINT64, BASE_HEX,
-                NULL, 0x0,
-                NULL, HFILL
-            }
-        },
-        {
-            &hf_toble_le_psm,
-            {
-                "LE PSM", "toble.le_psm",
-                FT_UINT8, BASE_HEX,
-                NULL, 0x0,
-                NULL, HFILL
-            }
-        },
-        {
-            &hf_toble_joiner_udp_tlv,
-            {
-                "Joiner UDP TLV", "toble.joiner_udp_tlv",
-                FT_UINT32, BASE_HEX,
-                NULL, 0x0,
-                NULL, HFILL
-            }
-        },
-        {
-            &hf_toble_commissioner_udp_tlv,
-            {
-                "Commissioner UDP TLV", "toble.commissioner_udp_tlv",
-                FT_UINT32, BASE_HEX,
-                NULL, 0x0,
-                NULL, HFILL
-            }
-        },
-        /* ToBLE scan response header fields */
-        {
-            &hf_toble_network_name_type,
-            {
-                "Network Name type", "toble.network_name.type",
-                FT_UINT8, BASE_HEX,
-                NULL, 0x0,
-                NULL, HFILL
-            }
-        },
-        {
-            &hf_toble_network_name_length,
-            {
-                "Network Name length", "toble.network_name.length",
-                FT_UINT8, BASE_DEC,
-                NULL, 0x0,
-                NULL, HFILL
-            }
-        },
-        {
-            &hf_toble_network_name_value,
-            {
-                "Network Name value", "toble.network_name.value",
+                "Network name", "toble.network_name",
                 FT_STRING, BASE_NONE,
                 NULL, 0x0,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_steering_data_type,
+            &hf_toble_scan_tlv_steering_data,
             {
-                "Steering Data type", "toble.steering_data.type",
+                "Steering Data", "toble.steering_data",
+                FT_UINT64, BASE_HEX,
+                NULL, 0x0,
+                NULL, HFILL
+            }
+        },
+        {
+            &hf_toble_scan_tlv_type,
+            {
+                "Type", "toble.tlv.type",
                 FT_UINT8, BASE_HEX,
                 NULL, 0x0,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_steering_data_length,
+            &hf_toble_scan_tlv_length,
             {
-                "Steering Data length", "toble.steering_data.length",
+                "Length", "toble.tlv.length",
                 FT_UINT8, BASE_DEC,
                 NULL, 0x0,
                 NULL, HFILL
             }
         },
         {
-            &hf_toble_steering_data_value,
+            &hf_toble_scan_tlv_value,
             {
-                "Steering Data value", "toble.steering_data.value",
+                "Value", "toble.tlv.value",
                 FT_STRING, BASE_NONE,
                 NULL, 0x0,
                 NULL, HFILL
@@ -542,15 +682,19 @@ proto_register_btsvc_toble(void)
     static gint *ett[] =
     {
         &ett_toble_beacon,
-        &ett_toble_scan_response,
-        &ett_toble_header,
-        &ett_toble_flags
+        &ett_toble_beacon_service_data_header,
+        &ett_toble_scan_response_service_data_header,
+        &ett_toble_connection_flags,
+        &ett_toble_discovery_flags,
+        &ett_toble_joiner_iid,
+        &ett_toble_network_name,
+        &ett_toble_steering_data
     };
 
     /* Register the protocol name and description */
-    service_toble = proto_register_protocol("ToBLE data", "ToBLE", "toble");
+    toble_service_data_header = proto_register_protocol("ToBLE data", "ToBLE", "toble");
     /* Register protocol fields */
-    proto_register_field_array(service_toble, hf, array_length(hf));
+    proto_register_field_array(toble_service_data_header, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 }
 
@@ -574,12 +718,11 @@ proto_reg_handoff_btsvc_toble(void)
 
     if (!initialized) {
         /* Create dissector handle */
-        toble_beacon_handle = create_dissector_handle(dissect_service_toble, service_toble);
+        toble_beacon_handle = create_dissector_handle(dissect_toble_service_data_header, toble_service_data_header);
 
         /* Attach to UUIDs. Case sensitive. */
-        dissector_add_string("bluetooth.uuid", "feaf", toble_beacon_handle);
-        dissector_add_string("bluetooth.uuid", "8183", toble_beacon_handle);
-        dissector_add_string("bluetooth.uuid", "0a03", toble_beacon_handle);
+        // TODO: 0xfffb officially belongs to ToBLE now, should not be reported as unknown.
+        dissector_add_string("bluetooth.uuid", "fffb", toble_beacon_handle);
         /* Get WPAN dissector without frame check sum */
         wpan_dissector_handle = find_dissector("wpan_nofcs");
 
