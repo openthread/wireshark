@@ -30,6 +30,10 @@
 /* Use libgcrypt for cipher libraries. */
 #include <wsutil/wsgcrypt.h>
 
+/* Thread Vendor Sub IE Fields */
+#define THREAD_IE_ID_MASK                      0xFFC0
+#define THREAD_IE_LENGTH_MASK                  0x003F
+
 /* Forward declarations */
 void proto_register_thread_coap(void);
 
@@ -65,6 +69,7 @@ static int proto_thread_bcn = -1;
 static int proto_thread_nm = -1;
 static int proto_thread_bl = -1;
 static int proto_thread = -1;
+static int proto_thread_ie = -1;
 static int proto_coap = -1;
 
 /* Header fields */
@@ -225,11 +230,18 @@ static int hf_thread_mc_tlv_commissioner_sess_id = -1;
 
 /* Security Policy TLV fields */
 static int hf_thread_mc_tlv_sec_policy_rot = -1;
-static int hf_thread_mc_tlv_sec_policy_o = -1;
-static int hf_thread_mc_tlv_sec_policy_n = -1;
-static int hf_thread_mc_tlv_sec_policy_r = -1;
-static int hf_thread_mc_tlv_sec_policy_c = -1;
-static int hf_thread_mc_tlv_sec_policy_b = -1;
+static int hf_thread_mc_tlv_sec_policy_o   = -1;
+static int hf_thread_mc_tlv_sec_policy_n   = -1;
+static int hf_thread_mc_tlv_sec_policy_r   = -1;
+static int hf_thread_mc_tlv_sec_policy_c   = -1;
+static int hf_thread_mc_tlv_sec_policy_b   = -1;
+static int hf_thread_mc_tlv_sec_policy_ccm = -1;
+static int hf_thread_mc_tlv_sec_policy_ae  = -1;
+static int hf_thread_mc_tlv_sec_policy_nmp = -1;
+static int hf_thread_mc_tlv_sec_policy_l   = -1;
+static int hf_thread_mc_tlv_sec_policy_ncr = -1;
+static int hf_thread_mc_tlv_sec_policy_rsv = -1;
+static int hf_thread_mc_tlv_sec_policy_vr  = -1;
 
 /* State TLV fields */
 static int hf_thread_mc_tlv_state = -1;
@@ -394,6 +406,10 @@ static gint ett_thread_nm_tlv = -1;
 static gint ett_thread_bl = -1;
 static gint ett_thread_bl_tlv = -1;
 
+static gint ett_thread = -1;
+static gint ett_thread_header_ie = -1;
+static gint ett_thread_ie_fields = -1;
+
 /* Expert info. */
 
 /* static expert_field ei_thread_address_tlv_length_failed = EI_INIT; */
@@ -420,6 +436,12 @@ static dissector_handle_t thread_address_handle;
 static dissector_handle_t thread_nm_handle;
 static dissector_handle_t thread_bl_handle;
 
+/* 802.15.4 Thread ID */
+static int hf_ieee802154_thread_ie = -1;
+static int hf_ieee802154_thread_ie_id = -1;
+static int hf_ieee802154_thread_ie_length = -1;
+
+
 #define THREAD_TLV_LENGTH_ESC  0xFF
 
 #define THREAD_MC_32768_TO_NSEC_FACTOR ((double)30517.578125)
@@ -429,6 +451,13 @@ static dissector_handle_t thread_bl_handle;
 #define THREAD_MC_SEC_POLICY_MASK_R_MASK 0x20
 #define THREAD_MC_SEC_POLICY_MASK_C_MASK 0x10
 #define THREAD_MC_SEC_POLICY_MASK_B_MASK 0x08
+#define THREAD_MC_SEC_POLICY_MASK_CCM_MASK 0x04
+#define THREAD_MC_SEC_POLICY_MASK_AE_MASK 0x02
+#define THREAD_MC_SEC_POLICY_MASK_NMP_MASK 0x01
+#define THREAD_MC_SEC_POLICY_MASK_L_MASK 0x80
+#define THREAD_MC_SEC_POLICY_MASK_NCR_MASK 0x40
+#define THREAD_MC_SEC_POLICY_MASK_RSV_MASK 0x38
+#define THREAD_MC_SEC_POLICY_MASK_VR_MASK 0x07
 #define THREAD_MC_STACK_VER_REV_MASK 0x0F
 #define THREAD_MC_STACK_VER_MIN_MASK 0xF0
 #define THREAD_MC_STACK_VER_MAJ_MASK 0x0F
@@ -785,6 +814,8 @@ static const value_string thread_nm_tlv_vals[] = {
 
 static const value_string thread_nm_tlv_status_vals[] = {
 { 0, "Successful registration" },
+{ 1, "Registration was accepted but immediate reregistration is required \
+     to resolve any potential conflicting state across Domain BBRs." },
 { 2, "Registration rejected: Target EID is not a valid DUA" },
 { 3, "Registration rejected: DUA is already in use by another Device" },
 { 4, "Registration rejected: BBR resource shortage" },
@@ -888,6 +919,9 @@ static const value_string thread_bcn_tlv_vals[] = {
     { THREAD_BCN_TLV_STEERING_DATA, "Steering Data" },
     { 0, NULL }
 };
+
+static int
+dissect_thread_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data);
 
 /* Preferences */
 static gboolean thread_use_pan_id_in_key = FALSE;
@@ -2136,7 +2170,8 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             case THREAD_MC_TLV_SECURITY_POLICY:
                 {
                     /* Check length is consistent */
-                    if (tlv_len != 3) {
+                    //Latest Thread spec increased the len from 3 to 4
+                    if (tlv_len != 4) {
                         expert_add_info(pinfo, proto_root, &ei_thread_mc_len_size_mismatch);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, ENC_NA);
                         offset += tlv_len;
@@ -2148,6 +2183,14 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_r, tvb, offset, 1, ENC_BIG_ENDIAN);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_c, tvb, offset, 1, ENC_BIG_ENDIAN);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_b, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_ccm, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_ae, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_nmp, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        offset++;
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_l, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_ncr, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_rsv, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_sec_policy_vr, tvb, offset, 1, ENC_BIG_ENDIAN);
                         offset++;
                     }
                 }
@@ -3408,9 +3451,6 @@ proto_register_thread_address(void)
             NULL,
             HFILL }
         }
-
-
-
     };
      
 
@@ -3720,6 +3760,62 @@ proto_register_thread_mc(void)
             { "Thread 1.x Beacons",
             "thread_meshcop.tlv.sec_policy_b",
             FT_BOOLEAN, 8, TFS(&tfs_allowed_not_allowed), THREAD_MC_SEC_POLICY_MASK_B_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_ccm,
+            { "Commercial Commisioning Mode Bit disabled",
+            "thread_meshcop.tlv.sec_policy_ccm",
+            FT_BOOLEAN, 8, TFS(&tfs_enabled_disabled), THREAD_MC_SEC_POLICY_MASK_CCM_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_ae,
+            { "Autonomous Enrollment disabled",
+            "thread_meshcop.tlv.sec_policy_ae",
+            FT_BOOLEAN, 8, TFS(&tfs_enabled_disabled), THREAD_MC_SEC_POLICY_MASK_AE_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_nmp,
+            { "Network Master-key Provisioning disabled",
+            "thread_meshcop.tlv.sec_policy_nmp",
+            FT_BOOLEAN, 8, TFS(&tfs_enabled_disabled), THREAD_MC_SEC_POLICY_MASK_NMP_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_l,
+            { "ToBLE Link Enabled",
+            "thread_meshcop.tlv.sec_policy_l",
+            FT_BOOLEAN, 8, TFS(&tfs_enabled_disabled), THREAD_MC_SEC_POLICY_MASK_L_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_ncr,
+            { "Non-CCM Routers disabled",
+            "thread_meshcop.tlv.sec_policy_ncr",
+            FT_BOOLEAN, 8, TFS(&tfs_enabled_disabled), THREAD_MC_SEC_POLICY_MASK_NCR_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_rsv,
+            { "Reserved Bits",
+            "thread_meshcop.tlv.sec_policy_rsv",
+            FT_UINT8, BASE_DEC, NULL, THREAD_MC_SEC_POLICY_MASK_RSV_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_sec_policy_vr,
+            { "Version-threshold for Routing",
+            "thread_meshcop.tlv.sec_policy_vr",
+            FT_UINT8, BASE_DEC, NULL, THREAD_MC_SEC_POLICY_MASK_VR_MASK,
             NULL,
             HFILL }
         },
@@ -4446,6 +4542,7 @@ proto_register_thread(void)
     module_t *thread_module;
 
     proto_thread = proto_register_protocol("Thread", "Thread", "thread");
+    proto_thread_ie = proto_register_protocol("Thread IE", "Thread IE", "thread_ie");
 
     thread_module = prefs_register_protocol(proto_thread, proto_reg_handoff_thread);
     prefs_register_obsolete_preference(thread_module, "thr_coap_decode");
@@ -4464,7 +4561,27 @@ proto_register_thread(void)
                                    "Set if the Thread sequence counter should be automatically acquired from Key ID mode 2 MLE messages.",
                                    &thread_auto_acq_seq_ctr);
 
+     static hf_register_info hf[] = {
+            { &hf_ieee802154_thread_ie,
+            { "IE header",                       "thread_ie", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+
+            { &hf_ieee802154_thread_ie_length,
+            { "Length",                           "thread_ie.length", FT_UINT16, BASE_DEC, NULL,
+                    THREAD_IE_LENGTH_MASK, NULL, HFILL }}
+     };
+
+      static gint *ett[] = {
+        &ett_thread_header_ie,
+      };
+
     register_init_routine(proto_init_thread);
+
+   // proto_register_field_array(proto_thread_ie, hf, array_length(hf));
+   // proto_register_subtree_array(ett, array_length(ett));
+
+    /* Register Dissector */
+    register_dissector("thread_ie", dissect_thread_ie, proto_thread_ie);
+
 }
 
 void
@@ -4524,9 +4641,79 @@ proto_reg_handoff_thread(void)
     /* Thread Content-Format is opaque byte string, i.e. application/octet-stream */
     /* Enable decoding "Internet media type" as Thread over CoAP */
    // dissector_add_for_decode_as("media_type", thread_coap_handle);
-	dissector_add_string("media_type", "application/octet-stream", thread_coap_handle);
+    dissector_add_string("media_type", "application/octet-stream", thread_coap_handle);
     proto_coap = proto_get_id_by_filter_name("coap");
 }
+
+/**
+ *Subdissector command for Thread Specific IEs (Information Elements)
+ *
+ *@param tvb pointer to buffer containing raw packet.
+ *@param pinfo pointer to packet information fields (unused).
+ *@param tree pointer to command subtree.
+ *@param data pointer to the length of the payload IE.
+*/
+static int
+dissect_thread_ie(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
+{
+
+    proto_tree *subtree;
+    //tvbuff_t   *ie_tvb;
+    guint16     thread_ie;
+    guint16     id;
+    guint16     length;
+    guint       pie_length;
+    guint       offset = 0;
+
+    static const int * fields[] = {
+        &hf_ieee802154_thread_ie_id,
+        &hf_ieee802154_thread_ie_length,
+        NULL
+    };
+
+    pie_length = *(gint *)data;
+
+    do {
+        thread_ie =  tvb_get_letohs(tvb, offset);
+        id        = (thread_ie & THREAD_IE_ID_MASK) >> 6;
+        length    =  thread_ie & THREAD_IE_LENGTH_MASK;
+
+        /* Create a subtree for this command frame. */
+        subtree = proto_tree_add_subtree(tree, tvb, offset, 2+length, ett_thread, NULL, "Thread IE");
+        //proto_item_append_text(subtree, ", %s, Length: %d", val_to_str_const(id, ieee802154_zigbee_ie_names, "Unknown"), length);
+
+        proto_tree_add_bitmask(subtree, tvb, offset, hf_ieee802154_thread_ie,
+                               ett_thread_ie_fields, fields, ENC_LITTLE_ENDIAN);
+        offset += 2;
+
+        switch (id) {
+            /*case ZBEE_ZIGBEE_IE_REJOIN:
+                dissect_ieee802154_zigbee_rejoin(tvb, pinfo, subtree, &offset);
+                break;
+
+            case ZBEE_ZIGBEE_IE_TX_POWER:
+                dissect_ieee802154_zigbee_txpower(tvb, pinfo, subtree, &offset);
+                break;
+
+            case ZBEE_ZIGBEE_IE_BEACON_PAYLOAD:
+                ie_tvb = tvb_new_subset_length(tvb, offset, ZBEE_NWK_BEACON_LENGTH);
+                offset += dissect_zbee_beacon(ie_tvb, pinfo, subtree, NULL);
+                dissect_ieee802154_superframe(tvb, pinfo, subtree, &offset);
+                proto_tree_add_item(subtree, hf_ieee802154_zigbee_ie_source_addr, tvb, offset, 2, ENC_NA);
+                offset += 2;
+                break;*/
+
+            default:
+                if (length > 0) {
+                    //proto_tree_add_item(tree, hf_thread_mc_tlv_unknown, tvb, offset, tlv_len, ENC_NA);
+                    offset += length;
+                }
+                break;
+        }
+    } while (offset < pie_length);
+    return tvb_captured_length(tvb);
+}
+
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html

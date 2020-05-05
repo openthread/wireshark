@@ -383,7 +383,8 @@ show_version(const gchar *prog_name_str, GString *comp_info_str,
 	       prog_name_str,get_ws_vcs_version_info(), get_copyright_info(),
 	       comp_info_str->str, runtime_info_str->str);
 }
-
+char version[255]= "Thread1.2-0.72";
+char runonce = 0;
 /*
  * Return a version number string for Wireshark, including, for builds
  * from a tree checked out from Wireshark's version control system,
@@ -392,7 +393,28 @@ show_version(const gchar *prog_name_str, GString *comp_info_str,
 const char *
 get_ws_vcs_version_info(void)
 {
-	return "Thread1.2-0.68";
+    //disable during production so that the normal version
+    //is done
+#if 0
+if(runonce == 0)
+{
+    char temp[50];
+    time_t seconds;
+     // Stores time seconds
+    time(&seconds);
+    //srand((unsigned int)time(0));
+    //sprintf(temp, "%ld",rand());
+    //strcpy(version,"Thread1.2-0.68");
+    //strcat(version,"-");
+    //strcat(version,temp);
+    //srand((unsigned int)time(0));
+    sprintf(temp, "%ld",(long)seconds);
+    strcat(version,".");
+    strcat(version,temp);
+    runonce = 1;
+}
+#endif
+    return version;
 }
 
 void

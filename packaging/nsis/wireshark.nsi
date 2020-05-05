@@ -31,8 +31,10 @@ ${StrRep}
 !macroend
 !define !defineifexist "!insertmacro !defineifexist"
 
+!define /date MyTIMESTAMP "%m%d%H%M"
 !define THREAD_NAME "Thread1.2"
-!define THREAD_VERSION "0.68"
+!define THREAD_VERSION "0.72-${MyTIMESTAMP}"
+
 
 ; ============================================================================
 ; Header configuration
