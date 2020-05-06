@@ -312,6 +312,7 @@ static int hf_thread_mc_tlv_discovery_req_j = -1;
 /* Discovery Response TLV fields */
 static int hf_thread_mc_tlv_discovery_rsp_ver = -1;
 static int hf_thread_mc_tlv_discovery_rsp_n = -1;
+static int hf_thread_mc_tlv_discovery_rsp_c = -1;
 
 /* Thread Network Data */
 
@@ -465,6 +466,7 @@ static int hf_ieee802154_thread_ie_length = -1;
 #define THREAD_MC_DISCOVERY_REQ_MASK_J_MASK 0x08
 #define THREAD_MC_DISCOVERY_RSP_MASK_VER_MASK 0xF0
 #define THREAD_MC_DISCOVERY_RSP_MASK_N_MASK 0x08
+#define THREAD_MC_DISCOVERY_RSP_MASK_C_MASK 0x04
 #define THREAD_MC_INVALID_CHAN_COUNT 0xFFFF
 
 #define THREAD_NWD_TLV_HAS_ROUTE_PREF       0xC0
@@ -2585,6 +2587,7 @@ dissect_thread_mc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
                     } else {
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_rsp_ver, tvb, offset, 1, ENC_BIG_ENDIAN);
                         proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_rsp_n, tvb, offset, 1, ENC_BIG_ENDIAN);
+                        proto_tree_add_item(tlv_tree, hf_thread_mc_tlv_discovery_rsp_c, tvb, offset, 1, ENC_BIG_ENDIAN);
                     }
                     offset += tlv_len;
                 }
@@ -4088,6 +4091,14 @@ proto_register_thread_mc(void)
             { "Native Commissioning",
             "thread_meshcop.tlv.discovery_rsp_n",
             FT_BOOLEAN, 8, TFS(&tfs_allowed_not_allowed), THREAD_MC_DISCOVERY_RSP_MASK_N_MASK,
+            NULL,
+            HFILL }
+        },
+
+        { &hf_thread_mc_tlv_discovery_rsp_c,
+            { "Commercial Commissioning",
+            "thread_meshcop.tlv.discovery_rsp_c",
+            FT_BOOLEAN, 8, TFS(&tfs_supported_not_supported), THREAD_MC_DISCOVERY_RSP_MASK_C_MASK,
             NULL,
             HFILL }
         }
