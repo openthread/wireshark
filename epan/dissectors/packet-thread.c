@@ -443,6 +443,12 @@ static int hf_ieee802154_thread_ie_id = -1;
 static int hf_ieee802154_thread_ie_length = -1;
 
 
+#define THREAD_SERVICE_DATA_BBR 0x1
+//gobals
+//used to check if the full decoding of Server TLV has to
+//be done or not
+static int g_server_decode = 1;
+
 #define THREAD_TLV_LENGTH_ESC  0xFF
 
 #define THREAD_MC_32768_TO_NSEC_FACTOR ((double)30517.578125)
@@ -2804,11 +2810,23 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_len, tvb, offset, 1, ENC_BIG_ENDIAN);
                     offset++;
                     tlv_offset++;
+
+                    guint8 thread_service_data = tvb_get_guint8(tvb, offset);
                     proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data, tvb, offset, s_data_len, ENC_NA);
                     offset += s_data_len;
                     tlv_offset += s_data_len;
 
-                    /* Server sub-TLVs */
+
+                    //Flag to be 1 (BIG_ENDIAN so check the MSB)  and thread_service_data = 1 then Server Sub TLV needs to be decoded with s_server_data fields
+                    if(((flags & THREAD_NWD_TLV_SERVICE_T) == THREAD_NWD_TLV_SERVICE_T) &&
+                                      (thread_service_data == THREAD_SERVICE_DATA_BBR)) {
+                        g_server_decode = 1;
+                    }
+                    else {
+                        g_server_decode = 0;
+                    }
+
+                    /* sub-TLVs */
                     if (tlv_offset < tlv_len) {
                         proto_tree *sub_tlv_tree;
                         guint remaining = tlv_len - tlv_offset;
@@ -2825,17 +2843,31 @@ dissect_thread_nwd(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *da
 
             case THREAD_NWD_TLV_SERVER:
                 {
-                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_16, tvb, offset, 2, ENC_BIG_ENDIAN);
-                    offset += 2;
-                    //18 bytes of data
-                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_seqno, tvb, offset, 1, ENC_NA);
-                    offset += 1;
-                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_rrdelay, tvb, offset, 2, ENC_NA);
-                    offset += 2;
-                    proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_mlrtimeout, tvb, offset, 4, ENC_NA);
-                    offset += 4;
-                    /*proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_data, tvb, offset, tlv_len - 2, ENC_NA);
-                    offset += tlv_len - 2;*/
+                    if(g_server_decode == 1) {
+                        //2 bytes of server 16
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_16, tvb, offset, 2, ENC_BIG_ENDIAN);
+                        offset += 2;
+                        tlv_offset = 2;
+                        //7 bytes of server data
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_seqno, tvb, offset, 1, ENC_NA);
+                        offset += 1;
+                        tlv_offset += 1;
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_rrdelay, tvb, offset, 2, ENC_NA);
+                        offset += 2;
+                        tlv_offset += 2;
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_service_s_data_mlrtimeout, tvb, offset, 4, ENC_NA);
+                        offset += 4;
+                    }
+                    else if(g_server_decode == 0) {
+                        //2 bytes of server 16
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_16, tvb, offset, 2, ENC_BIG_ENDIAN);
+                        offset += 2;
+                        tlv_offset = 2;
+                        guint remaining = tlv_len - tlv_offset;
+                        //remaining bytes - server data
+                        proto_tree_add_item(tlv_tree, hf_thread_nwd_tlv_server_data, tvb, offset, remaining, ENC_NA);
+                        offset += remaining;
+                    }
                 }
                 break;
 
