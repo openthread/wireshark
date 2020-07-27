@@ -1446,25 +1446,27 @@ dissect_mle(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_)
                     offset++;
                     switch (sub_tlv) {
                     case LINK_METRICS_REPORT_SUB_TLV:
-                        guint8 metrics_tlv = tvb_get_guint8(payload_tvb, offset);
-                        /* Type ID Flags */
-                        //sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_metric_type_id_flags, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//E
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_l, payload_tvb, (offset * 8) + 1, 1, ENC_NA);//L
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_type, payload_tvb, (offset * 8) + 2, 3, ENC_NA);//Type enum
-                        proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Metric enum
-                        /* Type ID Flags */
-                        offset++;
-                        //latest draft the length is 1 indicates that the extended value is 4 else 1
-                        if((metrics_tlv & 0x40) == 0x40)
                         {
-                            sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 4, ENC_BIG_ENDIAN);
-                            offset+=4;
-                        }
-                        else
-                        {
-                            sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                            guint8 metrics_tlv = tvb_get_guint8(payload_tvb, offset);
+                            /* Type ID Flags */
+                            //sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_metric_type_id_flags, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_e, payload_tvb, (offset * 8) + 0, 1, ENC_NA);//E
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_l, payload_tvb, (offset * 8) + 1, 1, ENC_NA);//L
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_type, payload_tvb, (offset * 8) + 2, 3, ENC_NA);//Type enum
+                            proto_tree_add_bits_item(sub_tree, hf_mle_tlv_metric_type_id_flags_metric, payload_tvb, (offset * 8) + 5, 3, ENC_NA);//Metric enum
+                            /* Type ID Flags */
                             offset++;
+                            //latest draft the length is 1 indicates that the extended value is 4 else 1
+                            if((metrics_tlv & 0x40) == 0x40)
+                            {
+                                sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 4, ENC_BIG_ENDIAN);
+                                offset+=4;
+                            }
+                            else
+                            {
+                                sub_item = proto_tree_add_item(sub_tree, hf_mle_tlv_value, payload_tvb, offset, 1, ENC_BIG_ENDIAN);
+                                offset++;
+                            }
                         }
                         break;
                     case LINK_METRICS_QUERY_ID_SUB_TLV:

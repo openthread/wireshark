@@ -81,6 +81,7 @@
 #define OUI_WFA             0x506F9A    /* Wi-Fi Alliance */
 #define OUI_SMPTE           0x6897E8    /* Society of Motion Picture and Television Engineers */
 #define OUI_3GPP2           0xCF0002    /* 3GPP2 */
+#define OUI_THREAD          0xF4CE36    /* Thread */
 
 #endif
 

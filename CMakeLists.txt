@@ -522,7 +522,7 @@ else() # ! MSVC
 		# we don't.
 		#
 		-Wlogical-op
-		-Wjump-misses-init
+		#-Wjump-misses-init
 		#
 		# The Qt headers generate a ton of shortening warnings
 		# on 64-bit systems, so we only enable this for C for
